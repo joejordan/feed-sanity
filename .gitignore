@@ -1,0 +1,44 @@
+# dependencies and build output
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+.eslintcache
+tsconfig.tsbuildinfo
+*.log
+
+# Packaged extensions and signing keys (built by web-ext / store uploads)
+web-ext-artifacts/
+*.xpi
+*.crx
+*.pem
+*.zip
+
+# Foreign lockfiles: pnpm is the only package manager here
+bun.lock
+yarn.lock
+package-lock.json
+
+# IDEs
+/.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Claude local settings and worktrees
+.claude/settings.local.json
+.claude/worktrees
+
+# Environment files and credentials
+.env
+.env.local
+.env.*.local
+.env-ignore
+.npmrc
+
+# OS files
+.DS_Store
+Thumbs.db
+__pycache__/
