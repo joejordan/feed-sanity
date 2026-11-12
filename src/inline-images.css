@@ -1,0 +1,16 @@
+
+.mark_read_filter {
+    background: url('data:image/gif;base64,R0lGODdhEAAQAJAAALG1u////yH5BAEAAAEALAAAAAAQABAAAAIgjI8ZwO0Po1vyndoSVhRy431gJo5MaQJop6KTS5bv+hUAOw==');
+}
+
+.mark_read_markit {
+    background: url('data:image/gif;base64,R0lGODdhEAAQAJAAALG1u////yH5BAEAAAEALAAAAAAQABAAAAIgjI+pC73Z3DMRTBpvqHrnyyGfJ4lZCFVoqoLrM7pWRxcAOw==');
+}
+
+.mark_read_nomark {
+    background: url('data:image/gif;base64,R0lGODdhEAAQAJAAALG1u////yH5BAEAAAEALAAAAAAQABAAAAIijI+pC73Z3DMRTBpZ3Rbx/VSQFIijY55cuE7gVZJXBtdGAQA7');
+}
+
+.mark_read_wrench {
+    background: url('data:image/gif;base64,R0lGODdhEAAQAPUAALq9wra5v/39/bO3vd7f4rS4vvn5+vf3+O7v8P7+/rW4vvz8/bW5v7W5vujp69/h5Nze4fz8/O/w8ezt7/Lz9M3Q1Ly/xbO2vOHj5cDDyPX19srN0e7u8L7BxszP0rS4vbq+w/Hx8re7wLK2vObn6dvd4NPV2MLFycXIzMnM0Pb298vN0bu/xPj4+fn5+dja3cbJzrG1u////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAEAADIALAAAAAAQABAAAAZyQJlwKEQ8iMihZhMzJZEkRSxgeA4Rg1isRExAkBWtYkEkBJAnrUgwPDBiSJY2tmLLUrECEjCPdV4wWgBECxd9hyhEGIeHBEMUAYxzGXYqfHMDIFkjHlUyLRZzHwQRQi4JRAeXDRNWQyEFARyuRA4StEJBADs=');
+}

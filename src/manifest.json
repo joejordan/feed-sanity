@@ -1,0 +1,119 @@
+{
+  "manifest_version": 2,
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.facebook.com/*"
+      ],
+      "exclude_globs": [
+        "https://static.*.facebook.com/*"
+      ],
+      "exclude_matches": [
+        "https://*.channel.facebook.com/*",
+        "https://*.facebook.com/ai.php*",
+        "https://*.facebook.com/connect/*",
+        "https://*.facebook.com/saved/*"
+      ],
+      "js": [
+        "x.js",
+        "fx.js",
+        "sfx.js",
+        "/post_processor.js",
+        "/bubble_note/bubble_note.js",
+        "/comment_navigator/comment_navigator.js",
+        "/comment_button/comment_button.js",
+        "/apps/apps.js",
+        "/control_panel/control_panel.js",
+        "/aargh_fb_gibberish/aargh_fb_gibberish.js",
+        "/debug/debug_insertion_order.js",
+        "/debug/debug_post_html.js",
+        "/debug/debug_post_update_tracking.js",
+        "/debugger/debugger.js",
+        "/donate/donate.js",
+        "/disable_tooltips/disable_tooltips.js",
+        "/display_tweaks/display_tweaks.js",
+        "/esc_service/esc_service.js",
+        "/edit_buffer/edit_buffer.js",
+        "/fb_dtsg/fb_dtsg.js",
+        "/external_css/external_css.js",
+        "/friend_manager/friend_manager.js",
+        "/font_family/font_family.js",
+        "/hide/hide.js",
+        "/login_page/login_page.js",
+        "/logging/logging.js",
+        "/mark_read/mark_read.js",
+        "/menu/menu.js",
+        "/messages/message_links_to_messenger.js",
+        "/notify/notify.js",
+        "/most_recent/most_recent.js",
+        "/options/options.js",
+        "/permalink_target/permalink_target.js",
+        "/photo_tags/photo_tags.js",
+        "/post_filters/post_filters.js",
+        "/post_filters/post_tabs.js",
+        "/post_font/post_font.js",
+        "/regex_tester/regex_tester.js",
+        "/sfx_collision/sfx_collision.js",
+        "/stats/stats.js",
+        "/stay_on_page/stay_on_page.js",
+        "/sticky_note/sticky_note.js",
+        "/storage_check/storage_check.js",
+        "/subscriptions/subscriptions.js",
+        "/unread_messages/unread_messages.js",
+        "vue.min.js",
+        "vue_sfx.js",
+        "purify.min.js",
+        "index.js"
+      ],
+      "css": [
+        "style.css",
+        "menu.css",
+        "inline-images.css"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "description": "Social Fixer for Facebook lets you filter your news feed, hide things you don't want to see, and more!",
+  "name": "Social Fixer for Facebook",
+  "author": "Matt Kruse",
+  "version": "31.1.0",
+  "homepage_url": "https://SocialFixer.com/",
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "page_action": {
+    "default_icon": {
+      "19": "icon19.png",
+      "38": "icon38.png"
+    },
+    "default_title": "Social Fixer",
+    "default_popup": "options.html"
+  },
+  "minimum_chrome_version": "41.0",
+  "permissions": [
+    "https://*.SocialFixer.com/*",
+    "https://matt-kruse.github.io/*",
+    "https://*.facebook.com/*",
+    "storage",
+    "unlimitedStorage"
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "applications": {
+    "gecko": {
+      "id": "betterfacebook@mattkruse.com",
+      "strict_min_version": "48.0"
+    }
+  }
+}
