@@ -1,0 +1,7 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": true
+  },
+  "exclude": ["reference", ".output", "node_modules"]
+}
