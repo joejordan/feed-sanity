@@ -1,0 +1,40 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
+import { startFeatures } from '../../core/app';
+import { Options } from '../../core/options';
+import externalCss from '.';
+
+const link = () => document.querySelector<HTMLLinkElement>('link#sfx_external_css');
+
+describe('external_css', () => {
+  let options: Options;
+
+  beforeEach(async () => {
+    fakeBrowser.reset();
+    link()?.remove();
+    options = new Options('u/options');
+    await startFeatures([externalCss], options);
+  });
+
+  it('adds nothing while the URL is empty', () => {
+    expect(link()).toBeNull();
+  });
+
+  it('adds a stylesheet link for the URL, and replaces it when the URL changes', async () => {
+    await options.set('external_css_url', 'https://example.com/a.css');
+    expect(link()?.href).toBe('https://example.com/a.css');
+    expect(link()?.rel).toBe('stylesheet');
+
+    await options.set('external_css_url', 'https://example.com/b.css');
+    expect(document.querySelectorAll('link#sfx_external_css')).toHaveLength(1);
+    expect(link()?.href).toBe('https://example.com/b.css');
+  });
+
+  it('removes the link when the URL is cleared', async () => {
+    await options.set('external_css_url', 'https://example.com/a.css');
+    await options.set('external_css_url', '');
+    expect(link()).toBeNull();
+    await options.set('external_css_url', '  ');
+    expect(link()).toBeNull();
+  });
+});

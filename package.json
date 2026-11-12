@@ -2,17 +2,31 @@
   "name": "social-fixer-fork",
   "version": "0.0.0",
   "private": true,
-  "description": "Working fork of Social Fixer for Facebook 31.1.0 (name to be decided)",
+  "description": "TypeScript rewrite of Social Fixer for Facebook 31.1.0 (name to be decided)",
   "license": "MPL-1.1",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
   "scripts": {
     "prepare": "husky",
-    "commitlint": "commitlint --edit"
+    "postinstall": "wxt prepare",
+    "dev": "wxt -b firefox",
+    "dev:chrome": "wxt -b chrome",
+    "build": "wxt build -b firefox && wxt build -b chrome",
+    "zip": "wxt zip -b firefox && wxt zip -b chrome",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check",
+    "format": "biome check --write",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.7",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
-    "husky": "^9.1.7"
+    "happy-dom": "^21.0.4",
+    "husky": "^9.1.7",
+    "typescript": "7.0.2",
+    "vitest": "^5.1.0",
+    "wxt": "^0.21.5"
   }
 }
