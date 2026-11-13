@@ -1,5 +1,5 @@
-import react from '@vitejs/plugin-react';
 import { defineConfig } from 'wxt';
+import { PREACT_ALIAS } from './preact-alias';
 import { DESCRIPTION, NAME, OPTIONS_TITLE } from './project';
 
 export default defineConfig({
@@ -7,7 +7,7 @@ export default defineConfig({
   // Every import is written out, so the linter and the type checker see
   // the same names as the bundler.
   imports: false,
-  vite: () => ({ plugins: [react()] }),
+  vite: () => ({ resolve: { alias: PREACT_ALIAS } }),
   manifest: {
     name: NAME,
     description: DESCRIPTION,

@@ -1,9 +1,10 @@
-import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 import { WxtVitest } from 'wxt/testing/vitest-plugin';
+import { PREACT_ALIAS } from './preact-alias.ts';
 
 export default defineConfig({
-  plugins: [WxtVitest(), react()],
+  plugins: [WxtVitest()],
+  resolve: { alias: PREACT_ALIAS },
   test: {
     environment: 'happy-dom',
     environmentOptions: {

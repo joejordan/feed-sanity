@@ -1,4 +1,4 @@
-import { act } from 'react';
+import { act } from '@testing-library/preact';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HOST_TAG, mount } from './mount';
 

@@ -4,10 +4,10 @@
 //
 // The extension builds go through WXT instead (wxt.config.ts).
 
-import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import pkg from './package.json' with { type: 'json' };
 // Vite's native config loader needs the file extensions.
+import { PREACT_ALIAS } from './preact-alias.ts';
 import { DESCRIPTION, NAME } from './project.ts';
 import { EXCLUDE_GLOBS, EXCLUDE_MATCHES, MATCHES } from './src/facebook/urls.ts';
 import { GRANTS } from './src/platform/userscript-gm.ts';
@@ -32,9 +32,10 @@ const header = [
 ].join('\n');
 
 export default defineConfig({
-  plugins: [react()],
-  // Library builds leave `process.env.NODE_ENV` alone, and React reads it.
-  // A userscript has no `process`, so the value is filled in here.
+  resolve: { alias: PREACT_ALIAS },
+  // Library builds leave `process.env.NODE_ENV` alone. Nothing bundled reads
+  // it now, Preact included, but a userscript has no `process`, so the value
+  // is filled in here in case a dependency starts to.
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: {
     outDir: '.output/userscript',
