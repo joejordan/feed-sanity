@@ -233,7 +233,7 @@ export class Posts {
   }
 
   async #identify(element: HTMLElement, number: number): Promise<void> {
-    const id = await this.#findId(element, { atoms: this.#atoms, marketplace: this.#marketplace });
+    const id = await this.#findId(element, this.#atoms);
     if (this.#numbers.get(element) !== number) {
       // The post left the page while its ID was being looked up.
       return;

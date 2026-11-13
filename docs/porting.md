@@ -85,7 +85,13 @@ The ported code has only run in unit tests. These parts copy what worked in 2023
 - every selector in `src/facebook/selectors.ts`
 - downloading stylesheets the page may not read. The original went through its background script. `Atoms` uses `fetch`, which depends on Facebook's servers allowing it.
 
-Two behaviours are copied from the original and look risky without its React lookup:
+One behaviour differs from the original on purpose:
 
-- `findPostId` reads the page address first. On a page whose address holds a number, such as an event or a single photo, every post gets that number as its ID and is flagged as the permalink. The original tried React's data before the address.
+- `findPostId` reads the page address only on a page whose address names one post (`singlePost` in `pageContext`). The original read it on every page, after trying React's data, so on an event page every post could get the event's number as its ID. Single photos, videos and reels do not count as single posts, so posts there get their ID from a link or the time link. Check these on the live site:
+  - a reel on its own page, which may have neither and would then end with no ID
+  - a photo or video in theater mode, where a link to an event inside a comment is tried before the time link
+  - an event page, where a post that links to the event itself still gets the event's number from the first rule in `POST_ID_LINKS`
+
+One behaviour is copied from the original and looks risky:
+
 - A name with no class yet is left untranslated. Inside `:not()` it then excludes nothing, so `[role=article]:not(.S2F_pos_rel)` matches comments too until `pos_rel` is known. Post detection waits for the first stylesheet scan to narrow that window.

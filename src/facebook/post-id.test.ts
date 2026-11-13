@@ -41,7 +41,7 @@ describe('extractPostId', () => {
 });
 
 describe('findPostId', () => {
-  const context = { atoms: { translate: (text: string) => text }, marketplace: false };
+  const atoms = { translate: (text: string) => text };
   let post: HTMLElement;
 
   beforeEach(() => {
@@ -52,18 +52,40 @@ describe('findPostId', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    history.replaceState({}, '', '/');
+  });
+
+  it('reads the ID from the page address on a page that shows one post', async () => {
+    history.replaceState({}, '', '/some.user/posts/1234567890');
+    post.innerHTML = '<a href="/events/123456789012/">An event</a>';
+
+    await expect(findPostId(post, atoms)).resolves.toBe('1234567890');
+  });
+
+  it.each([
+    '/events/999999999999/',
+    '/events/999999999999/?notif_id=1699999999999999',
+    '/groups/gardening/?multi_permalinks=999999999999',
+    '/photo/?fbid=999999999999&set=a.888888888888',
+  ])('ignores the number in the address %s', async (address) => {
+    history.replaceState({}, '', address);
+    post.innerHTML =
+      '<ul><li><a href="/some.user/posts/1234567890?comment_id=1">A comment</a></li></ul>';
+
+    await expect(findPostId(post, atoms)).resolves.toBe('1234567890');
   });
 
   it('reads the ID from a link inside the post', async () => {
     post.innerHTML = '<a href="/events/123456789012/">An event</a>';
 
-    await expect(findPostId(post, context)).resolves.toBe('123456789012');
+    await expect(findPostId(post, atoms)).resolves.toBe('123456789012');
   });
 
   it('reads a Marketplace listing from its own link', async () => {
+    history.replaceState({}, '', '/marketplace/');
     post.innerHTML = '<a role="link" href="/marketplace/item/123456789/">A chair</a>';
 
-    await expect(findPostId(post, { ...context, marketplace: true })).resolves.toBe('123456789');
+    await expect(findPostId(post, atoms)).resolves.toBe('123456789');
   });
 
   it('hovers the time link until it shows the real address', async () => {
@@ -79,7 +101,7 @@ describe('findPostId', () => {
       }
     });
 
-    const found = findPostId(post, context);
+    const found = findPostId(post, atoms);
     expect(post.classList.contains('sfx_touch')).toBe(true);
     await vi.advanceTimersByTimeAsync(400);
 
@@ -90,7 +112,7 @@ describe('findPostId', () => {
 
   it('gives up after a second when the post has no time link', async () => {
     vi.spyOn(console, 'debug').mockImplementation(() => undefined);
-    const found = findPostId(post, context);
+    const found = findPostId(post, atoms);
     let settled = false;
     found.finally(() => {
       settled = true;
@@ -109,7 +131,7 @@ describe('findPostId', () => {
       '<span id="s"><a class="S2F_font_400" role="link" tabindex="0" href="#">2 h</a></span>';
     const hover = vi.fn();
     post.querySelector('a')?.addEventListener('pointerover', hover);
-    const found = findPostId(post, context);
+    const found = findPostId(post, atoms);
 
     post.remove();
     await vi.advanceTimersByTimeAsync(200);

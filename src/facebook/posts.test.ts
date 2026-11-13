@@ -226,7 +226,7 @@ describe('posts', () => {
     await watch(1);
 
     expect(added[0]?.element).toBe(listing);
-    expect(findId).toHaveBeenCalledWith(listing, { atoms, marketplace: true });
+    expect(findId).toHaveBeenCalledWith(listing, atoms);
   });
 
   it('flags the post the page address points at', async () => {

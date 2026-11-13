@@ -4,7 +4,12 @@ export interface PageContext {
   type: string;
   /** The profile, group, conversation or category the page is about, when the path names one. */
   id: string | null;
-  /** True when the page shows a single post. */
+  /** True when the address names one post, so the page shows that post and its comments. */
+  singlePost: boolean;
+  /**
+   * True when the address points at particular posts: a single post, a page
+   * opened from a notification, or a group feed with linked posts on top.
+   */
   permalink: boolean;
 }
 
@@ -37,25 +42,34 @@ function typeAndId(hostname: string, path: string[]): Pick<PageContext, 'id' | '
   return { type: first, id: second ?? null };
 }
 
-function isPermalink(path: string[], search: string): boolean {
+function isSinglePost(path: string[], search: string): boolean {
   const [first, second, third] = path;
   if (second === 'posts' && third !== undefined && /^(?:\d|pfbid0)/.test(third)) {
     return true;
   }
-  if (first === 'permalink.php' || search.includes('notif_id=')) {
+  if (first === 'permalink.php') {
     return true;
   }
   return (
     first === 'groups' &&
-    (search.includes('view=permalink') ||
-      search.includes('multi_permalinks=') ||
-      third === 'posts' ||
-      third === 'permalink')
+    (search.includes('view=permalink') || third === 'posts' || third === 'permalink')
+  );
+}
+
+/** A page opened from a notification, or a group feed with linked posts on top. */
+function pointsAtPosts(path: string[], search: string): boolean {
+  return (
+    search.includes('notif_id=') || (path[0] === 'groups' && search.includes('multi_permalinks='))
   );
 }
 
 /** Describes the page at `url`, which defaults to the current one. */
 export function pageContext(url: PageUrl = location): PageContext {
   const path = url.pathname.replaceAll(/^\/+|\/+$/g, '').split('/');
-  return { ...typeAndId(url.hostname, path), permalink: isPermalink(path, url.search) };
+  const singlePost = isSinglePost(path, url.search);
+  return {
+    ...typeAndId(url.hostname, path),
+    singlePost,
+    permalink: singlePost || pointsAtPosts(path, url.search),
+  };
 }

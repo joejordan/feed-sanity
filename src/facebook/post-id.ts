@@ -1,6 +1,7 @@
 import type { AtomTranslator } from './atoms';
 import { createLogger } from '../core/log';
 import { sleep } from '../core/timing';
+import { pageContext } from './page';
 import { MARK, MARKETPLACE_ID_LINK, POST_ID_LINKS, TIMESTAMP } from './selectors';
 
 const log = createLogger('post-id');
@@ -182,30 +183,34 @@ async function idFromTimestamp(post: Element, timestampSelector: string): Promis
   return id;
 }
 
-export interface PostIdContext {
-  atoms: Pick<AtomTranslator, 'translate'>;
-  /** True on Marketplace pages, where a listing's own link holds its ID. */
-  marketplace: boolean;
-}
-
 /**
  * Works out Facebook's ID for a post, or null when it cannot be found. Tries
  * the page address, then links inside the post, then hovering the time link.
+ *
+ * The page address only counts on a page that shows a single post. Elsewhere
+ * a number in it belongs to something else, such as an event, and every post
+ * on the page would get the same ID.
  */
-export async function findPostId(post: Element, context: PostIdContext): Promise<string | null> {
-  const fromPage = extractPostId(location.href);
+export async function findPostId(
+  post: Element,
+  atoms: Pick<AtomTranslator, 'translate'>,
+): Promise<string | null> {
+  const page = pageContext();
+  const fromPage = page.singlePost ? extractPostId(location.href) : null;
   if (fromPage) {
     return fromPage;
   }
-  const links = context.marketplace ? [MARKETPLACE_ID_LINK, ...POST_ID_LINKS] : POST_ID_LINKS;
+  // On Marketplace, a listing's own link holds its ID.
+  const links =
+    page.type === 'marketplace' ? [MARKETPLACE_ID_LINK, ...POST_ID_LINKS] : POST_ID_LINKS;
   const fromLinks = idFromLinks(
     post,
-    links.map((selector) => context.atoms.translate(selector)),
+    links.map((selector) => atoms.translate(selector)),
   );
   if (fromLinks) {
     return fromLinks;
   }
-  const fromTimestamp = await idFromTimestamp(post, context.atoms.translate(TIMESTAMP));
+  const fromTimestamp = await idFromTimestamp(post, atoms.translate(TIMESTAMP));
   if (!fromTimestamp) {
     log.debug('no ID found for', post);
   }
