@@ -10,7 +10,7 @@ export interface FacebookPage {
   /** Translates `S2F_` names into Facebook's current class names. Call `start()` before relying on it. */
   atoms: AtomTranslator;
   /** The posts on the page. Subscribing with `onAdd` starts post detection. */
-  posts: Pick<Posts, 'onAdd' | 'onRemove' | 'onReset'>;
+  posts: Pick<Posts, 'onAdd' | 'onRemove' | 'onReset' | 'onUpdate'>;
 }
 
 /** Builds the page services. Nothing in them runs until a feature uses it. */

@@ -28,7 +28,23 @@ export const MARK = {
   popupPost: 'sfx_popup_post',
   /** Class on a post while its time link is being hovered to reveal the address. */
   touch: 'sfx_touch',
+  /** Class on a post a filter has hidden. */
+  hidden: 'sfx_filter_hidden',
+  /** Class on a hidden post the user has chosen to look at. */
+  hiddenShown: 'sfx_filter_hidden_show',
+  /** Class on the note that stands in for a hidden post. */
+  hiddenNote: 'sfx_filter_hidden_note',
+  /** Class on the note's text while the post is hidden. */
+  hiddenNoteReveal: 'sfx_filter_hider_note',
+  /** Class on the note's text while the post is shown. */
+  hiddenNoteRehide: 'sfx_filter_hider_nyet',
 } as const;
+
+/** Attribute on every element this project adds inside one of Facebook's. */
+export const OWN = 'data-feed-sanity';
+
+/** Selects the elements this project added. Their text is not the post's, and they do not count as new content. */
+export const OWN_ELEMENT = `[${OWN}]`;
 
 /** The comments column beside a photo or video shown in theater mode. */
 export const THEATER_COMMENTS =
@@ -73,6 +89,15 @@ export const POST_ANCESTOR = `[${MARK.post}],[${FEED_POSITION}],[role=article]`;
 
 /** Where a post keeps its reactions and comments. Content added inside it never starts a new post. */
 export const POST_REACTIONS = 'form';
+
+/**
+ * Parts of a post whose text is not the post's own: its comment area, the
+ * comments themselves, and anything this project added.
+ */
+export const NOT_POST_TEXT = `${POST_REACTIONS},[role=article],${OWN_ELEMENT}`;
+
+/** Photos with a description. */
+export const CAPTIONED_IMAGE = 'img[alt]';
 
 /** The placeholder Facebook shows in the feed while posts load. */
 export const LOADING_POST = '[role=progressbar]';

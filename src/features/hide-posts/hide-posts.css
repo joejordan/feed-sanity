@@ -1,0 +1,41 @@
+/*
+ * Applied to Facebook's own post elements, so it lives in the page, not in a
+ * shadow root. The class names are Social Fixer's.
+ */
+.sfx_filter_hidden:not(.sfx_filter_hidden_show) {
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background-color: transparent;
+}
+
+.sfx_filter_hidden:not(.sfx_filter_hidden_show) > *:not(.sfx_filter_hidden_note) {
+  display: none !important;
+}
+
+.sfx_filter_hidden_note {
+  display: block;
+  width: 100%;
+  margin: 2px 0 0;
+  padding: 2px 8px;
+  border: 1px dashed var(--secondary-text, #65686c);
+  border-radius: 4px;
+  background: none;
+  color: var(--primary-text, #080809);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.sfx_filter_hidden_note:hover,
+.sfx_filter_hidden_note:focus-visible {
+  opacity: 1;
+}
+
+.sfx_filter_hidden_show > .sfx_filter_hidden_note .sfx_filter_hider_note,
+.sfx_filter_hidden:not(.sfx_filter_hidden_show) > .sfx_filter_hidden_note .sfx_filter_hider_nyet {
+  display: none;
+}

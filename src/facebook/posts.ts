@@ -11,6 +11,7 @@ import {
   MARK,
   MARKETPLACE_POST,
   MARKETPLACE_POST_VERIFIER,
+  OWN_ELEMENT,
   POPUP_CONTAINED_POST,
   POPUP_POST_CONTAINER,
   POST,
@@ -21,6 +22,9 @@ import {
 } from './selectors';
 
 const log = createLogger('posts');
+
+/** How long after content arrives in a post `onUpdate` listeners hear of it. */
+const UPDATE_DELAY_MS = 100;
 
 /** A feed slot not tracked yet, which may be waiting for its content. */
 const UNTRACKED_SLOT = `[${FEED_POSITION}]:not([${MARK.post}])`;
@@ -61,6 +65,10 @@ export class Posts {
   readonly #added = new Listeners<[Post]>(log);
   readonly #removed = new Listeners<[Post]>(log);
   readonly #reset = new Listeners(log);
+  readonly #updated = new Listeners<[Post]>(log);
+  /** Posts that gained content since the last `onUpdate` round. */
+  readonly #pendingUpdates = new Set<Post>();
+  #updateTimer: ReturnType<typeof setTimeout> | undefined;
   /** Every marked element and its post number, including posts whose ID is still being looked up. */
   readonly #numbers = new Map<Element, number>();
   /** The posts listeners have been told about, in the order their ID lookups finished. */
@@ -108,9 +116,23 @@ export class Posts {
     return this.#reset.add(listener);
   }
 
+  /**
+   * Calls `listener` when Facebook adds content inside a post it was told
+   * about: more text, new comments, or the whole post again after Facebook
+   * emptied it while it was scrolled out of view. A refill discards anything
+   * a feature had put inside. Additions close together are reported once, so
+   * a listener must be safe to run again on the same post.
+   */
+  onUpdate(listener: PostListener): () => void {
+    return this.#updated.add(listener);
+  }
+
   /** Stops looking for posts. The marks stay on the posts already found. */
   stop(): void {
     this.#started = false;
+    clearTimeout(this.#updateTimer);
+    this.#updateTimer = undefined;
+    this.#pendingUpdates.clear();
     for (const stop of this.#stopWatching.splice(0)) {
       stop();
     }
@@ -169,6 +191,33 @@ export class Posts {
     } else if (!element.closest(POST_REACTIONS)) {
       this.#scan(element);
     }
+    this.#noteUpdate(element);
+  }
+
+  /** Queues an `onUpdate` call for the announced post `element` was added to, if any. */
+  #noteUpdate(element: Element): void {
+    if (this.#updated.size === 0) {
+      return;
+    }
+    const top = element.parentElement?.closest(`[${MARK.post}]`);
+    const post = top && this.#announced.get(top);
+    // Most additions are outside any post, so the post is looked for first.
+    if (!post || element.closest(OWN_ELEMENT)) {
+      return;
+    }
+    this.#pendingUpdates.add(post);
+    // Not restarted on each addition, or a post that keeps receiving
+    // comments would hold back the report for every other post.
+    this.#updateTimer ??= setTimeout(() => {
+      this.#updateTimer = undefined;
+      const posts = [...this.#pendingUpdates];
+      this.#pendingUpdates.clear();
+      for (const pending of posts) {
+        if (this.#announced.get(pending.element) === pending) {
+          this.#updated.emit(pending);
+        }
+      }
+    }, UPDATE_DELAY_MS);
   }
 
   #scan(container: Element): void {

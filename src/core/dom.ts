@@ -23,6 +23,22 @@ export function waitForElement(selector: string): Promise<Element> {
   });
 }
 
+/**
+ * Adds a style sheet to the page, for styling the page's own elements. Does
+ * nothing if one with this ID is already there. UI this project draws itself
+ * goes in a shadow root instead; see `src/ui/mount.tsx`.
+ */
+export async function addStyle(id: string, css: string): Promise<void> {
+  const head = await waitForElement('head');
+  if (document.querySelector(`#${CSS.escape(id)}`)) {
+    return;
+  }
+  const style = document.createElement('style');
+  style.id = id;
+  style.textContent = css;
+  head.append(style);
+}
+
 /** The elements matching `selector` in `root`, including `root` itself. */
 export function probe(root: Element, selector: string): Element[] {
   return [...(root.matches(selector) ? [root] : []), ...root.querySelectorAll(selector)];

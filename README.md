@@ -6,7 +6,7 @@ Feed Sanity is a separate project from Social Fixer and is not published under t
 
 ## Status
 
-The build, the feature framework, the options store, post detection and the translation of Facebook's generated class names are in place, and one feature is ported (external CSS). An options dialog lists every feature's options; open it from the toolbar button or the userscript manager's menu. Post detection and the dialog have only run in tests, not yet on Facebook itself. [docs/porting.md](docs/porting.md) lists what is left.
+The build, the feature framework, the options store, post detection and the translation of Facebook's generated class names are in place. Two features are ported: hiding posts by keyword, and external CSS. An options dialog lists every feature's options; open it from the toolbar button or the userscript manager's menu. Post detection, keyword hiding and the dialog have been checked on Facebook's news feed in Chrome. [docs/porting.md](docs/porting.md) lists what is left.
 
 ## Layout
 

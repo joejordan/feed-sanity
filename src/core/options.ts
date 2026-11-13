@@ -12,6 +12,8 @@ export interface OptionSpec {
   title: string;
   description: string;
   default: OptionValue;
+  /** For a text option: true when the value is several lines, such as a list. */
+  multiline?: boolean;
 }
 
 export type OptionSpecs = Record<string, OptionSpec>;

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { OptionSpec, Options, OptionValue } from '../../core/options';
 import { OPTIONS_TITLE } from '../../../project';
 import { createLogger } from '../../core/log';
@@ -46,9 +47,37 @@ function OptionRow({ optionKey, spec, options, edit, onEdit }: OptionRowProps) {
     'aria-describedby': spec.description ? `${id}-description` : undefined,
     'aria-invalid': (edit && edit.value === undefined) || undefined,
   };
+  const onText = (event: { target: HTMLInputElement | HTMLTextAreaElement }) =>
+    onEdit(optionKey, toEdit(spec, event.target.value));
+
+  let field: ReactNode;
+  if (typeof spec.default === 'boolean') {
+    field = (
+      <input
+        {...control}
+        type="checkbox"
+        checked={shown === true}
+        onChange={(event) => onEdit(optionKey, toEdit(spec, event.target.checked))}
+      />
+    );
+  } else if (spec.multiline) {
+    field = (
+      <textarea {...control} className="field" rows={6} value={String(shown)} onChange={onText} />
+    );
+  } else {
+    field = (
+      <input
+        {...control}
+        className="field"
+        type={typeof spec.default === 'number' ? 'number' : 'text'}
+        value={String(shown)}
+        onChange={onText}
+      />
+    );
+  }
 
   return (
-    <div className="row">
+    <div className={spec.multiline ? 'row stacked' : 'row'}>
       <div className="text">
         <label className="title" htmlFor={control.id}>
           {spec.title}
@@ -59,22 +88,7 @@ function OptionRow({ optionKey, spec, options, edit, onEdit }: OptionRowProps) {
           </p>
         )}
       </div>
-      {typeof spec.default === 'boolean' ? (
-        <input
-          {...control}
-          type="checkbox"
-          checked={shown === true}
-          onChange={(event) => onEdit(optionKey, toEdit(spec, event.target.checked))}
-        />
-      ) : (
-        <input
-          {...control}
-          className="field"
-          type={typeof spec.default === 'number' ? 'number' : 'text'}
-          value={String(shown)}
-          onChange={(event) => onEdit(optionKey, toEdit(spec, event.target.value))}
-        />
-      )}
+      {field}
     </div>
   );
 }

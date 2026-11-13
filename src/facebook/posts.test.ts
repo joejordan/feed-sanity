@@ -224,6 +224,22 @@ describe('posts', () => {
     expect(added[0]?.element).toBe(slot);
   });
 
+  it('reports content added to a post once, and not what this project adds', async () => {
+    const updated = vi.fn();
+    posts.onUpdate(updated);
+    const post = addHtml(POST_HTML);
+    await watch(1);
+
+    addHtml('<button data-feed-sanity="note">A note</button>', post);
+    await sleep(150);
+    expect(updated).not.toHaveBeenCalled();
+
+    addHtml('<p>More text</p>', post);
+    addHtml('<p>And more</p>', post);
+
+    await vi.waitFor(() => expect(updated).toHaveBeenCalledExactlyOnceWith(added[0]));
+  });
+
   it('looks for listings on Marketplace pages', async () => {
     history.replaceState({}, '', '/marketplace/');
     addHtml(POST_HTML);

@@ -13,6 +13,9 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
 - To act on posts, subscribe with `page.posts.onAdd`. Post detection does not run until something subscribes.
 - Call `page.atoms.start()` before relying on translated selectors outside post detection, and translate again when `page.atoms.onChange` fires.
 - Each ported feature gets a test next to it.
+- Give every element a feature adds inside one of Facebook's the `data-feed-sanity` attribute (`OWN` in `src/facebook/selectors.ts`). Its text is then left out of the post's, and adding it does not count as new content.
+- Facebook empties posts that scroll out of view and refills them later, which discards anything a feature put inside. Subscribe with `page.posts.onUpdate` and put it back. It also fires for other new content, such as comments, so the listener must be safe to run again.
+- Styles for Facebook's own elements go in the page with `addStyle` from `src/core/dom.ts`. UI the project draws itself goes in a shadow root with `mount`.
 - Features must work in the userscript too. Reach browser APIs through `src/platform/`, which has an extension version and a userscript version of each one.
 
 ## Framework
@@ -66,10 +69,13 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
   - [x] the dialog: every registered option by section, search, Save and Cancel (`src/ui/options-dialog/`)
   - [x] opening it from the toolbar button (extension) or the userscript manager's menu
   - [ ] opening it from Social Fixer's badge menu on the page, which comes with the `menu` port
-  - [ ] the Filters, Hide Posts and Data sections, and option types other than on/off, number and text
+  - [x] multi-line text options, used for the Hide Posts keywords
+  - [ ] the Filters and Data sections, and the link and action option types
 - [ ] permalink_target
 - [ ] photo_tags
 - [ ] post_filters
+  - [x] Hide Posts: hiding posts by keyword, with the note that stands in for a hidden post (`src/features/hide-posts/`). It keeps the original's option keys, the `filters_enabled` switches and the `sfx_filter_hidden` class names. Not ported: never hiding posts from Social Fixer's own page, and skipping hidden "Facebook" filler text.
+  - [ ] the filter engine: rules, actions and tabs
 - [ ] post_font
 - [ ] regex_tester
 - [ ] sfx_collision
@@ -91,6 +97,8 @@ A live check on 2026-11-13, logged in to the news feed in Chrome, found:
 - Facebook's colour variables (`--card-background`, `--primary-text` and the rest) are set, in dark mode as well.
 
 The options dialog was opened on the same page over sample options. It used Facebook's dark colours and font, opened as a modal above everything else on the page, and took focus. Keys typed into it reached its search box and not Facebook: nothing scrolled or moved focus, and listeners on the document saw none of them. Listeners on `window` in the capture phase still see the keys, so a Facebook shortcut that listened there would fire; none did. In a search box that holds text, the first Escape clears the box and the second closes the dialog, as in any Chrome dialog.
+
+Keyword hiding ran on the same feed twice with the keyword "the". On the second run 16 of 28 posts were hidden, each collapsed to a one-line note 21 px high. Clicking a note showed the post and clicking again hid it. After scrolling far down and back, every hidden post still had exactly one note. Turning notes off, hiding the matched word, whole-word matching, clearing the keywords and turning filtering off all took effect at once, and the posts were hidden again when the keywords were set again. Turning notes off also collapsed a post that had been revealed. Today's feed posts contain no `<form>`, and their Like, Comment and Share buttons carry no text, so those words are not matched. The original skips hidden "Facebook" filler text inside posts. No post had any, so that check is not ported. Every fifth feed slot, the sponsored ones, already had zero height in the test browser before this project touched it, so a note placed in one of them cannot be seen.
 
 Not checked yet: group, profile and Marketplace pages, and the comments popup.
 
