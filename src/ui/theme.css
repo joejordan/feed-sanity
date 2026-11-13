@@ -1,0 +1,27 @@
+/*
+ * Base styles for every shadow root `mount` creates.
+ *
+ * Facebook's style sheets do not reach into a shadow root, but inherited
+ * properties such as font and colour do, so the host resets them. The
+ * `--fs-*` colours come from src/facebook/theme.css, which follows Facebook's
+ * light and dark themes.
+ */
+:host {
+  all: initial;
+  color: var(--fs-text);
+  font-family: var(--fs-font);
+  font-size: 15px;
+  line-height: 1.34;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button,
+input {
+  color: inherit;
+  font: inherit;
+}

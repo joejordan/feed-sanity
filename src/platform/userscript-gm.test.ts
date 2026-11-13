@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { userscriptStore } from './userscript-store';
+import { addMenuCommand, userscriptStore } from './userscript-gm';
 
 type ChangeListener = (name: string, oldValue: unknown, newValue: unknown, remote: boolean) => void;
 
@@ -44,5 +44,35 @@ describe('userscriptStore', () => {
   it('does nothing about changes in Greasemonkey, which has no change listener', () => {
     vi.stubGlobal('GM_addValueChangeListener', undefined);
     expect(() => userscriptStore.onChange('7/options', vi.fn())).not.toThrow();
+  });
+});
+
+describe('addMenuCommand', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('uses GM_registerMenuCommand where the manager has it', () => {
+    const register = vi.fn();
+    vi.stubGlobal('GM_registerMenuCommand', register);
+    vi.stubGlobal('GM', { registerMenuCommand: vi.fn() });
+    const onClick = vi.fn();
+
+    expect(addMenuCommand('Options', onClick)).toBe(true);
+    expect(register).toHaveBeenCalledExactlyOnceWith('Options', onClick);
+  });
+
+  it('falls back to GM.registerMenuCommand', () => {
+    const register = vi.fn();
+    vi.stubGlobal('GM', { registerMenuCommand: register });
+
+    expect(addMenuCommand('Options', vi.fn())).toBe(true);
+    expect(register).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a manager with no menu', () => {
+    vi.stubGlobal('GM', {});
+
+    expect(addMenuCommand('Options', vi.fn())).toBe(false);
   });
 });

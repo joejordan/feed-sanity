@@ -1,0 +1,19 @@
+/*
+ * The UI's colours and font, taken from Facebook's own CSS variables so the UI
+ * follows its light and dark themes. Custom properties are inherited into a
+ * shadow root, and `all: initial` in src/ui/theme.css leaves them alone. The
+ * fallbacks apply where Facebook has not set a variable.
+ */
+:host {
+  --fs-background: var(--card-background, #fff);
+  --fs-surface: var(--surface-background, #f0f2f5);
+  --fs-hover: var(--hover-overlay, rgb(0 0 0 / 5%));
+  --fs-text: var(--primary-text, #080809);
+  --fs-text-secondary: var(--secondary-text, #65686c);
+  --fs-divider: var(--divider, #ced0d4);
+  --fs-accent: var(--accent, #0866ff);
+  --fs-accent-text: var(--primary-button-text, #fff);
+  --fs-input: var(--input-background, #fff);
+  --fs-error: var(--negative, #e41e3f);
+  --fs-font: var(--font-family-default, system-ui, sans-serif);
+}
