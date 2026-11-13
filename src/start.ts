@@ -1,6 +1,6 @@
+import type { Store } from './core/storage';
 import { startFeatures } from './core/app';
 import { Options } from './core/options';
-import type { Store } from './core/storage';
 import { currentUserId } from './facebook/user';
 import { features } from './features';
 

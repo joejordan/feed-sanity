@@ -1,5 +1,5 @@
-import { createLogger } from './log';
 import type { Store } from './storage';
+import { createLogger } from './log';
 
 const log = createLogger('options');
 

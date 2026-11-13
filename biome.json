@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!reference", "!**/.*"]
+    "includes": ["**", "!reference", "!**/*.md", "!**/.*"]
   },
   "formatter": {
     "indentStyle": "space",
@@ -14,7 +14,254 @@
   },
   "javascript": {
     "formatter": {
-      "quoteStyle": "single"
+      "quoteStyle": "single",
+      "quoteProperties": "preserve"
     }
-  }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": {
+          "level": "on",
+          "options": {
+            "groups": [
+              {
+                "type": false,
+                "source": [":NODE:", ":BUN:"]
+              },
+              {
+                "type": false,
+                "source": ["@*/**"]
+              },
+              {
+                "type": false,
+                "source": [":PACKAGE:", ":PACKAGE_WITH_PROTOCOL:", ":URL:"]
+              },
+              {
+                "type": false,
+                "source": [":ALIAS:"]
+              },
+              {
+                "type": true
+              },
+              "../**",
+              ["./**", "."]
+            ]
+          }
+        }
+      }
+    }
+  },
+  "linter": {
+    "rules": {
+      "preset": "none",
+      "complexity": {
+        "noAdjacentSpacesInRegex": "error",
+        "noArguments": "error",
+        "noBannedTypes": "error",
+        "noCommaOperator": "error",
+        "noExtraBooleanCast": "error",
+        "noStaticOnlyClass": "error",
+        "noUselessCatch": "error",
+        "noUselessLoneBlockStatements": "error",
+        "noUselessRename": "error",
+        "noUselessReturn": "error",
+        "noUselessStringConcat": "error",
+        "noUselessSwitchCase": "error",
+        "noUselessTernary": "error",
+        "noUselessThisAlias": "error",
+        "noUselessTypeConstraint": "error",
+        "noUselessUndefined": "error",
+        "noUselessUndefinedInitialization": "error",
+        "useArraySome": "error",
+        "useArrowFunction": "error",
+        "useDateNow": "error",
+        "useFlatMap": "error",
+        "useIndexOf": "error",
+        "useLiteralKeys": "error",
+        "useMathMinMax": "error",
+        "useRegexLiterals": "error",
+        "useRegexpTest": "error"
+      },
+      "correctness": {
+        "noEmptyPattern": "error",
+        "noGlobalDirnameFilename": "error",
+        "noInvalidBuiltinInstantiation": "error",
+        "noInvalidUseBeforeDeclaration": "error",
+        "noPrecisionLoss": "error",
+        "noSelfAssign": "error",
+        "noSwitchDeclarations": "error",
+        "noUnsafeFinally": "error",
+        "noUnusedImports": "error",
+        "noUnusedInstantiation": "error",
+        "noUnusedVariables": {
+          "level": "warn",
+          "options": {
+            "ignoreRestSiblings": true,
+            "ignoreUsingDeclarations": false
+          }
+        },
+        "useIsNan": "error",
+        "useSingleJsDocAsterisk": "warn",
+        "useValidTypeof": "error"
+      },
+      "performance": {
+        "noDelete": "error",
+        "useDomNodeTextContent": "error"
+      },
+      "security": {
+        "noGlobalEval": "error"
+      },
+      "style": {
+        "noCommonJs": "error",
+        "noMultilineString": "error",
+        "noNamespace": "error",
+        "noNegationElse": "error",
+        "noNestedTernary": "error",
+        "noRestrictedGlobals": {
+          "level": "error",
+          "options": {
+            "deniedGlobals": {
+              "self": "Use `globalThis` instead.",
+              "global": "Use `globalThis` instead."
+            }
+          }
+        },
+        "noSubstr": "error",
+        "noYodaExpression": "error",
+        "useArrayLiterals": "error",
+        "useAsConstAssertion": "error",
+        "useAtIndex": "error",
+        "useCollapsedIf": "error",
+        "useConsistentBuiltinInstantiation": "error",
+        "useConsistentCurlyBraces": "error",
+        "useConsistentMethodSignatures": "error",
+        "useConsistentObjectDefinitions": "error",
+        "useConst": "error",
+        "useDomQuerySelector": "error",
+        "useExplicitLengthCheck": "error",
+        "useExponentiationOperator": "error",
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": {
+            "filenameCases": ["kebab-case"]
+          }
+        },
+        "useForOf": "error",
+        "useGlobalThis": "error",
+        "useImportType": {
+          "level": "error",
+          "options": {
+            "style": "separatedType"
+          }
+        },
+        "useImportsFirst": "error",
+        "useLiteralEnumMembers": "error",
+        "useNodejsImportProtocol": "error",
+        "useNumberNamespace": "error",
+        "useNumericSeparators": {
+          "level": "error",
+          "options": {
+            "binary": {
+              "minimumDigits": 0,
+              "groupLength": 4
+            },
+            "octal": {
+              "minimumDigits": 0,
+              "groupLength": 4
+            },
+            "decimal": {
+              "minimumDigits": 5,
+              "groupLength": 3
+            },
+            "hexadecimal": {
+              "minimumDigits": 0,
+              "groupLength": 2
+            }
+          }
+        },
+        "useSingleVarDeclarator": "error",
+        "useSpreadOverApply": "error",
+        "useSymbolDescription": "error",
+        "useTemplate": "error",
+        "useThrowNewError": "error",
+        "useThrowOnlyError": "error",
+        "useTrimStartEnd": "error",
+        "useVarsOnTop": "error"
+      },
+      "suspicious": {
+        "noAlert": "error",
+        "noApproximativeNumericConstant": "error",
+        "noAssignInExpressions": "error",
+        "noAsyncPromiseExecutor": "error",
+        "noCatchAssign": "error",
+        "noCompareNegZero": "error",
+        "noConfusingLabels": "error",
+        "noControlCharactersInRegex": "error",
+        "noDebugger": "error",
+        "noDocumentCookie": "error",
+        "noDoubleEquals": {
+          "level": "error",
+          "options": {
+            "ignoreNull": true
+          }
+        },
+        "noDuplicateCase": "error",
+        "noDuplicateClassMembers": "error",
+        "noDuplicateEnumValues": "error",
+        "noEmptyBlockStatements": "error",
+        "noEmptySource": "error",
+        "noExtraNonNullAssertion": "error",
+        "noFallthroughSwitchClause": "error",
+        "noGlobalAssign": "error",
+        "noIrregularWhitespace": "error",
+        "noMisleadingCharacterClass": "error",
+        "noMisleadingInstantiator": "error",
+        "noNonNullAssertedOptionalChain": "error",
+        "noOctalEscape": "error",
+        "noProto": "error",
+        "noPrototypeBuiltins": "error",
+        "noRedeclare": "error",
+        "noSelfCompare": "error",
+        "noShadowRestrictedNames": "error",
+        "noSparseArray": "error",
+        "noTemplateCurlyInString": "error",
+        "noThenProperty": "error",
+        "noTsIgnore": "error",
+        "noUnsafeDeclarationMerging": "error",
+        "noUselessRegexBackrefs": "error",
+        "noVar": "error",
+        "useDefaultSwitchClauseLast": "error",
+        "useErrorMessage": "error",
+        "useIterableCallbackReturn": {
+          "level": "error",
+          "options": {
+            "checkForEach": false,
+            "allowImplicit": false
+          }
+        },
+        "useNamespaceKeyword": "error",
+        "useNumberToFixedDigitsArgument": "error"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/**", "!src/platform/**", "!src/entrypoints/**", "!**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "wxt/browser": "This code also runs in the userscript, which has no extension API. Go through src/platform/."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
