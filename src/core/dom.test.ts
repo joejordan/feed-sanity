@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { probe, watchTree } from './dom';
+import { addStyle, probe, watchTree } from './dom';
 import { sleep } from './timing';
+
+describe('addStyle', () => {
+  it('adds the style sheet to the page once', async () => {
+    await addStyle('test_style', '.a { color: red; }');
+    await addStyle('test_style', '.a { color: blue; }');
+
+    const styles = document.head.querySelectorAll('style#test_style');
+    expect(styles).toHaveLength(1);
+    expect(styles[0]?.textContent).toBe('.a { color: red; }');
+  });
+});
 
 describe('probe', () => {
   it('returns the root itself and its descendants that match', () => {

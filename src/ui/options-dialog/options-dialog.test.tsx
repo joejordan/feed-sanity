@@ -28,6 +28,13 @@ const specs = {
     description: 'A style sheet to add.',
     default: '',
   },
+  keywords: {
+    section: 'Advanced',
+    title: 'Keywords',
+    description: 'One on each line.',
+    default: '',
+    multiline: true,
+  },
 };
 
 /** The form control labelled `name`. */
@@ -84,6 +91,18 @@ describe('OptionsDialog', () => {
     expect(await browser.storage.local.get('u/options')).toEqual({
       'u/options': { hide_ads: true, pause_after: 40 },
     });
+  });
+
+  it('takes several lines for an option that holds a list', async () => {
+    show();
+    await userEvent.click(button('Advanced'));
+    const box = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Keywords' });
+    expect(box.tagName).toBe('TEXTAREA');
+
+    await userEvent.type(box, 'one{Enter}two');
+    await userEvent.click(button('Save'));
+
+    expect(options.get('keywords')).toBe('one\ntwo');
   });
 
   it('drops the changes on Cancel', async () => {
