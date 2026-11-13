@@ -1,7 +1,7 @@
 import { waitForElement } from '../../core/dom';
 import { defineFeature } from '../../core/feature';
 
-const LINK_ID = 'sfx_external_css';
+const LINK_ID = 'feed_sanity_external_css';
 
 /** Loads a stylesheet of the user's choosing into every Facebook page. */
 export default defineFeature({

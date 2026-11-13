@@ -14,7 +14,7 @@ export default defineConfig({
       // Temporary ID. Choose the real one before the first store upload:
       // changing it afterwards cuts users off from their saved settings.
       gecko: {
-        id: 'social-fixer-fork@dev.invalid',
+        id: 'feed-sanity@dev.invalid',
         // The extension sends no data anywhere. Update this if that changes.
         data_collection_permissions: { required: ['none'] },
       },

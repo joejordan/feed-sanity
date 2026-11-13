@@ -5,7 +5,7 @@ export interface Logger {
 }
 
 export function createLogger(scope: string): Logger {
-  const tag = `[sfx:${scope}]`;
+  const tag = `[feed-sanity:${scope}]`;
   return {
     debug: (...args) => console.debug(tag, ...args),
     error: (...args) => console.error(tag, ...args),

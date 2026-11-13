@@ -5,7 +5,8 @@ import { Options } from '../../core/options';
 import { extensionStore } from '../../platform/extension-store';
 import externalCss from '.';
 
-const link = () => document.querySelector<HTMLLinkElement>('link#sfx_external_css');
+const LINK = 'link#feed_sanity_external_css';
+const link = () => document.querySelector<HTMLLinkElement>(LINK);
 
 describe('external_css', () => {
   let options: Options;
@@ -27,7 +28,7 @@ describe('external_css', () => {
     expect(link()?.rel).toBe('stylesheet');
 
     await options.set('external_css_url', 'https://example.com/b.css');
-    expect(document.querySelectorAll('link#sfx_external_css')).toHaveLength(1);
+    expect(document.querySelectorAll(LINK)).toHaveLength(1);
     expect(link()?.href).toBe('https://example.com/b.css');
   });
 

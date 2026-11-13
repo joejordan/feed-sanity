@@ -1,8 +1,8 @@
-# Social Fixer fork (working title)
+# Feed Sanity
 
 A TypeScript rewrite of [Social Fixer for Facebook](https://socialfixer.com/), the browser extension by Matt Kruse. The last official release, 31.1.0, came out on 2023-09-08. This project ports it feature by feature to a new codebase that builds a Firefox extension, a Chrome extension and a userscript for Greasemonkey, Tampermonkey and Violentmonkey.
 
-The project does not have its own name yet. "Social Fixer" is the original project's name, and this fork will not be published under it.
+Feed Sanity is a separate project from Social Fixer and is not published under that name.
 
 ## Status
 
