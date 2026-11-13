@@ -30,7 +30,7 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
   - [x] IDs from the page address, from links in the post and from hovering the time link (`src/facebook/post-id.ts`)
   - [ ] IDs from React's data on the post's elements. A content script cannot see that data. It needs a script running in the page's own world that passes the IDs back.
   - [ ] pausing post loading after `max_post_load_count` posts
-- [x] `vue_sfx.js`: Vue 1 directives and filters used by the dialogs. Replaced by React; see `src/ui/`.
+- [x] `vue_sfx.js`: Vue 1 directives and filters used by the dialogs. Replaced by components written with React's API and run on Preact; see `src/ui/`.
 - [ ] `index.js`: startup
   - [x] per-user storage key from the `c_user` cookie (`src/facebook/user.ts`)
 - [ ] `background.js`: cross-origin fetch for the content script
@@ -90,7 +90,9 @@ A live check on 2026-11-13, logged in to the news feed in Chrome, found:
 - The 2023 time-link selector matched nothing. The current time link is `a[role=link][aria-labelledby][aria-describedby]`, and its address already holds the post's ID: 10 of 19 posts, all with different IDs. The others were sponsored posts, which have no such link, and empty slots. Running the ported code on the feed marked all 22 slots that had content; 17 got an ID, all different. The 5 without one were sponsored posts, and hovering their links did not reveal an address.
 - Facebook's colour variables (`--card-background`, `--primary-text` and the rest) are set, in dark mode as well.
 
-Not checked yet: the options dialog on the page, Facebook's keyboard shortcuts while typing in it, group, profile and Marketplace pages, and the comments popup.
+The options dialog was opened on the same page over sample options. It used Facebook's dark colours and font, opened as a modal above everything else on the page, and took focus. Keys typed into it reached its search box and not Facebook: nothing scrolled or moved focus, and listeners on the document saw none of them. Listeners on `window` in the capture phase still see the keys, so a Facebook shortcut that listened there would fire; none did. In a search box that holds text, the first Escape clears the box and the second closes the dialog, as in any Chrome dialog.
+
+Not checked yet: group, profile and Marketplace pages, and the comments popup.
 
 ## Not yet checked against Facebook
 
@@ -111,4 +113,4 @@ One behaviour is copied from the original and looks risky:
 
 - A name with no class yet is left untranslated. Inside `:not()` it then excludes nothing, so `[role=article]:not(.S2F_pos_rel)` matches comments too until `pos_rel` is known. Post detection waits for the first stylesheet scan to narrow that window.
 
-The options dialog has only run in tests as well. Check that it picks up Facebook's colour variables in light and dark mode, that it sits above Facebook's own layers, and that typing in it does not trigger Facebook's keyboard shortcuts.
+The dialog has not been checked in Facebook's light mode, or in Firefox.

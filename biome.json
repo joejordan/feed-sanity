@@ -197,7 +197,32 @@
         "useThrowNewError": "error",
         "useThrowOnlyError": "error",
         "useTrimStartEnd": "error",
-        "useVarsOnTop": "error"
+        "useVarsOnTop": "error",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "react": {
+                "allowImportNames": [
+                  "ReactNode",
+                  "useCallback",
+                  "useEffect",
+                  "useId",
+                  "useMemo",
+                  "useRef",
+                  "useState",
+                  "useSyncExternalStore"
+                ],
+                "message": "The UI runs on preact/compat, not React. Check that it supports this before adding it to the list in biome.json."
+              },
+              "react-dom/client": {
+                "allowImportNames": ["createRoot"],
+                "message": "The UI runs on preact/compat, not React. Check that it supports this before adding it to the list in biome.json."
+              },
+              "react-dom": "Import createRoot from react-dom/client. The UI runs on preact/compat, not React. Check that it supports this before adding it to the list in biome.json."
+            }
+          }
+        }
       },
       "suspicious": {
         "noAlert": "error",
@@ -275,7 +300,25 @@
               "level": "error",
               "options": {
                 "paths": {
-                  "wxt/browser": "This code also runs in the userscript, which has no extension API. Go through src/platform/."
+                  "wxt/browser": "This code also runs in the userscript, which has no extension API. Go through src/platform/.",
+                  "react": {
+                    "allowImportNames": [
+                      "ReactNode",
+                      "useCallback",
+                      "useEffect",
+                      "useId",
+                      "useMemo",
+                      "useRef",
+                      "useState",
+                      "useSyncExternalStore"
+                    ],
+                    "message": "The UI runs on preact/compat, not React. Check that it supports this before adding it to the list in biome.json."
+                  },
+                  "react-dom/client": {
+                    "allowImportNames": ["createRoot"],
+                    "message": "The UI runs on preact/compat, not React. Check that it supports this before adding it to the list in biome.json."
+                  },
+                  "react-dom": "Import createRoot from react-dom/client. The UI runs on preact/compat, not React. Check that it supports this before adding it to the list in biome.json."
                 }
               }
             }
