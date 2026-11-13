@@ -1,5 +1,5 @@
 import { waitForElement } from '../../core/dom';
-import { defineFeature } from '../../core/feature';
+import { defineFeature } from '../../facebook/feature';
 
 const LINK_ID = 'feed_sanity_external_css';
 

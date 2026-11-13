@@ -22,7 +22,9 @@ describe('startFeatures', () => {
         seen.push(options.get('size'));
       },
     });
-    expect(await startFeatures([feature], new Options(extensionStore, 'u/options'))).toEqual([]);
+    expect(
+      await startFeatures([feature], new Options(extensionStore, 'u/options'), undefined),
+    ).toEqual([]);
     expect(seen).toEqual([12]);
   });
 
@@ -47,8 +49,24 @@ describe('startFeatures', () => {
     const failed = await startFeatures(
       [broken, rejecting, working],
       new Options(extensionStore, 'u/options'),
+      undefined,
     );
     expect(failed).toEqual(['broken', 'rejecting']);
     expect(started).toEqual(['working']);
+  });
+
+  it('hands each feature the page it was given', async () => {
+    const page = { name: 'a page' };
+    const seen: unknown[] = [];
+    const feature = defineFeature({
+      id: 'curious',
+      setup: (ctx: { page: typeof page }) => {
+        seen.push(ctx.page);
+      },
+    });
+
+    await startFeatures([feature], new Options(extensionStore, 'u/options'), page);
+
+    expect(seen).toEqual([page]);
   });
 });

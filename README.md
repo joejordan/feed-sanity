@@ -6,7 +6,7 @@ Feed Sanity is a separate project from Social Fixer and is not published under t
 
 ## Status
 
-The build, the feature framework and the options store work, and one feature is ported (external CSS). There is no options dialog yet. [docs/porting.md](docs/porting.md) lists what is left.
+The build, the feature framework, the options store, post detection and the translation of Facebook's generated class names are in place, and one feature is ported (external CSS). Post detection has only run in tests, not yet on Facebook itself. There is no options dialog yet. [docs/porting.md](docs/porting.md) lists what is left.
 
 ## Layout
 
@@ -38,7 +38,7 @@ To compare against the original, open `about:debugging` in Firefox, choose "Load
 Create `src/features/<name>/index.ts`:
 
 ```ts
-import { defineFeature } from '../../core/feature';
+import { defineFeature } from '../../facebook/feature';
 
 export default defineFeature({
   id: 'my_feature',
@@ -50,13 +50,18 @@ export default defineFeature({
       default: false,
     },
   },
-  setup({ options, log }) {
+  setup({ options, log, page }) {
     options.watch('my_feature_enabled', (enabled) => {
       log.debug('enabled:', enabled);
+    });
+    page.posts.onAdd((post) => {
+      log.debug('post', post.number, post.id, post.element);
     });
   },
 });
 ```
+
+`page.posts` reports each post on the page and each one Facebook adds later. `page.atoms` translates selectors that name Facebook's generated classes.
 
 Then add it to the list in `src/features/index.ts`. A feature that throws during setup is logged and skipped, and the others keep running.
 

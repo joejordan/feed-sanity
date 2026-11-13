@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { startFeatures } from '../../core/app';
 import { Options } from '../../core/options';
+import { createPage } from '../../facebook/feature';
 import { extensionStore } from '../../platform/extension-store';
 import externalCss from '.';
 
@@ -15,7 +16,7 @@ describe('external_css', () => {
     fakeBrowser.reset();
     link()?.remove();
     options = new Options(extensionStore, 'u/options');
-    await startFeatures([externalCss], options);
+    await startFeatures([externalCss], options, createPage());
   });
 
   it('adds nothing while the URL is empty', () => {
