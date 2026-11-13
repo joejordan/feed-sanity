@@ -32,7 +32,7 @@ type Found = [name: string, atom: string];
 const squash = (text: string): string => text.replaceAll(/\s+/g, '');
 
 /** How many elements on the page carry the class. */
-const useCount = (atom: string): number => document.querySelectorAll(`[class~="${atom}"]`).length;
+const countUses = (atom: string): number => document.querySelectorAll(`[class~="${atom}"]`).length;
 
 /** Groups a matcher for each rule under its declaration, so a stylesheet rule needs one lookup. */
 function buildMatchers(): Map<string, Matcher[]> {
@@ -244,8 +244,8 @@ export class Atoms {
       return false;
     }
     if (current !== undefined) {
-      const uses = useCount(atom) + 1;
-      const currentUses = this.#uses.get(name) ?? useCount(current);
+      const uses = countUses(atom) + 1;
+      const currentUses = this.#uses.get(name) ?? countUses(current);
       this.#uses.set(name, Math.max(uses, currentUses));
       if (uses <= currentUses) {
         return false;

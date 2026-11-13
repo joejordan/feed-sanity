@@ -27,6 +27,10 @@
             "groups": [
               {
                 "type": false,
+                "source": ["react", "react/**", "react-dom", "react-dom/**"]
+              },
+              {
+                "type": false,
                 "source": [":NODE:", ":BUN:"]
               },
               {
@@ -84,10 +88,13 @@
         "useRegexpTest": "error"
       },
       "correctness": {
+        "noChildrenProp": "warn",
         "noEmptyPattern": "error",
         "noGlobalDirnameFilename": "error",
         "noInvalidBuiltinInstantiation": "error",
         "noInvalidUseBeforeDeclaration": "error",
+        "noJsxNamespace": "error",
+        "noNestedComponentDefinitions": "error",
         "noPrecisionLoss": "error",
         "noSelfAssign": "error",
         "noSwitchDeclarations": "error",
@@ -101,7 +108,10 @@
             "ignoreUsingDeclarations": false
           }
         },
+        "useExhaustiveDependencies": "warn",
+        "useHookAtTopLevel": "error",
         "useIsNan": "error",
+        "useJsxKeyInIterable": "error",
         "useSingleJsDocAsterisk": "warn",
         "useValidTypeof": "error"
       },
@@ -192,6 +202,7 @@
       "suspicious": {
         "noAlert": "error",
         "noApproximativeNumericConstant": "error",
+        "noArrayIndexKey": "warn",
         "noAssignInExpressions": "error",
         "noAsyncPromiseExecutor": "error",
         "noCatchAssign": "error",
@@ -213,14 +224,17 @@
         "noEmptySource": "error",
         "noExtraNonNullAssertion": "error",
         "noFallthroughSwitchClause": "error",
+        "noForIn": "error",
         "noGlobalAssign": "error",
         "noIrregularWhitespace": "error",
+        "noJsxLeakedDollar": "warn",
         "noMisleadingCharacterClass": "error",
         "noMisleadingInstantiator": "error",
         "noNonNullAssertedOptionalChain": "error",
         "noOctalEscape": "error",
         "noProto": "error",
         "noPrototypeBuiltins": "error",
+        "noReactForwardRef": "warn",
         "noRedeclare": "error",
         "noSelfCompare": "error",
         "noShadowRestrictedNames": "error",
@@ -247,7 +261,13 @@
   },
   "overrides": [
     {
-      "includes": ["src/**", "!src/platform/**", "!src/entrypoints/**", "!**/*.test.ts"],
+      "includes": [
+        "src/**",
+        "!src/platform/**",
+        "!src/entrypoints/**",
+        "!**/*.test.ts",
+        "!**/*.test.tsx"
+      ],
       "linter": {
         "rules": {
           "style": {

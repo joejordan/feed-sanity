@@ -151,6 +151,32 @@ describe('Options', () => {
     expect(await browser.storage.local.get('42/options')).toEqual({});
   });
 
+  it('lists every option in the order registered', () => {
+    const options = newOptions();
+    const more = { size: { section: 'Advanced', title: 'Size', description: '', default: 3 } };
+    options.register(more);
+
+    expect(options.list()).toEqual([
+      ['greeting', specs.greeting],
+      ['enabled', specs.enabled],
+      ['size', more.size],
+    ]);
+  });
+
+  it('settles loaded once the saved values are read', async () => {
+    const options = newOptions();
+    let loaded = false;
+    void options.loaded.then(() => {
+      loaded = true;
+    });
+    await Promise.resolve();
+    expect(loaded).toBe(false);
+
+    await options.load();
+    await options.loaded;
+    expect(loaded).toBe(true);
+  });
+
   it('rejects an option key that two features both define', () => {
     const options = newOptions();
     expect(() => options.register({ greeting: specs.greeting })).toThrow(/defined twice/);

@@ -6,7 +6,7 @@ Feed Sanity is a separate project from Social Fixer and is not published under t
 
 ## Status
 
-The build, the feature framework, the options store, post detection and the translation of Facebook's generated class names are in place, and one feature is ported (external CSS). Post detection has only run in tests, not yet on Facebook itself. There is no options dialog yet. [docs/porting.md](docs/porting.md) lists what is left.
+The build, the feature framework, the options store, post detection and the translation of Facebook's generated class names are in place, and one feature is ported (external CSS). An options dialog lists every feature's options; open it from the toolbar button or the userscript manager's menu. Post detection and the dialog have only run in tests, not yet on Facebook itself. [docs/porting.md](docs/porting.md) lists what is left.
 
 ## Layout
 
@@ -17,6 +17,7 @@ The build, the feature framework, the options store, post detection and the tran
 | `src/facebook/`                  | Everything that depends on how Facebook builds its pages, such as selectors, cookies and URL formats. When Facebook changes something, the fix goes here. |
 | `src/features/<name>/`           | One folder per feature, with its tests.                                                                                                                   |
 | `src/platform/`                  | What differs between the extension and the userscript, such as where settings are stored.                                                                 |
+| `src/ui/`                        | The React UI: `mount` for showing a component on the page, and the options dialog.                                                                         |
 | `reference/social-fixer-31.1.0/` | The original 31.1.0 source, unmodified. Do not edit it.                                                                                                   |
 
 ## Getting started
@@ -65,9 +66,22 @@ export default defineFeature({
 
 Then add it to the list in `src/features/index.ts`. A feature that throws during setup is logged and skipped, and the others keep running.
 
+## UI
+
+The UI is written in React. `mount` in `src/ui/mount.tsx` renders a component into a shadow root of its own at the end of the page, so Facebook's styles do not reach it and its styles do not leak out. It also stops keys typed into the UI from reaching Facebook's keyboard shortcuts. Import a component's style sheet with `?inline` and pass it to `mount`:
+
+```tsx
+import { mount } from '../../ui/mount';
+import css from './my-panel.css?inline';
+
+const unmount = mount(<MyPanel />, { id: 'feed_sanity_my_panel', css });
+```
+
+Every shadow root gets `src/ui/theme.css` first, then `src/facebook/theme.css`, which defines `--fs-*` colour variables from Facebook's own so the UI follows its light and dark themes. Use those rather than fixed colours.
+
 ## Code style
 
-Biome formats and lints the code. Its rules in `biome.json` were ported from `@burgtech/eslint-config` with `biome migrate eslint`: 2-space indent, single quotes, semicolons, 100-column lines, kebab-case file names, and imports ordered as built-in, package, type, parent, sibling. `pnpm format` applies the fixes.
+Biome formats and lints the code. Its rules in `biome.json` were ported from `@burgtech/eslint-config` with `biome migrate eslint`: 2-space indent, single quotes, semicolons, 100-column lines, kebab-case file names, and imports ordered as React, built-in, package, type, parent, sibling. `pnpm format` applies the fixes.
 
 ## Commits
 

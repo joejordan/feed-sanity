@@ -1,11 +1,19 @@
 import type { Store } from '../core/storage';
 
-// The userscript manager calls this file uses. They are declared here, not
+// The userscript manager calls this project makes. They are declared here, not
 // globally, so that no other code can call them and break the extension.
+// This file has no runtime imports, because vite.userscript.config.ts loads it
+// for `GRANTS` through Node's TypeScript loader.
 declare const GM: {
   getValue: (name: string) => Promise<unknown>;
   setValue: (name: string, value: unknown) => Promise<void>;
+  /** Missing in some managers, which offer `GM_registerMenuCommand` instead. */
+  registerMenuCommand?: (caption: string, onClick: () => void) => unknown;
 };
+
+declare const GM_registerMenuCommand:
+  | undefined
+  | ((caption: string, onClick: () => void) => unknown);
 
 /** Tampermonkey and Violentmonkey only. */
 declare const GM_addValueChangeListener:
@@ -16,7 +24,13 @@ declare const GM_addValueChangeListener:
     ) => unknown);
 
 /** The `@grant` lines the userscript header needs, one per call declared above. */
-export const GRANTS = ['GM.getValue', 'GM.setValue', 'GM_addValueChangeListener'];
+export const GRANTS = [
+  'GM.getValue',
+  'GM.setValue',
+  'GM.registerMenuCommand',
+  'GM_registerMenuCommand',
+  'GM_addValueChangeListener',
+];
 
 /**
  * Settings storage for the userscript build, on the `GM` calls that
@@ -33,3 +47,19 @@ export const userscriptStore: Store = {
     }
   },
 };
+
+/**
+ * Adds an entry to the userscript manager's menu for this script. Returns
+ * false when the manager has no menu.
+ */
+export function addMenuCommand(caption: string, onClick: () => void): boolean {
+  const register =
+    typeof GM_registerMenuCommand === 'function'
+      ? GM_registerMenuCommand
+      : GM.registerMenuCommand?.bind(GM);
+  if (!register) {
+    return false;
+  }
+  register(caption, onClick);
+  return true;
+}

@@ -30,7 +30,7 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
   - [x] IDs from the page address, from links in the post and from hovering the time link (`src/facebook/post-id.ts`)
   - [ ] IDs from React's data on the post's elements. A content script cannot see that data. It needs a script running in the page's own world that passes the IDs back.
   - [ ] pausing post loading after `max_post_load_count` posts
-- [ ] `vue_sfx.js`: Vue 1 directives and filters used by the dialogs
+- [x] `vue_sfx.js`: Vue 1 directives and filters used by the dialogs. Replaced by React; see `src/ui/`.
 - [ ] `index.js`: startup
   - [x] per-user storage key from the `c_user` cookie (`src/facebook/user.ts`)
 - [ ] `background.js`: cross-origin fetch for the content script
@@ -63,6 +63,10 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
 - [ ] most_recent
 - [ ] notify
 - [ ] options
+  - [x] the dialog: every registered option by section, search, Save and Cancel (`src/ui/options-dialog/`)
+  - [x] opening it from the toolbar button (extension) or the userscript manager's menu
+  - [ ] opening it from Social Fixer's badge menu on the page, which comes with the `menu` port
+  - [ ] the Filters, Hide Posts and Data sections, and option types other than on/off, number and text
 - [ ] permalink_target
 - [ ] photo_tags
 - [ ] post_filters
@@ -95,3 +99,5 @@ One behaviour differs from the original on purpose:
 One behaviour is copied from the original and looks risky:
 
 - A name with no class yet is left untranslated. Inside `:not()` it then excludes nothing, so `[role=article]:not(.S2F_pos_rel)` matches comments too until `pos_rel` is known. Post detection waits for the first stylesheet scan to narrow that window.
+
+The options dialog has only run in tests as well. Check that it picks up Facebook's colour variables in light and dark mode, that it sits above Facebook's own layers, and that typing in it does not trigger Facebook's keyboard shortcuts.

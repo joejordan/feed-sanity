@@ -4,12 +4,13 @@
 //
 // The extension builds go through WXT instead (wxt.config.ts).
 
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import pkg from './package.json' with { type: 'json' };
 // Vite's native config loader needs the file extensions.
 import { DESCRIPTION, NAME } from './project.ts';
 import { EXCLUDE_GLOBS, EXCLUDE_MATCHES, MATCHES } from './src/facebook/urls.ts';
-import { GRANTS } from './src/platform/userscript-store.ts';
+import { GRANTS } from './src/platform/userscript-gm.ts';
 
 const line = (key: string, value = '') => `// @${key.padEnd(12)} ${value}`.trimEnd();
 
@@ -31,6 +32,10 @@ const header = [
 ].join('\n');
 
 export default defineConfig({
+  plugins: [react()],
+  // Library builds leave `process.env.NODE_ENV` alone, and React reads it.
+  // A userscript has no `process`, so the value is filled in here.
+  define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: {
     outDir: '.output/userscript',
     // Userscript sites such as Greasy Fork do not accept minified code.

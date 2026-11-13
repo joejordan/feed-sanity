@@ -1,8 +1,9 @@
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 import { WxtVitest } from 'wxt/testing/vitest-plugin';
 
 export default defineConfig({
-  plugins: [WxtVitest()],
+  plugins: [WxtVitest(), react()],
   test: {
     environment: 'happy-dom',
     environmentOptions: {
@@ -14,7 +15,7 @@ export default defineConfig({
         settings: { handleDisabledFileLoadingAsSuccess: true },
       },
     },
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
     // Tests silence console.error with a spy. Undo it before the next test.
     restoreMocks: true,
   },

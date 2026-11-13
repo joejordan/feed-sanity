@@ -64,6 +64,7 @@ export class Options implements FeatureOptions<OptionSpecs> {
   /** Saves made here that storage has not finished writing. */
   #pendingSaves = 0;
   #followsStorage = false;
+  readonly #loaded = Promise.withResolvers<void>();
 
   constructor(store: Store, storageKey: string) {
     this.#store = store;
@@ -79,9 +80,23 @@ export class Options implements FeatureOptions<OptionSpecs> {
     }
   }
 
+  /** Every registered option as `[key, spec]`, in the order the features registered them. */
+  list(): [string, OptionSpec][] {
+    return [...this.#specs];
+  }
+
+  /**
+   * Settles once `load` has first read the saved values. Until then every
+   * option reads as its default, and a save would overwrite the stored ones.
+   */
+  get loaded(): Promise<void> {
+    return this.#loaded.promise;
+  }
+
   /** Reads the saved values, and from then on follows saves made in other tabs. */
   async load(): Promise<void> {
     this.#saved = asSaved(await this.#store.get(this.#storageKey));
+    this.#loaded.resolve();
     if (this.#followsStorage) {
       return;
     }
