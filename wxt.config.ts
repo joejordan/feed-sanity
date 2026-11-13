@@ -11,10 +11,10 @@ export default defineConfig({
     description: DESCRIPTION,
     permissions: ['storage'],
     browser_specific_settings: {
-      // Temporary ID. Choose the real one before the first store upload:
-      // changing it afterwards cuts users off from their saved settings.
+      // Do not change this ID once the add-on is published: Firefox would
+      // treat it as a different add-on and users would lose their settings.
       gecko: {
-        id: 'feed-sanity@dev.invalid',
+        id: 'feed-sanity@burgtech.com',
         // The extension sends no data anywhere. Update this if that changes.
         data_collection_permissions: { required: ['none'] },
       },
