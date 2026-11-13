@@ -29,7 +29,7 @@ pnpm build        # .output/firefox-mv2, .output/chrome-mv3 and .output/userscri
 Create `src/features/<name>/index.ts`:
 
 ```ts
-import { defineFeature } from '../../core/feature';
+import { defineFeature } from '../../facebook/feature';
 
 export default defineFeature({
   id: 'my_feature',
@@ -41,13 +41,18 @@ export default defineFeature({
       default: false,
     },
   },
-  setup({ options, log }) {
+  setup({ options, log, page }) {
     options.watch('my_feature_enabled', (enabled) => {
       log.debug('enabled:', enabled);
+    });
+    page.posts.onAdd((post) => {
+      log.debug('post', post.number, post.id, post.element);
     });
   },
 });
 ```
+
+`page.posts` reports each post on the page and each one Facebook adds later. `page.atoms` translates selectors that name Facebook's generated classes.
 
 Then add it to the list in `src/features/index.ts`. A feature that throws during setup is logged and skipped, and the others keep running.
 
