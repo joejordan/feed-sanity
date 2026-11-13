@@ -1,6 +1,6 @@
 import type { Feature } from './feature';
-import { createLogger } from './log';
 import type { Options } from './options';
+import { createLogger } from './log';
 
 /**
  * Registers every feature's options, reads the saved values, then starts the

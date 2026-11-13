@@ -51,6 +51,10 @@ export default defineFeature({
 
 Then add it to the list in `src/features/index.ts`. A feature that throws during setup is logged and skipped, and the others keep running.
 
+## Code style
+
+Biome formats and lints the code. Its rules in `biome.json` were converted from `@burgtech/eslint-config` with `biome migrate eslint`: 2-space indent, single quotes, semicolons, 100-column lines, kebab-case file names, and imports ordered as built-in, package, type, parent, sibling. `pnpm format` applies the fixes.
+
 ## Commits
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org). A commit-msg hook rejects anything else.
