@@ -4,8 +4,9 @@
  * this is the file to fix.
  *
  * `S2F_` names stand for Facebook's generated classes. Pass a selector
- * through `atoms.translate` before using it. The selectors were last checked
- * against Facebook in 2023 (Social Fixer 31.1.0).
+ * through `atoms.translate` before using it. Most selectors were last checked
+ * against Facebook in 2023 (Social Fixer 31.1.0). `docs/porting.md` lists
+ * what has been checked on the live site since.
  */
 
 /**
@@ -33,7 +34,7 @@ export const MARK = {
 export const THEATER_COMMENTS =
   '.S2F_fldr_col [role=main] ~ [role=complementary].S2F_bg_surf > .S2F_just_spbt';
 
-/** Attribute holding a post's position in the news feed. An element that has it is always a post. */
+/** Attribute holding a post's position in the news feed. An element that has it is a post once it has content. */
 export const FEED_POSITION = 'aria-posinset';
 
 /** Elements that may be the top of a post. `POST_VERIFIER` confirms them. */
@@ -78,6 +79,9 @@ export const LOADING_POST = '[role=progressbar]';
 
 /** The time link in a post's header, which leads to the post's own page. */
 export const TIMESTAMP = [
+  // Seen on 2026-11-13. The address is already the post's own, with no hover needed.
+  'a[role=link][aria-labelledby][aria-describedby]',
+  // Social Fixer 31.1.0 (2023). These links showed `#` until hovered.
   'span[id] a.S2F_font_400[role=link][tabindex="0"]:not([href*="/user/"])',
   'span[id] a.S2F_col_tx2[role=link][tabindex="0"]:not([href*="/user/"])',
 ].join(',');

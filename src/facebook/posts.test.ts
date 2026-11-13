@@ -213,6 +213,17 @@ describe('posts', () => {
     expect(late).toHaveBeenCalledTimes(1);
   });
 
+  it('waits for an empty feed slot to fill', async () => {
+    const slot = addHtml('<div aria-posinset="4"></div>');
+    await watch(0);
+    expect(slot.hasAttribute('sfx_post')).toBe(false);
+
+    addHtml('<div><a aria-label="Author"></a>Some text</div>', slot);
+
+    await vi.waitFor(() => expect(added).toHaveLength(1));
+    expect(added[0]?.element).toBe(slot);
+  });
+
   it('looks for listings on Marketplace pages', async () => {
     history.replaceState({}, '', '/marketplace/');
     addHtml(POST_HTML);

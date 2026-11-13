@@ -80,13 +80,24 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
 - [ ] subscriptions
 - [ ] unread_messages
 
+## Checked against Facebook
+
+A live check on 2026-11-13, logged in to the news feed in Chrome, found:
+
+- Generated class names still look like `x9f619`. `Atoms` found 102 of the 109 names, including all 25 that `src/facebook/selectors.ts` uses. Missing: `bb_bt2`, `bbl_rad10`, `bbl_rad50`, `bbl_radcrd`, `font_bold`, `list_none`, `wid_panel`.
+- All 13 stylesheets could be read, so nothing had to be downloaded.
+- Feed posts carry `aria-posinset` and are found. Facebook empties feed slots that scroll out of view and fills them again when they come back, so `Posts` waits for a slot to have content. A post that Facebook empties and refills keeps its marks but is not announced again, so a feature that adds things inside a post will need to add them again after a refill.
+- The 2023 time-link selector matched nothing. The current time link is `a[role=link][aria-labelledby][aria-describedby]`, and its address already holds the post's ID: 10 of 19 posts, all with different IDs. The others were sponsored posts, which have no such link, and empty slots. Running the ported code on the feed marked all 22 slots that had content; 17 got an ID, all different. The 5 without one were sponsored posts, and hovering their links did not reveal an address.
+- Facebook's colour variables (`--card-background`, `--primary-text` and the rest) are set, in dark mode as well.
+
+Not checked yet: the options dialog on the page, Facebook's keyboard shortcuts while typing in it, group, profile and Marketplace pages, and the comments popup.
+
 ## Not yet checked against Facebook
 
-The ported code has only run in unit tests. These parts copy what worked in 2023 and need checking on the live site:
+Apart from the news feed check above, the ported code has only run in unit tests. These parts copy what worked in 2023 and still need checking on the live site:
 
-- the shape of a generated class name (`ATOM` in `src/facebook/atoms.ts`)
-- the declarations in `src/facebook/atom-rules.ts`
-- every selector in `src/facebook/selectors.ts`
+- the declarations in `src/facebook/atom-rules.ts` behind the seven names `Atoms` did not find
+- the selectors in `src/facebook/selectors.ts` other than the feed position and the time link
 - downloading stylesheets the page may not read. The original went through its background script. `Atoms` uses `fetch`, which depends on Facebook's servers allowing it.
 
 One behaviour differs from the original on purpose:

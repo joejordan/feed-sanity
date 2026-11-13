@@ -22,6 +22,9 @@ import {
 
 const log = createLogger('posts');
 
+/** A feed slot not tracked yet, which may be waiting for its content. */
+const UNTRACKED_SLOT = `[${FEED_POSITION}]:not([${MARK.post}])`;
+
 /** A post on the page, or a Marketplace listing on Marketplace pages. */
 export interface Post {
   /** The post's top element. It carries the `sfx_post` and `sfx_id` attributes. */
@@ -158,7 +161,12 @@ export class Posts {
   }
 
   #inserted(element: Element): void {
-    if (!element.closest(POST_REACTIONS)) {
+    // Facebook empties feed slots that scroll out of view and fills them
+    // again later, so content can arrive inside a slot not tracked yet.
+    const slot = element.parentElement?.closest(UNTRACKED_SLOT);
+    if (slot) {
+      this.#scan(slot);
+    } else if (!element.closest(POST_REACTIONS)) {
       this.#scan(element);
     }
   }
@@ -176,7 +184,8 @@ export class Posts {
       return false;
     }
     if (element.getAttribute(FEED_POSITION)) {
-      return true;
+      // An empty slot is a post not loaded yet, or one scrolled far out of view.
+      return !!element.textContent?.trim();
     }
     // Inside another post, it is a comment or an embedded post.
     if (element.parentElement?.closest(POST_ANCESTOR)) {

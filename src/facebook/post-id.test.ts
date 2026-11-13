@@ -88,6 +88,13 @@ describe('findPostId', () => {
     await expect(findPostId(post, atoms)).resolves.toBe('123456789');
   });
 
+  it('reads the time link as Facebook marks it up today', async () => {
+    post.innerHTML =
+      '<a role="link" aria-labelledby="a" aria-describedby="b" href="/reel/1234567890/">3 h</a>';
+
+    await expect(findPostId(post, atoms)).resolves.toBe('1234567890');
+  });
+
   it('hovers the time link until it shows the real address', async () => {
     post.innerHTML =
       '<span id="s"><a class="S2F_font_400" role="link" tabindex="0" href="#">2 h</a></span>';
