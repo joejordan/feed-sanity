@@ -1,5 +1,5 @@
-import { browser } from 'wxt/browser';
 import { createLogger } from './log';
+import type { Store } from './storage';
 
 const log = createLogger('options');
 
@@ -29,26 +29,34 @@ export type OptionValues<S extends OptionSpecs> = { [K in keyof S]: Widen<S[K]['
 
 /** The options store as one feature sees it: only its own keys, with their value types. */
 export interface FeatureOptions<S extends OptionSpecs> {
-  get<K extends keyof S & string>(key: K): OptionValues<S>[K];
-  set<K extends keyof S & string>(key: K, value: OptionValues<S>[K]): Promise<void>;
+  get: <K extends keyof S & string>(key: K) => OptionValues<S>[K];
+  set: <K extends keyof S & string>(key: K, value: OptionValues<S>[K]) => Promise<void>;
   /**
    * Calls `listener` with the current value, then again after every change.
    * Returns a function that stops the calls.
    */
-  watch<K extends keyof S & string>(
+  watch: <K extends keyof S & string>(
     key: K,
     listener: (value: OptionValues<S>[K]) => void,
-  ): () => void;
+  ) => () => void;
 }
 
 /** The saved object: option key to value, for the options that were changed. */
 type Saved = Record<string, OptionValue>;
 
+/** What the store holds under the storage key. Anything but an object reads as nothing saved. */
+function asSaved(stored: unknown): Saved {
+  return typeof stored === 'object' && stored !== null && !Array.isArray(stored)
+    ? (stored as Saved)
+    : {};
+}
+
 /**
- * Every feature's options, saved together as one object in extension storage.
+ * Every feature's options, saved together as one object in the store.
  * A value that was never saved reads as the option's default.
  */
 export class Options implements FeatureOptions<OptionSpecs> {
+  readonly #store: Store;
   readonly #storageKey: string;
   readonly #specs = new Map<string, OptionSpec>();
   readonly #listeners = new Map<string, Set<(value: OptionValue) => void>>();
@@ -57,7 +65,8 @@ export class Options implements FeatureOptions<OptionSpecs> {
   #pendingSaves = 0;
   #followsStorage = false;
 
-  constructor(storageKey: string) {
+  constructor(store: Store, storageKey: string) {
+    this.#store = store;
     this.#storageKey = storageKey;
   }
 
@@ -72,17 +81,13 @@ export class Options implements FeatureOptions<OptionSpecs> {
 
   /** Reads the saved values, and from then on follows saves made in other tabs. */
   async load(): Promise<void> {
-    const found = await browser.storage.local.get(this.#storageKey);
-    this.#saved = (found[this.#storageKey] as Saved | undefined) ?? {};
+    this.#saved = asSaved(await this.#store.get(this.#storageKey));
     if (this.#followsStorage) {
       return;
     }
     this.#followsStorage = true;
-    browser.storage.onChanged.addListener((changes, area) => {
-      const change = area === 'local' ? changes[this.#storageKey] : undefined;
-      if (change) {
-        this.#follow((change.oldValue ?? {}) as Saved, (change.newValue ?? {}) as Saved);
-      }
+    this.#store.onChange(this.#storageKey, (oldValue, newValue) => {
+      this.#follow(asSaved(oldValue), asSaved(newValue));
     });
   }
 
@@ -101,7 +106,7 @@ export class Options implements FeatureOptions<OptionSpecs> {
     this.#emit(key);
     this.#pendingSaves++;
     try {
-      await browser.storage.local.set({ [this.#storageKey]: this.#saved });
+      await this.#store.set(this.#storageKey, this.#saved);
     } finally {
       this.#pendingSaves--;
     }
@@ -117,7 +122,7 @@ export class Options implements FeatureOptions<OptionSpecs> {
     };
   }
 
-  // Storage reports every save, including the ones made here. Only the keys
+  // The store reports every save, including the ones made here. Only the keys
   // a save changed are taken over, so a report that arrives late does not
   // undo a value set since. While a save from here is on its way, its values
   // are the newer ones and the report is ignored.

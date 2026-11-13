@@ -1,6 +1,6 @@
 # Social Fixer fork (working title)
 
-A TypeScript rewrite of [Social Fixer for Facebook](https://socialfixer.com/), the browser extension by Matt Kruse. The last official release, 31.1.0, came out on 2023-09-08. This project ports it feature by feature to a new codebase that builds for Firefox and Chrome.
+A TypeScript rewrite of [Social Fixer for Facebook](https://socialfixer.com/), the browser extension by Matt Kruse. The last official release, 31.1.0, came out on 2023-09-08. This project ports it feature by feature to a new codebase that builds a Firefox extension, a Chrome extension and a userscript for Greasemonkey, Tampermonkey and Violentmonkey.
 
 The project does not have its own name yet. "Social Fixer" is the original project's name, and this fork will not be published under it.
 
@@ -16,6 +16,7 @@ The build, the feature framework and the options store work, and one feature is 
 | `src/core/`                      | The framework features are built on: feature registry, options, DOM helpers. Nothing here knows about Facebook's markup.                                  |
 | `src/facebook/`                  | Everything that depends on how Facebook builds its pages, such as selectors, cookies and URL formats. When Facebook changes something, the fix goes here. |
 | `src/features/<name>/`           | One folder per feature, with its tests.                                                                                                                   |
+| `src/platform/`                  | What differs between the extension and the userscript, such as where settings are stored.                                                                 |
 | `reference/social-fixer-31.1.0/` | The original 31.1.0 source, unmodified. Do not edit it.                                                                                                   |
 
 ## Getting started
@@ -27,7 +28,7 @@ pnpm install
 pnpm dev          # run in Firefox and reload on change
 pnpm dev:chrome   # the same in Chrome
 pnpm check        # type check, lint and tests
-pnpm build        # .output/firefox-mv2 and .output/chrome-mv3
+pnpm build        # .output/firefox-mv2, .output/chrome-mv3 and .output/userscript
 ```
 
 To compare against the original, open `about:debugging` in Firefox, choose "Load Temporary Add-on" and pick `reference/social-fixer-31.1.0/manifest.json`.

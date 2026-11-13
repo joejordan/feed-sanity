@@ -18,7 +18,7 @@ export default defineFeature({
   async setup({ options }) {
     const head = await waitForElement('head');
     options.watch('external_css_url', (value) => {
-      document.getElementById(LINK_ID)?.remove();
+      document.querySelector(`#${LINK_ID}`)?.remove();
       // A URL of only spaces would resolve to the current page.
       const url = value.trim();
       if (!url) {

@@ -8,6 +8,7 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
 - Put anything that depends on Facebook's markup in `src/facebook/`. Features import it from there.
 - The original translates Facebook's generated class names through its `S2F_` layer (`aargh_fb_gibberish`). Port that layer before any feature that uses `S2F_` selectors.
 - Each ported feature gets a test next to it.
+- Features must work in the userscript too. Reach browser APIs through `src/platform/`, which has an extension version and a userscript version of each one.
 
 ## Framework
 

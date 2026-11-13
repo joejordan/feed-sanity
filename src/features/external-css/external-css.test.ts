@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { startFeatures } from '../../core/app';
 import { Options } from '../../core/options';
+import { extensionStore } from '../../platform/extension-store';
 import externalCss from '.';
 
 const link = () => document.querySelector<HTMLLinkElement>('link#sfx_external_css');
@@ -12,7 +13,7 @@ describe('external_css', () => {
   beforeEach(async () => {
     fakeBrowser.reset();
     link()?.remove();
-    options = new Options('u/options');
+    options = new Options(extensionStore, 'u/options');
     await startFeatures([externalCss], options);
   });
 

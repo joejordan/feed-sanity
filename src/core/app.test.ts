@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import { extensionStore } from '../platform/extension-store';
 import { startFeatures } from './app';
 import { defineFeature } from './feature';
 import { Options } from './options';
@@ -8,7 +9,7 @@ import { Options } from './options';
 describe('startFeatures', () => {
   beforeEach(() => {
     fakeBrowser.reset();
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
   it('gives each feature its saved option values', async () => {
@@ -21,7 +22,7 @@ describe('startFeatures', () => {
         seen.push(options.get('size'));
       },
     });
-    expect(await startFeatures([feature], new Options('u/options'))).toEqual([]);
+    expect(await startFeatures([feature], new Options(extensionStore, 'u/options'))).toEqual([]);
     expect(seen).toEqual([12]);
   });
 
@@ -43,7 +44,10 @@ describe('startFeatures', () => {
         started.push('working');
       },
     });
-    const failed = await startFeatures([broken, rejecting, working], new Options('u/options'));
+    const failed = await startFeatures(
+      [broken, rejecting, working],
+      new Options(extensionStore, 'u/options'),
+    );
     expect(failed).toEqual(['broken', 'rejecting']);
     expect(started).toEqual(['working']);
   });

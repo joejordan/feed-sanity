@@ -11,7 +11,8 @@
     "postinstall": "wxt prepare",
     "dev": "wxt -b firefox",
     "dev:chrome": "wxt -b chrome",
-    "build": "wxt build -b firefox && wxt build -b chrome",
+    "build": "wxt build -b firefox && wxt build -b chrome && pnpm build:userscript",
+    "build:userscript": "vite build -c vite.userscript.config.ts",
     "zip": "wxt zip -b firefox && wxt zip -b chrome",
     "typecheck": "tsc --noEmit",
     "lint": "biome check",
@@ -26,6 +27,7 @@
     "happy-dom": "^21.0.4",
     "husky": "^9.1.7",
     "typescript": "7.0.2",
+    "vite": "8.3.8",
     "vitest": "^5.1.0",
     "wxt": "^0.21.5"
   }
