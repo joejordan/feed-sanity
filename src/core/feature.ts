@@ -12,7 +12,7 @@ export interface FeatureDefinition<S extends OptionSpecs> {
   id: string;
   options?: S;
   /** Runs once per page load, after saved options have been read. */
-  setup(ctx: FeatureContext<S>): void | Promise<void>;
+  setup: (ctx: FeatureContext<S>) => void | Promise<void>;
 }
 
 /** A feature with its option types erased, so features of every shape fit in one list. */

@@ -1,7 +1,5 @@
 import { defineConfig } from 'wxt';
-
-// The display name is a placeholder until the project has its own name.
-const NAME = 'Feed Sanity';
+import { DESCRIPTION, NAME } from './project';
 
 export default defineConfig({
   srcDir: 'src',
@@ -10,7 +8,7 @@ export default defineConfig({
   imports: false,
   manifest: {
     name: NAME,
-    description: 'Filter and tidy the Facebook news feed.',
+    description: DESCRIPTION,
     permissions: ['storage'],
     browser_specific_settings: {
       // Temporary ID. Choose the real one before the first store upload:

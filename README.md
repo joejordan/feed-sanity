@@ -10,6 +10,7 @@
 | `src/core/`                      | The framework features are built on: feature registry, options, DOM helpers. Nothing here knows about Facebook's markup.                                  |
 | `src/facebook/`                  | Everything that depends on how Facebook builds its pages, such as selectors, cookies and URL formats. When Facebook changes something, the fix goes here. |
 | `src/features/<name>/`           | One folder per feature, with its tests.                                                                                                                   |
+| `src/platform/`                  | What differs between the extension and the userscript, such as where settings are stored.                                                                 |
 
 ## Getting started
 
@@ -20,7 +21,7 @@ pnpm install
 pnpm dev          # run in Firefox and reload on change
 pnpm dev:chrome   # the same in Chrome
 pnpm check        # type check, lint and tests
-pnpm build        # .output/firefox-mv2 and .output/chrome-mv3
+pnpm build        # .output/firefox-mv2, .output/chrome-mv3 and .output/userscript
 ```
 
 ## Adding a feature

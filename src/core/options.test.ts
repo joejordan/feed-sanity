@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import { extensionStore } from '../platform/extension-store';
 import { Options } from './options';
 
 const specs = {
@@ -9,7 +10,7 @@ const specs = {
 };
 
 function newOptions(): Options {
-  const options = new Options('42/options');
+  const options = new Options(extensionStore, '42/options');
   options.register(specs);
   return options;
 }
@@ -55,7 +56,7 @@ describe('Options', () => {
   });
 
   it('still saves and tells the other watchers when one watcher throws', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const options = newOptions();
     await options.load();
     const later = vi.fn();
@@ -127,6 +128,17 @@ describe('Options', () => {
     await options.load();
     expect(options.get('greeting')).toBe('hello');
     expect(options.get('enabled')).toBe(false);
+  });
+
+  it('starts from nothing saved when the store holds something other than an object', async () => {
+    await browser.storage.local.set({ '42/options': 'corrupt' });
+    const options = newOptions();
+    await options.load();
+    expect(options.get('greeting')).toBe('hello');
+    await options.set('greeting', 'hey');
+    expect(await browser.storage.local.get('42/options')).toEqual({
+      '42/options': { greeting: 'hey' },
+    });
   });
 
   it('does nothing when the value is unchanged', async () => {
