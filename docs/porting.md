@@ -119,7 +119,19 @@ The filter engine ran the same day on the news feed, on the groups feed and on a
 - No feed post had an `l.php` link or an `abbr[data-utime]`, so the link rules and the age rule have nothing to match on today's feed.
 - The options dialog showed the filter list and the filter editor over the live page.
 
-Facebook's pages do not allow `eval`, but they allow scripts from `blob:` addresses. The test build was loaded that way, from a file put in a file input.
+Facebook's pages do not allow `eval`, but they allow scripts from `blob:` addresses. The test build was loaded that way, from a file put in a file input. The steps are in `.claude/skills/live-facebook-check/SKILL.md`.
+
+A look at videos on 2026-11-14, in the news feed and the reel viewer in Chrome 157, found:
+
+- Every video is a plain `<video playsinline>` element in the page itself, with no iframe and no shadow root. Its `src` is empty and its `srcObject` is a `MediaSourceHandle`, so the address of the video file is not in the page.
+- A wrapper above the video carries `data-video-id`, and sometimes `data-video-length`.
+- Facebook draws its own controls only on the video that is playing: two `[role=slider]` elements, for position and volume, and labelled buttons.
+- A feed video is not inside a link. A `div[role=presentation]` lies over it and Facebook handles the click in script.
+- Setting `currentTime` moved a playing video from 30 s to 49 s.
+- A capture listener on `window`, added after the page had loaded, received a click on a feed video before Facebook did. With the event stopped there, the video paused, the address stayed the same and nothing opened.
+- With the extension installed and the test build loaded in the same tab, the extension marked the posts first and the test build saw none. The installed extension had found and sorted 14 posts.
+
+Not checked for videos: an ad during a video, whether Facebook starts a paused video again when the page scrolls, whether its own play button follows a pause made from outside, and stories.
 
 Not checked yet: profile and Marketplace pages, the page of a single group, Facebook's light mode, Firefox, and the extension or userscript installed in a browser.
 
