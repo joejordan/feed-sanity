@@ -1,0 +1,210 @@
+<!doctype html>
+<!--
+  A stand-in for videos on Facebook, served at https://www.facebook.com/videos/.
+  The markup follows what docs/porting.md records under "A look at videos on
+  2026-11-14" and the live check after it:
+
+  - Feed videos: a plain <video> a few levels below a wrapper with
+    data-video-id, and a div[role=presentation] laid over it whose click the
+    page's script turns into opening a viewer. Once a video has played, a
+    control row sits inside the wrapper just above a free 12 pixel band along
+    the bottom edge, and stays in the page, faded out, as Facebook's does.
+  - A reel: a card with data-video-id and data-index, two 40 pixel buttons in
+    its bottom corners, and a wide position slider outside the card that lies
+    over the bottom 12 pixels of the video and 8 pixels below it. The slider
+    sits inside three wrappers with the same box, which take the pointer too.
+
+  Every name and text is invented.
+
+  clip.webm is 20 seconds of colour bars, made with
+  ffmpeg -f lavfi -i "smptebars=size=96x54:rate=5:duration=20" -c:v libvpx -b:v 8k -g 5 -an clip.webm
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Facebook</title>
+    <style>
+      body {
+        margin: 0;
+        font: 15px sans-serif;
+      }
+      [role='feed'] {
+        max-width: 600px;
+        margin: 0 auto;
+      }
+      [aria-posinset] {
+        margin: 12px 0;
+        padding: 12px;
+        border: 1px solid #ccc;
+      }
+      [data-video-id] {
+        position: relative;
+        width: 480px;
+        height: 270px;
+        overflow: hidden;
+        background: #000;
+      }
+      [data-video-id] video {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      [role='presentation'] {
+        position: absolute;
+        inset: 0;
+      }
+      .controls {
+        position: absolute;
+        right: 0;
+        bottom: 12px;
+        left: 0;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        height: 20px;
+        padding: 0 8px;
+        opacity: 0.01;
+      }
+      .controls:hover {
+        opacity: 1;
+      }
+      .controls [role='button'] {
+        width: 20px;
+        height: 20px;
+        background: #fff;
+      }
+      .controls [role='slider'] {
+        flex: 1;
+        height: 19px;
+        background: #fff;
+      }
+      #reel-viewer {
+        position: relative;
+        width: 480px;
+        margin: 24px auto 48px;
+      }
+      #reel [role='button'] {
+        position: absolute;
+        bottom: -20px;
+        width: 40px;
+        height: 40px;
+        background: #fff;
+      }
+      #reel-back {
+        left: 2px;
+      }
+      #reel-next {
+        right: 2px;
+      }
+      #reel-bar {
+        position: absolute;
+        top: 258px;
+        right: 8px;
+        left: 8px;
+        height: 20px;
+      }
+      #reel-bar div {
+        height: 100%;
+      }
+      #reel-position {
+        background: rgb(255 255 255 / 50%);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="mount_0_0_e2e">
+      <div role="main">
+        <div role="feed" id="feed">
+          <h3>News Feed posts</h3>
+
+          <div aria-posinset="1" aria-setsize="-1" role="article" aria-labelledby="l1">
+            <div>
+              <h4 id="l1"><strong>Gale Moreno</strong></h4>
+              <div data-ad-rendering-role="story_message"><div dir="auto">Colour bars, playing.</div></div>
+              <div id="playing" data-video-id="200000000000001" data-video-length="20">
+                <div><video playsinline muted autoplay loop></video></div>
+                <div role="presentation"></div>
+              </div>
+            </div>
+          </div>
+
+          <div aria-posinset="2" aria-setsize="-1" role="article" aria-labelledby="l2">
+            <div>
+              <h4 id="l2"><strong>Hollis Avery</strong></h4>
+              <div data-ad-rendering-role="story_message"><div dir="auto">Colour bars, not started.</div></div>
+              <div id="paused" data-video-id="200000000000002">
+                <div><video playsinline muted preload="auto"></video></div>
+                <div role="presentation"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="reel-viewer">
+          <div id="reel" data-video-id="200000000000003" data-index="0">
+            <div><video playsinline muted preload="auto"></video></div>
+            <div role="button" aria-label="Previous Card" id="reel-back" tabindex="0"></div>
+            <div role="button" aria-label="Next Card" id="reel-next" tabindex="0"></div>
+          </div>
+          <div id="reel-bar"><div><div><div role="slider" aria-label="Change position" id="reel-position" tabindex="0"></div></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <template id="controls">
+      <div class="controls">
+        <div role="button" aria-label="Play or pause" tabindex="0"></div>
+        <div role="slider" aria-label="Change position" aria-valuenow="0" tabindex="0"></div>
+        <div role="button" aria-label="Settings" tabindex="0"></div>
+      </div>
+    </template>
+
+    <script>
+      // Facebook plays its videos from script, opens a viewer when the layer
+      // over a feed video is clicked, and draws its controls on a video once it
+      // plays. This script does the same, and notes which controls were used.
+      fetch('/videos/clip.webm')
+        .then((response) => response.blob())
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          for (const video of document.querySelectorAll('video')) {
+            video.src = url;
+          }
+        });
+
+      const note = (what) => {
+        document.body.dataset.used = what;
+      };
+
+      for (const player of document.querySelectorAll('[aria-posinset] [data-video-id]')) {
+        const video = player.querySelector('video');
+        player.querySelector('[role=presentation]').addEventListener('click', () => {
+          history.pushState({}, '', `/watch/?v=${player.dataset.videoId}`);
+          document.body.dataset.viewer = player.dataset.videoId;
+        });
+        video.addEventListener(
+          'play',
+          () => {
+            const controls = document.querySelector('template#controls').content.cloneNode(true);
+            controls.querySelector('[aria-label="Play or pause"]').addEventListener('click', () => {
+              note('play-pause');
+              if (video.paused) {
+                video.play();
+              } else {
+                video.pause();
+              }
+            });
+            controls.querySelector('[role=slider]').addEventListener('click', () => note('slider'));
+            // Next to the layer, so anything added to the player before them stays above them.
+            player.querySelector('[role=presentation]').after(controls);
+          },
+          { once: true },
+        );
+      }
+
+      for (const id of ['reel-back', 'reel-next', 'reel-position']) {
+        document.querySelector(`#${id}`).addEventListener('click', () => note(id));
+      }
+    </script>
+  </body>
+</html>

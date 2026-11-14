@@ -11,6 +11,9 @@ These tests load the built Chrome extension (`.output/chrome-mv3`) into Playwrig
 - A post added after load is filtered, and a post that the page empties and fills again gets its note back.
 - The toolbar button's click event opens the options dialog, and a setting saved in the dialog reaches extension storage.
 - After a move to another page with `history.pushState`, the posts on the new page are found.
+- On `pages/videos/`, which plays a short clip in two feed posts and a reel, each video gets a scrubber that takes the click over the layer the page lays across the video, and a click or a key on it moves the video. On a feed video the strip runs along the bottom edge, under the page's own control row, and on the reel it takes the place of the wide bar outside the card, which is hidden until the scrubber is switched off; the page's other controls still take their clicks. A click on the picture pauses and plays a feed video without opening the page's viewer, the video stays paused when the page starts it from script, and the page's own play button starts it. A double click opens the viewer. Switching the scrubber off removes it without a reload, and with both video options off a click opens the viewer as before.
+
+`pages/videos/clip.webm` is 20 seconds of colour bars, 17 KB, made with the ffmpeg command at the top of `pages/videos/index.html`. The page loads it from a `blob:` address, which Chromium can seek in without the server answering range requests.
 
 ## What they do not cover
 
