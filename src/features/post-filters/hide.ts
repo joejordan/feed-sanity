@@ -34,6 +34,10 @@ function createNote(hiding: Hiding, post: HTMLElement): HTMLElement {
 const sameNote = (a: Hiding | undefined, b: Hiding): boolean =>
   a?.reveal === b.reveal && a.rehide === b.rehide && a.css === b.css;
 
+/** True for a post the page is about: its own page, or the post open in the comments popup. */
+export const isPagePost = (post: Post): boolean =>
+  post.permalink || post.element.classList.contains(MARK.popupPost);
+
 /**
  * Hides a post. With `showNote`, a note stays in its place. A post the page
  * is about gets the note regardless and starts out visible. Safe to call
@@ -41,7 +45,7 @@ const sameNote = (a: Hiding | undefined, b: Hiding): boolean =>
  */
 export function hidePost(post: Post, hiding: Hiding): void {
   const { element } = post;
-  const mustStayVisible = post.permalink || element.classList.contains(MARK.popupPost);
+  const mustStayVisible = isPagePost(post);
   if (mustStayVisible && !element.classList.contains(MARK.hidden)) {
     element.classList.add(MARK.hiddenShown);
   }

@@ -313,6 +313,38 @@ export const STORIES_LIST = anyOf('stories-list', [
   },
 ]);
 
+// Suggested posts and the top bar, looked at on the news feed on 2026-11-14.
+
+const FEEDS_CHECKED = '2026-11-14';
+
+/**
+ * The Follow or Join button Facebook puts in the name heading of a post it
+ * suggests from a page, person or group the person does not follow. Looked
+ * for inside the post's own header, the first `POST_HEADER` in it, since a
+ * shared post has a header of its own further down. Its text is
+ * translated, so it is told apart by its structure. The verified badge
+ * beside a page's name is a `div[role=button]` there too, with an
+ * `aria-label` and an svg inside, and the Follow or Join button has
+ * neither.
+ */
+export const SUGGESTION_BUTTON = anyOf('suggestion-button', [
+  {
+    selector: 'h4 div[role=button]:not([aria-label]):not(:has(svg))',
+    seen: FEEDS_CHECKED,
+    note: 'div[role=button] < span < span < span < h4. None in the h4 of posts from friends, followed pages or ads. The Feeds pages use h3, with no suggestions',
+  },
+]);
+
+/** The Home link in the top bar. Its label is translated, so it is found by its address. */
+export const TOP_BAR_HOME = anyOf('top-bar-home', [
+  {
+    selector:
+      '[role=navigation] li > span > div > a[role=link][href="/"],[role=navigation] li > span > div > a[role=link][href="https://www.facebook.com/"]',
+    seen: FEEDS_CHECKED,
+    note: 'The first of five 130 x 56 cells. The div around the link is positioned',
+  },
+]);
+
 // Videos. Facebook draws each one as a plain <video> element in the page,
 // with no iframe and no shadow root, so the element itself is the anchor.
 

@@ -1,24 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import type { FacebookPage, PageServices } from '../../facebook/feature';
+import type { FacebookPage, PageServices, PageWorld } from '../../facebook/feature';
 import type { Post } from '../../facebook/posts';
 import type { Action, Filter } from './types';
 import { FeatureRunner, startFeatures } from '../../core/app';
+import { PageBridge } from '../../core/bridge';
 import { Options } from '../../core/options';
 import { pageWatcher } from '../../core/page-watcher';
 import { SavedData } from '../../core/saved';
 import { bindPage } from '../../facebook/feature';
-import { fakeAtoms, fakeLocate, makePost, testBridge } from '../../facebook/testing';
+import { POST_SPONSORED, readPostSponsored } from '../../facebook/react-readers';
+import {
+  fakeAtoms,
+  fakeLocate,
+  giveFeedUnit,
+  postHeader as header,
+  makePost,
+  testBridge,
+} from '../../facebook/testing';
 import { Videos } from '../../facebook/videos';
 import { extensionStore } from '../../platform/extension-store';
 import postFilters from '.';
+import { SPONSORED_NOTE, SUGGESTED_NOTE } from './built-in-filters';
 import { savedFilters } from './types';
 
 type PostListener = (post: Post) => void;
 
 /** A page whose posts the test announces by hand. */
-function fakePage() {
+function fakePage(bridge: PageWorld = testBridge()) {
   const listeners = {
     add: [] as PostListener[],
     remove: [] as PostListener[],
@@ -41,7 +51,7 @@ function fakePage() {
       onReset: subscribe(listeners.reset),
     },
     videos: new Videos(fakeLocate),
-    bridge: testBridge(),
+    bridge,
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
   };
   return { page, listeners };
@@ -226,6 +236,8 @@ describe('post_filters: Hide Posts keywords', () => {
   });
 
   it('watches posts only while there is something to hide', async () => {
+    // Hiding suggested posts is on by default, and is something to hide.
+    await options.set('hide_posts_suggested', false);
     expect(listeners.add).toHaveLength(1);
 
     await options.set('hide_posts_text', '');
@@ -400,6 +412,8 @@ describe('post_filters: saved filters', () => {
   });
 
   it('filters the posts on the page again when the filters change', async () => {
+    // Hiding suggested posts is on by default, and would keep the posts watched.
+    await options.set('hide_posts_suggested', false);
     const post = announce(makePost('<h4>Heading</h4><p>So many kittens</p>'));
 
     await saveFilters([
@@ -421,7 +435,8 @@ describe('post_filters: saved filters', () => {
   it('sorts posts into tabs and lists the tabs once there is one', async () => {
     await saveFilters([filter('kittens', [{ action: 'move-to-tab', tab: 'Cats' }])]);
     const plain = announce(makePost('<p>Weekend photos</p>'));
-    expect(panel()?.querySelector('nav')).toBeNull();
+    // The list is not in the page at all yet.
+    expect(panel()?.querySelector('nav') ?? null).toBeNull();
 
     const cat = announce(makePost('<p>So many kittens</p>'));
     await Promise.resolve();
@@ -528,5 +543,238 @@ describe('post_filters: saved filters', () => {
     });
 
     expect(isHidden(post)).toBe(true);
+  });
+});
+
+/** Gives `post` React data that says whether it is an ad. */
+function withFeedUnit(post: Post, sponsored: boolean): Post {
+  giveFeedUnit(post.element, {
+    __typename: 'Story',
+    sponsored_data: sponsored ? { ad_id: '1' } : null,
+  });
+  return post;
+}
+
+describe('post_filters: suggested posts and ads', () => {
+  let options: Options;
+  let runner: FeatureRunner<FacebookPage>;
+  let listeners: ReturnType<typeof fakePage>['listeners'];
+  const reader = vi.fn(readPostSponsored);
+
+  const announce = (post: Post): Post => {
+    for (const listener of listeners.add) {
+      listener(post);
+    }
+    return post;
+  };
+  const update = (post: Post): void => {
+    for (const listener of listeners.update) {
+      listener(post);
+    }
+  };
+
+  const start = async (bridge: PageWorld) => {
+    const fake = fakePage(bridge);
+    listeners = fake.listeners;
+    runner = new FeatureRunner(
+      [postFilters],
+      options,
+      bindPage(fake.page),
+      new SavedData(extensionStore, 'u'),
+    );
+    expect(await runner.start()).toEqual([]);
+  };
+
+  beforeEach(async () => {
+    fakeBrowser.reset();
+    reader.mockClear();
+    history.replaceState({}, '', '/');
+    document.body.innerHTML = '';
+    options = new Options(extensionStore, 'u/options');
+    await start(testBridge({ [POST_SPONSORED]: reader }));
+  });
+
+  describe('suggested posts', () => {
+    it('hides posts with a Follow or Join button by the name, and says why', () => {
+      const page = announce(makePost(`${header('Garden Page', 'Follow')}<p>Tomatoes</p>`));
+      const group = announce(makePost(`${header('Garden Group', 'Join')}<p>Beans</p>`));
+      const friend = announce(makePost(`${header('Ann Author')}<p>Hello</p>`));
+
+      expect(isHidden(page)).toBe(true);
+      expect(isHidden(group)).toBe(true);
+      expect(isHidden(friend)).toBe(false);
+      expect(noteOf(page)?.textContent).toContain(`${SUGGESTED_NOTE} -- Click to reveal post`);
+      expect(runner.badge().count).toBe(2);
+    });
+
+    it("tells a verified page's badge from a Follow button", () => {
+      const followed = announce(makePost(`${header('Garden Page', '', true)}<p>Tomatoes</p>`));
+      const suggested = announce(makePost(`${header('Seed Shop', 'Follow', true)}<p>Seeds</p>`));
+
+      expect(isHidden(followed)).toBe(false);
+      expect(isHidden(suggested)).toBe(true);
+    });
+
+    it('leaves a post alone when only a shared post inside it is suggested', () => {
+      const post = announce(
+        makePost(`${header('Ann Author')}<div>${header('Garden Page', 'Follow')}</div>`),
+      );
+
+      expect(isHidden(post)).toBe(false);
+    });
+
+    it('hides a post whose header arrives after the rest of it', () => {
+      const post = announce(makePost('<p>Tomatoes</p>'));
+      expect(isHidden(post)).toBe(false);
+
+      post.element.insertAdjacentHTML('afterbegin', header('Garden Page', 'Follow'));
+      update(post);
+
+      expect(isHidden(post)).toBe(true);
+      expect(runner.badge().count).toBe(1);
+    });
+
+    it('follows the switch and the note setting without a reload', async () => {
+      const post = announce(makePost(`${header('Garden Page', 'Follow')}<p>Tomatoes</p>`));
+
+      await options.set('hide_posts_show_hidden_message', false);
+      expect(isHidden(post)).toBe(true);
+      expect(noteOf(post)).toBeNull();
+
+      await options.set('hide_posts_suggested', false);
+      expect(isHidden(post)).toBe(false);
+      expect(runner.badge().count).toBe(0);
+    });
+
+    it('never hides the post the page is about', () => {
+      const post = announce(
+        makePost(`${header('Garden Page', 'Follow')}<p>Tomatoes</p>`, { permalink: true }),
+      );
+      const popup = makePost(`${header('Garden Group', 'Join')}<p>Beans</p>`);
+      popup.element.classList.add('sfx_popup_post');
+      announce(popup);
+
+      expect(isHidden(post)).toBe(false);
+      expect(isHidden(popup)).toBe(false);
+      expect(noteOf(post)).toBeNull();
+    });
+
+    it.each([
+      ['/some.page', 'filters_enabled_pages'],
+      ['/groups/feed/', 'filters_enabled_groups'],
+    ] as const)('leaves posts on %s alone until %s is on', async (address, key) => {
+      history.replaceState({}, '', address);
+      const post = announce(makePost(`${header('Garden Group', 'Join')}<p>Beans</p>`));
+      expect(isHidden(post)).toBe(false);
+
+      await options.set(key, true);
+      expect(isHidden(post)).toBe(true);
+    });
+
+    it('lets a filter of the user test the button', async () => {
+      await options.set('hide_posts_suggested', false);
+      await savedFilters(new SavedData(extensionStore, 'u')).set([
+        {
+          title: 'Groups only',
+          enabled: true,
+          match: 'ALL',
+          rules: [{ target: 'suggested', operator: 'contains', condition: { text: 'Join' } }],
+          actions: [{ action: 'hide', show_note: true }],
+        },
+      ]);
+
+      const group = announce(makePost(`${header('Garden Group', 'Join')}<p>Beans</p>`));
+      const page = announce(makePost(`${header('Garden Page', 'Follow')}<p>Tomatoes</p>`));
+
+      expect(isHidden(group)).toBe(true);
+      expect(isHidden(page)).toBe(false);
+    });
+  });
+
+  describe('ads', () => {
+    beforeEach(async () => {
+      await options.set('hide_posts_sponsored', true);
+    });
+
+    const adAndOthers = () => ({
+      ad: announce(withFeedUnit(makePost(`${header('Shop')}<p>Buy now</p>`), true)),
+      friend: announce(withFeedUnit(makePost(`${header('Ann Author')}<p>Hello</p>`), false)),
+      unknown: announce(makePost(`${header('Bob')}<p>No data</p>`)),
+    });
+
+    it('hides an ad once the page has said it is one, and says why', async () => {
+      const { ad, friend, unknown } = adAndOthers();
+
+      await vi.waitFor(() => expect(isHidden(ad)).toBe(true));
+      expect(noteOf(ad)?.textContent).toContain(`${SPONSORED_NOTE} -- Click to reveal post`);
+      expect(isHidden(friend)).toBe(false);
+      expect(isHidden(unknown)).toBe(false);
+      expect(runner.badge().count).toBe(1);
+    });
+
+    it('asks about each post once, however often it changes', async () => {
+      const { ad, friend } = adAndOthers();
+      await vi.waitFor(() => expect(isHidden(ad)).toBe(true));
+      expect(reader).toHaveBeenCalledTimes(3);
+
+      update(ad);
+      update(friend);
+      await options.set('hide_posts_show_match', false);
+
+      expect(isHidden(ad)).toBe(true);
+      expect(reader).toHaveBeenCalledTimes(3);
+    });
+
+    it('lets the other filters act on a post while its answer is awaited', async () => {
+      await options.set('hide_posts_text', 'Buy');
+      const ad = announce(withFeedUnit(makePost(`${header('Shop')}<p>Buy now</p>`), true));
+
+      expect(noteOf(ad)?.textContent).toContain('Post Hidden by keyword: Buy');
+    });
+
+    it('never asks about the post the page is about', async () => {
+      const ad = announce(
+        withFeedUnit(makePost(`${header('Shop')}<p>Buy now</p>`, { permalink: true }), true),
+      );
+      await Promise.resolve();
+
+      expect(reader).not.toHaveBeenCalled();
+      expect(isHidden(ad)).toBe(false);
+    });
+
+    it('shows the ads again when the switch goes off', async () => {
+      const { ad } = adAndOthers();
+      await vi.waitFor(() => expect(isHidden(ad)).toBe(true));
+
+      await options.set('hide_posts_sponsored', false);
+
+      expect(isHidden(ad)).toBe(false);
+      expect(runner.badge().count).toBe(0);
+    });
+
+    it('does nothing when the bridge is unavailable, and asks only once', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      options = new Options(extensionStore, 'other/options');
+      // A page-world side that cannot be put in the page.
+      await start(testBridge());
+      await options.set('hide_posts_sponsored', true);
+      const ask = vi.spyOn(PageBridge.prototype, 'ask');
+
+      const ad = announce(withFeedUnit(makePost(`${header('Shop')}<p>Buy now</p>`), true));
+      await expect(ask.mock.results[0]?.value).rejects.toMatchObject({ failure: 'unavailable' });
+      await Promise.resolve();
+      update(ad);
+
+      expect(ask).toHaveBeenCalledTimes(1);
+      expect(isHidden(ad)).toBe(false);
+      ask.mockRestore();
+    });
+  });
+
+  it('asks the page nothing while ads are not hidden', async () => {
+    announce(withFeedUnit(makePost(`${header('Shop')}<p>Buy now</p>`), true));
+    await Promise.resolve();
+
+    expect(reader).not.toHaveBeenCalled();
   });
 });

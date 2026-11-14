@@ -38,6 +38,40 @@ export function makePost(html: string, changes: Partial<Post> = {}): Post {
   return { element, content: element, number, id: null, permalink: false, ...changes };
 }
 
+/**
+ * The verified badge Facebook draws beside a page's name, a button too, as
+ * seen on 2026-11-14. Its label is translated on the real site.
+ */
+const VERIFIED_BADGE =
+  '<span><div role="button" tabindex="0" aria-label="Verified account"><svg viewBox="0 0 12 12"></svg><span>Verified</span></div></span>';
+
+/**
+ * A post's header as Facebook drew it on 2026-11-14, with a Follow or Join
+ * button reading `button` in the name heading when one is given, and the
+ * verified badge before it when `verified` is true.
+ */
+export const postHeader = (name: string, button = '', verified = false): string =>
+  `<div data-ad-rendering-role="profile_name"><h4><span><a href="/x"><strong>${name}</strong></a></span>${
+    verified ? VERIFIED_BADGE : ''
+  }${
+    button
+      ? `<span><span><span><div role="button" tabindex="0">${button}</div></span></span></span>`
+      : ''
+  }</h4></div>`;
+
+/**
+ * Gives `element` a React fiber with `feedUnit` in the props `depth` steps
+ * above its own, as only the page's own world would see it.
+ */
+export function giveFeedUnit<E extends Element>(element: E, feedUnit: unknown, depth = 4): E {
+  let fiber: Record<string, unknown> = { memoizedProps: { feedUnit }, return: null };
+  for (let step = 0; step < depth; step++) {
+    fiber = { memoizedProps: { className: `level-${step}` }, return: fiber };
+  }
+  Object.assign(element, { '__reactFiber$test': fiber });
+  return element;
+}
+
 /** Stands in for ResizeObserver, which happy-dom does not run. `report` plays the browser's part. */
 export class FakeResizeObserver {
   static latest: FakeResizeObserver | undefined;

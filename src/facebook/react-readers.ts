@@ -93,5 +93,43 @@ export function readVideoSources(element: Element): VideoSourcesAnswer | null {
   return null;
 }
 
+/** The reader that says whether a feed post is an ad. */
+export const POST_SPONSORED = 'post-sponsored';
+
+/**
+ * How many steps up from a post's own fiber the search for its feed unit
+ * goes. On 2026-11-14 it was 14 steps up, on the news feed and on the
+ * Feeds pages.
+ */
+export const MAX_FEED_UNIT_DEPTH = 30;
+
+/** What the post-sponsored reader sends back. The content side checks it. */
+export interface PostSponsoredAnswer {
+  /** True when the post's feed unit has `sponsored_data`. */
+  sponsored: boolean;
+}
+
+/**
+ * Whether the post `element` is an ad: walks up from its fiber to the
+ * first one whose props hold a `feedUnit` with a `sponsored_data` field,
+ * which is null on ordinary and suggested posts and an object on ads. Null
+ * when no such props are within `MAX_FEED_UNIT_DEPTH` steps.
+ */
+export function readPostSponsored(element: Element): PostSponsoredAnswer | null {
+  let fiber = fiberOf(element);
+  for (let depth = 0; depth <= MAX_FEED_UNIT_DEPTH && isObject(fiber); depth++) {
+    const props = fiber.memoizedProps;
+    const unit = isObject(props) ? props.feedUnit : undefined;
+    if (isObject(unit) && 'sponsored_data' in unit) {
+      return { sponsored: isObject(unit.sponsored_data) };
+    }
+    fiber = fiber.return;
+  }
+  return null;
+}
+
 /** Every reader the page-world side offers. */
-export const PAGE_READERS: PageReaders = { [VIDEO_SOURCES]: readVideoSources };
+export const PAGE_READERS: PageReaders = {
+  [VIDEO_SOURCES]: readVideoSources,
+  [POST_SPONSORED]: readPostSponsored,
+};

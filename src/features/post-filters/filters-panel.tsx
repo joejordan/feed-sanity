@@ -21,6 +21,8 @@ const TARGETS: Choices = [
   ['link_text', 'Link text'],
   ['image', 'Photo description'],
   ['hashtag', 'Any hashtag'],
+  ['suggested', "Suggested post's Follow or Join button"],
+  ['sponsored', 'Ad marker ("sponsored" on ads)'],
 ];
 
 const OPERATORS: Choices = [

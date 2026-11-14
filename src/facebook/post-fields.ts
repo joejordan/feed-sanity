@@ -16,6 +16,7 @@ import {
   POST_MESSAGE,
   POST_TIME,
   SHARED_POST_DIVIDER,
+  SUGGESTION_BUTTON,
 } from './selectors';
 
 /**
@@ -23,6 +24,13 @@ import {
  * list is tested item by item.
  */
 export type FieldValue = string | string[] | null;
+
+/**
+ * The value of the `suggested` part when its button has no text, and of
+ * the `sponsored` part of a sponsored post.
+ */
+export const SUGGESTED = 'suggested';
+export const SPONSORED = 'sponsored';
 
 /** The parts of a post whose text a filter can also rewrite. */
 export const TEXT_FIELDS = ['author', 'action', 'content'] as const;
@@ -120,6 +128,19 @@ function findAction(post: Element, locate: Locate): Found {
   return header ? [postText(header, locate).replace(/\s*·.*/s, ''), [header]] : ['', []];
 }
 
+/**
+ * The text of the Follow or Join button in the post's own header, which
+ * marks a post Facebook suggests, or null when there is none. The header
+ * may arrive after the rest of the post, so the answer can change when the
+ * post is read again. A shared post's header further down does not count.
+ */
+function findSuggestion(post: Element, locate: Locate): string | null {
+  const [header] = postElements(post, locate(POST_HEADER), locate);
+  const button = header && locate(SUGGESTION_BUTTON).first(header);
+  // The text is translated, and only says what kind of suggestion it is.
+  return button ? text(button) || SUGGESTED : null;
+}
+
 function findApp(post: Element, locate: Locate): string | null {
   return (
     locate(APP_NAMED).first(post)?.getAttribute('data-appname') ||
@@ -153,6 +174,11 @@ function linkTarget(link: HTMLAnchorElement): string | null {
  *
  * Not ported: `page`, which Social Fixer read from React's data on the post.
  * A content script cannot see that data, so `page` is always null.
+ *
+ * Two parts are new in this project. `suggested` is the text of the Follow
+ * or Join button Facebook puts in the header of a post it suggests, and
+ * `sponsored` is `sponsored` for an ad. The second comes from React's data,
+ * so it is null here and the caller sets it.
  */
 export function readPostFields(post: Element, locate: Locate): PostFields {
   const values = new Map<string, FieldValue>();
@@ -177,6 +203,11 @@ export function readPostFields(post: Element, locate: Locate): PostFields {
       case 'group':
         return findGroup(post, locate);
       case 'page':
+        return null;
+      case 'suggested':
+        return findSuggestion(post, locate);
+      case 'sponsored':
+        // Only React's data says so. `post_filters` sets it from the page-world bridge.
         return null;
       case 'app':
         return findApp(post, locate);

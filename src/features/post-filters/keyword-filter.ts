@@ -1,5 +1,5 @@
 import type { Filter } from './types';
-import { REHIDE, REVEAL } from './engine';
+import { hidePostsFilter } from './built-in-filters';
 import { escapeRegExp } from './rules';
 
 export interface KeywordSettings {
@@ -29,27 +29,14 @@ export function keywordFilter(settings: KeywordSettings): Filter | null {
     return null;
   }
   const alternatives = `(${words.join('|')})`;
-  const note = `Post Hidden by keyword${settings.showMatch ? ': $1' : ''}`;
-  return {
-    title: 'Hide Posts',
-    match: 'ALL',
-    enabled: true,
-    stop_on_match: true,
-    rules: [
-      {
-        target: settings.captions ? 'any+image' : 'any',
-        operator: 'contains',
-        match_partial_words: settings.partial,
-        condition: { text: alternatives, modifier: settings.caseSensitive ? 'I' : 'i' },
-      },
-    ],
-    actions: [
-      {
-        action: 'hide',
-        show_note: settings.showNote,
-        custom_note: note + REVEAL,
-        custom_nyet: note + REHIDE,
-      },
-    ],
-  };
+  return hidePostsFilter(
+    {
+      target: settings.captions ? 'any+image' : 'any',
+      operator: 'contains',
+      match_partial_words: settings.partial,
+      condition: { text: alternatives, modifier: settings.caseSensitive ? 'I' : 'i' },
+    },
+    `Post Hidden by keyword${settings.showMatch ? ': $1' : ''}`,
+    settings.showNote,
+  );
 }
