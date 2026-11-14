@@ -15,6 +15,7 @@ import { extensionStore } from '../platform/extension-store';
 import { bindPage, createPage, defineFeature, LOCATOR_OVERRIDES } from './feature';
 import { POST_HEADER } from './selectors';
 import { fakeAtoms, fakeLocate } from './testing';
+import { Videos } from './videos';
 
 describe('bindPage', () => {
   const log = createLogger('test');
@@ -42,6 +43,9 @@ describe('bindPage', () => {
         onReset: () => () => undefined,
         onUpdate: () => () => undefined,
       },
+      videos: new Videos(locate, (selector, handlers, watchOptions) =>
+        watcher.watch(selector, handlers, watchOptions),
+      ),
       watch: (selector, handlers, watchOptions) => watcher.watch(selector, handlers, watchOptions),
     });
 
