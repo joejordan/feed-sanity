@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Listeners } from './listeners';
+import { anyOf, Locators } from './locator';
+import { createLogger } from './log';
 import { PageWatcher } from './page-watcher';
 import { sleep } from './timing';
 
@@ -177,6 +180,42 @@ describe('PageWatcher', () => {
 
       expect(removed).toHaveBeenCalledExactlyOnceWith(old);
       expect(added).toHaveBeenLastCalledWith(fresh);
+    });
+
+    it('watches what a locator finds, and looks again when the locator changes', async () => {
+      let known = false;
+      const changed = new Listeners(createLogger('test'));
+      const locators = new Locators({
+        resolve: (selector) =>
+          selector.includes('{') && !known ? null : selector.replace('{x}', 'x'),
+        onChange: (listener) => changed.add(listener),
+      });
+      const media = locators.locate(
+        anyOf('media', [
+          { selector: 'video', seen: '2026-11-14' },
+          { selector: 'div.{x}', seen: '2023' },
+        ]),
+      );
+      const video = addHtml('<video></video>');
+      const div = addHtml('<div class="x"></div>');
+      const added = vi.fn();
+      const stop = later(watcher.watch(media, { added }));
+      expect(added).toHaveBeenCalledExactlyOnceWith(video);
+
+      known = true;
+      changed.emit();
+      expect(added).toHaveBeenLastCalledWith(div);
+
+      const section = addHtml('<section><div class="x"></div></section>');
+      await vi.waitFor(() => expect(added).toHaveBeenCalledTimes(3));
+      expect(added).toHaveBeenLastCalledWith(section.firstElementChild);
+      expect(locators.stats()[0]?.found).toBeGreaterThan(0);
+
+      stop();
+      addHtml('<video></video>');
+      changed.emit();
+      await sleep(20);
+      expect(added).toHaveBeenCalledTimes(3);
     });
 
     it('keeps going when a handler throws', async () => {

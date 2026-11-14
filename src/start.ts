@@ -17,7 +17,7 @@ export function start(platform: Platform): Promise<string[]> {
   // Registers the features' options before its first await, so the dialog
   // can open once the saved values are read rather than after the slowest
   // feature has started.
-  const started = startFeatures(features, options, createPage(), data);
+  const started = startFeatures(features, options, createPage(data), data);
   platform.onOpenOptions(() => {
     openOptionsDialog(options, panels).catch((error: unknown) => {
       createLogger('options').error('could not open the options dialog', error);
