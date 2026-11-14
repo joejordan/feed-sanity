@@ -15,6 +15,18 @@ export interface OptionSpec {
   default: OptionValue;
   /** For a text option: true when the value is several lines, such as a list. */
   multiline?: boolean;
+  /**
+   * For a text option: the values it can take, which the dialog offers as a
+   * list to pick from. A saved value that is not one of them reads as the
+   * default.
+   */
+  choices?: readonly OptionChoice[];
+}
+
+/** One value a choice option can take, and how the options dialog names it. */
+export interface OptionChoice {
+  value: string;
+  label: string;
 }
 
 export type OptionSpecs = Record<string, OptionSpec>;
@@ -47,6 +59,10 @@ export interface FeatureOptions<S extends OptionSpecs> {
 /** The saved object: option key to value, for the options that were changed. */
 type Saved = Record<string, OptionValue>;
 
+/** True when `value` is one of the option's choices, or the option has none. */
+const isChoice = (spec: OptionSpec, value: OptionValue): boolean =>
+  !spec.choices || spec.choices.some((choice) => choice.value === value);
+
 /** What the store holds under the storage key. Anything but an object reads as nothing saved. */
 function asSaved(stored: unknown): Saved {
   return isRecord(stored) ? (stored as Saved) : {};
@@ -76,6 +92,9 @@ export class Options implements FeatureOptions<OptionSpecs> {
     for (const [key, spec] of Object.entries(specs)) {
       if (this.#specs.has(key)) {
         throw new Error(`Option '${key}' is defined twice`);
+      }
+      if (!isChoice(spec, spec.default)) {
+        throw new Error(`The default of option '${key}' is not one of its choices`);
       }
       this.#specs.set(key, spec);
     }
@@ -107,11 +126,16 @@ export class Options implements FeatureOptions<OptionSpecs> {
     });
   }
 
-  /** A saved value of the wrong type, such as one from an import, reads as the default. */
+  /**
+   * A saved value of the wrong type, such as one from an import, reads as
+   * the default, and so does one that is not among the option's choices.
+   */
   get(key: string): OptionValue {
-    const fallback = this.#spec(key).default;
+    const spec = this.#spec(key);
     const saved = Object.hasOwn(this.#saved, key) ? this.#saved[key] : undefined;
-    return saved !== undefined && typeof saved === typeof fallback ? saved : fallback;
+    return saved !== undefined && typeof saved === typeof spec.default && isChoice(spec, saved)
+      ? saved
+      : spec.default;
   }
 
   async set(key: string, value: OptionValue): Promise<void> {

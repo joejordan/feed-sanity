@@ -182,6 +182,37 @@ describe('Options', () => {
     expect(() => options.register({ greeting: specs.greeting })).toThrow(/defined twice/);
   });
 
+  describe('with choices', () => {
+    const feed = {
+      section: 'General',
+      title: 'Feed',
+      description: '',
+      default: 'home',
+      choices: [
+        { value: 'home', label: 'Home' },
+        { value: 'friends', label: 'Friends' },
+      ],
+    };
+
+    it('reads a saved choice, and the default for a value that is not one', async () => {
+      await browser.storage.local.set({ '42/options': { feed: 'friends' } });
+      const options = newOptions();
+      options.register({ feed });
+      await options.load();
+      expect(options.get('feed')).toBe('friends');
+
+      await options.set('feed', 'gone');
+      expect(options.get('feed')).toBe('home');
+    });
+
+    it('rejects a default that is not one of the choices', () => {
+      const options = newOptions();
+      expect(() => options.register({ feed: { ...feed, default: 'pages' } })).toThrow(
+        /not one of its choices/,
+      );
+    });
+  });
+
   it('rejects an unknown key', async () => {
     await browser.storage.local.set({ '42/options': { missing: 1 } });
     const options = newOptions();

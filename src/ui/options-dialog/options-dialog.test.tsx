@@ -106,6 +106,49 @@ describe('OptionsDialog', () => {
     expect(options.get('keywords')).toBe('one\ntwo');
   });
 
+  /** Shows the dialog with one option that has choices. */
+  async function showChoices(): Promise<Options> {
+    const choosing = new Options(extensionStore, 'c/options');
+    choosing.register({
+      feed: {
+        section: 'Feeds',
+        title: 'Home feed',
+        description: 'The feed Home shows.',
+        default: 'home',
+        choices: [
+          { value: 'home', label: "Facebook's own" },
+          { value: 'friends', label: 'Friends' },
+        ],
+      },
+    });
+    await choosing.load();
+    render(<OptionsDialog options={choosing} onClose={onClose} />);
+    return choosing;
+  }
+
+  it('offers the choices of an option that has them, and saves the one picked', async () => {
+    const choosing = await showChoices();
+    const select = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Home feed' });
+    expect(select.value).toBe('home');
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      "Facebook's own",
+      'Friends',
+    ]);
+
+    await userEvent.selectOptions(select, 'friends');
+    await userEvent.click(button('Save'));
+
+    expect(choosing.get('feed')).toBe('friends');
+  });
+
+  it('shows a choice saved elsewhere while the dialog is open', async () => {
+    const choosing = await showChoices();
+
+    await act(() => choosing.set('feed', 'friends'));
+
+    expect(field('combobox', 'Home feed').value).toBe('friends');
+  });
+
   it('drops the changes on Cancel', async () => {
     show();
 

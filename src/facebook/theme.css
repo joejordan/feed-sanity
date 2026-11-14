@@ -8,6 +8,9 @@
   --fs-background: var(--card-background, #fff);
   --fs-surface: var(--surface-background, #f0f2f5);
   --fs-hover: var(--hover-overlay, rgb(0 0 0 / 5%));
+  --fs-press: var(--press-overlay, rgb(0 0 0 / 10%));
+  --fs-icon: var(--primary-icon, #080809);
+  --fs-icon-secondary: var(--secondary-icon, #65686c);
   --fs-text: var(--primary-text, #080809);
   --fs-text-secondary: var(--secondary-text, #65686c);
   --fs-divider: var(--divider, #ced0d4);
