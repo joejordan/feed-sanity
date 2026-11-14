@@ -1,9 +1,10 @@
 import { defineConfig } from 'vitest/config';
 import { WxtVitest } from 'wxt/testing/vitest-plugin';
+import { pageWorldScript } from './page-world-plugin.ts';
 import { PREACT_ALIAS } from './preact-alias.ts';
 
 export default defineConfig({
-  plugins: [WxtVitest()],
+  plugins: [WxtVitest(), pageWorldScript()],
   resolve: { alias: PREACT_ALIAS },
   test: {
     environment: 'happy-dom',

@@ -25,6 +25,29 @@ describe('diagnosticsReport', () => {
     );
   });
 
+  it('says whether the page-world bridge is connected, and why not when it is unavailable', () => {
+    expect(diagnosticsReport(diagnostics())).toContain(
+      'Page bridge: connected, with 1 reader: video-sources',
+    );
+    const unavailable = diagnosticsReport(
+      diagnostics({
+        bridge: {
+          state: 'unavailable',
+          problem: 'the page script could not be added: refused blob:https://www.facebook.com/x',
+          readers: [],
+        },
+      }),
+    );
+    expect(unavailable).toContain(
+      'Page bridge: unavailable: the page script could not be added: refused <address>. Features that need it say so.',
+    );
+    expect(
+      diagnosticsReport(
+        diagnostics({ bridge: { state: 'not started', problem: null, readers: [] } }),
+      ),
+    ).toContain('Page bridge: not started, because no feature that is on needs it');
+  });
+
   it('says plainly that post detection has not started', () => {
     const report = diagnosticsReport(
       diagnostics({

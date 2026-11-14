@@ -17,7 +17,7 @@ export function start(platform: Platform): Promise<string[]> {
   const user = currentUserId();
   const options = new Options(platform.store, `${user}/options`);
   const data = new SavedData(platform.store, user);
-  const page = createPage(data);
+  const page = createPage(data, () => platform.installPageWorld());
   const runner = new FeatureRunner(features, options, page, data);
   const panels = [
     ...optionsPanels(data),

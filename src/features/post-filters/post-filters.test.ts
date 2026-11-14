@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import type { FacebookPage } from '../../facebook/feature';
+import type { FacebookPage, PageServices } from '../../facebook/feature';
 import type { Post } from '../../facebook/posts';
 import type { Action, Filter } from './types';
 import { FeatureRunner, startFeatures } from '../../core/app';
@@ -9,7 +9,7 @@ import { Options } from '../../core/options';
 import { pageWatcher } from '../../core/page-watcher';
 import { SavedData } from '../../core/saved';
 import { bindPage } from '../../facebook/feature';
-import { fakeAtoms, fakeLocate, makePost } from '../../facebook/testing';
+import { fakeAtoms, fakeLocate, makePost, testBridge } from '../../facebook/testing';
 import { Videos } from '../../facebook/videos';
 import { extensionStore } from '../../platform/extension-store';
 import postFilters from '.';
@@ -31,7 +31,7 @@ function fakePage() {
       list.push(listener);
       return () => list.splice(list.indexOf(listener), 1).length > 0;
     };
-  const page: FacebookPage = {
+  const page: PageServices = {
     atoms: fakeAtoms,
     locate: fakeLocate,
     posts: {
@@ -41,6 +41,7 @@ function fakePage() {
       onReset: subscribe(listeners.reset),
     },
     videos: new Videos(fakeLocate),
+    bridge: testBridge(),
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
   };
   return { page, listeners };

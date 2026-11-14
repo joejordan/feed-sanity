@@ -4,6 +4,7 @@ import type { Locate } from '../core/locator';
 import type { FacebookPage } from './feature';
 import type { Post } from './posts';
 import { FeatureRunner } from '../core/app';
+import { PageBridge } from '../core/bridge';
 import { Listeners } from '../core/listeners';
 import { Locators, readLocatorOverrides } from '../core/locator';
 import { createLogger } from '../core/log';
@@ -14,7 +15,7 @@ import { sleep } from '../core/timing';
 import { extensionStore } from '../platform/extension-store';
 import { bindPage, createPage, defineFeature, LOCATOR_OVERRIDES } from './feature';
 import { POST_HEADER } from './selectors';
-import { fakeAtoms, fakeLocate } from './testing';
+import { fakeAtoms, fakeLocate, installReaders, testBridge } from './testing';
 import { Videos } from './videos';
 
 describe('bindPage', () => {
@@ -33,7 +34,7 @@ describe('bindPage', () => {
     options = new Options(extensionStore, 'u/options');
   });
 
-  const page = (locate: Locate = fakeLocate) =>
+  const page = (locate: Locate = fakeLocate, bridge = testBridge()) =>
     bindPage({
       atoms: { ...fakeAtoms, onChange: (listener) => atomsChanged.add(listener) },
       locate,
@@ -46,6 +47,7 @@ describe('bindPage', () => {
       videos: new Videos(locate, (selector, handlers, watchOptions) =>
         watcher.watch(selector, handlers, watchOptions),
       ),
+      bridge,
       watch: (selector, handlers, watchOptions) => watcher.watch(selector, handlers, watchOptions),
     });
 
@@ -134,6 +136,62 @@ describe('bindPage', () => {
 
     expect(heard).toHaveBeenCalledTimes(1);
   });
+  describe('bridge', () => {
+    const reader = vi.fn(() => ({ hdSrc: 'https://video.xx.fbcdn.net/v/clip.mp4', videoId: '42' }));
+
+    const run = async (bridge: ReturnType<typeof testBridge>) => {
+      let facebook: FacebookPage | undefined;
+      const feature = defineFeature({
+        id: 'downloads',
+        options: {
+          downloads_on: { section: 'General', title: 'Downloads', description: '', default: true },
+        },
+        enabledBy: 'downloads_on',
+        setup: (ctx) => {
+          facebook = ctx.page;
+        },
+      });
+      const data = new SavedData(extensionStore, 'u');
+      await new FeatureRunner([feature], options, page(fakeLocate, bridge), data).start();
+      if (!facebook) {
+        throw new Error('the feature did not start');
+      }
+      return facebook;
+    };
+
+    it("answers a feature's question with the reader's checked answer", async () => {
+      const facebook = await run(testBridge({ 'video-sources': reader }));
+      const video = document.createElement('video');
+      document.body.append(video);
+
+      expect(await facebook.bridge.videoSources(video)).toEqual({
+        file: 'https://video.xx.fbcdn.net/v/clip.mp4',
+        quality: 'hd',
+        manifest: false,
+        videoId: '42',
+      });
+      expect(reader).toHaveBeenCalledWith(video);
+    });
+
+    it('withdraws an open question and stops telling the status when the feature stops', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      // A page-world side that never answers.
+      const bridge = new PageBridge(() => Promise.resolve(), { connectMs: 20 });
+      const facebook = await run(bridge);
+      const heard = vi.fn();
+      facebook.bridge.onStatus(heard);
+      expect(heard).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'connecting' }));
+      const video = document.createElement('video');
+      document.body.append(video);
+      const asked = facebook.bridge.videoSources(video);
+
+      await options.set('downloads_on', false);
+
+      await expect(asked).rejects.toMatchObject({ failure: 'cancelled' });
+      await vi.waitFor(() => expect(bridge.status().state).toBe('unavailable'));
+      expect(heard).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 describe('createPage', () => {
@@ -156,7 +214,7 @@ describe('createPage', () => {
     await new FeatureRunner(
       [feature],
       new Options(extensionStore, 'u/options'),
-      createPage(data),
+      createPage(data, installReaders()),
       data,
     ).start();
     await saved.ready;

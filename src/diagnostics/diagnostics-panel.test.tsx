@@ -72,6 +72,17 @@ describe('DiagnosticsPanel', () => {
     expect(within(row).getByText('no element')).toBeTruthy();
   });
 
+  it("shows the page-world bridge's state, and makes an unavailable one stand out", () => {
+    renderPanel(() =>
+      diagnostics({
+        bridge: { state: 'unavailable', problem: 'the page script did not answer', readers: [] },
+      }),
+    );
+
+    const state = screen.getByText(/^unavailable: the page script did not answer\./);
+    expect(state.className).toContain('diag-warn');
+  });
+
   it('says that post detection has not started in place of zeros', () => {
     renderPanel(() =>
       diagnostics({

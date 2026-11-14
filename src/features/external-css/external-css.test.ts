@@ -4,6 +4,7 @@ import { startFeatures } from '../../core/app';
 import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { createPage } from '../../facebook/feature';
+import { installReaders } from '../../facebook/testing';
 import { extensionStore } from '../../platform/extension-store';
 import externalCss from '.';
 
@@ -18,7 +19,7 @@ describe('external_css', () => {
     link()?.remove();
     options = new Options(extensionStore, 'u/options');
     const data = new SavedData(extensionStore, 'u');
-    await startFeatures([externalCss], options, createPage(data), data);
+    await startFeatures([externalCss], options, createPage(data, installReaders()), data);
   });
 
   it('adds nothing while the URL is empty', () => {

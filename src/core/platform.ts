@@ -25,4 +25,13 @@ export interface Platform {
    * has no toolbar button, and there it does nothing.
    */
   setBadge: (badge: Badge) => void;
+  /**
+   * Puts the page-world side of the bridge, `startPageWorld` in
+   * `src/page-world.ts`, in the page, where it runs with the page's own
+   * scripts. Rejects when the page refuses it. Resolves once it has been
+   * added, or at once in a build whose manifest adds it by itself. Whether
+   * it runs is known only once it answers; see `PageBridge` in
+   * `src/core/bridge.ts`. Called at most once per page load.
+   */
+  installPageWorld: () => Promise<void>;
 }

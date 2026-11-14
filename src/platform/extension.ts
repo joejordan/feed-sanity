@@ -54,4 +54,8 @@ export const extensionPlatform: Platform = {
       setTimeout(() => void sendBadge(), BADGE_DELAY_MS);
     }
   },
+  // The manifest adds it: src/entrypoints/page-world.content.ts runs in the
+  // page's own world. The browser puts it there, so the page's content
+  // security policy does not apply to it.
+  installPageWorld: () => Promise.resolve(),
 };

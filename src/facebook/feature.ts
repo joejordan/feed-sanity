@@ -4,6 +4,8 @@ import type { OptionSpecs } from '../core/options';
 import type { PageWatcher, WatchHandlers } from '../core/page-watcher';
 import type { FeatureData } from '../core/saved';
 import type { AtomTranslator } from './atoms';
+import type { VideoSources } from './video-sources';
+import { PageBridge } from '../core/bridge';
 import { defineFeature as defineCoreFeature } from '../core/feature';
 import { isLocatorSpec, Locators, readLocatorOverrides } from '../core/locator';
 import { createLogger } from '../core/log';
@@ -11,6 +13,7 @@ import { pageWatcher } from '../core/page-watcher';
 import { Atoms } from './atoms';
 import { Posts } from './posts';
 import * as selectors from './selectors';
+import { videoSources } from './video-sources';
 import { Videos } from './videos';
 
 const log = createLogger('page');
@@ -40,12 +43,68 @@ export interface FacebookPage {
   /** The videos on the page. Subscribing with `onAdd` starts looking for them. */
   videos: Pick<Videos, 'around' | 'onAdd' | 'onControls' | 'onRemove'>;
   /**
+   * What only the page's own world can read, through the page-world bridge
+   * (`PageBridge` in `src/core/bridge.ts`). The first question or `onStatus`
+   * starts the bridge. A question still open when the feature's scope is
+   * disposed is withdrawn, and rejects with `cancelled`.
+   */
+  bridge: FacebookBridge;
+  /**
    * Reports the elements a locator or selector finds as they enter and
    * leave the page, for anything that is not a post. See `PageWatcher.watch`
    * in `src/core/page-watcher.ts`. A locator is looked at again whenever
    * class names or the user's selectors change.
    */
   watch: PageWatcher['watch'];
+}
+
+/** The page-world bridge as features use it, with Facebook's readers. */
+export interface FacebookBridge {
+  status: PageBridge['status'];
+  onStatus: PageBridge['onStatus'];
+  /**
+   * The files of the video `element`, checked; see `videoSources` in
+   * `src/facebook/video-sources.ts`. Null when no player data was found for
+   * it. Rejects with a `BridgeError` when the question could not be asked.
+   */
+  videoSources: (element: HTMLVideoElement, signal?: AbortSignal) => Promise<VideoSources | null>;
+}
+
+/** The page-world bridge as `bindPage` takes it, before it is tied to a feature. */
+export type PageWorld = Pick<PageBridge, 'ask' | 'onStatus' | 'status'>;
+
+/**
+ * `bridge` with `onStatus` tied to the binder's scope, and each question
+ * withdrawn when the scope is disposed, with Facebook's readers on top. A
+ * new reader needs only its typed question here.
+ */
+function bindBridge(bridge: PageWorld, { scope, listen }: Binder): FacebookBridge {
+  const ask: PageWorld['ask'] = (element, reader, signal) => {
+    // Joined by hand: AbortSignal.any needs Chrome 116, and the page-world
+    // script runs from Chrome 111.
+    const controller = new AbortController();
+    const abort = (): void => controller.abort();
+    // Runs at once when the scope is disposed already.
+    const settled = scope.add(abort);
+    if (signal?.aborted) {
+      abort();
+    }
+    signal?.addEventListener('abort', abort, { once: true });
+    return bridge.ask(element, reader, controller.signal).finally(() => {
+      signal?.removeEventListener('abort', abort);
+      settled();
+    });
+  };
+  return {
+    status: () => bridge.status(),
+    onStatus: (listener) => listen((guarded) => bridge.onStatus(guarded), listener),
+    videoSources: (element, signal) => videoSources({ ask }, element, signal),
+  };
+}
+
+/** The page services `bindPage` ties to each feature: a `FacebookPage` with the bridge as it comes. */
+export interface PageServices extends Omit<FacebookPage, 'bridge'> {
+  bridge: PageWorld;
 }
 
 /** `locator` with its `onChange` tied to the binder's scope. */
@@ -67,7 +126,7 @@ function bindLocator(locator: Locator, { listen }: Binder): Locator {
  * `page` whose subscriptions end with the feature's scope and whose
  * callbacks are guarded.
  */
-export function bindPage(page: FacebookPage): PageFactory<FacebookPage> {
+export function bindPage(page: PageServices): PageFactory<FacebookPage> {
   return (binder) => {
     const { scope, guard, listen } = binder;
     const locators = new Map<LocatorSpec, Locator>();
@@ -98,6 +157,7 @@ export function bindPage(page: FacebookPage): PageFactory<FacebookPage> {
         onControls: (listener) => listen((guarded) => page.videos.onControls(guarded), listener),
         onRemove: (listener) => listen((guarded) => page.videos.onRemove(guarded), listener),
       },
+      bridge: bindBridge(page.bridge, binder),
       watch: (selector, { added, removed, changed }, options) => {
         const handlers: WatchHandlers = {};
         if (added) {
@@ -122,15 +182,19 @@ export interface PageStats {
   readonly atoms: Pick<Atoms, 'stats'>;
   readonly locators: Pick<Locators, 'names' | 'stats'>;
   readonly posts: Pick<Posts, 'stats'>;
+  readonly bridge: Pick<PageBridge, 'status'>;
 }
 
 /**
  * Builds the page services. Nothing in them runs until a feature uses it,
  * except reading the user's replacement selectors from `data`, which are
- * applied again whenever they change. `stats` reads their counts.
+ * applied again whenever they change. `installPageWorld`, from the build's
+ * `Platform`, puts the page-world side of the bridge in the page when the
+ * bridge is first used. `stats` reads their counts.
  */
 export function createPage(
   data: FeatureData,
+  installPageWorld: () => Promise<void>,
 ): PageFactory<FacebookPage> & { readonly stats: PageStats } {
   const atoms = new Atoms();
   const locators = new Locators(atoms, Object.values(selectors).filter(isLocatorSpec));
@@ -150,14 +214,16 @@ export function createPage(
     return locators.locate(spec);
   };
   const posts = new Posts(atoms, locate);
+  const bridge = new PageBridge(installPageWorld);
   const page = bindPage({
     atoms,
     locate,
     posts,
     videos: new Videos(locate),
+    bridge,
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
   });
-  return Object.assign(page, { stats: { atoms, locators, posts } });
+  return Object.assign(page, { stats: { atoms, locators, posts, bridge } });
 }
 
 /**

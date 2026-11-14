@@ -7,6 +7,7 @@
 import { defineConfig } from 'vite';
 import pkg from './package.json' with { type: 'json' };
 // Vite's native config loader needs the file extensions.
+import { pageWorldScript } from './page-world-plugin.ts';
 import { PREACT_ALIAS } from './preact-alias.ts';
 import { DESCRIPTION, NAME } from './project.ts';
 import { EXCLUDE_GLOBS, EXCLUDE_MATCHES, MATCHES } from './src/facebook/urls.ts';
@@ -32,6 +33,7 @@ const header = [
 ].join('\n');
 
 export default defineConfig({
+  plugins: [pageWorldScript()],
   resolve: { alias: PREACT_ALIAS },
   // Library builds leave `process.env.NODE_ENV` alone. Nothing bundled reads
   // it now, Preact included, but a userscript has no `process`, so the value

@@ -11,3 +11,7 @@ export function createLogger(scope: string): Logger {
     error: (...args) => console.error(tag, ...args),
   };
 }
+
+/** The message of `error`, or `error` as text when it is not an Error. */
+export const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);

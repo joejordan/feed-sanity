@@ -5,6 +5,7 @@ import { Options } from '../core/options';
 import { SavedData } from '../core/saved';
 import { createPage, defineFeature } from '../facebook/feature';
 import { POST } from '../facebook/selectors';
+import { installReaders } from '../facebook/testing';
 import { extensionStore } from '../platform/extension-store';
 import { collectDiagnostics } from './collect';
 
@@ -21,7 +22,7 @@ describe('collectDiagnostics', () => {
 
   it("reads the page's counts and the features' states", async () => {
     const data = new SavedData(extensionStore, 'u');
-    const page = createPage(data);
+    const page = createPage(data, installReaders());
     const looker = defineFeature({
       id: 'looker',
       setup: ({ badge, page: facebook }) => {
@@ -52,6 +53,7 @@ describe('collectDiagnostics', () => {
       features: [{ id: 'looker', state: 'running', errors: 0, lastError: null }],
       posts: { started: false, tracked: 0 },
       classNames: { started: true },
+      bridge: { state: 'not started', problem: null },
     });
     const post = diagnostics.locators.find((locator) => locator.name === 'post');
     expect(post).toMatchObject({ lookups: 1, found: 0, overridden: false });
