@@ -6,7 +6,9 @@ import type { Post } from '../../facebook/posts';
 import type { Action, Filter } from './types';
 import { startFeatures } from '../../core/app';
 import { Options } from '../../core/options';
+import { pageWatcher } from '../../core/page-watcher';
 import { SavedData } from '../../core/saved';
+import { bindPage } from '../../facebook/feature';
 import { fakeAtoms, makePost } from '../../facebook/testing';
 import { extensionStore } from '../../platform/extension-store';
 import postFilters from '.';
@@ -36,6 +38,7 @@ function fakePage() {
       onUpdate: subscribe(listeners.update),
       onReset: subscribe(listeners.reset),
     },
+    watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
   };
   return { page, listeners };
 }
@@ -64,7 +67,7 @@ describe('post_filters: Hide Posts keywords', () => {
     const fake = fakePage();
     listeners = fake.listeners;
     data = new SavedData(extensionStore, 'u');
-    expect(await startFeatures([postFilters], options, fake.page, data)).toEqual([]);
+    expect(await startFeatures([postFilters], options, bindPage(fake.page), data)).toEqual([]);
     await options.set('hide_posts_text', 'crypto\n\n  giveaway  ');
   });
 
@@ -291,7 +294,7 @@ describe('post_filters: saved filters', () => {
     await browser.storage.local.set({
       'u/filters': [filter('kittens', [{ action: 'hide', show_note: true }])],
     });
-    expect(await startFeatures([postFilters], options, fake.page, data)).toEqual([]);
+    expect(await startFeatures([postFilters], options, bindPage(fake.page), data)).toEqual([]);
   });
 
   it('runs the filters that were saved, without any keywords', () => {

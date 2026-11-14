@@ -9,14 +9,18 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
 - Every selector that depends on Facebook's markup goes in `src/facebook/selectors.ts`, so there is one file to fix when Facebook changes its pages.
 - Selectors name Facebook's generated classes through `S2F_` names, as the original does. Add the declaration behind a new name to `src/facebook/atom-rules.ts`, and pass the selector through `page.atoms.translate` before using it.
 - Marks that people can target from their own CSS keep Social Fixer's names: `sfx_post`, `sfx_id`, `sfx_removing` and the others in `MARK` in `src/facebook/selectors.ts`. IDs of elements that only this project uses get a `feed_sanity_` prefix.
-- Declare features with `defineFeature` from `src/facebook/feature.ts`. Its `setup` receives `page`, which holds the posts and the class-name translator. A test can pass a page of its own.
+- Declare features with `defineFeature` from `src/facebook/feature.ts`. Its `setup` receives `page`, which holds the posts, the class-name translator and `watch`. A test can pass a page of its own, wrapped with `bindPage`.
+- Subscribe through what `setup` receives: `page`, `options` and `data`. Each feature has its own `scope`, and disposing it ends every subscription made there, so a feature does not keep the functions that stop them. Each subscription still returns one, to stop it early. Pass anything else that needs undoing to `scope.add`. For work that starts and stops while the feature runs, take `ctx.child()` and dispose its scope when the work stops, as `post_filters` does while no filter is set up.
+- To find elements other than posts, such as videos or dialogs, use `page.watch(selector, { added, removed })`. Give it `attributes` to hear when those attributes change on a matching element. Do not create a `MutationObserver`: the content script shares one, in `src/core/page-watcher.ts`.
+- A feature that one of its yes-or-no options switches on and off names that option in `enabledBy`. Its `setup` runs when the option turns on, and its scope is disposed when it turns off, with no page reload.
+- Callbacks registered through `setup`'s context are guarded. A feature whose callbacks throw 10 times in a row, with no call between them that went through, is stopped and marked as failed. `FeatureRunner` in `src/core/app.ts` keeps each feature's state and error count.
 - To act on posts, subscribe with `page.posts.onAdd`. Post detection does not run until something subscribes.
 - Call `page.atoms.start()` before relying on translated selectors outside post detection, and translate again when `page.atoms.onChange` fires.
 - Each ported feature gets a test next to it.
 - Read a post's text and parts from `post.content`, not `post.element`. They are the same element except in the comments popup, where `element` is the popup and `content` is the post inside it. `postText`, `postElements` and `readPostFields` in `src/facebook/` leave the comments out.
 - Give every element a feature adds inside one of Facebook's the `data-feed-sanity` attribute (`OWN` in `src/facebook/selectors.ts`). Its text is then left out of the post's, and adding it does not count as new content.
 - Facebook empties posts that scroll out of view and refills them later, which discards anything a feature put inside. Subscribe with `page.posts.onUpdate` and put it back. It also fires for other new content, such as comments, so the listener must be safe to run again.
-- Styles for Facebook's own elements go in the page with `addStyle` from `src/core/dom.ts`. UI the project draws itself goes in a shadow root with `mount`.
+- Styles for Facebook's own elements go in the page with `addStyle` from `src/core/dom.ts`. UI the project draws itself goes in a shadow root with `mount`. Both return a function that removes what they added, for `scope.add`.
 - Saved data that is not an option, such as a list the user builds, goes through `data.value(name, read)` in `setup`. Keep Social Fixer's name for it (`filters`), so an import stays possible.
 - A feature that needs more in the options dialog than a list of options declares a panel with `definePanel` from `src/ui/options-dialog/panel.ts` and adds it in `src/features/index.ts`. The dialog saves and drops the panel's edits with its own.
 - Features must work in the userscript too. Reach browser APIs through `src/platform/`, which has an extension version and a userscript version of each one.
@@ -26,9 +30,10 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
 - [ ] `x.js`: Zepto build plus utilities (publish/subscribe, storage, ajax, DOM helpers)
 - [ ] `fx.js`: options, page lifecycle hooks, page context detection
   - [x] option registration, defaults, storage, change listeners (`src/core/options.ts`)
-  - [x] watching for inserted and removed content (`watchTree` in `src/core/dom.ts`)
+  - [x] watching for inserted and removed content (`PageWatcher` in `src/core/page-watcher.ts`). One `MutationObserver` serves the whole content script: `watchTree` reports each added and removed subtree, and `watch` the elements that match a selector.
   - [x] page context from the address (`src/facebook/page.ts`)
-  - [x] noticing navigation without a reload (`onUrlChange` in `src/core/navigation.ts`). The original patched `history.pushState` in the page and ignored addresses containing `theater`. This version compares the address when the document changes and ignores nothing.
+  - [x] noticing navigation without a reload (`onUrlChange` in `src/core/navigation.ts`, run by the page watcher). The original patched `history.pushState` in the page and ignored addresses containing `theater`. This version compares the address when the document changes, and listens for the Navigation API's `currententrychange` where the browser has it. It ignores nothing.
+  - [x] running features (`FeatureRunner` in `src/core/app.ts`): each one gets a scope that ends what it subscribed to, an `enabledBy` option switches it on and off without a reload, and one whose callbacks keep throwing is stopped
   - [ ] looking up a group's name when the address has its number
 - [ ] `sfx.js`: build identity, cross-origin fetch through the background script, debug hooks
 - [ ] `post_processor.js`: finding posts in the page and working out their IDs

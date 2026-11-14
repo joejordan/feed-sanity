@@ -15,10 +15,12 @@ export default defineFeature({
       default: '',
     },
   },
-  async setup({ options }) {
+  async setup({ options, scope }) {
     const head = await waitForElement('head');
+    const remove = (): void => document.querySelector(`#${LINK_ID}`)?.remove();
+    scope.add(remove);
     options.watch('external_css_url', (value) => {
-      document.querySelector(`#${LINK_ID}`)?.remove();
+      remove();
       // A URL of only spaces would resolve to the current page.
       const url = value.trim();
       if (!url) {

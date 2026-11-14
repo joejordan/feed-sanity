@@ -1,4 +1,4 @@
-import type { Saved, SavedData } from '../../core/saved';
+import type { FeatureData, SavedValue } from '../../core/saved';
 import { isRecord } from '../../core/storage';
 
 // The shape of a saved filter. It is Social Fixer's, so filters written for
@@ -95,7 +95,7 @@ export function readFilters(stored: unknown): Filter[] {
 }
 
 /** The user's filters, saved under Social Fixer's name for them. */
-export const savedFilters = (data: SavedData): Saved<Filter[]> =>
+export const savedFilters = (data: FeatureData): SavedValue<Filter[]> =>
   data.value('filters', readFilters);
 
 /** A new filter as the editor starts it. */

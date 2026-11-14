@@ -1,8 +1,9 @@
 import type { AtomTranslator } from './atoms';
-import { probe, waitForElement, watchTree } from '../core/dom';
+import { probe, waitForElement } from '../core/dom';
 import { callSafely, Listeners } from '../core/listeners';
 import { createLogger } from '../core/log';
 import { onUrlChange } from '../core/navigation';
+import { pageWatcher } from '../core/page-watcher';
 import { pageContext } from './page';
 import { findPostId } from './post-id';
 import {
@@ -155,7 +156,7 @@ export class Posts {
   }
 
   async #watch(): Promise<void> {
-    const body = await waitForElement('body');
+    await waitForElement('body');
     // The first page scan needs the class names. Without them a selector such
     // as `:not(.S2F_pos_rel)` excludes nothing and comments pass for posts.
     await this.#atoms.start();
@@ -164,10 +165,11 @@ export class Posts {
       return;
     }
     this.#stopWatching = [
-      // Before `watchTree`, so a new page is known about before its content is scanned.
+      // The watcher reports a new address before the content that came with
+      // it, so a new page is known about before its content is scanned.
       onUrlChange(() => this.#navigated()),
       this.#atoms.onChange(() => this.#refresh()),
-      watchTree(body, {
+      pageWatcher.watchTree({
         added: (element) => this.#inserted(element),
         removed: (element) => this.#left(element),
       }),

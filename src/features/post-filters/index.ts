@@ -1,4 +1,5 @@
 import type { OptionSpecs } from '../../core/options';
+import type { Scope } from '../../core/scope';
 import type { Post } from '../../facebook/posts';
 import type { Applied } from './effects';
 import type { Filter } from './types';
@@ -105,7 +106,7 @@ interface Tracked {
 export default defineFeature({
   id: 'post_filters',
   options: OPTIONS,
-  async setup({ options, data, page, log }) {
+  async setup({ options, data, page, log, scope, child }) {
     const saved = savedFilters(data);
     await saved.ready;
 
@@ -113,7 +114,8 @@ export default defineFeature({
     const posts = new Map<Post, Tracked>();
     /** The filters in use. Empty while there is nothing to do: filtering is off, or no filter is set up. */
     let filters: Filter[] = [];
-    let stopWatching: (() => void)[] = [];
+    /** Ends what `start` set up. Only there while posts are being watched. */
+    let watching: Scope | undefined;
 
     /** False for the kinds of page the user has not turned filtering on for. */
     const appliesOn = (pageType: string): boolean =>
@@ -165,39 +167,39 @@ export default defineFeature({
     // Watching posts starts Facebook-wide post detection, so it waits until
     // there is a filter to run.
     const start = (): void => {
-      addStyle(STYLE_ID, css).catch((error: unknown) => {
-        log.error('could not add the style sheet', error);
-      });
+      const running = child();
+      watching = running.scope;
+      const watched = running.page;
+      watching.add(addStyle(STYLE_ID, css));
       addFixedTabs();
-      stopWatching = [
+      watching.add(
         showTabPanel({
           tabs,
-          watchAlwaysShow: (listener) => options.watch('always_show_tabs', listener),
+          watchAlwaysShow: (listener) => running.options.watch('always_show_tabs', listener),
         }),
-        page.posts.onReset(() => {
-          posts.clear();
-          tabs.reset();
-          addFixedTabs();
-        }),
-        page.posts.onRemove((post) => {
-          posts.delete(post);
-          tabs.remove(post.element);
-        }),
-        // Facebook refills posts it emptied while they were out of view, and
-        // what the filters did to the old content goes with it.
-        page.posts.onUpdate(apply),
-        // Also called at once with the posts already on the page.
-        page.posts.onAdd((post) => {
-          posts.set(post, { pageType: pageContext().type });
-          apply(post);
-        }),
-      ];
+      );
+      watched.posts.onReset(() => {
+        posts.clear();
+        tabs.reset();
+        addFixedTabs();
+      });
+      watched.posts.onRemove((post) => {
+        posts.delete(post);
+        tabs.remove(post.element);
+      });
+      // Facebook refills posts it emptied while they were out of view, and
+      // what the filters did to the old content goes with it.
+      watched.posts.onUpdate(apply);
+      // Also called at once with the posts already on the page.
+      watched.posts.onAdd((post) => {
+        posts.set(post, { pageType: pageContext().type });
+        apply(post);
+      });
     };
 
     const stop = (): void => {
-      for (const end of stopWatching.splice(0)) {
-        end();
-      }
+      watching?.dispose();
+      watching = undefined;
       for (const [post, { applied }] of posts) {
         undo(applied);
         unhidePost(post);
@@ -218,7 +220,6 @@ export default defineFeature({
       filters = options.get('filters_enabled')
         ? [...(keywords ? [keywords] : []), ...saved.get()].filter(isRunnable)
         : [];
-      const watching = stopWatching.length > 0;
       if (filters.length === 0) {
         // Does nothing when nothing is watched.
         stop();
@@ -244,6 +245,8 @@ export default defineFeature({
     }
     saved.onChange(refresh);
     settingUp = false;
+    // Undoes what the filters did if the feature is stopped.
+    scope.add(stop);
     refresh();
   },
 });
