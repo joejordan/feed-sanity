@@ -48,11 +48,21 @@ function OptionRow({ optionKey, spec, options, edit, onEdit }: OptionRowProps) {
     'aria-describedby': spec.description ? `${id}-description` : undefined,
     'aria-invalid': (edit && edit.value === undefined) || undefined,
   };
-  const onText = (event: { target: HTMLInputElement | HTMLTextAreaElement }) =>
+  const onText = (event: { target: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement }) =>
     onEdit(optionKey, toEdit(spec, event.target.value));
 
   let field: ReactNode;
-  if (typeof spec.default === 'boolean') {
+  if (spec.choices) {
+    field = (
+      <select {...control} className="field" value={String(shown)} onChange={onText}>
+        {spec.choices.map(({ value, label }) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+    );
+  } else if (typeof spec.default === 'boolean') {
     field = (
       <input
         {...control}

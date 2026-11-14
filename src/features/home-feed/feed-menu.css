@@ -1,0 +1,187 @@
+/*
+ * The overlay's host has the place and size of Facebook's Home link, whose
+ * house icon, 24 pixels square, sits in the middle of it. Measured on
+ * 2026-11-14 in Chrome 157: a 130 x 56 cell, and a 3 pixel bar along the
+ * bottom of it while Home is the page shown.
+ */
+.cell {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+}
+
+/* To the right of the icon, centred on it, clear of it and of the bar. */
+.caret {
+  position: absolute;
+  top: calc(50% - 10px);
+  left: calc(50% + 18px);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fs-icon-secondary);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.caret:hover {
+  background: var(--fs-hover);
+}
+
+.caret:active {
+  background: var(--fs-press);
+}
+
+.caret:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 1px;
+}
+
+.caret.chosen {
+  color: var(--fs-accent);
+}
+
+/* Narrow windows fold the top bar up, and the cell with it. */
+@container (width < 64px) {
+  .caret {
+    display: none;
+  }
+}
+
+.chevron {
+  width: 16px;
+  height: 16px;
+}
+
+.icon,
+.chevron,
+.check {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/*
+ * Facebook's own menus, measured the same day on a post's menu and on the
+ * account menu: the card colour, a 12 pixel radius, this shadow, 5 pixels
+ * below what opened it.
+ */
+.menu {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  max-height: calc(100vh - 72px);
+  margin: 0;
+  padding: 8px 0;
+  overflow: auto;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fs-background);
+  box-shadow:
+    0 12px 28px 0 rgb(0 0 0 / 20%),
+    0 2px 4px 0 rgb(0 0 0 / 10%);
+  color: var(--fs-text);
+  font-family: var(--fs-font);
+  outline: none;
+  pointer-events: auto;
+}
+
+/* 44 pixels tall, with an overlay of the hover colour and a 4 pixel radius under the pointer. */
+.item {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  height: 44px;
+  margin: 0 8px;
+  padding: 12px 8px;
+  border-radius: 4px;
+  color: var(--fs-icon);
+  cursor: pointer;
+  outline: none;
+}
+
+.item::before {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  background: var(--fs-hover);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* While the keyboard is in use, only the entry with focus, not the one under a resting pointer. */
+.menu:not(.keys) .item:hover::before,
+.menu.keys .item:focus::before {
+  opacity: 1;
+}
+
+/* Only while the menu is used from the keyboard, as in Facebook's menus. */
+.menu.keys .item:focus {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: -2px;
+}
+
+.label {
+  flex: 1;
+  overflow: hidden;
+  color: var(--fs-text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The feed the page shows. */
+.item.current .icon,
+.item.current .label {
+  color: var(--fs-accent);
+}
+
+.check {
+  color: var(--fs-accent);
+}
+
+.separator {
+  height: 1px;
+  margin: 8px 16px;
+  background: var(--fs-divider);
+}
+
+/* As the tooltips Facebook shows under its top bar icons. */
+.tip {
+  position: fixed;
+  inset: auto;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 80%);
+  box-shadow: 0 2px 4px 0 rgb(0 0 0 / 50%);
+  color: rgb(8 8 9);
+  font-family: "Segoe UI Historic", "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: tip-in 0.1s linear;
+}
+
+@keyframes tip-in {
+  from {
+    opacity: 0;
+  }
+}

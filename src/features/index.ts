@@ -3,6 +3,7 @@ import type { SavedData } from '../core/saved';
 import type { FacebookPage } from '../facebook/feature';
 import type { OptionsPanel } from '../ui/options-dialog/panel';
 import externalCss from './external-css';
+import homeFeed from './home-feed';
 import postFilters from './post-filters';
 import { filtersPanel } from './post-filters/filters-panel';
 import storiesKeepPlaying from './stories-keep-playing';
@@ -13,6 +14,7 @@ import videoScrubber from './video-scrubber';
 /** Every feature the extension runs, in start order. Add new features here. */
 export const features: readonly Feature<FacebookPage>[] = [
   externalCss,
+  homeFeed,
   postFilters,
   storiesKeepPlaying,
   videoScrubber,
