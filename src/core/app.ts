@@ -1,10 +1,11 @@
 import type { Feature } from './feature';
 import type { Options } from './options';
+import type { SavedData } from './saved';
 import { createLogger } from './log';
 
 /**
  * Registers every feature's options, reads the saved values, then starts the
- * features in list order, handing each one `page`. A feature that throws is
+ * features in list order, handing each one `page` and `data`. A feature that throws is
  * reported and skipped, so one feature broken by a Facebook change does not
  * take the others down. Returns the ids of the features that failed to start.
  */
@@ -12,6 +13,7 @@ export async function startFeatures<P>(
   features: readonly Feature<P>[],
   options: Options,
   page: P,
+  data: SavedData,
 ): Promise<string[]> {
   for (const feature of features) {
     if (feature.options) {
@@ -25,7 +27,7 @@ export async function startFeatures<P>(
     features.map(async (feature) => {
       const log = createLogger(feature.id);
       try {
-        await feature.setup({ options, log, page });
+        await feature.setup({ options, data, log, page });
       } catch (error) {
         failed.push(feature.id);
         log.error('failed to start', error);

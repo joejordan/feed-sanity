@@ -1,5 +1,6 @@
 import type { Logger } from './log';
 import type { FeatureOptions, OptionSpecs } from './options';
+import type { SavedData } from './saved';
 
 /**
  * What a feature's setup function receives. `P` is whatever the site the
@@ -7,6 +8,8 @@ import type { FeatureOptions, OptionSpecs } from './options';
  */
 export interface FeatureContext<S extends OptionSpecs, P = unknown> {
   options: FeatureOptions<S>;
+  /** Saved values that are not options, such as lists the user builds. */
+  data: SavedData;
   log: Logger;
   page: P;
 }

@@ -5,6 +5,7 @@ import { extensionStore } from '../platform/extension-store';
 import { startFeatures } from './app';
 import { defineFeature } from './feature';
 import { Options } from './options';
+import { SavedData } from './saved';
 
 describe('startFeatures', () => {
   beforeEach(() => {
@@ -23,7 +24,12 @@ describe('startFeatures', () => {
       },
     });
     expect(
-      await startFeatures([feature], new Options(extensionStore, 'u/options'), undefined),
+      await startFeatures(
+        [feature],
+        new Options(extensionStore, 'u/options'),
+        undefined,
+        new SavedData(extensionStore, 'u'),
+      ),
     ).toEqual([]);
     expect(seen).toEqual([12]);
   });
@@ -50,6 +56,7 @@ describe('startFeatures', () => {
       [broken, rejecting, working],
       new Options(extensionStore, 'u/options'),
       undefined,
+      new SavedData(extensionStore, 'u'),
     );
     expect(failed).toEqual(['broken', 'rejecting']);
     expect(started).toEqual(['working']);
@@ -65,7 +72,12 @@ describe('startFeatures', () => {
       },
     });
 
-    await startFeatures([feature], new Options(extensionStore, 'u/options'), page);
+    await startFeatures(
+      [feature],
+      new Options(extensionStore, 'u/options'),
+      page,
+      new SavedData(extensionStore, 'u'),
+    );
 
     expect(seen).toEqual([page]);
   });
