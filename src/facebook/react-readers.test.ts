@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_FEED_UNIT_DEPTH,
   MAX_FIBER_DEPTH,
   MAX_IMPLEMENTATIONS,
   PAGE_READERS,
+  POST_SPONSORED,
+  readPostSponsored,
   readVideoSources,
   VIDEO_SOURCES,
 } from './react-readers';
+import { giveFeedUnit } from './testing';
 
 const HD = 'https://video.xx.fbcdn.net/v/t42/hd.mp4?oe=1';
 const SD = 'https://video.xx.fbcdn.net/v/t42/sd.mp4?oe=1';
@@ -122,5 +126,54 @@ describe('readVideoSources', () => {
 
   it('is offered to the page-world side by name', () => {
     expect(PAGE_READERS[VIDEO_SOURCES]).toBe(readVideoSources);
+  });
+});
+
+/** A feed post whose React fiber has `feedUnit` in its props `depth` steps up. */
+const postWith = (feedUnit: unknown, depth = 4): HTMLElement =>
+  giveFeedUnit(document.createElement('div'), feedUnit, depth);
+
+const story = (sponsored: unknown) => ({
+  __typename: 'Story',
+  id: 'x',
+  sponsored_data: sponsored,
+  feedback: { associated_group: null },
+});
+
+describe('readPostSponsored', () => {
+  it('says an ad is sponsored', () => {
+    const ad = postWith(story({ ad_id: '6000000000001', client_token: 'token' }));
+    expect(readPostSponsored(ad)).toEqual({ sponsored: true });
+  });
+
+  it('says ordinary and suggested posts are not', () => {
+    expect(readPostSponsored(postWith(story(null)))).toEqual({ sponsored: false });
+    const group = { ...story(null), feedback: { associated_group: { id: '1' } } };
+    expect(readPostSponsored(postWith(group))).toEqual({ sponsored: false });
+  });
+
+  it('finds the feed unit at any depth up to its limit, and not beyond', () => {
+    const unit = story({ ad_id: '1' });
+
+    expect(readPostSponsored(postWith(unit, 0))).toEqual({ sponsored: true });
+    expect(readPostSponsored(postWith(unit, MAX_FEED_UNIT_DEPTH))).toEqual({ sponsored: true });
+    expect(readPostSponsored(postWith(unit, MAX_FEED_UNIT_DEPTH + 1))).toBeNull();
+  });
+
+  it('gives null when there is no feed unit of the right shape', () => {
+    expect(readPostSponsored(document.createElement('div'))).toBeNull();
+    expect(readPostSponsored(postWith(null))).toBeNull();
+    expect(readPostSponsored(postWith('Story'))).toBeNull();
+    expect(readPostSponsored(postWith({ __typename: 'Story' }))).toBeNull();
+  });
+
+  it('reads anything but an object as not sponsored', () => {
+    for (const value of [undefined, 'yes', 1, true]) {
+      expect(readPostSponsored(postWith(story(value)))).toEqual({ sponsored: false });
+    }
+  });
+
+  it('is offered to the page-world side by name', () => {
+    expect(PAGE_READERS[POST_SPONSORED]).toBe(readPostSponsored);
   });
 });

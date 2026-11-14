@@ -241,8 +241,11 @@ test('shows the running features and the post counts under Diagnostics', async (
 
 test('says under Diagnostics when post detection has not started', async ({
   page,
+  store,
   pressToolbarButton,
 }) => {
+  // Hiding suggested posts is on by default, and starts post detection.
+  await store({ [OPTIONS_KEY]: { hide_suggested_posts: false } });
   await page.goto(FEED);
   await pressToolbarButton();
 
@@ -265,4 +268,67 @@ test('finds the posts on a page reached without a reload', async ({ page, store,
   await expect(slot(page, 'Fern Adair')).toHaveAttribute('fs_id', '100000000000008');
   // The posts hidden on the first page went with it.
   await expect.poll(badgeText).toBe('1');
+});
+
+/** The feed with the posts Facebook suggests. */
+const SUGGESTED_FEED = `${ORIGIN}/?e2e=suggested`;
+
+test('hides suggested posts by default, says why, and counts them on the badge', async ({
+  page,
+  badgeText,
+}) => {
+  await page.goto(SUGGESTED_FEED);
+
+  const followNote = await expectHidden(page, 'Fennel Farm');
+  await expect(followNote).toHaveText(
+    /^Post hidden because Facebook suggested it (click to show)/,
+  );
+  await expectHidden(page, 'Knitting Circle');
+  await expectShown(page, 'Avery Quill');
+  await expectShown(page, 'Bram Okafor');
+  // Ads have no button by the name, and are left alone unless they are hidden too.
+  await expectShown(page, 'Sourdough School');
+  await expect.poll(badgeText).toBe('2');
+
+  await followNote.click();
+  await expect(messageOf(page, 'Fennel Farm')).toBeVisible();
+});
+
+test('leaves suggested posts alone with their option off', async ({ page, store, badgeText }) => {
+  await store({ [OPTIONS_KEY]: { hide_suggested_posts: false, hidden_keywords: 'zebra' } });
+
+  await page.goto(SUGGESTED_FEED);
+
+  await expectShown(page, 'Fennel Farm');
+  await expectShown(page, 'Knitting Circle');
+  await expect.poll(badgeText).toBe('');
+});
+
+test("hides ads with that option on, from React's data read through the page-world bridge", async ({
+  page,
+  store,
+  badgeText,
+}) => {
+  await store({ [OPTIONS_KEY]: { hide_sponsored_posts: true } });
+
+  await page.goto(SUGGESTED_FEED);
+
+  // An ad has no time link, so it is announced after its ID lookup gives up.
+  const note = await expectHidden(page, 'Sourdough School');
+  await expect(note).toHaveText(/^Post hidden because it is an ad (click to show)/);
+  await expectShown(page, 'Avery Quill');
+  await expectHidden(page, 'Fennel Farm');
+  await expect.poll(badgeText).toBe('3');
+
+  await store({ [OPTIONS_KEY]: { hide_sponsored_posts: false } });
+  await expectShown(page, 'Sourdough School');
+  await expect.poll(badgeText).toBe('2');
+});
+
+test('leaves ads alone by default', async ({ page, store }) => {
+  await store({ [OPTIONS_KEY]: { hidden_keywords: 'zebra' } });
+
+  await page.goto(FEED);
+
+  await expectShown(page, 'Sourdough School');
 });

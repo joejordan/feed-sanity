@@ -13,6 +13,7 @@ import { pageWatcher } from '../core/page-watcher';
 import { Atoms } from './atoms';
 import { Posts } from './posts';
 import * as selectors from './selectors';
+import { postSponsored } from './sponsored';
 import { videoSources } from './video-sources';
 import { Videos } from './videos';
 
@@ -68,6 +69,12 @@ export interface FacebookBridge {
    * it. Rejects with a `BridgeError` when the question could not be asked.
    */
   videoSources: (element: HTMLVideoElement, signal?: AbortSignal) => Promise<VideoSources | null>;
+  /**
+   * Whether the feed post `element` is an ad, checked; see `postSponsored`
+   * in `src/facebook/sponsored.ts`. Null when no feed unit was found for
+   * it. Rejects with a `BridgeError` when the question could not be asked.
+   */
+  postSponsored: (element: Element, signal?: AbortSignal) => Promise<boolean | null>;
 }
 
 /** The page-world bridge as `bindPage` takes it, before it is tied to a feature. */
@@ -99,6 +106,7 @@ function bindBridge(bridge: PageWorld, { scope, listen }: Binder): FacebookBridg
     status: () => bridge.status(),
     onStatus: (listener) => listen((guarded) => bridge.onStatus(guarded), listener),
     videoSources: (element, signal) => videoSources({ ask }, element, signal),
+    postSponsored: (element, signal) => postSponsored({ ask }, element, signal),
   };
 }
 
