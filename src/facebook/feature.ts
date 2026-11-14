@@ -117,12 +117,21 @@ export function bindPage(page: FacebookPage): PageFactory<FacebookPage> {
   };
 }
 
+/** The page services' counts, read by the diagnostics. */
+export interface PageStats {
+  readonly atoms: Pick<Atoms, 'stats'>;
+  readonly locators: Pick<Locators, 'names' | 'stats'>;
+  readonly posts: Pick<Posts, 'stats'>;
+}
+
 /**
  * Builds the page services. Nothing in them runs until a feature uses it,
  * except reading the user's replacement selectors from `data`, which are
- * applied again whenever they change.
+ * applied again whenever they change. `stats` reads their counts.
  */
-export function createPage(data: FeatureData): PageFactory<FacebookPage> {
+export function createPage(
+  data: FeatureData,
+): PageFactory<FacebookPage> & { readonly stats: PageStats } {
   const atoms = new Atoms();
   const locators = new Locators(atoms, Object.values(selectors).filter(isLocatorSpec));
   const overrides = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
@@ -140,13 +149,15 @@ export function createPage(data: FeatureData): PageFactory<FacebookPage> {
     }
     return locators.locate(spec);
   };
-  return bindPage({
+  const posts = new Posts(atoms, locate);
+  const page = bindPage({
     atoms,
     locate,
-    posts: new Posts(atoms, locate),
+    posts,
     videos: new Videos(locate),
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
   });
+  return Object.assign(page, { stats: { atoms, locators, posts } });
 }
 
 /**

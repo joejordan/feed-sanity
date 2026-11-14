@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { defineBackground } from 'wxt/utils/define-background';
+import { badgeListener } from '../platform/badge';
 import { OPEN_OPTIONS } from '../platform/messages';
 
 export default defineBackground(() => {
@@ -13,4 +14,6 @@ export default defineBackground(() => {
       // Not a Facebook page, so nothing in the tab is listening.
     });
   });
+  // The content script cannot reach the toolbar button, so it sends its badge here.
+  browser.runtime.onMessage.addListener(badgeListener(action));
 });

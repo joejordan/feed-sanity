@@ -25,6 +25,14 @@ export interface FeatureContext<S extends OptionSpecs, P = unknown> {
    */
   scope: Scope;
   /**
+   * Shows `count` on the toolbar button's badge, such as how many posts the
+   * feature has hidden on this page. Each call replaces the number this
+   * context showed before, and the badge shows the sum over every feature.
+   * The number is dropped when `scope` is disposed. 0 adds nothing. It
+   * throws for a number that is not a whole number of 0 or more.
+   */
+  badge: (count: number) => void;
+  /**
    * A context whose scope is a child of this one, for work the feature
    * starts and stops while it runs. Disposing the child's scope ends what
    * was subscribed through it.

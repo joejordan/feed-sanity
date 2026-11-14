@@ -21,6 +21,11 @@ export interface OptionsPanel<T = unknown> {
   ready: Promise<void>;
   read: () => T;
   save: (value: T) => Promise<void>;
+  /**
+   * Why the edited value cannot be saved, or null when it can. While a
+   * panel has a problem, the dialog says so and will not save.
+   */
+  problem?: (value: T) => string | null;
   Panel: (props: PanelProps<T>) => ReactNode;
 }
 

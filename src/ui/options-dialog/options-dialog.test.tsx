@@ -277,4 +277,23 @@ describe('OptionsDialog panels', () => {
 
     expect(save).not.toHaveBeenCalled();
   });
+
+  it('does not save while a panel says its value has a problem', async () => {
+    const user = userEvent.setup();
+    const options = await loadedOptions();
+    const { panel } = wordsPanel(['a'], 'General');
+    const checked = {
+      ...panel,
+      problem: (value: unknown) =>
+        (value as string[]).length > 2 ? 'Too many words in the panel.' : null,
+    };
+    render(<OptionsDialog options={options} panels={[checked]} onClose={() => undefined} />);
+
+    await user.click(button('Words: a'));
+    expect(button('Save').disabled).toBe(false);
+    await user.click(button('Words: a more'));
+
+    expect(screen.getByText('Too many words in the panel.')).toBeTruthy();
+    expect(button('Save').disabled).toBe(true);
+  });
 });

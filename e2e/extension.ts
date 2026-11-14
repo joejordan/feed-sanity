@@ -61,6 +61,8 @@ interface TestFixtures {
   stored: (key: string) => Promise<unknown>;
   /** Fires the toolbar button's click event for the tab `page` is in. */
   pressToolbarButton: () => Promise<void>;
+  /** The text of the toolbar button's badge for the tab `page` is in. */
+  badgeText: () => Promise<string>;
 }
 
 export const test = base.extend<TestFixtures, { extensionBrowser: Browser }>({
@@ -156,6 +158,21 @@ export const test = base.extend<TestFixtures, { extensionBrowser: Browser }>({
       });
     });
     await session.detach();
+  },
+
+  // The badge is set for one tab, so it is read for that tab. The browser has
+  // one window with one tab in it, the one every test uses.
+  badgeText: async ({ extensionBrowser: { worker } }, use) => {
+    await use(() =>
+      worker.evaluate(async () => {
+        const tabs = await chrome.tabs.query({ active: true });
+        const tabId = tabs.length === 1 ? tabs[0]?.id : undefined;
+        if (tabId === undefined) {
+          throw new Error(`Expected one active tab, found ${tabs.length}`);
+        }
+        return chrome.action.getBadgeText({ tabId });
+      }),
+    );
   },
 });
 

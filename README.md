@@ -10,6 +10,7 @@
 | `src/core/`                      | The framework features are built on: feature registry, options, DOM helpers. Nothing here knows about Facebook's markup.                                  |
 | `src/facebook/`                  | Everything that depends on how Facebook builds its pages, such as selectors, cookies and URL formats. When Facebook changes something, the fix goes here. |
 | `src/features/<name>/`           | One folder per feature, with its tests.                                                                                                                   |
+| `src/diagnostics/`               | The Diagnostics section of the options dialog and the report it copies.                                                                                   |
 | `src/platform/`                  | What differs between the extension and the userscript, such as where settings are stored.                                                                 |
 | `src/ui/`                        | The UI, written with React's API: `mount` for showing a component on the page, and the options dialog.                                                     |
 
@@ -53,7 +54,7 @@ export default defineFeature({
 });
 ```
 
-`page.posts` reports each post on the page and each one Facebook adds later. `page.locate` finds Facebook's other elements through the locators in `src/facebook/selectors.ts`. `page.atoms` translates CSS that names Facebook's generated classes.
+`page.posts` reports each post on the page and each one Facebook adds later. `page.locate` finds Facebook's other elements through the locators in `src/facebook/selectors.ts`. `page.atoms` translates CSS that names Facebook's generated classes. `badge(count)` shows a number on the toolbar button, such as how many posts the feature has hidden.
 
 Then add it to the list in `src/features/index.ts`. A feature that throws during setup is logged and skipped, and the others keep running.
 

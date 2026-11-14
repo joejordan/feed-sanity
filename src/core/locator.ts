@@ -220,13 +220,15 @@ function isValid(selector: string): boolean {
 }
 
 /**
+ * True when `selector` is valid and closed, so a locator can run it.
+ *
  * Browsers close what a selector leaves open at its end: a string, a
  * bracket, a parenthesis, a comment or a trailing backslash. Joined with
  * another, such a selector swallows the one after it and the list stays
  * valid, so it is tested alone first. A closed selector is never made
  * valid by one more closing character.
  */
-function isUsable(selector: string): boolean {
+export function isUsableSelector(selector: string): boolean {
   return isValid(selector) && [')', ']', '"', "'"].every((end) => !isValid(selector + end));
 }
 
@@ -403,7 +405,7 @@ class RegisteredLocator implements Locator {
       const resolved = this.#owner.resolve(strategy.selector);
       if (resolved === null) {
         strategy.state = 'waiting';
-      } else if (isUsable(resolved)) {
+      } else if (isUsableSelector(resolved)) {
         strategy.state = 'ready';
         strategy.resolved = resolved;
         usable.push(strategy);
@@ -502,6 +504,11 @@ export class Locators {
   /** The counts of every locator, in the order they became known. */
   stats(): LocatorStats[] {
     return [...this.#locators.values()].map((locator) => locator.stats());
+  }
+
+  /** The name of every locator, in the order they became known. */
+  names(): string[] {
+    return [...this.#names.keys()];
   }
 
   /** Sets every count back to zero. */
