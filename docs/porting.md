@@ -13,9 +13,12 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
 - To act on posts, subscribe with `page.posts.onAdd`. Post detection does not run until something subscribes.
 - Call `page.atoms.start()` before relying on translated selectors outside post detection, and translate again when `page.atoms.onChange` fires.
 - Each ported feature gets a test next to it.
+- Read a post's text and parts from `post.content`, not `post.element`. They are the same element except in the comments popup, where `element` is the popup and `content` is the post inside it. `postText`, `postElements` and `readPostFields` in `src/facebook/` leave the comments out.
 - Give every element a feature adds inside one of Facebook's the `data-feed-sanity` attribute (`OWN` in `src/facebook/selectors.ts`). Its text is then left out of the post's, and adding it does not count as new content.
 - Facebook empties posts that scroll out of view and refills them later, which discards anything a feature put inside. Subscribe with `page.posts.onUpdate` and put it back. It also fires for other new content, such as comments, so the listener must be safe to run again.
 - Styles for Facebook's own elements go in the page with `addStyle` from `src/core/dom.ts`. UI the project draws itself goes in a shadow root with `mount`.
+- Saved data that is not an option, such as a list the user builds, goes through `data.value(name, read)` in `setup`. Keep Social Fixer's name for it (`filters`), so an import stays possible.
+- A feature that needs more in the options dialog than a list of options declares a panel with `definePanel` from `src/ui/options-dialog/panel.ts` and adds it in `src/features/index.ts`. The dialog saves and drops the panel's edits with its own.
 - Features must work in the userscript too. Reach browser APIs through `src/platform/`, which has an extension version and a userscript version of each one.
 
 ## Framework
@@ -70,12 +73,18 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
   - [x] opening it from the toolbar button (extension) or the userscript manager's menu
   - [ ] opening it from Social Fixer's badge menu on the page, which comes with the `menu` port
   - [x] multi-line text options, used for the Hide Posts keywords
-  - [ ] the Filters and Data sections, and the link and action option types
+  - [x] the Filters section: the filter list and the filter editor, as a panel a feature draws itself (`src/features/post-filters/filters-panel.tsx`). Not ported: filter subscriptions, which came from Social Fixer's server
+  - [ ] the Data section, and the link and action option types
 - [ ] permalink_target
 - [ ] photo_tags
-- [ ] post_filters
-  - [x] Hide Posts: hiding posts by keyword, with the note that stands in for a hidden post (`src/features/hide-posts/`). It keeps the original's option keys, the `filters_enabled` switches and the `sfx_filter_hidden` class names. Not ported: never hiding posts from Social Fixer's own page, and skipping hidden "Facebook" filler text.
-  - [ ] the filter engine: rules, actions and tabs
+- [x] post_filters (`src/features/post-filters/`)
+  - [x] Hide Posts: hiding posts by keyword, with the note that stands in for a hidden post. The keywords run as the first filter. It keeps the original's option keys, the `filters_enabled` switches and the `sfx_filter_hidden` class names. Not ported: never hiding posts from Social Fixer's own page, and skipping hidden "Facebook" filler text.
+  - [x] rules: every target and operator of the original, `contains_selector` with its `:contains`, `:has-visible-text` and `:hidden-within` extras, and the `day` and `age` rules. Filters are saved in Social Fixer's format under its `filters` name. The `page` target is always empty, because it needs React's data on the post.
+  - [x] actions: hide, unhide, add CSS, add a class, replace text, move to tab and copy to tab, with `$1` and `${field}` variables in notes and tab names
+  - [ ] the `read` and `unread` actions, which come with the `mark_read` port
+  - [x] tabs (`post_tabs.js`): the `sfx_filter_tab_<n>` classes and a list of the tabs in a corner of the page. The original kept the list in its control panel. Not ported: choosing a starting tab that has posts in it, and the counts of read posts.
+  - [ ] the filter debugger and the `filter_forced_visible_style` option
+  - Different from the original on purpose: a post is filtered again whenever Facebook adds content to it, and every post is filtered again when the filters or their settings change, so no page reload is needed. What a filter did is undone first. Replaced text is the exception and stays until Facebook draws the post again. A rule that cannot be tested, such as a broken regular expression, counts as not matching; the original ignored it. A text rule with nothing to look for never matches; in the original it matched every post. A post the page is about is left out of the tabs, so a filter cannot sort it out of view.
 - [ ] post_font
 - [ ] regex_tester
 - [ ] sfx_collision
@@ -100,11 +109,23 @@ The options dialog was opened on the same page over sample options. It used Face
 
 Keyword hiding ran on the same feed twice with the keyword "the". On the second run 16 of 28 posts were hidden, each collapsed to a one-line note 21 px high. Clicking a note showed the post and clicking again hid it. After scrolling far down and back, every hidden post still had exactly one note. Turning notes off, hiding the matched word, whole-word matching, clearing the keywords and turning filtering off all took effect at once, and the posts were hidden again when the keywords were set again. Turning notes off also collapsed a post that had been revealed. Today's feed posts contain no `<form>`, and their Like, Comment and Share buttons carry no text, so those words are not matched. The original skips hidden "Facebook" filler text inside posts. No post had any, so that check is not ported. Every fifth feed slot, the sponsored ones, already had zero height in the test browser before this project touched it, so a note placed in one of them cannot be seen.
 
-Not checked yet: group, profile and Marketplace pages, and the comments popup.
+The filter engine ran the same day on the news feed, on the groups feed and on a post opened in the comments popup.
+
+- On the news feed the author was found for all 15 posts. One filter copied posts with a photo description to a tab and another moved posts with a video to a second tab, and the keyword notes kept working beside them. The tab list showed each tab with its count, and clicking a tab showed only its posts.
+- Changes to the filters and options took effect on the posts already on the page. Turning filtering off removed every class, note and style, and the tab list.
+- Going from the news feed to the groups feed inside the page found 34 posts. The group's name was found for all 27 that still had content when they were sampled.
+- In the popup the tracked element is the dialog. The post is an article inside it with no label, and each comment is an article inside the post labelled "Comment by ...". The author was found there, and a hidden post got its note and stayed visible.
+- Opening a post in the popup changes the address to the post's own, which counts as a page or profile. Filters run there only when "Filter on pages and profiles" is on, as in the original.
+- No feed post had an `l.php` link or an `abbr[data-utime]`, so the link rules and the age rule have nothing to match on today's feed.
+- The options dialog showed the filter list and the filter editor over the live page.
+
+Facebook's pages do not allow `eval`, but they allow scripts from `blob:` addresses. The test build was loaded that way, from a file put in a file input.
+
+Not checked yet: profile and Marketplace pages, the page of a single group, Facebook's light mode, Firefox, and the extension or userscript installed in a browser.
 
 ## Not yet checked against Facebook
 
-Apart from the news feed check above, the ported code has only run in unit tests. These parts copy what worked in 2023 and still need checking on the live site:
+Apart from the checks above, the ported code has only run in unit tests. These parts copy what worked in 2023 and still need checking on the live site:
 
 - the declarations in `src/facebook/atom-rules.ts` behind the seven names `Atoms` did not find
 - the selectors in `src/facebook/selectors.ts` other than the feed position and the time link

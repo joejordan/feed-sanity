@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { OptionSpec, Options, OptionValue } from '../../core/options';
+import type { OptionsPanel } from './panel';
 import { OPTIONS_TITLE } from '../../../project';
 import { createLogger } from '../../core/log';
 import { useOptionValue } from '../use-option-value';
@@ -95,25 +96,33 @@ function OptionRow({ optionKey, spec, options, edit, onEdit }: OptionRowProps) {
 
 export interface OptionsDialogProps {
   options: Options;
+  /** Parts of the dialog that features draw themselves. */
+  panels?: readonly OptionsPanel[];
   /** Called when the user closes the dialog, after any save has finished. */
   onClose: () => void;
 }
 
 /**
- * Lists every registered option by section. Changes are kept aside until the
- * user saves them, as in Social Fixer. Cancel, Escape and the close button
- * drop them.
+ * Lists every registered option by section, followed by the section's
+ * panels. Changes are kept aside until the user saves them, as in Social
+ * Fixer. Cancel, Escape and the close button drop them.
  */
-export function OptionsDialog({ options, onClose }: OptionsDialogProps) {
+export function OptionsDialog({ options, panels = [], onClose }: OptionsDialogProps) {
   const titleId = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const { all, sections } = useMemo(() => {
     const list = options.list();
-    return { all: list, sections: [...new Set(list.map(([, spec]) => spec.section))] };
-  }, [options]);
+    const names = [
+      ...list.map(([, spec]) => spec.section),
+      ...panels.map((panel) => panel.section),
+    ];
+    return { all: list, sections: [...new Set(names)] };
+  }, [options, panels]);
   const [section, setSection] = useState(sections[0]);
   const [search, setSearch] = useState('');
   const [edits, setEdits] = useState<ReadonlyMap<string, Edit>>(new Map());
+  /** The edited value of each panel the user has changed. */
+  const [panelEdits, setPanelEdits] = useState<ReadonlyMap<OptionsPanel, unknown>>(new Map());
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -122,6 +131,7 @@ export function OptionsDialog({ options, onClose }: OptionsDialogProps) {
 
   const query = search.trim().toLowerCase();
   const shown = all.filter(([, spec]) => (query ? matches(spec, query) : spec.section === section));
+  const shownPanels = query ? [] : panels.filter((panel) => panel.section === section);
   // Named, because the option can be in a section that is not shown.
   const invalid = all.flatMap(([key, spec]) => {
     const edit = edits.get(key);
@@ -135,11 +145,12 @@ export function OptionsDialog({ options, onClose }: OptionsDialogProps) {
   const save = async () => {
     setSaving(true);
     try {
-      await Promise.all(
-        [...edits].map(([key, { value }]) =>
+      await Promise.all([
+        ...[...edits].map(([key, { value }]) =>
           value === undefined ? undefined : options.set(key, value),
         ),
-      );
+        ...[...panelEdits].map(([panel, value]) => panel.save(value)),
+      ]);
     } catch (error) {
       log.error('could not save the options', error);
     } finally {
@@ -192,7 +203,7 @@ export function OptionsDialog({ options, onClose }: OptionsDialogProps) {
           ))}
         </nav>
         <div className="list">
-          {shown.length === 0 && (
+          {shown.length === 0 && shownPanels.length === 0 && (
             <p className="empty">{query ? 'No options match.' : 'Nothing to set here yet.'}</p>
           )}
           {shown.map(([key, spec]) => (
@@ -203,6 +214,13 @@ export function OptionsDialog({ options, onClose }: OptionsDialogProps) {
               options={options}
               edit={edits.get(key)}
               onEdit={onEdit}
+            />
+          ))}
+          {shownPanels.map((panel) => (
+            <panel.Panel
+              key={panel.section}
+              value={panelEdits.has(panel) ? panelEdits.get(panel) : panel.read()}
+              onChange={(value) => setPanelEdits((previous) => new Map(previous).set(panel, value))}
             />
           ))}
         </div>
@@ -217,7 +235,7 @@ export function OptionsDialog({ options, onClose }: OptionsDialogProps) {
         <button
           className="button primary"
           type="button"
-          disabled={edits.size === 0 || invalid.length > 0 || saving}
+          disabled={(edits.size === 0 && panelEdits.size === 0) || invalid.length > 0 || saving}
           onClick={() => void save()}
         >
           Save

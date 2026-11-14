@@ -13,24 +13,27 @@ function collect(node: Node, parts: string[]): void {
 /**
  * The text of a post as its reader sees it: author, message and anything
  * attached, without the comments. Pieces of text are joined with spaces, so
- * words in neighbouring elements do not run together.
+ * words in neighbouring elements do not run together. Pass a post's
+ * `content` element, or a part of it.
  */
-export function postText(post: Element): string {
+export function postText(content: Element): string {
   const parts: string[] = [];
-  collect(post, parts);
+  collect(content, parts);
   return parts.join(' ').replaceAll(/\s+/g, ' ').trim();
 }
 
+/** The elements in a post's `content` matching `selector`, leaving out those in its comments. */
+export function postElements<E extends Element = Element>(content: Element, selector: string): E[] {
+  return [...content.querySelectorAll<E>(selector)].filter((element) => {
+    const inside = element.closest(NOT_POST_TEXT);
+    // A match at or above the content element does not make it a comment's.
+    return !inside || inside.contains(content);
+  });
+}
+
 /** The descriptions of a post's photos, leaving out photos in its comments. */
-export function postCaptions(post: Element): string[] {
-  const captions: string[] = [];
-  for (const image of post.querySelectorAll<HTMLImageElement>(CAPTIONED_IMAGE)) {
-    const inside = image.closest(NOT_POST_TEXT);
-    const caption = image.alt.trim();
-    // A match at or above the post itself does not make the photo a comment's.
-    if (caption && (!inside || inside.contains(post))) {
-      captions.push(caption);
-    }
-  }
-  return captions;
+export function postCaptions(content: Element): string[] {
+  return postElements<HTMLImageElement>(content, CAPTIONED_IMAGE)
+    .map((image) => image.alt.trim())
+    .filter((caption) => caption !== '');
 }

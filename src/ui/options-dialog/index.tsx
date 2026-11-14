@@ -1,4 +1,5 @@
 import type { Options } from '../../core/options';
+import type { OptionsPanel } from './panel';
 import { mount } from '../mount';
 import { OptionsDialog } from './options-dialog';
 import css from './options-dialog.css?inline';
@@ -8,8 +9,16 @@ const HOST_ID = 'feed_sanity_options';
 /** Closes the open dialog, or undefined when none is open. */
 let closeOpen: (() => void) | undefined;
 
-/** Shows the options dialog, unless it is already open. */
-export function openOptionsDialog(options: Options): void {
+/**
+ * Shows the options dialog, unless it is already open. It waits for the
+ * saved values first, so that the dialog shows them and a save does not
+ * overwrite the ones not read yet.
+ */
+export async function openOptionsDialog(
+  options: Options,
+  panels: readonly OptionsPanel[] = [],
+): Promise<void> {
+  await Promise.all([options.loaded, ...panels.map((panel) => panel.ready)]);
   if (closeOpen) {
     return;
   }
@@ -21,6 +30,9 @@ export function openOptionsDialog(options: Options): void {
       unmount();
     }
   };
-  const unmount = mount(<OptionsDialog options={options} onClose={close} />, { id: HOST_ID, css });
+  const unmount = mount(<OptionsDialog options={options} panels={panels} onClose={close} />, {
+    id: HOST_ID,
+    css: [css, ...panels.map((panel) => panel.css ?? '')].join('\n'),
+  });
   closeOpen = close;
 }

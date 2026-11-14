@@ -7,6 +7,22 @@ function post(html: string, attributes = ''): Element {
 }
 
 describe('postText', () => {
+  it('reads a post in the comments popup from the post inside the popup', () => {
+    const dialog = post(
+      `<h2>Ann's post</h2>
+       <div role="article">
+         <p>The message</p>
+         <div role="article" aria-label="Comment by Bob">A comment <img alt="In a comment"></div>
+         <img alt="In the post">
+       </div>`,
+      'role="dialog" aria-labelledby="x"',
+    );
+    const content = dialog.querySelector('[role=article]') as Element;
+
+    expect(postText(content)).toBe('The message');
+    expect(postCaptions(content)).toEqual(['In the post']);
+  });
+
   it('joins the pieces of text with single spaces', () => {
     const element = post(
       '<h4><a>Ann Author</a></h4><div><span>Hello</span><b>world</b>\n  !</div>',

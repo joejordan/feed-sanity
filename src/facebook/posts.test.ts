@@ -56,8 +56,8 @@ describe('posts', () => {
     await watch(2);
 
     expect(added).toEqual([
-      { element: first, number: 1, id: '1234567890', permalink: false },
-      { element: second, number: 2, id: '1234567890', permalink: false },
+      { element: first, content: first, number: 1, id: '1234567890', permalink: false },
+      { element: second, content: second, number: 2, id: '1234567890', permalink: false },
     ]);
     expect(first.id).toBe('sfx_post_1');
     expect(first.getAttribute('sfx_post')).toBe('1');
@@ -267,10 +267,12 @@ describe('posts', () => {
   it('tracks a post in the comments popup by the popup container', async () => {
     const mode = addHtml('<div class="__fb-light-mode S2F_pos_rel"></div>');
     const popup = addHtml('<div aria-labelledby="title"><div></div></div>', mode);
-    addHtml(POST_HTML, popup.firstElementChild as Element);
+    const inside = addHtml(POST_HTML, popup.firstElementChild as Element);
     await watch(1);
 
     expect(added[0]?.element).toBe(popup);
+    // The post's own content is read from the post inside the popup.
+    expect(added[0]?.content).toBe(inside);
     expect(popup.classList.contains('sfx_popup_post')).toBe(true);
   });
 

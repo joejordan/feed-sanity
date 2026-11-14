@@ -33,6 +33,12 @@ const UNTRACKED_SLOT = `[${FEED_POSITION}]:not([${MARK.post}])`;
 export interface Post {
   /** The post's top element. It carries the `sfx_post` and `sfx_id` attributes. */
   readonly element: HTMLElement;
+  /**
+   * The element that holds the post's own content, for reading its text. It
+   * is `element`, except in the comments popup, where `element` is the popup
+   * and this is the post inside it.
+   */
+  readonly content: HTMLElement;
   /** Counts the posts found since the page last had none, starting at 1. */
   readonly number: number;
   /** Facebook's ID for the post, or null when none could be found. */
@@ -223,7 +229,7 @@ export class Posts {
   #scan(container: Element): void {
     for (const candidate of probe(container, this.#postSelector)) {
       if (this.#isPost(candidate)) {
-        this.#track(this.#topOf(candidate));
+        this.#track(this.#topOf(candidate), candidate);
       }
     }
   }
@@ -260,7 +266,7 @@ export class Posts {
     return popup;
   }
 
-  #track(element: HTMLElement): void {
+  #track(element: HTMLElement, content: HTMLElement): void {
     if (this.#numbers.has(element)) {
       return;
     }
@@ -269,7 +275,7 @@ export class Posts {
     element.id ||= `${MARK.postElementId}${number}`;
     element.setAttribute(MARK.post, String(number));
     this.#numbers.set(element, number);
-    this.#identify(element, number).catch((error: unknown) => {
+    this.#identify(element, number, content).catch((error: unknown) => {
       log.error('failed to identify a post', error);
     });
   }
@@ -290,7 +296,7 @@ export class Posts {
     this.#reset.emit();
   }
 
-  async #identify(element: HTMLElement, number: number): Promise<void> {
+  async #identify(element: HTMLElement, number: number, content: HTMLElement): Promise<void> {
     const id = await this.#findId(element, this.#atoms);
     if (this.#numbers.get(element) !== number) {
       // The post left the page while its ID was being looked up.
@@ -300,7 +306,7 @@ export class Posts {
     const permalink =
       (id !== null && addressContains(id)) ||
       element.matches(this.#atoms.translate(THEATER_COMMENTS));
-    const post: Post = { element, number, id, permalink };
+    const post: Post = { element, content, number, id, permalink };
     this.#announced.set(element, post);
     this.#added.emit(post);
   }

@@ -8,6 +8,7 @@ import { extensionStore } from '../../platform/extension-store';
 import { HOST_TAG } from '../mount';
 import { openOptionsDialog } from '.';
 import { OptionsDialog } from './options-dialog';
+import { definePanel } from './panel';
 
 const specs = {
   hide_ads: {
@@ -167,8 +168,8 @@ describe('openOptionsDialog', () => {
     fakeBrowser.reset();
     const options = await loadedOptions();
 
-    act(() => openOptionsDialog(options));
-    act(() => openOptionsDialog(options));
+    await act(() => openOptionsDialog(options));
+    await act(() => openOptionsDialog(options));
 
     const hosts = document.querySelectorAll(HOST_TAG);
     expect(hosts).toHaveLength(1);
@@ -192,14 +193,88 @@ describe('openOptionsDialog', () => {
         document.querySelector(HOST_TAG)?.shadowRoot?.querySelector<HTMLElement>(selector)?.click();
       });
 
-    act(() => openOptionsDialog(options));
+    await act(() => openOptionsDialog(options));
     await click('input[type=checkbox]');
     await click('button.primary');
     await click('button[aria-label=Close]');
-    act(() => openOptionsDialog(options));
+    await act(() => openOptionsDialog(options));
     await act(async () => write.resolve());
 
     expect(document.querySelectorAll(HOST_TAG)).toHaveLength(1);
     await click('button[aria-label=Close]');
+  });
+});
+
+describe('OptionsDialog panels', () => {
+  /** A panel holding a list of words, edited by adding one. */
+  function wordsPanel(saved: string[], section: string) {
+    const save = vi.fn<(value: string[]) => Promise<void>>(() => Promise.resolve());
+    const panel = definePanel<string[]>({
+      section,
+      ready: Promise.resolve(),
+      read: () => saved,
+      save,
+      Panel: ({ value, onChange }) => (
+        <button type="button" onClick={() => onChange([...value, 'more'])}>
+          Words: {value.join(' ')}
+        </button>
+      ),
+    });
+    return { panel, save };
+  }
+
+  beforeEach(() => {
+    fakeBrowser.reset();
+  });
+
+  it('shows a panel below the options of its section, and gives a section of its own a place', async () => {
+    const user = userEvent.setup();
+    const options = await loadedOptions();
+    const panels = [wordsPanel(['a'], 'General').panel, wordsPanel(['z'], 'Words').panel];
+    render(<OptionsDialog options={options} panels={panels} onClose={() => undefined} />);
+
+    expect(button('Words: a')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Words: z' })).toBeNull();
+
+    await user.click(button('Words'));
+
+    expect(button('Words: z')).toBeTruthy();
+    expect(screen.queryByText('Nothing to set here yet.')).toBeNull();
+  });
+
+  it('saves a panel the user edited, and no other', async () => {
+    const user = userEvent.setup();
+    const options = await loadedOptions();
+    const edited = wordsPanel(['a'], 'General');
+    const untouched = wordsPanel(['z'], 'Words');
+    const onClose = vi.fn<() => void>();
+    render(
+      <OptionsDialog
+        options={options}
+        panels={[edited.panel, untouched.panel]}
+        onClose={onClose}
+      />,
+    );
+    expect(button('Save').disabled).toBe(true);
+
+    await user.click(button('Words: a'));
+    expect(button('Words: a more')).toBeTruthy();
+    await user.click(button('Save'));
+
+    expect(edited.save).toHaveBeenCalledWith(['a', 'more']);
+    expect(untouched.save).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('drops the edits of a panel on Cancel', async () => {
+    const user = userEvent.setup();
+    const options = await loadedOptions();
+    const { panel, save } = wordsPanel(['a'], 'General');
+    render(<OptionsDialog options={options} panels={[panel]} onClose={() => undefined} />);
+
+    await user.click(button('Words: a'));
+    await user.click(button('Cancel'));
+
+    expect(save).not.toHaveBeenCalled();
   });
 });

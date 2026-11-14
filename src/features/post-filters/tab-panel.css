@@ -1,0 +1,62 @@
+.panel {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 3;
+  width: 220px;
+  max-height: 60vh;
+  padding: 8px;
+  overflow-y: auto;
+  border: 1px solid var(--fs-divider);
+  border-radius: 8px;
+  background: var(--fs-background);
+  box-shadow: 0 2px 12px rgb(0 0 0 / 20%);
+}
+
+.heading {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  color: var(--fs-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.tabs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tab {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tab:hover {
+  background: var(--fs-hover);
+}
+
+.tab[aria-current="true"] {
+  background: var(--fs-surface);
+  font-weight: 600;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  color: var(--fs-text-secondary);
+}

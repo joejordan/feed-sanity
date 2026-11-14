@@ -1,5 +1,6 @@
 import type { Store } from './storage';
 import { createLogger } from './log';
+import { isRecord } from './storage';
 
 const log = createLogger('options');
 
@@ -48,9 +49,7 @@ type Saved = Record<string, OptionValue>;
 
 /** What the store holds under the storage key. Anything but an object reads as nothing saved. */
 function asSaved(stored: unknown): Saved {
-  return typeof stored === 'object' && stored !== null && !Array.isArray(stored)
-    ? (stored as Saved)
-    : {};
+  return isRecord(stored) ? (stored as Saved) : {};
 }
 
 /**

@@ -38,6 +38,8 @@ export const MARK = {
   hiddenNoteReveal: 'sfx_filter_hider_note',
   /** Class on the note's text while the post is shown. */
   hiddenNoteRehide: 'sfx_filter_hider_nyet',
+  /** Prefix of the class that puts a post in a filter tab. The tab's number follows. */
+  tab: 'sfx_filter_tab_',
 } as const;
 
 /** Attribute on every element this project adds inside one of Facebook's. */
@@ -92,7 +94,9 @@ export const POST_REACTIONS = 'form';
 
 /**
  * Parts of a post whose text is not the post's own: its comment area, the
- * comments themselves, and anything this project added.
+ * comments themselves, and anything this project added. This holds below a
+ * post's `content` element, which in the comments popup is the post inside
+ * the popup and not the popup. Seen on 2026-11-13.
  */
 export const NOT_POST_TEXT = `${POST_REACTIONS},[role=article],${OWN_ELEMENT}`;
 
@@ -127,3 +131,62 @@ export const POST_ID_LINKS = [
   // Media in posts that have no other link: some ads, some posts without text, some profile picture changes
   'a.S2F_trans_n,.S2F_alini_stre > a.S2F_disp_inlb',
 ];
+
+// The parts of a post that filters can test. Unless noted, the selectors are
+// Social Fixer 31.1.0's (2023).
+
+/** Headings that may hold the author's name. Seen on 2026-11-13: every feed post has an `h4`. */
+export const AUTHOR_HEADING = 'h2,h3,h4';
+
+/** The author's name inside an `AUTHOR_HEADING`. */
+export const AUTHOR_NAME = 'b,strong';
+
+/** Fallback for the author: the post's links in order, up to its first image. */
+export const AUTHOR_LINK_OR_IMAGE = 'a.S2F_disp_inl:not([aria-hidden]),img';
+
+/** Link addresses that are never an author's. */
+export const NOT_AUTHOR_ADDRESS =
+  /\/(?:help|reel|media|photo|album|video|posts|hashtag|marketplace)\//;
+
+/** The header line of a post: who did what. Seen on 2026-11-13. */
+export const POST_HEADER = '[data-ad-rendering-role=profile_name]';
+
+/** What the author wrote, most reliable first. The first one that matches anything is used. */
+export const POST_MESSAGE = [
+  // Seen on 2026-11-13.
+  '[data-ad-rendering-role=story_message]',
+  '.S2F_font_400.S2F_col_tx1 > .S2F_mb_0.S2F_ow_bw',
+  '[style*="text-align"]',
+];
+
+/** On a group's own pages, the group's name in the page heading. */
+export const PAGE_GROUP_NAME = [
+  '[role=main] h1 a.S2F_font_700[href*="/groups/"]:not([href*="/user/"])',
+  '[role=main] h2 a.S2F_font_700[href*="/groups/"]:not([href*="/user/"])',
+].join(',');
+
+/** A group link in a post whose `aria-label` is the group's name. */
+export const POST_GROUP_LABELLED =
+  'a.S2F_col_tx1[aria-label][href*="/groups/"]:not([href*="/user/"])';
+
+/** A divider above a shared post. A group link inside it belongs to the shared post. */
+export const SHARED_POST_DIVIDER = '.S2F_bb_1pxdiv';
+
+/** A group link in a post whose text is the group's name. */
+export const POST_GROUP_NAMED = [
+  'h3 a.S2F_col_tx1.S2F_font_600[href*="/groups/"]:not([href*="/user/"])',
+  'h4 a.S2F_col_tx1.S2F_font_600[href*="/groups/"]:not([href*="/user/"])',
+].join(',');
+
+/** A link that names the app or game a post came from. */
+export const APP_NAMED = 'a[data-appname]';
+
+export const APP_LINK = 'a.S2F_col_tx2.S2F_font_400[href*="/games/"],.S2F_ch1_none ~ a.S2F_col_tx2';
+
+/** A link out of Facebook. The real address is in its `u` parameter. */
+export const EXTERNAL_LINK = 'a[href*="facebook.com/l.php?u="]';
+
+export const HASHTAG_LINK = 'a[href*="/hashtag/"]';
+
+/** The post's time, as seconds since 1970 in `data-utime`. Not seen on 2026-11-13. */
+export const POST_TIME = 'abbr[data-utime]';

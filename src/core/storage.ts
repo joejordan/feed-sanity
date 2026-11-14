@@ -1,3 +1,7 @@
+/** True for a plain object, which is what saved settings should be. Stored data can be anything. */
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
 /**
  * Where settings are kept. The browser extension and the userscript each
  * supply their own, in `src/platform/`.
