@@ -1,5 +1,4 @@
 import type { OptionSpecs } from '../../core/options';
-import type { Scope } from '../../core/scope';
 import type { Post } from '../../facebook/posts';
 import type { Applied } from './effects';
 import type { Filter } from './types';
@@ -92,6 +91,8 @@ interface Tracked {
    */
   pageType: string;
   applied?: Applied;
+  /** True while a filter hides the post. */
+  hidden?: boolean;
 }
 
 /**
@@ -114,8 +115,15 @@ export default defineFeature({
     const posts = new Map<Post, Tracked>();
     /** The filters in use. Empty while there is nothing to do: filtering is off, or no filter is set up. */
     let filters: Filter[] = [];
-    /** Ends what `start` set up. Only there while posts are being watched. */
-    let watching: Scope | undefined;
+    /**
+     * The context `start` set up, whose scope ends it. Only there while posts
+     * are being watched. Its number on the badge goes with it.
+     */
+    let watching: ReturnType<typeof child> | undefined;
+
+    /** How many of `posts` a filter hides, shown on the toolbar button's badge. */
+    let hiddenCount = 0;
+    const showHidden = (): void => watching?.badge(hiddenCount);
 
     /** False for the kinds of page the user has not turned filtering on for. */
     const appliesOn = (pageType: string): boolean =>
@@ -158,6 +166,12 @@ export default defineFeature({
         });
       }
       tracked.applied = applyOutcome(post, outcome, fields, page.atoms, tracked.applied);
+      const hidden = outcome.hiding !== null;
+      if (hidden !== !!tracked.hidden) {
+        tracked.hidden = hidden;
+        hiddenCount += hidden ? 1 : -1;
+        showHidden();
+      }
       // A post the page is about is left out of the tabs, so that a filter
       // cannot sort it out of view.
       if (!post.permalink) {
@@ -169,11 +183,11 @@ export default defineFeature({
     // there is a filter to run.
     const start = (): void => {
       const running = child();
-      watching = running.scope;
+      watching = running;
       const watched = running.page;
-      watching.add(addStyle(STYLE_ID, css));
+      running.scope.add(addStyle(STYLE_ID, css));
       addFixedTabs();
-      watching.add(
+      running.scope.add(
         showTabPanel({
           tabs,
           watchAlwaysShow: (listener) => running.options.watch('always_show_tabs', listener),
@@ -181,10 +195,16 @@ export default defineFeature({
       );
       watched.posts.onReset(() => {
         posts.clear();
+        hiddenCount = 0;
+        showHidden();
         tabs.reset();
         addFixedTabs();
       });
       watched.posts.onRemove((post) => {
+        if (posts.get(post)?.hidden) {
+          hiddenCount--;
+          showHidden();
+        }
         posts.delete(post);
         tabs.remove(post.element);
       });
@@ -199,13 +219,14 @@ export default defineFeature({
     };
 
     const stop = (): void => {
-      watching?.dispose();
+      watching?.scope.dispose();
       watching = undefined;
       for (const [post, { applied }] of posts) {
         undo(applied);
         unhidePost(post);
       }
       posts.clear();
+      hiddenCount = 0;
       tabs.clear();
     };
 

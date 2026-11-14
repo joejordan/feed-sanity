@@ -137,6 +137,10 @@ export function OptionsDialog({ options, panels = [], onClose }: OptionsDialogPr
     const edit = edits.get(key);
     return edit && edit.value === undefined ? [spec.title] : [];
   });
+  const problems = [
+    ...(invalid.length > 0 ? [`Not a number, so not saved yet: ${invalid.join(', ')}.`] : []),
+    ...[...panelEdits].flatMap(([panel, value]) => panel.problem?.(value) ?? []),
+  ];
 
   const onEdit = (key: string, edit: Edit) => {
     setEdits((previous) => new Map(previous).set(key, edit));
@@ -226,16 +230,14 @@ export function OptionsDialog({ options, panels = [], onClose }: OptionsDialogPr
         </div>
       </div>
       <footer className="footer">
-        {invalid.length > 0 && (
-          <p className="error">Not a number, so not saved yet: {invalid.join(', ')}.</p>
-        )}
+        {problems.length > 0 && <p className="error">{problems.join(' ')}</p>}
         <button className="button" type="button" onClick={onClose}>
           Cancel
         </button>
         <button
           className="button primary"
           type="button"
-          disabled={(edits.size === 0 && panelEdits.size === 0) || invalid.length > 0 || saving}
+          disabled={(edits.size === 0 && panelEdits.size === 0) || problems.length > 0 || saving}
           onClick={() => void save()}
         >
           Save

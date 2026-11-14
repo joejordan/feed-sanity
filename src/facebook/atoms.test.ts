@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ATOM_RULES } from './atom-rules';
 import { Atoms } from './atoms';
 
 function addStyles(css: string): void {
@@ -176,6 +177,21 @@ describe('atoms', () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(atoms.translate('S2F_disp_flex')).toBe('S2F_disp_flex');
+  });
+
+  it('counts the names it knows a class for and lists the others', async () => {
+    const total = Object.keys(ATOM_RULES).length;
+    expect(atoms.stats()).toMatchObject({ started: false, known: 0, total });
+
+    vi.useFakeTimers();
+    addStyles('.xflex001 { display: flex; }');
+    await atoms.start();
+
+    const stats = atoms.stats();
+    expect(stats).toMatchObject({ started: true, known: 1, total });
+    expect(stats.missing).toHaveLength(total - 1);
+    expect(stats.missing).not.toContain('disp_flex');
+    expect(stats.missing).toContain('pos_rel');
   });
 
   it('scans again after a move to another page', async () => {

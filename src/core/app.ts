@@ -1,6 +1,7 @@
 import type { Binder, Feature, FeatureContext, PageFactory } from './feature';
 import type { Logger } from './log';
 import type { FeatureOptions, OptionSpecs, Options } from './options';
+import type { Badge } from './platform';
 import type { FeatureData } from './saved';
 import { Listeners } from './listeners';
 import { createLogger } from './log';
@@ -61,6 +62,9 @@ class FeatureRun<P> {
   readonly #data: FeatureData;
   readonly #page: PageFactory<P>;
   readonly #reportStatus: (status: FeatureStatus) => void;
+  readonly #reportCount: () => void;
+  /** The number each context of the feature shows on the badge, while it shows one. */
+  readonly #counts = new Map<Scope, number>();
   /** The scope of the setup now running, if any. */
   #scope: Scope | undefined;
   #failuresInARow = 0;
@@ -71,6 +75,7 @@ class FeatureRun<P> {
     data: FeatureData,
     page: PageFactory<P>,
     reportStatus: (status: FeatureStatus) => void,
+    reportCount: () => void,
   ) {
     this.feature = feature;
     this.status = { id: feature.id, state: 'off', errors: 0, lastError: null };
@@ -79,6 +84,12 @@ class FeatureRun<P> {
     this.#data = data;
     this.#page = page;
     this.#reportStatus = reportStatus;
+    this.#reportCount = reportCount;
+  }
+
+  /** The sum of the numbers its contexts show on the badge. */
+  get count(): number {
+    return [...this.#counts.values()].reduce((sum, count) => sum + count, 0);
   }
 
   /**
@@ -154,8 +165,26 @@ class FeatureRun<P> {
       log: this.#log,
       page: this.#page(binder),
       scope,
+      badge: (count) => this.#showCount(scope, count),
       child: () => this.#context(scope.child()),
     };
+  }
+
+  #showCount(scope: Scope, count: number): void {
+    if (!Number.isInteger(count) || count < 0) {
+      throw new RangeError(`the badge takes a whole number of 0 or more, not ${count}`);
+    }
+    if (scope.disposed || this.#counts.get(scope) === count) {
+      return;
+    }
+    if (!this.#counts.has(scope)) {
+      scope.add(() => {
+        this.#counts.delete(scope);
+        this.#reportCount();
+      });
+    }
+    this.#counts.set(scope, count);
+    this.#reportCount();
   }
 
   #guard(scope: Scope): Binder['guard'] {
@@ -229,6 +258,8 @@ export class FeatureRunner<P> {
   readonly #options: Options;
   readonly #runs: FeatureRun<P>[];
   readonly #listeners = new Listeners<[FeatureStatus]>(createLogger('features'));
+  readonly #badgeListeners = new Listeners<[Badge]>(createLogger('features'));
+  #badge: Badge = { count: 0, failed: false };
 
   constructor(
     features: readonly Feature<P>[],
@@ -239,7 +270,17 @@ export class FeatureRunner<P> {
     this.#options = options;
     this.#runs = features.map(
       (feature) =>
-        new FeatureRun(feature, options, data, page, (status) => this.#listeners.emit(status)),
+        new FeatureRun(
+          feature,
+          options,
+          data,
+          page,
+          (status) => {
+            this.#listeners.emit(status);
+            this.#badgeChanged();
+          },
+          () => this.#badgeChanged(),
+        ),
     );
   }
 
@@ -277,6 +318,30 @@ export class FeatureRunner<P> {
   /** Calls `listener` with a feature's new status whenever it changes. Returns a function that stops it. */
   onStatusChange(listener: (status: FeatureStatus) => void): () => void {
     return this.#listeners.add(listener);
+  }
+
+  /**
+   * What the toolbar button's badge shows: the sum of the numbers the
+   * running features report through `badge`, and whether any feature failed.
+   */
+  badge(): Badge {
+    return this.#badge;
+  }
+
+  /** Calls `listener` with the new badge whenever it changes. Returns a function that stops it. */
+  onBadgeChange(listener: (badge: Badge) => void): () => void {
+    return this.#badgeListeners.add(listener);
+  }
+
+  #badgeChanged(): void {
+    const badge: Badge = {
+      count: this.#runs.reduce((sum, run) => sum + run.count, 0),
+      failed: this.#runs.some((run) => run.status.state === 'failed'),
+    };
+    if (badge.count !== this.#badge.count || badge.failed !== this.#badge.failed) {
+      this.#badge = badge;
+      this.#badgeListeners.emit(badge);
+    }
   }
 }
 

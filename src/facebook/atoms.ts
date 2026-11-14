@@ -26,6 +26,18 @@ interface Matcher {
   media: string;
 }
 
+/** What `Atoms.stats` reports. */
+export interface ClassNameStats {
+  /** False until something first asked for the classes to be looked for. */
+  readonly started: boolean;
+  /** How many names have a class. */
+  readonly known: number;
+  /** How many names there are in `ATOM_RULES`. */
+  readonly total: number;
+  /** The names with no class yet. */
+  readonly missing: readonly string[];
+}
+
 /** A name and a class whose rule fits it. */
 type Found = [name: string, atom: string];
 
@@ -123,6 +135,17 @@ export class Atoms {
       return atom ?? token;
     });
     return known ? resolved : null;
+  }
+
+  /** How many of the names in `ATOM_RULES` have a class, and which do not. */
+  stats(): ClassNameStats {
+    const names = Object.keys(ATOM_RULES);
+    return {
+      started: this.#started !== undefined,
+      known: this.#classes.size,
+      total: names.length,
+      missing: names.filter((name) => !this.#classes.has(name)),
+    };
   }
 
   /** Calls `listener` whenever a scan finds new or different classes. Returns a function that stops it. */

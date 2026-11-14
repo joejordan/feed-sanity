@@ -4,7 +4,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { FacebookPage } from '../../facebook/feature';
 import type { Post } from '../../facebook/posts';
 import type { Action, Filter } from './types';
-import { startFeatures } from '../../core/app';
+import { FeatureRunner, startFeatures } from '../../core/app';
 import { Options } from '../../core/options';
 import { pageWatcher } from '../../core/page-watcher';
 import { SavedData } from '../../core/saved';
@@ -253,6 +253,89 @@ describe('post_filters: Hide Posts keywords', () => {
     await options.set('hide_posts_show_match', false);
 
     expect(isHidden(post)).toBe(false);
+  });
+});
+
+describe('post_filters: the toolbar badge', () => {
+  let options: Options;
+  let runner: FeatureRunner<FacebookPage>;
+  let listeners: ReturnType<typeof fakePage>['listeners'];
+
+  const announce = (post: Post): Post => {
+    for (const listener of listeners.add) {
+      listener(post);
+    }
+    return post;
+  };
+  const count = () => runner.badge().count;
+
+  beforeEach(async () => {
+    fakeBrowser.reset();
+    history.replaceState({}, '', '/');
+    document.body.innerHTML = '';
+    options = new Options(extensionStore, 'u/options');
+    const fake = fakePage();
+    listeners = fake.listeners;
+    runner = new FeatureRunner(
+      [postFilters],
+      options,
+      bindPage(fake.page),
+      new SavedData(extensionStore, 'u'),
+    );
+    expect(await runner.start()).toEqual([]);
+    await options.set('hide_posts_text', 'crypto');
+  });
+
+  it('counts the posts that are hidden, revealed or not', () => {
+    const spam = announce(makePost('<p>Crypto news</p>'));
+    announce(makePost('<p>More crypto</p>'));
+    announce(makePost('<p>Photos from the weekend</p>'));
+    expect(count()).toBe(2);
+
+    noteOf(spam)?.click();
+    expect(count()).toBe(2);
+  });
+
+  it('follows a change of keyword, and goes to nothing when it is cleared', async () => {
+    announce(makePost('<p>Crypto news</p>'));
+    announce(makePost('<p>A giveaway</p>'));
+    announce(makePost('<p>A crypto giveaway</p>'));
+    expect(count()).toBe(2);
+
+    await options.set('hide_posts_text', 'giveaway');
+    expect(count()).toBe(2);
+
+    await options.set('hide_posts_text', 'weekend');
+    expect(count()).toBe(0);
+
+    await options.set('hide_posts_text', 'crypto');
+    expect(count()).toBe(2);
+
+    await options.set('hide_posts_text', '');
+    expect(count()).toBe(0);
+  });
+
+  it('drops posts that leave the page, and every post on a move to another page', () => {
+    const first = announce(makePost('<p>Crypto news</p>'));
+    announce(makePost('<p>More crypto</p>'));
+
+    for (const listener of listeners.remove) {
+      listener(first);
+    }
+    expect(count()).toBe(1);
+
+    for (const listener of listeners.reset) {
+      listener();
+    }
+    expect(count()).toBe(0);
+  });
+
+  it('shows nothing once filtering is turned off', async () => {
+    announce(makePost('<p>Crypto news</p>'));
+
+    await options.set('filters_enabled', false);
+
+    expect(runner.badge()).toEqual({ count: 0, failed: false });
   });
 });
 

@@ -4,6 +4,8 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { FeatureStatus } from './app';
 import type { FeatureDefinition, PageFactory } from './feature';
 import type { OptionSpecs } from './options';
+import type { Badge } from './platform';
+import type { Scope } from './scope';
 import { extensionStore } from '../platform/extension-store';
 import { FAILURES_IN_A_ROW, FeatureRunner, startFeatures } from './app';
 import { defineFeature } from './feature';
@@ -379,5 +381,112 @@ describe('feature lifecycle', () => {
     await options.set('thing_enabled', false);
 
     expect(seen.map((status) => status.state)).toEqual(['running', 'off']);
+  });
+});
+
+describe('the badge', () => {
+  let options: Options;
+  let data: SavedData;
+
+  beforeEach(() => {
+    fakeBrowser.reset();
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    options = new Options(extensionStore, 'u/options');
+    data = new SavedData(extensionStore, 'u');
+  });
+
+  it('adds up what the features and their child contexts show', async () => {
+    let work: Scope | undefined;
+    const counter = defineFeature({
+      id: 'counter',
+      setup: ({ badge, child }) => {
+        badge(2);
+        badge(3);
+        const running = child();
+        work = running.scope;
+        running.badge(4);
+      },
+    });
+    const other = defineFeature({ id: 'other', setup: ({ badge }) => badge(1) });
+    const runner = new FeatureRunner([counter, other], options, () => undefined, data);
+    const seen: Badge[] = [];
+    runner.onBadgeChange((badge) => seen.push(badge));
+
+    await runner.start();
+    expect(runner.badge()).toEqual({ count: 8, failed: false });
+
+    work?.dispose();
+    expect(runner.badge()).toEqual({ count: 4, failed: false });
+    expect(seen.map((badge) => badge.count)).toEqual([2, 3, 7, 8, 4]);
+  });
+
+  it('drops the number of a feature that is switched off', async () => {
+    const feature = defineFeature({
+      id: 'switched',
+      options: SWITCH,
+      enabledBy: 'thing_enabled',
+      setup: ({ badge, scope }) => {
+        badge(5);
+        // Too late: by then the scope is disposed.
+        scope.add(() => badge(6));
+      },
+    });
+    const runner = new FeatureRunner([feature], options, () => undefined, data);
+    await runner.start();
+    expect(runner.badge().count).toBe(5);
+
+    await options.set('thing_enabled', false);
+
+    expect(runner.badge()).toEqual({ count: 0, failed: false });
+  });
+
+  it('marks a failed feature, and tells listeners only of changes', async () => {
+    const { ticks, page } = tickingPage();
+    const feature = tickFeature({
+      id: 'breaks',
+      setup: (ctx) => {
+        ctx.badge(1);
+        ctx.page.onTick(() => {
+          ctx.badge(1);
+          throw new Error('selector not found');
+        });
+      },
+    });
+    const runner = new FeatureRunner([feature], options, page, data);
+    const seen: Badge[] = [];
+    runner.onBadgeChange((badge) => seen.push(badge));
+    await runner.start();
+
+    for (let tick = 1; tick <= FAILURES_IN_A_ROW; tick++) {
+      ticks.emit(tick);
+    }
+
+    expect(runner.badge()).toEqual({ count: 0, failed: true });
+    expect(seen).toEqual([
+      { count: 1, failed: false },
+      { count: 0, failed: false },
+      { count: 0, failed: true },
+    ]);
+  });
+
+  it('takes only whole numbers of 0 or more', async () => {
+    const tried: string[] = [];
+    const feature = defineFeature({
+      id: 'careless',
+      setup: ({ badge }) => {
+        for (const count of [-1, 1.5, Number.NaN]) {
+          try {
+            badge(count);
+          } catch (error) {
+            tried.push((error as Error).message);
+          }
+        }
+      },
+    });
+    const runner = new FeatureRunner([feature], options, () => undefined, data);
+    await runner.start();
+
+    expect(tried).toHaveLength(3);
+    expect(runner.badge().count).toBe(0);
   });
 });

@@ -1,0 +1,164 @@
+/* Every class here starts with diag-, because all panels share the dialog's shadow root. */
+
+.diag {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.diag p {
+  margin: 0;
+}
+
+.diag-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.diag-heading {
+  margin: 0 auto 0 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.diag-subheading {
+  margin: 12px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.diag-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+
+.diag-facts dt {
+  color: var(--fs-text-secondary);
+}
+
+.diag-facts dd {
+  margin: 0;
+}
+
+.diag-scroll {
+  overflow-x: auto;
+}
+
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.diag-table th,
+.diag-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--fs-divider);
+  text-align: left;
+  vertical-align: top;
+}
+
+.diag-table thead th {
+  color: var(--fs-text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.diag-table tbody th {
+  width: 160px;
+  font-weight: normal;
+}
+
+.diag-locators td:nth-child(n + 4) {
+  white-space: nowrap;
+}
+
+.diag-name {
+  display: block;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.diag-small {
+  display: block;
+  color: var(--fs-text-secondary);
+  font-size: 12px;
+}
+
+.diag-selector {
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.diag-tag {
+  display: inline-block;
+  margin: 4px 4px 0 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.diag-yours {
+  background: var(--fs-accent);
+  color: var(--fs-accent-text);
+}
+
+.diag-bad {
+  background: var(--fs-error);
+  color: #fff;
+}
+
+.diag-failed,
+.diag-never {
+  background: color-mix(in srgb, var(--fs-error) 14%, transparent);
+}
+
+.diag-failed td:nth-child(2) {
+  color: var(--fs-error);
+  font-weight: 700;
+}
+
+.diag-warn {
+  color: var(--fs-error);
+}
+
+.diag-notice {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--fs-surface);
+}
+
+.diag-check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.diag-code {
+  width: 100%;
+  font-family: monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.diag-problems {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.diag .button {
+  align-self: flex-start;
+}
+
+.diag code {
+  font-family: monospace;
+  font-size: 12px;
+}

@@ -387,6 +387,50 @@ describe('posts', () => {
     expect(added).toEqual([]);
   });
 
+  it('counts nothing and says it has not started until something subscribes', () => {
+    addHtml(POST_HTML);
+
+    expect(posts.stats()).toMatchObject({ started: false, tracked: 0 });
+  });
+
+  it('counts the posts with an ID, without one and still being identified', async () => {
+    let finish: (id: string | null) => void = () => undefined;
+    findId
+      .mockResolvedValueOnce('111111')
+      .mockResolvedValueOnce(null)
+      .mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    addHtml(POST_HTML);
+    addHtml(POST_HTML);
+    addHtml(POST_HTML);
+    await watch(2);
+
+    expect(posts.stats()).toEqual({
+      started: true,
+      tracked: 3,
+      withId: 1,
+      withoutId: 1,
+      identifying: 1,
+      unrecognised: 0,
+    });
+
+    finish('222222');
+    await vi.waitFor(() => expect(added).toHaveLength(3));
+    expect(posts.stats()).toMatchObject({ tracked: 3, withId: 2, identifying: 0 });
+  });
+
+  it('counts feed slots with content that were not taken for posts', async () => {
+    // As if Facebook's markup had changed: only articles are taken for posts.
+    const locators = new Locators(atoms);
+    locators.override({ post: ['[role=article]'] });
+    posts = new Posts(atoms, locators.locate, findId);
+    addHtml('<div aria-posinset="1">Something new from Facebook</div>');
+    addHtml('<div aria-posinset="2"></div>');
+    addHtml('<div aria-posinset="3" role="article"><a aria-label="Author"></a>A post</div>');
+    await watch(1);
+
+    expect(posts.stats()).toMatchObject({ tracked: 1, unrecognised: 1 });
+  });
+
   it('stops for good when it was stopped and started again while starting', async () => {
     const listener = (post: Post) => added.push(post);
     posts.onAdd(listener);

@@ -43,6 +43,11 @@ memory.set(`${user}/filters`, preset?.filters ?? []);
 let open = (): void => undefined;
 void start({
   store,
+  build: 'live check',
+  // There is no toolbar button here. The last badge is kept in `__fsBadge`.
+  setBadge: (badge) => {
+    Object.assign(globalThis, { __fsBadge: badge });
+  },
   onOpenOptions: (listener) => {
     open = listener;
   },

@@ -53,7 +53,33 @@ export interface Post {
   readonly permalink: boolean;
 }
 
+/** What `Posts.stats` reports. */
+export interface PostStats {
+  /** False until something subscribes with `onAdd`. Until then nothing is counted. */
+  readonly started: boolean;
+  /** Posts on the page that are marked, whether or not their ID lookup has finished. */
+  readonly tracked: number;
+  readonly withId: number;
+  /** Posts whose ID lookup finished without finding one. */
+  readonly withoutId: number;
+  /** Posts whose ID is still being looked up. */
+  readonly identifying: number;
+  /** Feed slots that have content but were not taken for posts. */
+  readonly unrecognised: number;
+}
+
 type PostListener = (post: Post) => void;
+
+/** True when `element` holds text other than white space. Stops at the first such text. */
+function hasText(element: Element): boolean {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (/\S/.test(node.nodeValue ?? '')) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function addressContains(id: string): boolean {
   try {
@@ -151,6 +177,27 @@ export class Posts {
    */
   onUpdate(listener: PostListener): () => void {
     return this.#updated.add(listener);
+  }
+
+  /** How many posts are on the page and how far their identification has got. */
+  stats(): PostStats {
+    let withId = 0;
+    for (const post of this.#announced.values()) {
+      if (post.id !== null) {
+        withId++;
+      }
+    }
+    const unrecognised = [...document.querySelectorAll(UNTRACKED_SLOT)].filter((slot) =>
+      hasText(slot),
+    ).length;
+    return {
+      started: this.#started,
+      tracked: this.#numbers.size,
+      withId,
+      withoutId: this.#announced.size - withId,
+      identifying: this.#numbers.size - this.#announced.size,
+      unrecognised,
+    };
   }
 
   /** Stops looking for posts. The marks stay on the posts already found. */
@@ -266,7 +313,7 @@ export class Posts {
     }
     if (element.getAttribute(FEED_POSITION)) {
       // An empty slot is a post not loaded yet, or one scrolled far out of view.
-      return !!element.textContent?.trim();
+      return hasText(element);
     }
     // Inside another post, it is a comment or an embedded post.
     const parent = element.parentElement;

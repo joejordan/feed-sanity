@@ -63,6 +63,42 @@ function pointsAtPosts(path: string[], search: string): boolean {
   );
 }
 
+/**
+ * The page types that are never a name. Any other type from `pageContext`
+ * is the first part of the address, which is often a person's or a page's
+ * name, as on their photos.
+ */
+const FIXED_PAGE_TYPES = new Set([
+  'bookmarks',
+  'events',
+  'friends',
+  'gaming',
+  'groups',
+  'hashtag',
+  'marketplace',
+  'memories',
+  'messages',
+  'newsfeed',
+  'notifications',
+  'pages',
+  'permalink.php',
+  'photo',
+  'photo.php',
+  'profile',
+  'reel',
+  'reels',
+  'saved',
+  'search',
+  'stories',
+  'story.php',
+  'video',
+  'videos',
+  'watch',
+]);
+
+/** True when a page type from `pageContext` may be a person's or a page's name. */
+export const mayBeName = (type: string): boolean => !FIXED_PAGE_TYPES.has(type);
+
 /** Describes the page at `url`, which defaults to the current one. */
 export function pageContext(url: PageUrl = location): PageContext {
   const path = url.pathname.replaceAll(/^\/+|\/+$/g, '').split('/');

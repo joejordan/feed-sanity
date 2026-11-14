@@ -6,7 +6,7 @@ Feed Sanity is a separate project from Social Fixer and is not published under t
 
 ## Status
 
-The build, the feature framework, the options store, post detection and the translation of Facebook's generated class names are in place. Two features are ported: post filters, and external CSS. Post filters hide posts by keyword and run filters you build yourself, which can hide a post, restyle it, rewrite its text or sort it into tabs. An options dialog lists every feature's options and holds the filter editor; open it from the toolbar button or the userscript manager's menu. Post detection, the filters and the dialog have been checked in Chrome on Facebook's news feed and groups feed. [docs/porting.md](docs/porting.md) lists what is left.
+The build, the feature framework, the options store, post detection and the translation of Facebook's generated class names are in place. Two features are ported: post filters, and external CSS. Post filters hide posts by keyword and run filters you build yourself, which can hide a post, restyle it, rewrite its text or sort it into tabs. An options dialog lists every feature's options and holds the filter editor; open it from the toolbar button or the userscript manager's menu. Post detection, the filters and the dialog have been checked in Chrome on Facebook's news feed and groups feed. The dialog's Diagnostics section shows what each feature, the post finder and each selector have done on the current page, and copies a report for bug reports. In the extensions, the toolbar button shows how many posts are hidden on the tab, or `!` when a feature has stopped working. Neither has been checked on the live site yet. [docs/porting.md](docs/porting.md) lists what is left.
 
 ## Layout
 
@@ -16,6 +16,7 @@ The build, the feature framework, the options store, post detection and the tran
 | `src/core/`                      | The framework features are built on: feature registry, options, DOM helpers. Nothing here knows about Facebook's markup.                                  |
 | `src/facebook/`                  | Everything that depends on how Facebook builds its pages, such as selectors, cookies and URL formats. When Facebook changes something, the fix goes here. |
 | `src/features/<name>/`           | One folder per feature, with its tests.                                                                                                                   |
+| `src/diagnostics/`               | The Diagnostics section of the options dialog and the report it copies.                                                                                   |
 | `src/platform/`                  | What differs between the extension and the userscript, such as where settings are stored.                                                                 |
 | `src/ui/`                        | The UI, written with React's API: `mount` for showing a component on the page, and the options dialog.                                                     |
 | `reference/social-fixer-31.1.0/` | The original 31.1.0 source, unmodified. Do not edit it.                                                                                                   |
@@ -62,7 +63,7 @@ export default defineFeature({
 });
 ```
 
-`page.posts` reports each post on the page and each one Facebook adds later. `page.locate` finds Facebook's other elements through the locators in `src/facebook/selectors.ts`. `page.atoms` translates CSS that names Facebook's generated classes.
+`page.posts` reports each post on the page and each one Facebook adds later. `page.locate` finds Facebook's other elements through the locators in `src/facebook/selectors.ts`. `page.atoms` translates CSS that names Facebook's generated classes. `badge(count)` shows a number on the toolbar button, such as how many posts the feature has hidden.
 
 Then add it to the list in `src/features/index.ts`. A feature that throws during setup is logged and skipped, and the others keep running.
 

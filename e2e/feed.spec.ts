@@ -190,7 +190,68 @@ test('saves a setting changed in the options dialog to extension storage', async
   await expectHidden(page, 'Bram Okafor');
 });
 
-test('finds the posts on a page reached without a reload', async ({ page, store }) => {
+test('counts the hidden posts on the toolbar badge and follows the keyword', async ({
+  page,
+  store,
+  badgeText,
+}) => {
+  await store({ [OPTIONS_KEY]: { hide_posts_text: 'crypto' } });
+  await page.goto(FEED);
+
+  // Cleo Marsh, Ines Harrow and Dara Venn, who arrives late.
+  await expectHidden(page, 'Dara Venn');
+  await expect.poll(badgeText).toBe('3');
+
+  await store({ [OPTIONS_KEY]: { hide_posts_text: 'typewriter' } });
+  await expectHidden(page, 'Bram Okafor');
+  await expect.poll(badgeText).toBe('1');
+
+  await store({ [OPTIONS_KEY]: { hide_posts_text: '' } });
+  await expectShown(page, 'Bram Okafor');
+  await expect.poll(badgeText).toBe('');
+});
+
+test('shows the running features and the post counts under Diagnostics', async ({
+  page,
+  store,
+  pressToolbarButton,
+}) => {
+  await store({ [OPTIONS_KEY]: { hide_posts_text: 'crypto' } });
+  await page.goto(FEED);
+  await expectHidden(page, 'Dara Venn');
+  await pressToolbarButton();
+
+  await dialog(page).getByRole('button', { name: 'Diagnostics', exact: true }).click();
+
+  const postFilters = dialog(page).getByRole('row', { name: /post_filters/ });
+  await expect(postFilters.getByRole('cell', { name: 'running', exact: true })).toBeVisible();
+  // The sponsored post has no ID. Its lookup gives up after about a second.
+  await expect(
+    dialog(page).getByText(
+      '6 posts on the page: 5 with an ID, 1 without one, 0 still being identified.',
+    ),
+  ).toBeVisible();
+  await expect(
+    dialog(page).getByText('Feed slots with content not taken for posts: 0.'),
+  ).toBeVisible();
+  await expect(
+    dialog(page).getByRole('rowheader', { name: /^post any, \d+ lookups/ }),
+  ).toBeVisible();
+});
+
+test('says under Diagnostics when post detection has not started', async ({
+  page,
+  pressToolbarButton,
+}) => {
+  await page.goto(FEED);
+  await pressToolbarButton();
+
+  await dialog(page).getByRole('button', { name: 'Diagnostics', exact: true }).click();
+
+  await expect(dialog(page).getByText(/^Post detection has not started/)).toBeVisible();
+});
+
+test('finds the posts on a page reached without a reload', async ({ page, store, badgeText }) => {
   await store({ [OPTIONS_KEY]: { hide_posts_text: 'crypto' } });
   await page.goto(FEED);
   await expectHidden(page, 'Cleo Marsh');
@@ -202,4 +263,6 @@ test('finds the posts on a page reached without a reload', async ({ page, store 
   await expectHidden(page, 'Elio Brandt');
   await expectShown(page, 'Fern Adair');
   await expect(slot(page, 'Fern Adair')).toHaveAttribute('sfx_id', '100000000000008');
+  // The posts hidden on the first page went with it.
+  await expect.poll(badgeText).toBe('1');
 });
