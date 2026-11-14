@@ -10,9 +10,19 @@ import type { browser } from 'wxt/browser';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const EXTENSION = path.join(ROOT, '.output', 'chrome-mv3');
 const PAGES = path.join(import.meta.dirname, 'pages');
+const CDN_FILES = path.join(import.meta.dirname, 'cdn');
 
 /** The only site the tests load. Its pages come from e2e/pages. */
 export const ORIGIN = 'https://www.facebook.com';
+
+/**
+ * A stand-in for Facebook's video file server. Its files come from e2e/cdn.
+ * It lets the fake Facebook read them, as the real one does for Facebook's
+ * player, except under `/no-cors/`, which stands for a file server that
+ * does not: it allows another site only.
+ */
+export const CDN = 'https://video.e2e.fbcdn.net';
+const NO_CORS = '/no-cors/';
 
 /** The logged-in user, from the `c_user` cookie. Settings are saved under this prefix. */
 const USER_ID = '100000000000042';
@@ -25,9 +35,33 @@ export const FILTERS_KEY = `${USER_ID}/filters`;
 // cannot use it by mistake.
 declare const chrome: typeof browser;
 
-/** Answers a request to the fake Facebook from e2e/pages, and refuses every other request. */
+/** The file under `root` that `pathname` names, or undefined when there is none. */
+function fileIn(root: string, pathname: string): string | undefined {
+  const file = path.join(root, ...pathname.split('/').map(decodeURIComponent));
+  // A folder asked for without the trailing slash is not found, as a file
+  // cannot be served from it.
+  return file.startsWith(root + path.sep) && statSync(file, { throwIfNoEntry: false })?.isFile()
+    ? file
+    : undefined;
+}
+
+const NOT_FOUND = { status: 404, contentType: 'text/plain', body: 'Not found' };
+
+/**
+ * Answers a request to the fake Facebook from e2e/pages and one to the fake
+ * file server from e2e/cdn, and refuses every other request.
+ */
 async function serve(route: Route, blocked: string[]): Promise<void> {
   const url = new URL(route.request().url());
+  if (url.origin === CDN) {
+    const cors = !url.pathname.startsWith(NO_CORS);
+    const file = fileIn(CDN_FILES, cors ? url.pathname : url.pathname.slice(NO_CORS.length - 1));
+    // Playwright adds a header that allows any site to a fulfilled response that has none,
+    // so the refusal names another site.
+    const headers = { 'access-control-allow-origin': cors ? ORIGIN : 'https://example.com' };
+    await route.fulfill(file ? { path: file, contentType: 'video/mp4', headers } : NOT_FOUND);
+    return;
+  }
   if (url.origin !== ORIGIN) {
     blocked.push(url.href);
     await route.abort('blockedbyclient');
@@ -35,14 +69,8 @@ async function serve(route: Route, blocked: string[]): Promise<void> {
   }
   // The query string is ignored, so `/?sk=h_chr` is served from index.html as well.
   const relative = url.pathname.endsWith('/') ? `${url.pathname}index.html` : url.pathname;
-  const file = path.join(PAGES, ...relative.split('/').map(decodeURIComponent));
-  // A folder asked for without the trailing slash is not found, as a file
-  // cannot be served from it.
-  if (file.startsWith(PAGES + path.sep) && statSync(file, { throwIfNoEntry: false })?.isFile()) {
-    await route.fulfill({ path: file });
-  } else {
-    await route.fulfill({ status: 404, contentType: 'text/plain', body: 'Not found' });
-  }
+  const file = fileIn(PAGES, relative);
+  await route.fulfill(file ? { path: file } : NOT_FOUND);
 }
 
 /** A browser with the extension loaded, shared by the tests of one Playwright worker. */

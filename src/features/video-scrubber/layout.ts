@@ -1,3 +1,6 @@
+import type { Box, ControlBox, Edges } from '../video-layout';
+import { overlaps } from '../video-layout';
+
 /** How tall the strip that takes the pointer is, in pixels. The bar inside it grows upward on hover. */
 export const STRIP_HEIGHT = 12;
 
@@ -22,23 +25,15 @@ export interface StripPlace {
 /** From side to side, standing in for nothing. */
 export const AT_BOTTOM: StripPlace = { left: 0, right: 0, hides: null };
 
-export type Box = Pick<DOMRectReadOnly, 'bottom' | 'height' | 'left' | 'right' | 'top' | 'width'>;
-
-/** One of Facebook's controls, measured. */
-export interface ControlBox {
-  readonly element: Element;
-  readonly box: Box;
-  /** True for a slider that runs from side to side. */
-  readonly bar: boolean;
-}
+/**
+ * How far above the video's bottom edge the time label and the time bubble
+ * reach, in pixels (`.time` and `.bubble` in scrubber.css), for other UI on
+ * the video to keep clear of.
+ */
+export const LABELS_HEIGHT = 40;
 
 export const samePlace = (a: StripPlace, b: StripPlace): boolean =>
   a.left === b.left && a.right === b.right && a.hides === b.hides;
-
-const overlaps = (a: Box, b: Box): boolean =>
-  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-
-type Edges = Pick<Box, 'bottom' | 'left' | 'right' | 'top'>;
 
 /** True when every edge of `a` is within a pixel of the same edge of `b`. */
 export const sameBox = (a: Edges, b: Edges): boolean =>

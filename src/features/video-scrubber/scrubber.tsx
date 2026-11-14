@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { Watched } from '../../ui/watched';
 import type { StripPlace } from './layout';
 import type { MediaState } from './media';
 import { STRIP_HEIGHT } from './layout';
@@ -9,12 +10,6 @@ const KEY_STEP = 5;
 
 /** Keeps the time bubble this far from the ends of the bar, in pixels, so it is not cut off. */
 const BUBBLE_MARGIN = 20;
-
-/** A value that can change, with a way to hear when it does. */
-export interface Watched<T> {
-  get: () => T;
-  subscribe: (onChange: () => void) => () => void;
-}
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));

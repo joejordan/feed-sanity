@@ -13,6 +13,9 @@
     its bottom corners, and a wide position slider outside the card that lies
     over the bottom 12 pixels of the video and 8 pixels below it. The slider
     sits inside three wrappers with the same box, which take the pointer too.
+  - React's data on each <video>, set by the script at the end: the player's
+    props 12 fibers up, with the video's files as Facebook lists them, on a
+    fake file server that e2e/extension.ts answers from e2e/cdn.
 
   Every name and text is invented.
 
@@ -204,6 +207,42 @@
 
       for (const id of ['reel-back', 'reel-next', 'reel-position']) {
         document.querySelector(`#${id}`).addEventListener('click', () => note(id));
+      }
+
+      // React's data, as Facebook's player keeps it on each <video>: a fiber
+      // under a `__reactFiber$` name with a random suffix, whose `return`
+      // chain reaches the player's props 12 steps up. Only a script in the
+      // page's own world sees these properties.
+      const CDN = 'https://video.e2e.fbcdn.net';
+      const dash = {
+        typename: 'VideoPlayerNextgendashImplementation',
+        data: { manifest: '<MPD></MPD>', manifestUrl: 'https://www.facebook.com/dash/e2e.mpd' },
+      };
+      const progressive = (data) => ({ typename: 'VideoPlayerProgressiveImplementation', data });
+      const players = {
+        // Both progressive files, after the manifest.
+        playing: [dash, progressive({ hdSrc: `${CDN}/clip.mp4?oe=1`, sdSrc: `${CDN}/clip.mp4?sd=1` })],
+        // Only a manifest, which cannot be saved yet.
+        paused: [dash],
+        // On a file server that does not let the page read the file, third in the list.
+        reel: [dash, { typename: 'VideoPlayerOzImplementation', data: {} }, progressive({ sdSrc: `${CDN}/no-cors/clip.mp4` })],
+      };
+      const suffix = Math.random().toString(36).slice(2);
+      for (const [id, implementations] of Object.entries(players)) {
+        const player = document.querySelector(`#${id}`);
+        let fiber = {
+          memoizedProps: {
+            implementations,
+            coreVideoPlayerMetaData: { videoFBID: player.dataset.videoId, adClientToken: null },
+          },
+          return: null,
+        };
+        for (let depth = 0; depth < 12; depth++) {
+          fiber = { memoizedProps: {}, return: fiber };
+        }
+        const video = player.querySelector('video');
+        video[`__reactFiber$${suffix}`] = fiber;
+        video[`__reactProps$${suffix}`] = {};
       }
     </script>
   </body>
