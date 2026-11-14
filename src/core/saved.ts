@@ -79,8 +79,16 @@ export class Saved<T> {
   }
 }
 
+/** What a feature can do with one saved value. */
+export type SavedValue<T> = Pick<Saved<T>, 'get' | 'onChange' | 'ready' | 'set'>;
+
+/** The saved values as a feature sees them. `SavedData` is one. */
+export interface FeatureData {
+  value: <T>(name: string, read: (stored: unknown) => T) => SavedValue<T>;
+}
+
 /** The saved values of one user, each under `<prefix>/<name>` in the store. */
-export class SavedData {
+export class SavedData implements FeatureData {
   readonly #store: Store;
   readonly #prefix: string;
   readonly #values = new Map<string, Saved<unknown>>();
