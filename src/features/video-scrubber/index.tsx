@@ -36,7 +36,10 @@ function coverOf(bar: ControlBox, video: Element, controls: readonly ControlBox[
 /** Where the strip goes on `video`, from where the video and Facebook's controls are. Reads layout only. */
 function measurePlace(video: Video): StripPlace {
   const controls = measureControls(video);
-  const place = placeStrip(video.element.getBoundingClientRect(), controls);
+  // A story's card has an invisible strip of Facebook's over the bottom
+  // edge that takes the pointer above the scrubber's, so it is stood in for
+  // as a bar is.
+  const place = placeStrip(video.element.getBoundingClientRect(), controls, video.bottomCover());
   const bar = place.hides && controls.find(({ element }) => element === place.hides);
   return bar ? { ...place, hides: coverOf(bar, video.element, controls) } : place;
 }
@@ -93,7 +96,9 @@ function hider(scope: Scope): (element: Element) => () => void {
  * use. The strip is placed from where they are on the screen; see
  * `placeStrip`. Where Facebook's own position bar lies over the bottom
  * edge, as in the reel viewer, the strip takes its place and Facebook's bar
- * is hidden for as long as the scrubber shows on that video. The strip is
+ * is hidden for as long as the scrubber shows on that video. Facebook's
+ * invisible strip over the bottom edge of a story, which takes the pointer
+ * above the scrubber's, is stood in for the same way. The strip is
  * measured when it is put on the video, when the video or its container
  * changes size, and when the tracker reports that Facebook's controls may
  * have moved.

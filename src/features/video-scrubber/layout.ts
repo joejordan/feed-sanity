@@ -59,9 +59,16 @@ export const sameBox = (a: Edges, b: Edges): boolean =>
  * Otherwise the strip runs from side to side, and a control in its band
  * pushes the strip's end on that side clear of it. Controls with no size,
  * controls off the video, and controls at least half as wide as the video,
- * which are layers over the whole video, are left out.
+ * which are layers over the whole video, are left out. `cover`, an element
+ * of Facebook's over the bottom edge that takes the pointer and is not a
+ * control, such as the strip in a story's card, is then what `hides` names,
+ * on a video wide enough for the strip.
  */
-export function placeStrip(video: Box, controls: readonly ControlBox[]): StripPlace {
+export function placeStrip(
+  video: Box,
+  controls: readonly ControlBox[],
+  cover: Element | null = null,
+): StripPlace {
   const half = video.width / 2;
   const top = video.bottom - STRIP_HEIGHT;
   const inBand = ({ box }: ControlBox): boolean =>
@@ -69,13 +76,15 @@ export function placeStrip(video: Box, controls: readonly ControlBox[]): StripPl
 
   const overEdge = ({ box }: ControlBox): boolean => box.bottom >= video.bottom - SAME_EDGE;
 
-  const bars =
-    video.width > MIN_WIDTH
-      ? controls.filter(
-          (control) =>
-            control.bar && control.box.width >= half && inBand(control) && overEdge(control),
-        )
-      : [];
+  // A pixel of room: the overlay's host follows the video only to half a
+  // pixel, and scrubber.css hides the strip by the host's width.
+  const wide = video.width > MIN_WIDTH + 1;
+  const bars = wide
+    ? controls.filter(
+        (control) =>
+          control.bar && control.box.width >= half && inBand(control) && overEdge(control),
+      )
+    : [];
   const widest = bars.reduce<ControlBox | undefined>(
     (best, control) => (best && best.box.width >= control.box.width ? best : control),
     undefined,
@@ -97,5 +106,5 @@ export function placeStrip(video: Box, controls: readonly ControlBox[]): StripPl
       right = Math.max(right, video.right - box.left + GAP);
     }
   }
-  return { left, right, hides: null };
+  return { left, right, hides: wide ? cover : null };
 }

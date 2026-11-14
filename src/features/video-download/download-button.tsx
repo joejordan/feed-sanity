@@ -95,16 +95,13 @@ function useDuration(video: HTMLVideoElement): number {
 }
 
 /** True while the pointer is over `container`, which holds the video and everything Facebook lays over it. */
-function usePointerOver(container: Element | null, onEnter: () => void): boolean {
+function usePointerOver(container: Element | null): boolean {
   const [over, setOver] = useState(false);
   useEffect(() => {
     if (!container) {
       return;
     }
-    const enter = (): void => {
-      setOver(true);
-      onEnter();
-    };
+    const enter = (): void => setOver(true);
     const leave = (): void => setOver(false);
     container.addEventListener('pointerenter', enter);
     container.addEventListener('pointerleave', leave);
@@ -113,7 +110,7 @@ function usePointerOver(container: Element | null, onEnter: () => void): boolean
       container.removeEventListener('pointerleave', leave);
       setOver(false);
     };
-  }, [container, onEnter]);
+  }, [container]);
   return over;
 }
 
@@ -150,8 +147,6 @@ export interface DownloadButtonProps {
   bridge: Watched<BridgeStatus>;
   /** Asks the page for the video's files. */
   sources: (signal: AbortSignal) => Promise<VideoSources | null>;
-  /** Called when the pointer comes over the video, to measure the button's place again. */
-  onShow: () => void;
 }
 
 /**
@@ -200,7 +195,6 @@ export function DownloadButton({
   placement: placementSource,
   bridge: bridgeSource,
   sources,
-  onShow,
 }: DownloadButtonProps) {
   const id = useId();
   const { button: place, container } = useSyncExternalStore(
@@ -209,7 +203,7 @@ export function DownloadButton({
   );
   const bridge = useSyncExternalStore(bridgeSource.subscribe, bridgeSource.get);
   const duration = useDuration(video);
-  const over = usePointerOver(container, onShow);
+  const over = usePointerOver(container);
   const [focused, setFocused] = useState(false);
   const [files, setFiles] = useState<Files>('unknown');
   const [job, setJob] = useState<Job>({ kind: 'idle' });

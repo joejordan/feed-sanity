@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import type { FakeMedia } from '../../facebook/testing';
+import type { FakeMedia, FakeStory } from '../../facebook/testing';
 import { startFeatures } from '../../core/app';
 import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { sleep } from '../../core/timing';
 import { bindPage } from '../../facebook/feature';
 import { STOOD_IN_FOR } from '../../facebook/selectors';
-import { FakeResizeObserver, fakeVideo, placeAt, videoPage } from '../../facebook/testing';
+import {
+  addStory,
+  FakeResizeObserver,
+  fakeVideo,
+  placeAt,
+  videoPage,
+} from '../../facebook/testing';
 import { extensionStore } from '../../platform/extension-store';
 import { HOST_TAG } from '../../ui/mount';
 import videoScrubber, { STYLE_ID } from '.';
@@ -40,6 +46,7 @@ describe('video_scrubber', () => {
     // Stops the feature, which stops it following the videos.
     await options.set('video_scrubber', false);
     vi.unstubAllGlobals();
+    history.replaceState({}, '', '/');
   });
 
   const start = async (): Promise<void> => {
@@ -94,6 +101,118 @@ describe('video_scrubber', () => {
 
     await vi.waitFor(() => expect(sliderIn(player)?.style.right).toBe('42px'));
     expect(document.querySelector(`[${STOOD_IN_FOR}]`)).toBeNull();
+  });
+
+  describe("standing in for a story's strip over the bottom edge", () => {
+    let story: FakeStory;
+    const strip = () => story.part('strip');
+
+    /** Waits until Facebook's strip is hidden, or shown when `hidden` is false. */
+    const stoodIn = (hidden = true) =>
+      vi.waitFor(() => expect(strip().hasAttribute(STOOD_IN_FOR)).toBe(hidden));
+
+    /** Starts the feature on the story and lets the overlay measure the video. */
+    const measured = async (): Promise<void> => {
+      await start();
+      placeAt(hostIn(story.card) as Element, 100, 0, 0, 0);
+      await sleep(10);
+      FakeResizeObserver.latest?.report();
+    };
+
+    beforeEach(() => {
+      vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+      story = addStory();
+    });
+
+    it("goes last in the card and hides Facebook's strip, which would take the pointer above it", async () => {
+      await measured();
+
+      expect(story.card.lastElementChild?.tagName.toLowerCase()).toBe(HOST_TAG);
+      await stoodIn();
+      const slider = sliderIn(story.card);
+      expect([slider?.style.left, slider?.style.right]).toEqual(['0px', '0px']);
+      expect(document.querySelectorAll(`[${STOOD_IN_FOR}]`)).toHaveLength(1);
+    });
+
+    it('gives the strip back when switched off', async () => {
+      await measured();
+      await stoodIn();
+
+      await options.set('video_scrubber', false);
+
+      expect(strip().hasAttribute(STOOD_IN_FOR)).toBe(false);
+    });
+
+    it('gives the strip back when the video leaves the page', async () => {
+      await measured();
+      await stoodIn();
+
+      story.video?.remove();
+
+      await stoodIn(false);
+    });
+
+    it("gives the strip back while the next story's length is not known, and hides it again once it is", async () => {
+      await measured();
+      await stoodIn();
+      const media = story.media as FakeMedia;
+
+      // Facebook gives the same element the next story.
+      media.duration = Number.NaN;
+      story.video?.dispatchEvent(new Event('emptied'));
+      await stoodIn(false);
+      media.duration = 15;
+      story.video?.dispatchEvent(new Event('durationchange'));
+
+      await stoodIn();
+    });
+
+    it('gives the strip back when the video becomes too narrow for the scrubber, or loses its layout', async () => {
+      await measured();
+      await stoodIn();
+
+      // 121 pixels is within a pixel of the width below which scrubber.css hides the strip.
+      for (const [width, height] of [
+        [121, 633],
+        [0, 0],
+      ] as const) {
+        placeAt(story.video as Element, 100, 0, width, height);
+        FakeResizeObserver.latest?.report();
+        await stoodIn(false);
+
+        placeAt(story.video as Element, 100, 0, 356, 633);
+        FakeResizeObserver.latest?.report();
+        await stoodIn();
+      }
+    });
+
+    it('hides nothing on a story too narrow for the scrubber from the start', async () => {
+      placeAt(story.video as Element, 100, 0, 110, 633);
+      await measured();
+      await sleep(10);
+
+      expect(strip().hasAttribute(STOOD_IN_FOR)).toBe(false);
+    });
+
+    it('stands in for a strip Facebook adds after the video was measured, once the pointer comes over the story', async () => {
+      strip().remove();
+      await measured();
+      await sleep(10);
+      const late = document.createElement('div');
+      late.id = 'late-strip';
+      story.card.insertBefore(late, story.card.querySelector(HOST_TAG));
+      placeAt(late, 100, 621, 356, 12);
+
+      const observer = FakeResizeObserver.latest as FakeResizeObserver;
+      // Nothing changed size, so nothing is waiting to be reported.
+      observer.report(observer.pending);
+      expect(late.hasAttribute(STOOD_IN_FOR)).toBe(false);
+
+      story.card.dispatchEvent(new PointerEvent('pointerenter'));
+      observer.report(observer.pending);
+
+      await vi.waitFor(() => expect(late.hasAttribute(STOOD_IN_FOR)).toBe(true));
+    });
   });
 
   describe("standing in for Facebook's bar along the bottom edge", () => {

@@ -18,6 +18,10 @@ export interface ControlBox {
 export const overlaps = (a: Edges, b: Edges): boolean =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
+/** True when the point `x`, `y` is on `box`, edges included. */
+export const pointIn = (box: Edges, x: number, y: number): boolean =>
+  x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
+
 /** Where Facebook's controls on `video` are on the screen now. Reads layout. */
 export const measureControls = (video: Video): ControlBox[] =>
   video.controls().map(({ element, bar }) => ({

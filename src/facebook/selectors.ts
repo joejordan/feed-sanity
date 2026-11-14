@@ -349,3 +349,45 @@ export const VIDEO_CONTROL = anyOf('video-control', [
     note: 'A feed video was not inside a link',
   },
 ]);
+
+// The stories viewer, at /stories/. See "A look at stories on 2026-11-14" in docs/porting.md.
+
+/**
+ * One story in the stories viewer, video or photo: the nearest element
+ * with `data-id` above the story's picture. Looked for from the picture up,
+ * on a stories page only. Facebook's layers over the picture and the
+ * story's header links are inside it; the header's buttons on the right
+ * are not.
+ */
+export const STORY_CARD = anyOf('story-card', [
+  {
+    selector: '[data-id]:has(> [data-pagelet])',
+    seen: VIDEOS_CHECKED,
+    note: 'Seven levels above the video; its first child, the layer with the picture, has data-pagelet',
+  },
+]);
+
+/**
+ * The empty children of a story card. One of them is an invisible strip
+ * over the bottom 12 pixels that takes the pointer there, above what this
+ * project puts in the card. `storyBottomStrip` in `src/facebook/stories.ts`
+ * tells it from the others by where it lies.
+ */
+export const STORY_STRIP = anyOf('story-strip', [
+  {
+    selector: '[data-id] > div:empty',
+    seen: VIDEOS_CHECKED,
+    note: 'A 12 pixel strip along the bottom edge, with z-index 1',
+  },
+]);
+
+/** Attribute on a story card holding the story's ID. A press that ends on another story counts for nothing. */
+export const STORY_ID = 'data-id';
+
+/**
+ * The menu button at the right end of a story's header, outside the card.
+ * The story's pause and play button is the one just to its left.
+ */
+export const STORY_MENU = anyOf('story-menu', [
+  { selector: '[role=button][aria-haspopup=menu]', seen: VIDEOS_CHECKED },
+]);

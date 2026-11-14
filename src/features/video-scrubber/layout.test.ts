@@ -90,4 +90,11 @@ describe('placeStrip', () => {
 
     expect(placeStrip(video, controls)).toEqual({ left: 302, right: 42, hides: null });
   });
+
+  it('stands in for a cover over the bottom edge that is not a control, on a wide video only', () => {
+    const cover = document.createElement('div');
+
+    expect(placeStrip(box(0, 0, 400, 300), [], cover)).toEqual({ left: 0, right: 0, hides: cover });
+    expect(placeStrip(box(0, 0, 100, 60), [], cover).hides).toBeNull();
+  });
 });

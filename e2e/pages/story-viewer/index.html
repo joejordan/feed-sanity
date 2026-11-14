@@ -1,0 +1,321 @@
+<!doctype html>
+<!--
+  A stand-in for Facebook's stories viewer, served at
+  https://www.facebook.com/story-viewer/. Its first script moves the address
+  to a story's, /stories/<id>/<token>/, as Facebook's pages do without a
+  reload, before anything else on the page is read. The markup follows what
+  docs/porting.md records under "A look at stories on 2026-11-14":
+
+  - Each story is a card, div[data-id], seven levels above the picture with a
+    div[data-pagelet] between. The card holds five layers: the one with the
+    picture; a full-size one that takes no pointer events; a zero-size one
+    whose children (the avatar link, the name link, a small button and a
+    sticker link) are placed over the card; a caption band that takes no
+    pointer events; and an empty, transparent strip over the bottom 12
+    pixels that takes the pointer.
+  - The header's three buttons on the right lie over the top of the card but
+    outside it. The pause and play button is the one just left of the menu
+    button, and the three share an ancestor three levels up. The next and
+    previous buttons are outside the card at its sides, and a reply box is
+    under it.
+  - A story plays on a timer that moves its progress bar. The pause button
+    stops and starts the timer, and the video of a video story. A click on
+    the card goes back on its left third and forward elsewhere, as
+    Facebook's tap zones do.
+  - The video story's <video> carries React's data from pages/react-data.js,
+    as the feed videos in pages/videos/ do, with its files on the fake file
+    server.
+
+  The first story is a video, the second a photo. Every name and text is
+  invented.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stories | Facebook</title>
+    <script>
+      history.replaceState(null, '', '/stories/100000000000077/UzpfSTEwMDA/');
+    </script>
+    <style>
+      body {
+        margin: 0;
+        background: #111;
+        color: #fff;
+        font: 15px sans-serif;
+      }
+      .viewer {
+        position: absolute;
+        top: 16px;
+        width: 356px;
+      }
+      #video-viewer {
+        left: 120px;
+      }
+      #photo-viewer {
+        left: 700px;
+      }
+      .stage {
+        position: relative;
+        width: 356px;
+        height: 633px;
+      }
+      [data-id] {
+        position: relative;
+        width: 356px;
+        height: 633px;
+        overflow: visible;
+        background: #333;
+      }
+      [data-pagelet],
+      [data-pagelet] div {
+        width: 100%;
+        height: 100%;
+      }
+      [data-pagelet] video,
+      [data-pagelet] .photo {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: #567;
+      }
+      [data-pagelet] [role='group'] {
+        width: 0;
+        height: 0;
+      }
+      .shade {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(#0006, transparent 20%);
+      }
+      .links {
+        width: 0;
+        height: 0;
+      }
+      .links > * {
+        position: absolute;
+        display: block;
+        background: #fff;
+      }
+      .avatar {
+        left: 12px;
+        top: 28px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+      }
+      .name {
+        left: 64px;
+        top: 31px;
+        width: 90px;
+        height: 10px;
+      }
+      .info {
+        left: 194px;
+        top: 31px;
+        width: 12px;
+        height: 12px;
+      }
+      .sticker {
+        left: 140px;
+        top: 300px;
+        width: 80px;
+        height: 40px;
+      }
+      .caption {
+        position: absolute;
+        left: 0;
+        top: 610px;
+        width: 356px;
+        height: 23px;
+        pointer-events: none;
+      }
+      .strip {
+        position: absolute;
+        z-index: 1;
+        left: 0;
+        top: 621px;
+        width: 356px;
+        height: 12px;
+        pointer-events: all;
+      }
+      .progress {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        left: 8px;
+        height: 2px;
+        background: #fff6;
+        pointer-events: none;
+      }
+      .progress div {
+        width: 0;
+        height: 100%;
+        background: #fff;
+      }
+      .row {
+        position: absolute;
+        top: 36px;
+        left: 256px;
+        display: flex;
+      }
+      .row [role='button'] {
+        width: 32px;
+        height: 24px;
+        background: #fff;
+      }
+      .side {
+        position: absolute;
+        top: 315px;
+        width: 48px;
+        height: 48px;
+        background: #fff;
+      }
+      .previous {
+        left: -88px;
+      }
+      .next {
+        left: 396px;
+      }
+      .reply {
+        display: block;
+        width: 100%;
+        margin-top: 8px;
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body>
+    <div role="main">
+      <div class="viewer" id="video-viewer" data-state="playing">
+        <div class="stage">
+          <div data-id="900000000000001">
+            <div data-pagelet="StoriesCard"><div><div><div><div><div><video playsinline muted autoplay loop></video><div role="group"></div></div></div></div></div></div></div>
+            <div class="shade"></div>
+            <div class="links">
+              <a class="avatar" href="#avatar" aria-label="Rowan Ellis"></a>
+              <a class="name" href="#name">Rowan Ellis</a>
+              <div class="info" role="button" aria-label="Story info" tabindex="0"></div>
+              <a class="sticker" href="#sticker">Sticker</a>
+            </div>
+            <div class="caption"></div>
+            <div class="strip"></div>
+          </div>
+          <div class="progress"><div></div></div>
+          <div class="row">
+            <div><div><div role="button" aria-label="Mute" class="mute" tabindex="0"></div></div></div>
+            <div><div><div role="button" aria-label="Pause" class="pause" tabindex="0"></div></div></div>
+            <div><div><div role="button" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" class="menu" tabindex="0"></div></div></div>
+          </div>
+        </div>
+        <div role="button" aria-label="Previous card" class="side previous" tabindex="0"></div>
+        <div role="button" aria-label="Next card" class="side next" tabindex="0"></div>
+        <input class="reply" aria-label="Reply" placeholder="Reply" />
+      </div>
+
+      <div class="viewer" id="photo-viewer" data-state="playing">
+        <div class="stage">
+          <div data-id="900000000000002">
+            <div data-pagelet="StoriesCard"><div><div><div><div><div><div class="photo" role="img" aria-label="A photo"></div></div></div></div></div></div></div>
+            <div class="shade"></div>
+            <div class="links">
+              <a class="avatar" href="#avatar" aria-label="Rowan Ellis"></a>
+              <a class="name" href="#name">Rowan Ellis</a>
+              <div class="info" role="button" aria-label="Story info" tabindex="0"></div>
+            </div>
+            <div class="caption"></div>
+            <div class="strip"></div>
+          </div>
+          <div class="progress"><div></div></div>
+          <div class="row">
+            <div><div><div role="button" aria-label="Mute" class="mute" tabindex="0"></div></div></div>
+            <div><div><div role="button" aria-label="Pause" class="pause" tabindex="0"></div></div></div>
+            <div><div><div role="button" aria-label="Menu" aria-haspopup="menu" aria-expanded="false" class="menu" tabindex="0"></div></div></div>
+          </div>
+        </div>
+        <div role="button" aria-label="Previous card" class="side previous" tabindex="0"></div>
+        <div role="button" aria-label="Next card" class="side next" tabindex="0"></div>
+        <input class="reply" aria-label="Reply" placeholder="Reply" />
+      </div>
+    </div>
+
+    <script src="/react-data.js"></script>
+    <script>
+      fetch('/videos/clip.webm')
+        .then((response) => response.blob())
+        .then((blob) => {
+          document.querySelector('video').src = URL.createObjectURL(blob);
+        });
+
+      const note = (what) => {
+        document.body.dataset.used = what;
+      };
+
+      for (const viewer of document.querySelectorAll('.viewer')) {
+        const video = viewer.querySelector('video');
+        const bar = viewer.querySelector('.progress div');
+        let shown = 0;
+        let timer;
+        const play = () => {
+          viewer.dataset.state = 'playing';
+          timer = setInterval(() => {
+            shown = (shown + 1) % 1000;
+            bar.style.width = `${shown / 10}%`;
+            viewer.dataset.progress = String(shown);
+          }, 20);
+          video?.play().catch(() => undefined);
+        };
+        const pause = () => {
+          viewer.dataset.state = 'paused';
+          clearInterval(timer);
+          video?.pause();
+        };
+        play();
+        viewer.querySelector('.pause').addEventListener('click', () => {
+          note('pause');
+          if (viewer.dataset.state === 'playing') {
+            pause();
+          } else {
+            play();
+          }
+        });
+        // Facebook's tap zones: back on the left third of the card, forward
+        // elsewhere. Every event of a press on the left third is noted, in
+        // `data-back-heard`, since Facebook may act on any of them.
+        const card = viewer.querySelector('[data-id]');
+        const onLeft = (event) => {
+          const box = card.getBoundingClientRect();
+          return event.clientX < box.left + box.width / 3;
+        };
+        card.addEventListener('click', (event) => note(onLeft(event) ? 'tap-back' : 'tap-forward'));
+        const heard = [];
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'touchstart', 'touchend']) {
+          card.addEventListener(type, (event) => {
+            const point = event.touches?.[0] ?? event.changedTouches?.[0] ?? event;
+            if (onLeft(point)) {
+              heard.push(type);
+              viewer.dataset.backHeard = heard.join(' ');
+            }
+          });
+        }
+        for (const name of ['mute', 'menu', 'info', 'previous', 'next', 'avatar', 'name', 'sticker']) {
+          viewer.querySelector(`.${name}`)?.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            note(name);
+          });
+        }
+      }
+
+      // React's data on the video, as in pages/videos/.
+      fakePlayerData(
+        document.querySelector('video'),
+        [
+          PLAYER.dash('https://www.facebook.com/dash/story.mpd'),
+          PLAYER.progressive({ hdSrc: `${CDN}/clip.mp4?story=1`, sdSrc: null }),
+        ],
+        '900000000000011',
+      );
+    </script>
+  </body>
+</html>

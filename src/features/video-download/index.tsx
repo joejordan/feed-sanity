@@ -66,7 +66,7 @@ export default defineFeature({
       initial: { button: null, container: null },
       measure: measurePlacement,
       same: samePlacement,
-      render: (video, placement, remeasure) => {
+      render: (video, placement) => {
         follow();
         return (
           <DownloadButton
@@ -74,8 +74,6 @@ export default defineFeature({
             placement={placement}
             bridge={bridge}
             sources={(signal) => page.bridge.videoSources(video.element, signal)}
-            // Facebook's controls fade in under the pointer, so the place is measured again.
-            onShow={remeasure}
           />
         );
       },

@@ -162,3 +162,70 @@ export function fakeVideo(state: Partial<FakeMedia> = {}): {
   });
   return { video, media };
 }
+
+/** The parts of a story that `addStory` adds, by ID. */
+export interface FakeStory {
+  readonly card: HTMLElement;
+  /** The video, or null for a photo story. */
+  readonly video: HTMLVideoElement | null;
+  /** The video's state, which the test changes. Null for a photo story. */
+  readonly media: FakeMedia | null;
+  readonly part: (id: string) => HTMLElement;
+}
+
+/**
+ * Adds a story as the stories viewer drew one on 2026-11-14 (see
+ * docs/porting.md), with the page's address set to a story's. The card is
+ * 356 by 633 pixels at (100, 0). The three header buttons on the right lie
+ * over its top, outside it, the pause button left of the menu button, and
+ * the next and previous buttons are beside it. Without `pause`, no button
+ * lies just left of the menu button.
+ */
+export function addStory({ photo = false, pause = true } = {}): FakeStory {
+  history.replaceState({}, '', '/stories/100000000000077/UzpfSTE/');
+  const viewer = document.createElement('div');
+  const picture = photo ? '<img alt="" id="photo">' : '';
+  const button = (id: string, extra = '') =>
+    `<div><div><div role="button" id="${id}"${extra}></div></div></div>`;
+  viewer.innerHTML = `
+    <div id="stage">
+      <div data-id="story-1" id="card">
+        <div data-pagelet="StoryCard"><div><div><div><div><div id="frame">${picture}<div role="group"></div></div></div></div></div></div></div>
+        <div id="shade"></div>
+        <div id="header"><a href="/someone" id="avatar"><img alt=""></a><a href="/someone" id="name">Someone</a><div role="button" id="info"></div><a href="/sticker" id="sticker">Sticker</a></div>
+        <div id="caption"></div>
+        <div id="strip"></div>
+      </div>
+      <div id="row">${button('mute')}${button('pause')}${button('menu', ' aria-haspopup="menu" aria-expanded="false"')}</div>
+    </div>
+    <div role="button" id="previous"></div>
+    <div role="button" id="next"></div>`;
+  document.body.append(viewer);
+  const part = (id: string) => viewer.querySelector(`#${id}`) as HTMLElement;
+  let video: HTMLVideoElement | null = null;
+  let media: FakeMedia | null = null;
+  if (!photo) {
+    ({ video, media } = fakeVideo({ duration: 20 }));
+    part('frame').prepend(video);
+  }
+  const boxes: Record<string, [number, number, number, number]> = {
+    card: [100, 0, 356, 633],
+    frame: [100, 0, 356, 633],
+    avatar: [112, 28, 40, 40],
+    name: [164, 31, 90, 10],
+    info: [294, 31, 12, 12],
+    sticker: [200, 300, 80, 40],
+    strip: [100, 621, 356, 12],
+    mute: [356, 36, 32, 24],
+    // Without `pause`, the button left of the menu button is lower, so it is not taken for it.
+    pause: pause ? [388, 36, 32, 24] : [388, 80, 32, 24],
+    menu: [420, 36, 32, 24],
+    previous: [52, 315, 48, 48],
+    next: [496, 315, 48, 48],
+  };
+  for (const [id, [x, y, width, height]] of Object.entries(boxes)) {
+    placeAt(part(id), x, y, width, height);
+  }
+  placeAt(video ?? part('photo'), 100, 0, 356, 633);
+  return { card: part('card'), video, media, part };
+}
