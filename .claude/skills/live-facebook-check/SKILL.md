@@ -34,10 +34,20 @@ into the page as a file in a file input, and loads from a blob address made from
 
 ## Steps
 
-1. Ask the user to turn off the installed Feed Sanity extension or userscript, or check that
-   it has no keywords or filters set. Two copies on one page share the `sfx_post` marks, and
-   the copy that marks a post first keeps it. The harness sets `__fsOtherCopy` to `true` and
-   logs a warning when it finds another copy's marks at load.
+1. Keep the installed Feed Sanity extension out of the way. Two copies on one page share the
+   `sfx_post` marks, and the copy that marks a post first keeps it. The harness sets
+   `__fsOtherCopy` to `true` and logs a warning when it finds another copy's marks at load.
+
+   The extension does not run on `https://www.facebook.com/saved/` (see `EXCLUDE_MATCHES` in
+   `src/facebook/urls.ts`), and it is only started when a page loads. So open `/saved/` in
+   step 3, load the bundle there, and then go to the feed by clicking Facebook's own Home
+   link with `document.querySelector('a[aria-label="Home"]').click()`. The move happens
+   inside the page, so the installed copy never starts and the bundle runs alone. A reload or
+   a typed address starts the installed copy again.
+
+   Rebuilding does not update an extension that is already loaded unpacked. Chrome keeps the
+   old content script until the extension is reloaded on `chrome://extensions`, which only
+   the user can do.
 
 2. Build the bundle from the repository root:
 
@@ -48,7 +58,8 @@ into the page as a file in a file input, and loads from a blob address made from
 
    It writes `.output/live/live.js`, which git ignores.
 
-3. Create a tab with `tabs_create_mcp` and navigate it to `https://www.facebook.com/`. Wait
+3. Create a tab with `tabs_create_mcp` and navigate it to `https://www.facebook.com/saved/`
+   (or to `https://www.facebook.com/` when no other copy is installed). Wait
    for the navigation before running any script; a script sent in the same batch as the
    navigation can land on the new-tab page and fail.
 

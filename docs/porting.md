@@ -136,6 +136,15 @@ A look at videos on 2026-11-14, in the news feed and the reel viewer in Chrome 1
 - A capture listener on `window`, added after the page had loaded, received a click on a feed video before Facebook did. With the event stopped there, the video paused, the address stayed the same and nothing opened.
 - With the extension installed and the test build loaded in the same tab, the extension marked the posts first and the test build saw none. The installed extension had found and sorted 14 posts.
 
+A watch for video ads the same day played 11 reels through in the reel viewer over 39 minutes, most of them two to five minutes long, and stepped quickly through 45 more. No ad appeared: no sponsored reel, no ad break, no second video and no ad label. Facebook's React data, which only a script in the page's own world can read, showed:
+
+- Every reel has `isSponsored`, false on all 56, and `sponsored_data`, empty on all 56.
+- The player has an `instreamVideoAdBreaksPlayer` object and an `adClientToken` field.
+
+What these hold during an ad is not known.
+
+After the page watcher and feature scopes went in, the test build ran alone on the news feed, started from `/saved/` where the installed extension does not run. All 27 posts were found and identified, the keyword "the" hid 17 of them, clearing the keyword removed the notes, the tab list and the style sheet, and a move to the groups feed and back kept everything in step.
+
 Not checked for videos: an ad during a video, whether Facebook starts a paused video again when the page scrolls, whether its own play button follows a pause made from outside, and stories.
 
 Not checked yet: profile and Marketplace pages, the page of a single group, Facebook's light mode, Firefox, and the extension or userscript installed in a browser.
