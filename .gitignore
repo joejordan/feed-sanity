@@ -46,3 +46,7 @@ __pycache__/
 # WXT build output and generated types
 .output/
 .wxt/
+
+# Playwright results and reports
+/test-results/
+/playwright-report/

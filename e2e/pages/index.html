@@ -1,0 +1,252 @@
+<!doctype html>
+<!--
+  A stand-in for the Facebook news feed, served at https://www.facebook.com/.
+  The markup follows what docs/porting.md records under "Checked against
+  Facebook": feed slots with aria-posinset, data-ad-rendering-role parts, the
+  author in a strong inside an h4, a time link with aria-labelledby and
+  aria-describedby whose address holds the post ID, and comments inside a
+  form. Every name and text is invented.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Facebook</title>
+    <style>
+      body {
+        margin: 0;
+        font: 15px sans-serif;
+      }
+      [role='feed'] {
+        max-width: 600px;
+        margin: 0 auto;
+      }
+      [aria-posinset] {
+        margin: 12px 0;
+        padding: 12px;
+        border: 1px solid #ccc;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="mount_0_0_e2e">
+      <div role="banner">
+        <div role="navigation" aria-label="Feeds">
+          <a id="go-most-recent" href="/?sk=h_chr">Most recent</a>
+        </div>
+      </div>
+      <div role="main">
+        <div role="feed" id="feed" data-page="home">
+          <h3>News Feed posts</h3>
+
+          <div aria-posinset="1" aria-setsize="-1" role="article" aria-labelledby="l1" aria-describedby="d1">
+            <div>
+              <div data-ad-rendering-role="profile_name">
+                <h4 id="l1"><span><a href="/avery.quill" role="link"><strong>Avery Quill</strong></a></span></h4>
+              </div>
+              <span id="d1"
+                ><a role="link" aria-labelledby="l1" aria-describedby="d1" href="/avery.quill/posts/100000000000001/">3 h</a></span
+              >
+              <div data-ad-rendering-role="story_message">
+                <div dir="auto">Our community garden harvested forty pumpkins this weekend.</div>
+              </div>
+              <div role="toolbar">
+                <div role="button" aria-label="Like" tabindex="0"></div>
+                <div role="button" aria-label="Comment" tabindex="0"></div>
+                <div role="button" aria-label="Share" tabindex="0"></div>
+              </div>
+              <!-- The comment mentions a keyword the tests use. Comments are not the post's text. -->
+              <form>
+                <div role="article" aria-label="Comment by Juno Park">
+                  <span dir="auto">Is this some kind of crypto scheme?</span>
+                </div>
+                <div role="textbox" contenteditable="true" aria-label="Write a comment"></div>
+              </form>
+            </div>
+          </div>
+
+          <div aria-posinset="2" aria-setsize="-1" role="article" aria-labelledby="l2" aria-describedby="d2">
+            <div>
+              <div data-ad-rendering-role="profile_name">
+                <h4 id="l2"><span><a href="/bram.okafor" role="link"><strong>Bram Okafor</strong></a></span></h4>
+              </div>
+              <span id="d2"
+                ><a role="link" aria-labelledby="l2" aria-describedby="d2" href="/bram.okafor/posts/100000000000002/">5 h</a></span
+              >
+              <div data-ad-rendering-role="story_message">
+                <div dir="auto">Selling a vintage typewriter, barely used. Message me.</div>
+              </div>
+              <form>
+                <div role="textbox" contenteditable="true" aria-label="Write a comment"></div>
+              </form>
+            </div>
+          </div>
+
+          <div aria-posinset="3" aria-setsize="-1" role="article" aria-labelledby="l3" aria-describedby="d3">
+            <div>
+              <div data-ad-rendering-role="profile_name">
+                <h4 id="l3"><span><a href="/cleo.marsh" role="link"><strong>Cleo Marsh</strong></a></span></h4>
+              </div>
+              <span id="d3"
+                ><a role="link" aria-labelledby="l3" aria-describedby="d3" href="/cleo.marsh/posts/100000000000003/">8 h</a></span
+              >
+              <div data-ad-rendering-role="story_message">
+                <div dir="auto">Free crypto giveaway! Follow the link to claim your coins.</div>
+              </div>
+              <form>
+                <div role="textbox" contenteditable="true" aria-label="Write a comment"></div>
+              </form>
+            </div>
+          </div>
+
+          <!-- A sponsored post. These have no time link, so no ID is found. -->
+          <div aria-posinset="4" aria-setsize="-1" role="article" aria-labelledby="l4">
+            <div>
+              <div data-ad-rendering-role="profile_name">
+                <h4 id="l4"><span><a href="/sourdough.school" role="link"><strong>Sourdough School</strong></a></span></h4>
+                <span>Sponsored</span>
+              </div>
+              <div data-ad-rendering-role="story_message">
+                <div dir="auto">Learn to bake bread at home in a week.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filled from the template below, and emptied and refilled once a note appears in it. -->
+          <div id="refilled" aria-posinset="5" aria-setsize="-1" role="article" aria-labelledby="l5" aria-describedby="d5"></div>
+        </div>
+      </div>
+    </div>
+
+    <template id="refilled-content">
+      <div>
+        <div data-ad-rendering-role="profile_name">
+          <h4 id="l5"><span><a href="/ines.harrow" role="link"><strong>Ines Harrow</strong></a></span></h4>
+        </div>
+        <span id="d5"
+          ><a role="link" aria-labelledby="l5" aria-describedby="d5" href="/ines.harrow/posts/100000000000005/">1 d</a></span
+        >
+        <div data-ad-rendering-role="story_message">
+          <div dir="auto">Ask me anything about crypto mining rigs.</div>
+        </div>
+        <form>
+          <div role="textbox" contenteditable="true" aria-label="Write a comment"></div>
+        </form>
+      </div>
+    </template>
+
+    <template id="late-post">
+      <div aria-posinset="6" aria-setsize="-1" role="article" aria-labelledby="l6" aria-describedby="d6">
+        <div>
+          <div data-ad-rendering-role="profile_name">
+            <h4 id="l6"><span><a href="/dara.venn" role="link"><strong>Dara Venn</strong></a></span></h4>
+          </div>
+          <span id="d6"
+            ><a role="link" aria-labelledby="l6" aria-describedby="d6" href="/dara.venn/posts/100000000000006/">2 d</a></span
+          >
+          <div data-ad-rendering-role="story_message">
+            <div dir="auto">Last call for the crypto giveaway, it ends tonight.</div>
+          </div>
+          <form>
+            <div role="textbox" contenteditable="true" aria-label="Write a comment"></div>
+          </form>
+        </div>
+      </div>
+    </template>
+
+    <!-- What the feed shows after the move to "Most recent", which happens without a reload. -->
+    <template id="most-recent">
+      <h3>News Feed posts</h3>
+      <div aria-posinset="1" aria-setsize="-1" role="article" aria-labelledby="l7" aria-describedby="d7">
+        <div>
+          <div data-ad-rendering-role="profile_name">
+            <h4 id="l7"><span><a href="/elio.brandt" role="link"><strong>Elio Brandt</strong></a></span></h4>
+          </div>
+          <span id="d7"
+            ><a role="link" aria-labelledby="l7" aria-describedby="d7" href="/elio.brandt/posts/100000000000007/">4 min</a></span
+          >
+          <div data-ad-rendering-role="story_message">
+            <div dir="auto">Does anyone still trade crypto on paper?</div>
+          </div>
+        </div>
+      </div>
+      <div aria-posinset="2" aria-setsize="-1" role="article" aria-labelledby="l8" aria-describedby="d8">
+        <div>
+          <div data-ad-rendering-role="profile_name">
+            <h4 id="l8"><span><a href="/fern.adair" role="link"><strong>Fern Adair</strong></a></span></h4>
+          </div>
+          <span id="d8"
+            ><a role="link" aria-labelledby="l8" aria-describedby="d8" href="/fern.adair/posts/100000000000008/">9 min</a></span
+          >
+          <div data-ad-rendering-role="story_message">
+            <div dir="auto">A quiet morning at the lake.</div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <script>
+      // Facebook adds posts as the feed scrolls, and empties slots that scroll
+      // out of view and fills them again later. This script does both. It waits
+      // for the extension to have acted first, so each change reaches posts the
+      // extension already knows about.
+      const feed = document.querySelector('#feed');
+      const slot = document.querySelector('#refilled');
+      /** A new copy of the template with this ID. */
+      const copy = (id) => document.querySelector(`template#${id}`).content.cloneNode(true);
+      const fill = () => slot.append(copy('refilled-content'));
+      fill();
+
+      /** Calls `then` once `ready` is true, checking after each change to the feed. */
+      function when(ready, then) {
+        if (ready()) {
+          then();
+          return;
+        }
+        const observer = new MutationObserver(() => {
+          if (ready()) {
+            observer.disconnect();
+            then();
+          }
+        });
+        observer.observe(feed, { subtree: true, childList: true, attributeFilter: ['sfx_post'] });
+      }
+
+      const onHome = () => feed.dataset.page === 'home';
+
+      // Once the extension has marked the posts on the page, one more arrives.
+      when(
+        () => feed.querySelector('[sfx_post]'),
+        () =>
+          setTimeout(() => {
+            if (onHome()) {
+              feed.append(copy('late-post'));
+            }
+          }, 200),
+      );
+
+      // Once the extension has hidden the post in this slot, the slot is emptied,
+      // which removes the extension's note, and filled again a moment later.
+      when(
+        () => slot.querySelector('.sfx_filter_hidden_note'),
+        () => {
+          slot.replaceChildren();
+          setTimeout(() => {
+            if (onHome()) {
+              fill();
+              slot.dataset.refilled = 'true';
+            }
+          }, 200);
+        },
+      );
+
+      // A move inside the page, as Facebook makes it: a new address and new
+      // content, with no page load.
+      document.querySelector('#go-most-recent').addEventListener('click', (event) => {
+        event.preventDefault();
+        history.pushState({}, '', '/?sk=h_chr');
+        feed.dataset.page = 'most-recent';
+        feed.replaceChildren(copy('most-recent'));
+      });
+    </script>
+  </body>
+</html>

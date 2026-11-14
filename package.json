@@ -18,12 +18,14 @@
     "lint": "biome check",
     "format": "biome check --write",
     "test": "vitest run",
+    "test:e2e": "wxt build -b chrome && playwright test -c e2e",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.7",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
+    "@playwright/test": "1.65.1",
     "@testing-library/dom": "10.4.2",
     "@testing-library/preact": "3.2.6",
     "@testing-library/user-event": "14.6.10",
