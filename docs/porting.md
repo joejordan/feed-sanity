@@ -6,16 +6,18 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
 
 - Keep the original option keys (for example `external_css_url`), so a settings import from Social Fixer stays possible.
 - Put anything that depends on Facebook's markup in `src/facebook/`. Features import it from there.
-- Every selector that depends on Facebook's markup goes in `src/facebook/selectors.ts`, so there is one file to fix when Facebook changes its pages.
-- Selectors name Facebook's generated classes through `S2F_` names, as the original does. Add the declaration behind a new name to `src/facebook/atom-rules.ts`, and pass the selector through `page.atoms.translate` before using it.
+- Every selector that depends on Facebook's markup goes in `src/facebook/selectors.ts`, so there is one file to fix when Facebook changes its pages. Each one is a locator: a name and a list of strategies, each with its selector and the date it was last seen working on the live site (`seen`). Declare it with `anyOf` when an element any strategy matches counts, or with `firstOf` when only the first strategy that finds anything is used. When Facebook changes its markup, add a strategy with the date it was seen, and keep the old ones while they may still match somewhere. Only this project's marks (`MARK`, `OWN`, `OWN_ELEMENT`) and plain attribute names stay as constants.
+- Look elements up with `page.locate(LOCATOR)` and its `all`, `first`, `probe`, `matches` and `closest`. A lookup never throws: a strategy whose selector is not valid is logged once, counted and skipped. Each lookup is counted per locator and per strategy, and `Locators.stats()` in `src/core/locator.ts` reads the counts.
+- The user can replace a locator's strategies without a new release: the saved value `locators` (`LOCATOR_OVERRIDES` in `src/facebook/feature.ts`) holds a list of selectors by locator name, such as `{ "post": ["[role=article]"] }`. It is read at startup and applied again whenever it changes. Unknown names and empty lists are ignored.
+- Selectors name Facebook's generated classes through `S2F_` names, as the original does. Add the declaration behind a new name to `src/facebook/atom-rules.ts`. A strategy that uses a name whose class is not known yet is skipped, and it runs once the class is known. It never runs with the name left in, which inside `:not()` would exclude nothing. The first lookup starts the stylesheet scan. CSS text and the selectors in the user's filters still go through `page.atoms.translate`, which leaves an unknown name in place.
 - Marks that people can target from their own CSS keep Social Fixer's names: `sfx_post`, `sfx_id`, `sfx_removing` and the others in `MARK` in `src/facebook/selectors.ts`. IDs of elements that only this project uses get a `feed_sanity_` prefix.
-- Declare features with `defineFeature` from `src/facebook/feature.ts`. Its `setup` receives `page`, which holds the posts, the class-name translator and `watch`. A test can pass a page of its own, wrapped with `bindPage`.
+- Declare features with `defineFeature` from `src/facebook/feature.ts`. Its `setup` receives `page`, which holds the posts, `locate`, the class-name translator and `watch`. A test can pass a page of its own, wrapped with `bindPage`.
 - Subscribe through what `setup` receives: `page`, `options` and `data`. Each feature has its own `scope`, and disposing it ends every subscription made there, so a feature does not keep the functions that stop them. Each subscription still returns one, to stop it early. Pass anything else that needs undoing to `scope.add`. For work that starts and stops while the feature runs, take `ctx.child()` and dispose its scope when the work stops, as `post_filters` does while no filter is set up.
-- To find elements other than posts, such as videos or dialogs, use `page.watch(selector, { added, removed })`. Give it `attributes` to hear when those attributes change on a matching element. Do not create a `MutationObserver`: the content script shares one, in `src/core/page-watcher.ts`.
+- To find elements other than posts, such as videos or dialogs, as they come and go, use `page.watch(page.locate(LOCATOR), { added, removed })`. It looks again by itself when class names or the user's selectors change. Give it `attributes` to hear when those attributes change on a matching element. Do not create a `MutationObserver`: the content script shares one, in `src/core/page-watcher.ts`.
 - A feature that one of its yes-or-no options switches on and off names that option in `enabledBy`. Its `setup` runs when the option turns on, and its scope is disposed when it turns off, with no page reload.
 - Callbacks registered through `setup`'s context are guarded. A feature whose callbacks throw 10 times in a row, with no call between them that went through, is stopped and marked as failed. `FeatureRunner` in `src/core/app.ts` keeps each feature's state and error count.
 - To act on posts, subscribe with `page.posts.onAdd`. Post detection does not run until something subscribes.
-- Call `page.atoms.start()` before relying on translated selectors outside post detection, and translate again when `page.atoms.onChange` fires.
+- Locators need nothing more. For CSS text with `S2F_` names, call `page.atoms.start()` and translate again when `page.atoms.onChange` fires. To redo work when a locator may find something different, subscribe with its `onChange`.
 - Each ported feature gets a test next to it.
 - Read a post's text and parts from `post.content`, not `post.element`. They are the same element except in the comments popup, where `element` is the popup and `content` is the post inside it. `postText`, `postElements` and `readPostFields` in `src/facebook/` leave the comments out.
 - Give every element a feature adds inside one of Facebook's the `data-feed-sanity` attribute (`OWN` in `src/facebook/selectors.ts`). Its text is then left out of the post's, and adding it does not count as new content.
@@ -35,9 +37,10 @@ The original source is in `reference/social-fixer-31.1.0/`. Each part below is c
   - [x] noticing navigation without a reload (`onUrlChange` in `src/core/navigation.ts`, run by the page watcher). The original patched `history.pushState` in the page and ignored addresses containing `theater`. This version compares the address when the document changes, and listens for the Navigation API's `currententrychange` where the browser has it. It ignores nothing.
   - [x] running features (`FeatureRunner` in `src/core/app.ts`): each one gets a scope that ends what it subscribed to, an `enabledBy` option switches it on and off without a reload, and one whose callbacks keep throwing is stopped
   - [ ] looking up a group's name when the address has its number
+  - [x] finding Facebook's elements through locators (`Locators` in `src/core/locator.ts`, with the definitions in `src/facebook/selectors.ts`). Not in the original, which kept one selector string for each element. Each strategy records when it was last seen working, strategies wait for their class names, lookups are counted, and the user can replace a locator's selectors without a reload.
 - [ ] `sfx.js`: build identity, cross-origin fetch through the background script, debug hooks
 - [ ] `post_processor.js`: finding posts in the page and working out their IDs
-  - [x] finding posts, Marketplace listings and posts in the comments popup (`src/facebook/posts.ts`)
+  - [x] finding posts, Marketplace listings and posts in the comments popup (`src/facebook/posts.ts`). It looks at the page at once with the strategies that need no class names, and again whenever the locators change. A post found early is marked and not counted again. Each ID lookup waits for the first stylesheet scan, so IDs and what features read from a post do not depend on how early it was found.
   - [x] IDs from the page address, from links in the post and from hovering the time link (`src/facebook/post-id.ts`)
   - [ ] IDs from React's data on the post's elements. A content script cannot see that data. It needs a script running in the page's own world that passes the IDs back.
   - [ ] pausing post loading after `max_post_load_count` posts
@@ -145,6 +148,8 @@ What these hold during an ad is not known.
 
 After the page watcher and feature scopes went in, the test build ran alone on the news feed, started from `/saved/` where the installed extension does not run. All 27 posts were found and identified, the keyword "the" hid 17 of them, clearing the keyword removed the notes, the tab list and the style sheet, and a move to the groups feed and back kept everything in step.
 
+After the locators went in, the test build ran alone on the news feed again. All 16 posts were found, 13 with an ID, 2 with none and 1 still being looked up; no comment was taken for a post; and Chrome reported no selector as invalid. A saved override that gave `post` the selectors `[unclosed` and `div:not(` was reported once for each and skipped, and removing the override brought the built-in strategies back, all without a reload.
+
 Not checked for videos: an ad during a video, whether Facebook starts a paused video again when the page scrolls, whether its own play button follows a pause made from outside, and stories.
 
 Not checked yet: profile and Marketplace pages, the page of a single group, Facebook's light mode, Firefox, and the extension or userscript installed in a browser.
@@ -154,7 +159,7 @@ Not checked yet: profile and Marketplace pages, the page of a single group, Face
 Apart from the checks above, the ported code has only run in unit tests. These parts copy what worked in 2023 and still need checking on the live site:
 
 - the declarations in `src/facebook/atom-rules.ts` behind the seven names `Atoms` did not find
-- the selectors in `src/facebook/selectors.ts` other than the feed position and the time link
+- the strategies in `src/facebook/selectors.ts` whose `seen` date is still 2023
 - downloading stylesheets the page may not read. The original went through its background script. `Atoms` uses `fetch`, which depends on Facebook's servers allowing it.
 
 One behaviour differs from the original on purpose:
@@ -163,9 +168,5 @@ One behaviour differs from the original on purpose:
   - a reel on its own page, which may have neither and would then end with no ID
   - a photo or video in theater mode, where a link to an event inside a comment is tried before the time link
   - an event page, where a post that links to the event itself still gets the event's number from the first rule in `POST_ID_LINKS`
-
-One behaviour is copied from the original and looks risky:
-
-- A name with no class yet is left untranslated. Inside `:not()` it then excludes nothing, so `[role=article]:not(.S2F_pos_rel)` matches comments too until `pos_rel` is known. Post detection waits for the first stylesheet scan to narrow that window.
 
 The dialog has not been checked in Facebook's light mode, or in Firefox.

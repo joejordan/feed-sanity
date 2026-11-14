@@ -140,7 +140,7 @@ export default defineFeature({
       if (!tracked) {
         return;
       }
-      const fields = readPostFields(post.content, page.atoms);
+      const fields = readPostFields(post.content, page.locate);
       let outcome = untouched();
       if (appliesOn(tracked.pageType)) {
         // Facebook has emptied the post and will fill it again. Until then
@@ -152,6 +152,7 @@ export default defineFeature({
           post: post.content,
           fields,
           atoms: page.atoms,
+          locate: page.locate,
           now: () => new Date(),
           report: (message, error) => log.debug(message, error ?? ''),
         });

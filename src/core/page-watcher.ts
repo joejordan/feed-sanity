@@ -1,3 +1,4 @@
+import type { Locator } from './locator';
 import type { Logger } from './log';
 import { callSafely, Listeners } from './listeners';
 import { createLogger } from './log';
@@ -20,6 +21,17 @@ export interface TreeChanges {
  * made from translated class names: it is read again on `refresh`.
  */
 export type SelectorSource = string | (() => string);
+
+/** What a watch looks elements up with. */
+type Query = Pick<Locator, 'all' | 'matches' | 'probe'>;
+
+function selectorQuery(selector: string): Query {
+  const all = <E extends Element = Element>(root: ParentNode): E[] => [
+    ...root.querySelectorAll<E>(selector),
+  ];
+  const matches = (element: Element): boolean => element.matches(selector);
+  return { all, matches, probe: (root) => [...(matches(root) ? [root] : []), ...all(root)] };
+}
 
 export interface WatchHandlers {
   /**
@@ -156,23 +168,28 @@ class TreeSubscriber implements Subscriber {
 class SelectorSubscriber implements Subscriber {
   active = false;
   readonly attributes: ReadonlySet<string>;
-  readonly #source: SelectorSource;
+  readonly #source: Locator | SelectorSource;
   readonly #handlers: WatchHandlers;
   readonly #log: Logger;
   readonly #tracked = new Set<Element>();
-  #selector: string;
+  #query: Query;
 
-  constructor(source: SelectorSource, handlers: WatchHandlers, options: WatchOptions, log: Logger) {
+  constructor(
+    source: Locator | SelectorSource,
+    handlers: WatchHandlers,
+    options: WatchOptions,
+    log: Logger,
+  ) {
     this.#source = source;
     this.#handlers = handlers;
     this.#log = log;
     this.attributes = new Set(options.attributes);
-    this.#selector = this.#read();
+    this.#query = this.#read();
   }
 
   /** The elements in the page that match now. Throws if the selector is not valid. */
   matching(): Element[] {
-    return [...document.querySelectorAll(this.#selector)];
+    return this.#query.all(document);
   }
 
   enter(element: Element): void {
@@ -199,10 +216,8 @@ class SelectorSubscriber implements Subscriber {
       }
     }
     for (const top of batch.added) {
-      if (top.matches(this.#selector)) {
-        this.enter(top);
-      }
-      for (const element of top.querySelectorAll(this.#selector)) {
+      // One lookup per subtree, so a locator that falls back picks one strategy for all of it.
+      for (const element of this.#query.probe(top)) {
         this.enter(element);
       }
     }
@@ -213,9 +228,9 @@ class SelectorSubscriber implements Subscriber {
       return;
     }
     try {
-      this.#selector = this.#read();
+      this.#query = this.#read();
       for (const element of this.#tracked) {
-        if (!element.matches(this.#selector)) {
+        if (!this.#query.matches(element)) {
           this.#leave(element);
         }
       }
@@ -236,8 +251,11 @@ class SelectorSubscriber implements Subscriber {
     return false;
   }
 
-  #read(): string {
-    return typeof this.#source === 'string' ? this.#source : this.#source();
+  #read(): Query {
+    if (typeof this.#source === 'object') {
+      return this.#source;
+    }
+    return selectorQuery(typeof this.#source === 'string' ? this.#source : this.#source());
   }
 
   #leave(element: Element): void {
@@ -253,7 +271,7 @@ class SelectorSubscriber implements Subscriber {
       return;
     }
     const tracked = this.#tracked.has(element);
-    const matches = element.matches(this.#selector);
+    const matches = this.#query.matches(element);
     if (matches && !tracked) {
       this.enter(element);
     } else if (!matches && tracked) {
@@ -317,17 +335,31 @@ export class PageWatcher {
    * With `options.attributes`, a change to one of those attributes is
    * reported too: as `added` or `removed` when the element starts or stops
    * matching, and as `changed` when it still matches.
+   *
+   * A locator in place of the selector is looked at again by itself
+   * whenever it changes. A locator that falls back uses, in each subtree
+   * added to the page, the first strategy that finds anything there.
    */
-  watch(selector: SelectorSource, handlers: WatchHandlers, options: WatchOptions = {}): Watch {
+  watch(
+    selector: Locator | SelectorSource,
+    handlers: WatchHandlers,
+    options: WatchOptions = {},
+  ): Watch {
     const subscriber = new SelectorSubscriber(selector, handlers, options, this.#log);
     const present = subscriber.matching();
     this.#subscribe(subscriber);
     for (const element of present) {
       subscriber.enter(element);
     }
-    return Object.assign(() => this.#unsubscribe(subscriber), {
-      refresh: () => subscriber.refresh(),
-    });
+    const stopFollowing =
+      typeof selector === 'object' ? selector.onChange(() => subscriber.refresh()) : undefined;
+    return Object.assign(
+      () => {
+        stopFollowing?.();
+        this.#unsubscribe(subscriber);
+      },
+      { refresh: () => subscriber.refresh() },
+    );
   }
 
   /**

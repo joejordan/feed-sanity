@@ -98,12 +98,31 @@ export class Atoms {
   /**
    * Replaces each `S2F_name` with Facebook's class for it. A name with no
    * class yet is left as it is, so `.S2F_name` matches nothing. Inside
-   * `:not()` that means it excludes nothing.
+   * `:not()` that means it excludes nothing. Meant for CSS text and for
+   * selectors from the user's filters. Locators use `resolve`.
    */
   translate(text: string): string {
     return text.replaceAll(TOKEN, (token, name: string) => {
       return this.#classes.get(name) ?? token;
     });
+  }
+
+  /**
+   * Replaces each `S2F_name` in a selector with Facebook's class for it, or
+   * returns null while any of them has no class yet. Unlike `translate`, it
+   * never gives a selector that still holds a name, which inside `:not()`
+   * would exclude nothing.
+   */
+  resolve(selector: string): string | null {
+    let known = true;
+    const resolved = selector.replaceAll(TOKEN, (token, name: string) => {
+      const atom = this.#classes.get(name);
+      if (atom === undefined) {
+        known = false;
+      }
+      return atom ?? token;
+    });
+    return known ? resolved : null;
   }
 
   /** Calls `listener` whenever a scan finds new or different classes. Returns a function that stops it. */
@@ -257,4 +276,4 @@ export class Atoms {
 }
 
 /** The part of `Atoms` that code using translated selectors depends on. */
-export type AtomTranslator = Pick<Atoms, 'onChange' | 'start' | 'translate'>;
+export type AtomTranslator = Pick<Atoms, 'onChange' | 'resolve' | 'start' | 'translate'>;

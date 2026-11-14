@@ -1,3 +1,4 @@
+import type { Locate } from '../core/locator';
 import type { AtomTranslator } from './atoms';
 import { probe, waitForElement } from '../core/dom';
 import { callSafely, Listeners } from '../core/listeners';
@@ -27,7 +28,11 @@ const log = createLogger('posts');
 /** How long after content arrives in a post `onUpdate` listeners hear of it. */
 const UPDATE_DELAY_MS = 100;
 
-/** A feed slot not tracked yet, which may be waiting for its content. */
+/**
+ * A feed slot not tracked yet, which may be waiting for its content. Made
+ * only of the feed position attribute and this project's mark, so it stays
+ * a plain selector.
+ */
 const UNTRACKED_SLOT = `[${FEED_POSITION}]:not([${MARK.post}])`;
 
 /** A post on the page, or a Marketplace listing on Marketplace pages. */
@@ -65,9 +70,17 @@ function addressContains(id: string): boolean {
  *
  * Nothing runs until the first `onAdd` call, because working out a post's ID
  * can mean hovering its time link.
+ *
+ * It looks at the page at once, before Facebook's class names are known,
+ * with the strategies that can run without them. It looks again each time
+ * the locators change: when more class names become known, and when the
+ * user's selectors change. Each ID lookup waits for the first class name
+ * scan, so the ID and what features read from the post do not depend on how
+ * early the post was found.
  */
 export class Posts {
-  readonly #atoms: AtomTranslator;
+  readonly #atoms: Pick<AtomTranslator, 'start'>;
+  readonly #locate: Locate;
   readonly #findId: typeof findPostId;
   readonly #added = new Listeners<[Post]>(log);
   readonly #removed = new Listeners<[Post]>(log);
@@ -86,10 +99,16 @@ export class Posts {
   #resetPending = true;
   #hasReset = false;
   #marketplace = false;
-  #postSelector = POST;
+  /** Settles once the first class name scan has finished, whether or not it worked. */
+  #scanned: Promise<void> = Promise.resolve();
 
-  constructor(atoms: AtomTranslator, findId: typeof findPostId = findPostId) {
+  constructor(
+    atoms: Pick<AtomTranslator, 'start'>,
+    locate: Locate,
+    findId: typeof findPostId = findPostId,
+  ) {
     this.#atoms = atoms;
+    this.#locate = locate;
     this.#findId = findId;
   }
 
@@ -157,18 +176,20 @@ export class Posts {
 
   async #watch(): Promise<void> {
     await waitForElement('body');
-    // The first page scan needs the class names. Without them a selector such
-    // as `:not(.S2F_pos_rel)` excludes nothing and comments pass for posts.
-    await this.#atoms.start();
     // After a stop and a second start during the wait, the earlier call is already watching.
     if (!this.#started || this.#stopWatching.length > 0) {
       return;
     }
+    // Not awaited. Until a class is known, the strategies that need it are
+    // skipped, and the change that comes with it brings a rescan. A failed
+    // scan is logged by the page, and the posts are announced all the same.
+    this.#scanned = this.#atoms.start().catch(() => undefined);
     this.#stopWatching = [
       // The watcher reports a new address before the content that came with
       // it, so a new page is known about before its content is scanned.
       onUrlChange(() => this.#navigated()),
-      this.#atoms.onChange(() => this.#refresh()),
+      // Shared by every locator: new class names, or new selectors from the user.
+      this.#locate(POST).onChange(() => this.#refresh()),
       pageWatcher.watchTree({
         added: (element) => this.#inserted(element),
         removed: (element) => this.#left(element),
@@ -183,10 +204,12 @@ export class Posts {
     this.#refresh();
   }
 
-  /** Works out the post selector for the current page and class names, then scans the whole page. */
+  /**
+   * Works out what posts look like on the current page, then scans the whole
+   * page. Posts found before are marked, so they are not counted again.
+   */
   #refresh(): void {
     this.#marketplace = pageContext().type === 'marketplace';
-    this.#postSelector = this.#atoms.translate(this.#marketplace ? MARKETPLACE_POST : POST);
     this.#scan(document.body);
   }
 
@@ -196,7 +219,7 @@ export class Posts {
     const slot = element.parentElement?.closest(UNTRACKED_SLOT);
     if (slot) {
       this.#scan(slot);
-    } else if (!element.closest(POST_REACTIONS)) {
+    } else if (!this.#locate(POST_REACTIONS).closest(element)) {
       this.#scan(element);
     }
     this.#noteUpdate(element);
@@ -229,7 +252,8 @@ export class Posts {
   }
 
   #scan(container: Element): void {
-    for (const candidate of probe(container, this.#postSelector)) {
+    const candidates = this.#locate(this.#marketplace ? MARKETPLACE_POST : POST);
+    for (const candidate of candidates.probe(container)) {
       if (this.#isPost(candidate)) {
         this.#track(this.#topOf(candidate), candidate);
       }
@@ -245,22 +269,27 @@ export class Posts {
       return !!element.textContent?.trim();
     }
     // Inside another post, it is a comment or an embedded post.
-    if (element.parentElement?.closest(POST_ANCESTOR)) {
+    const parent = element.parentElement;
+    if (
+      parent &&
+      (parent.closest(`[${MARK.post}]`) || this.#locate(POST_ANCESTOR).closest(parent))
+    ) {
       return false;
     }
-    if (element.querySelector(LOADING_POST) && !element.textContent) {
+    if (this.#locate(LOADING_POST).first(element) && !element.textContent) {
       return false;
     }
     const verifier = this.#marketplace ? MARKETPLACE_POST_VERIFIER : POST_VERIFIER;
-    return element.querySelector(verifier) !== null;
+    return this.#locate(verifier).first(element) !== null;
   }
 
   /** A post in the comments popup is tracked by the popup's container. */
   #topOf(post: HTMLElement): HTMLElement {
-    if (!post.matches(this.#atoms.translate(POPUP_CONTAINED_POST))) {
+    if (!this.#locate(POPUP_CONTAINED_POST).matches(post)) {
       return post;
     }
-    const popup = post.parentElement?.closest(POPUP_POST_CONTAINER);
+    const popup =
+      post.parentElement && this.#locate(POPUP_POST_CONTAINER).closest(post.parentElement);
     if (!(popup instanceof HTMLElement)) {
       return post;
     }
@@ -299,15 +328,21 @@ export class Posts {
   }
 
   async #identify(element: HTMLElement, number: number, content: HTMLElement): Promise<void> {
-    const id = await this.#findId(element, this.#atoms);
-    if (this.#numbers.get(element) !== number) {
+    // Some strategies for the ID and for the parts features read need class
+    // names. The first scan is usually over by the time a post is found.
+    const here = (): boolean => this.#numbers.get(element) === number;
+    await this.#scanned;
+    if (!here()) {
+      return;
+    }
+    const id = await this.#findId(element, this.#locate);
+    if (!here()) {
       // The post left the page while its ID was being looked up.
       return;
     }
     element.setAttribute(MARK.postId, id ?? MARK.noPostId);
     const permalink =
-      (id !== null && addressContains(id)) ||
-      element.matches(this.#atoms.translate(THEATER_COMMENTS));
+      (id !== null && addressContains(id)) || this.#locate(THEATER_COMMENTS).matches(element);
     const post: Post = { element, content, number, id, permalink };
     this.#announced.set(element, post);
     this.#added.emit(post);

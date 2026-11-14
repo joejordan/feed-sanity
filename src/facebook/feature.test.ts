@@ -1,16 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import type { Locate } from '../core/locator';
+import type { FacebookPage } from './feature';
 import type { Post } from './posts';
 import { FeatureRunner } from '../core/app';
 import { Listeners } from '../core/listeners';
+import { Locators, readLocatorOverrides } from '../core/locator';
 import { createLogger } from '../core/log';
 import { Options } from '../core/options';
 import { PageWatcher } from '../core/page-watcher';
 import { SavedData } from '../core/saved';
 import { sleep } from '../core/timing';
 import { extensionStore } from '../platform/extension-store';
-import { bindPage, defineFeature } from './feature';
-import { fakeAtoms } from './testing';
+import { bindPage, createPage, defineFeature, LOCATOR_OVERRIDES } from './feature';
+import { POST_HEADER } from './selectors';
+import { fakeAtoms, fakeLocate } from './testing';
 
 describe('bindPage', () => {
   const log = createLogger('test');
@@ -28,9 +32,10 @@ describe('bindPage', () => {
     options = new Options(extensionStore, 'u/options');
   });
 
-  const page = () =>
+  const page = (locate: Locate = fakeLocate) =>
     bindPage({
       atoms: { ...fakeAtoms, onChange: (listener) => atomsChanged.add(listener) },
+      locate,
       posts: {
         onAdd: (listener) => added.add(listener),
         onRemove: () => () => undefined,
@@ -92,5 +97,73 @@ describe('bindPage', () => {
     await runner.start();
 
     expect(runner.statuses()[0]).toMatchObject({ errors: 1, lastError: 'no controls' });
+  });
+
+  it('ends what a feature hears from its locators when the feature is switched off', async () => {
+    const changed = new Listeners(log);
+    const locators = new Locators({
+      resolve: (selector) => selector,
+      onChange: (listener) => changed.add(listener),
+    });
+    const heard = vi.fn();
+    const feature = defineFeature({
+      id: 'videos',
+      options: {
+        videos_enabled: { section: 'General', title: 'Videos', description: '', default: true },
+      },
+      enabledBy: 'videos_enabled',
+      setup: (ctx) => {
+        ctx.page.locate(POST_HEADER).onChange(heard);
+      },
+    });
+    await new FeatureRunner(
+      [feature],
+      options,
+      page(locators.locate),
+      new SavedData(extensionStore, 'u'),
+    ).start();
+    changed.emit();
+    expect(heard).toHaveBeenCalledTimes(1);
+
+    await options.set('videos_enabled', false);
+    changed.emit();
+
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createPage', () => {
+  beforeEach(() => {
+    fakeBrowser.reset();
+    document.body.innerHTML = '<h5>A header</h5><h6>Another</h6>';
+  });
+
+  it("uses the user's saved selectors, and the new ones each time they change", async () => {
+    await extensionStore.set(`u/${LOCATOR_OVERRIDES}`, { 'post-header': ['h5'], nonsense: 3 });
+    const data = new SavedData(extensionStore, 'u');
+    const saved = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
+    let page: FacebookPage | undefined;
+    const feature = defineFeature({
+      id: 'headers',
+      setup: (ctx) => {
+        page = ctx.page;
+      },
+    });
+    await new FeatureRunner(
+      [feature],
+      new Options(extensionStore, 'u/options'),
+      createPage(data),
+      data,
+    ).start();
+    await saved.ready;
+    const header = () => page?.locate(POST_HEADER).first(document)?.tagName;
+
+    expect(header()).toBe('H5');
+
+    await saved.set({ 'post-header': ['h6'] });
+    expect(header()).toBe('H6');
+
+    await extensionStore.set(`u/${LOCATOR_OVERRIDES}`, {});
+    await vi.waitFor(() => expect(header()).toBeUndefined());
   });
 });

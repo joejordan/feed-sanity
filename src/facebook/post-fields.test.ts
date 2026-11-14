@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { readPostFields } from './post-fields';
-import { fakeAtoms as atoms } from './testing';
+import { fakeLocate as locate } from './testing';
 
 function fieldsOf(html: string, before = '') {
   document.body.innerHTML = `${before}<div role="article">${html}</div>`;
-  return readPostFields(document.body.lastElementChild as Element, atoms);
+  return readPostFields(document.body.lastElementChild as Element, locate);
 }
 
 describe('readPostFields', () => {

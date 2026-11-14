@@ -62,7 +62,7 @@ export default defineFeature({
 });
 ```
 
-`page.posts` reports each post on the page and each one Facebook adds later. `page.atoms` translates selectors that name Facebook's generated classes.
+`page.posts` reports each post on the page and each one Facebook adds later. `page.locate` finds Facebook's other elements through the locators in `src/facebook/selectors.ts`. `page.atoms` translates CSS that names Facebook's generated classes.
 
 Then add it to the list in `src/features/index.ts`. A feature that throws during setup is logged and skipped, and the others keep running.
 

@@ -1,4 +1,4 @@
-import type { AtomTranslator } from './atoms';
+import type { Locate } from '../core/locator';
 import { postCaptions, postElements, postText } from './post-text';
 import {
   APP_LINK,
@@ -63,17 +63,17 @@ function distinct(values: string[]): string[] | null {
 
 type Found = [value: string | null, elements: Element[]];
 
-function findAuthor(post: Element, atoms: AtomTranslator): Found {
+function findAuthor(post: Element, locate: Locate): Found {
   // Works for most posts, and avoids "Joe likes Page" when Page is the author.
-  for (const heading of post.querySelectorAll(AUTHOR_HEADING)) {
-    for (const name of heading.querySelectorAll(AUTHOR_NAME)) {
+  for (const heading of locate(AUTHOR_HEADING).all(post)) {
+    for (const name of locate(AUTHOR_NAME).all(heading)) {
       if (text(name)) {
         return [text(name), [name]];
       }
     }
   }
   // Works almost everywhere, but can pick up other links in the header.
-  for (const candidate of post.querySelectorAll(atoms.translate(AUTHOR_LINK_OR_IMAGE))) {
+  for (const candidate of locate(AUTHOR_LINK_OR_IMAGE).all(post)) {
     if (!(candidate instanceof HTMLAnchorElement)) {
       // The author is never after the first image.
       break;
@@ -92,47 +92,44 @@ function findAuthor(post: Element, atoms: AtomTranslator): Found {
   return [null, []];
 }
 
-function findGroup(post: Element, atoms: AtomTranslator): string | null {
-  const inPage = firstText(document.querySelectorAll(atoms.translate(PAGE_GROUP_NAME)));
+function findGroup(post: Element, locate: Locate): string | null {
+  const inPage = firstText(locate(PAGE_GROUP_NAME).all(document));
   if (inPage) {
     return inPage;
   }
-  const divider = atoms.translate(SHARED_POST_DIVIDER);
-  for (const link of post.querySelectorAll(atoms.translate(POST_GROUP_LABELLED))) {
+  const divider = locate(SHARED_POST_DIVIDER);
+  for (const link of locate(POST_GROUP_LABELLED).all(post)) {
     const label = link.getAttribute('aria-label');
-    if (label && !link.closest(divider)) {
+    if (label && !divider.closest(link)) {
       return label;
     }
   }
-  return firstText(post.querySelectorAll(atoms.translate(POST_GROUP_NAMED)));
+  return firstText(locate(POST_GROUP_NAMED).all(post));
 }
 
-function findMessage(post: Element, atoms: AtomTranslator): Found {
-  for (const selector of POST_MESSAGE) {
-    const elements = postElements(post, atoms.translate(selector));
-    if (elements.length > 0) {
-      return [elements.map((element) => postText(element)).join('\n'), elements];
-    }
-  }
-  return ['', []];
+function findMessage(post: Element, locate: Locate): Found {
+  const elements = postElements(post, locate(POST_MESSAGE), locate);
+  return elements.length > 0
+    ? [elements.map((element) => postText(element, locate)).join('\n'), elements]
+    : ['', []];
 }
 
-function findAction(post: Element): Found {
-  const header = post.querySelector(POST_HEADER) ?? post.querySelector(AUTHOR_HEADING);
+function findAction(post: Element, locate: Locate): Found {
+  const header = locate(POST_HEADER).first(post) ?? locate(AUTHOR_HEADING).first(post);
   // The header ends where the post's time and audience begin.
-  return header ? [postText(header).replace(/\s*·.*/s, ''), [header]] : ['', []];
+  return header ? [postText(header, locate).replace(/\s*·.*/s, ''), [header]] : ['', []];
 }
 
-function findApp(post: Element, atoms: AtomTranslator): string | null {
+function findApp(post: Element, locate: Locate): string | null {
   return (
-    post.querySelector(APP_NAMED)?.getAttribute('data-appname') ||
-    firstText(post.querySelectorAll(atoms.translate(APP_LINK)))
+    locate(APP_NAMED).first(post)?.getAttribute('data-appname') ||
+    firstText(locate(APP_LINK).all(post))
   );
 }
 
 /** When the post was made, or null when its time cannot be read. */
-export function postTime(post: Element): Date | null {
-  const seconds = Number(post.querySelector(POST_TIME)?.getAttribute('data-utime'));
+export function postTime(post: Element, locate: Locate): Date | null {
+  const seconds = Number(locate(POST_TIME).first(post)?.getAttribute('data-utime'));
   return seconds ? new Date(seconds * 1000) : null;
 }
 
@@ -157,7 +154,7 @@ function linkTarget(link: HTMLAnchorElement): string | null {
  * Not ported: `page`, which Social Fixer read from React's data on the post.
  * A content script cannot see that data, so `page` is always null.
  */
-export function readPostFields(post: Element, atoms: AtomTranslator): PostFields {
+export function readPostFields(post: Element, locate: Locate): PostFields {
   const values = new Map<string, FieldValue>();
   const elements = new Map<TextField, Element[]>();
 
@@ -169,33 +166,35 @@ export function readPostFields(post: Element, atoms: AtomTranslator): PostFields
   const read = (name: string): FieldValue => {
     switch (name) {
       case 'author':
-        return found('author', findAuthor(post, atoms));
+        return found('author', findAuthor(post, locate));
       case 'action':
-        return found('action', findAction(post));
+        return found('action', findAction(post, locate));
       case 'content':
-        return found('content', findMessage(post, atoms));
+        return found('content', findMessage(post, locate));
       case 'all_content':
         // A post with no text of its own may still have a message Facebook marked up.
-        return postText(post) || get('content');
+        return postText(post, locate) || get('content');
       case 'group':
-        return findGroup(post, atoms);
+        return findGroup(post, locate);
       case 'page':
         return null;
       case 'app':
-        return findApp(post, atoms);
+        return findApp(post, locate);
       case 'image':
-        return distinct(postCaptions(post));
+        return distinct(postCaptions(post, locate));
       case 'link_url':
         return distinct(
-          postElements<HTMLAnchorElement>(post, EXTERNAL_LINK).flatMap(
+          postElements<HTMLAnchorElement>(post, locate(EXTERNAL_LINK), locate).flatMap(
             (link) => linkTarget(link) ?? [],
           ),
         );
       case 'link_text':
-        return distinct(postElements(post, EXTERNAL_LINK).map((link) => text(link)));
+        return distinct(
+          postElements(post, locate(EXTERNAL_LINK), locate).map((link) => text(link)),
+        );
       case 'hashtag':
         return distinct(
-          postElements(post, HASHTAG_LINK)
+          postElements(post, locate(HASHTAG_LINK), locate)
             .map((link) => text(link))
             .filter((tag) => tag.startsWith('#'))
             .map((tag) => tag.slice(1)),

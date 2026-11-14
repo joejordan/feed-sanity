@@ -2,13 +2,21 @@
 
 import type { AtomTranslator } from './atoms';
 import type { Post } from './posts';
+import { Locators } from '../core/locator';
 
-/** A class-name translator that leaves every name as it is. */
+/**
+ * A class-name translator that leaves every name as it is, so a test's
+ * markup can use `S2F_` names as its classes.
+ */
 export const fakeAtoms: AtomTranslator = {
   translate: (text) => text,
+  resolve: (selector) => selector,
   onChange: () => () => true,
   start: () => Promise.resolve(),
 };
+
+/** Locators that read `S2F_` names as they are, through `fakeAtoms`. */
+export const fakeLocate = new Locators(fakeAtoms).locate;
 
 let nextNumber = 1;
 

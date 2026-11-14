@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RuleContext } from './rules';
 import type { Filter, Rule } from './types';
 import { readPostFields } from '../../facebook/post-fields';
-import { fakeAtoms as atoms } from '../../facebook/testing';
+import { fakeAtoms as atoms, fakeLocate as locate } from '../../facebook/testing';
 import { FILTERED_FEED, isFixedTabName, runFilters } from './engine';
 import { keywordFilter } from './keyword-filter';
 import { matchFilter } from './rules';
@@ -23,8 +23,9 @@ function contextFor(html = POST, now = new Date(2026, 10, 13)): RuleContext {
   const post = document.body.firstElementChild as Element;
   return {
     post,
-    fields: readPostFields(post, atoms),
+    fields: readPostFields(post, locate),
     atoms,
+    locate,
     now: () => now,
     report: vi.fn<RuleContext['report']>(),
   };

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { extractPostId, findPostId } from './post-id';
+import { fakeLocate as locate } from './testing';
 
 const BASE = 'https://www.facebook.com/';
 const PFBID = `pfbid0${'2'.repeat(30)}l`;
@@ -41,7 +42,6 @@ describe('extractPostId', () => {
 });
 
 describe('findPostId', () => {
-  const atoms = { translate: (text: string) => text };
   let post: HTMLElement;
 
   beforeEach(() => {
@@ -59,7 +59,7 @@ describe('findPostId', () => {
     history.replaceState({}, '', '/some.user/posts/1234567890');
     post.innerHTML = '<a href="/events/123456789012/">An event</a>';
 
-    await expect(findPostId(post, atoms)).resolves.toBe('1234567890');
+    await expect(findPostId(post, locate)).resolves.toBe('1234567890');
   });
 
   it.each([
@@ -72,27 +72,27 @@ describe('findPostId', () => {
     post.innerHTML =
       '<ul><li><a href="/some.user/posts/1234567890?comment_id=1">A comment</a></li></ul>';
 
-    await expect(findPostId(post, atoms)).resolves.toBe('1234567890');
+    await expect(findPostId(post, locate)).resolves.toBe('1234567890');
   });
 
   it('reads the ID from a link inside the post', async () => {
     post.innerHTML = '<a href="/events/123456789012/">An event</a>';
 
-    await expect(findPostId(post, atoms)).resolves.toBe('123456789012');
+    await expect(findPostId(post, locate)).resolves.toBe('123456789012');
   });
 
   it('reads a Marketplace listing from its own link', async () => {
     history.replaceState({}, '', '/marketplace/');
     post.innerHTML = '<a role="link" href="/marketplace/item/123456789/">A chair</a>';
 
-    await expect(findPostId(post, atoms)).resolves.toBe('123456789');
+    await expect(findPostId(post, locate)).resolves.toBe('123456789');
   });
 
   it('reads the time link as Facebook marks it up today', async () => {
     post.innerHTML =
       '<a role="link" aria-labelledby="a" aria-describedby="b" href="/reel/1234567890/">3 h</a>';
 
-    await expect(findPostId(post, atoms)).resolves.toBe('1234567890');
+    await expect(findPostId(post, locate)).resolves.toBe('1234567890');
   });
 
   it('hovers the time link until it shows the real address', async () => {
@@ -108,7 +108,7 @@ describe('findPostId', () => {
       }
     });
 
-    const found = findPostId(post, atoms);
+    const found = findPostId(post, locate);
     expect(post.classList.contains('sfx_touch')).toBe(true);
     await vi.advanceTimersByTimeAsync(400);
 
@@ -119,7 +119,7 @@ describe('findPostId', () => {
 
   it('gives up after a second when the post has no time link', async () => {
     vi.spyOn(console, 'debug').mockImplementation(() => undefined);
-    const found = findPostId(post, atoms);
+    const found = findPostId(post, locate);
     let settled = false;
     found.finally(() => {
       settled = true;
@@ -138,7 +138,7 @@ describe('findPostId', () => {
       '<span id="s"><a class="S2F_font_400" role="link" tabindex="0" href="#">2 h</a></span>';
     const hover = vi.fn();
     post.querySelector('a')?.addEventListener('pointerover', hover);
-    const found = findPostId(post, atoms);
+    const found = findPostId(post, locate);
 
     post.remove();
     await vi.advanceTimersByTimeAsync(200);

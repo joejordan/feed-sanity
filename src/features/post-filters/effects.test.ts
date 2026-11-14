@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Post } from '../../facebook/posts';
 import type { Outcome } from './engine';
 import { readPostFields } from '../../facebook/post-fields';
-import { fakeAtoms as atoms, makePost } from '../../facebook/testing';
+import { fakeAtoms as atoms, fakeLocate, makePost } from '../../facebook/testing';
 import { applyOutcome } from './effects';
 import { untouched } from './engine';
 import { ALL_POSTS, Tabs } from './tabs';
@@ -11,7 +11,7 @@ const apply = (post: Post, changes: Partial<Outcome>, previous?: ReturnType<type
   applyOutcome(
     post,
     { ...untouched(), ...changes },
-    readPostFields(post.element, atoms),
+    readPostFields(post.element, fakeLocate),
     atoms,
     previous,
   );

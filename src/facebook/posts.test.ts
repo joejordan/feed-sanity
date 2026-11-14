@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Locate } from '../core/locator';
 import type { AtomTranslator } from './atoms';
 import type { Post } from './posts';
+import { Locators } from '../core/locator';
 import { sleep } from '../core/timing';
 import { Posts } from './posts';
 
@@ -18,6 +20,7 @@ describe('posts', () => {
   let translate: (text: string) => string;
   let atomsChanged: () => void;
   let atoms: AtomTranslator;
+  let locate: Locate;
   let findId: ReturnType<typeof vi.fn<(post: Element) => Promise<string | null>>>;
   let posts: Posts;
   let added: Post[];
@@ -34,6 +37,7 @@ describe('posts', () => {
     translate = (text) => text;
     atoms = {
       translate: (text) => translate(text),
+      resolve: (selector) => translate(selector),
       onChange: (listener) => {
         atomsChanged = listener;
         return () => true;
@@ -41,7 +45,8 @@ describe('posts', () => {
       start: () => Promise.resolve(),
     };
     findId = vi.fn(() => Promise.resolve('1234567890'));
-    posts = new Posts(atoms, findId);
+    locate = new Locators(atoms).locate;
+    posts = new Posts(atoms, locate, findId);
     added = [];
   });
 
@@ -253,7 +258,7 @@ describe('posts', () => {
     await watch(1);
 
     expect(added[0]?.element).toBe(listing);
-    expect(findId).toHaveBeenCalledWith(listing, atoms);
+    expect(findId).toHaveBeenCalledWith(listing, locate);
   });
 
   it('flags the post the page address points at', async () => {
@@ -284,6 +289,92 @@ describe('posts', () => {
     atomsChanged();
 
     await vi.waitFor(() => expect(added).toHaveLength(1));
+  });
+
+  describe('before the class names are known', () => {
+    let known: Map<string, string>;
+    let scanned: PromiseWithResolvers<void>;
+
+    beforeEach(() => {
+      known = new Map();
+      scanned = Promise.withResolvers();
+      atoms = {
+        translate: (text) => text,
+        resolve: (selector) => {
+          let all = true;
+          const resolved = selector.replaceAll(/S2F_(\w+)/g, (token, name: string) => {
+            const atom = known.get(name);
+            all &&= atom !== undefined;
+            return atom ?? token;
+          });
+          return all ? resolved : null;
+        },
+        onChange: (listener) => {
+          atomsChanged = listener;
+          return () => true;
+        },
+        start: () => scanned.promise,
+      };
+      locate = new Locators(atoms).locate;
+      posts = new Posts(atoms, locate, findId);
+    });
+
+    it('marks the posts it can tell apart at once, and never takes a comment for one', async () => {
+      const slot = addHtml('<div aria-posinset="1"><a aria-label="Author"></a>A post</div>');
+      // A comment carries the `pos_rel` class, which keeps it out once the class is known.
+      const comment = addHtml(
+        '<div role="article" class="xrel"><a aria-label="Author"></a>A comment</div>',
+      );
+      posts.onAdd((post) => added.push(post));
+
+      await vi.waitFor(() => expect(slot.getAttribute('sfx_post')).toBe('1'));
+      expect(comment.hasAttribute('sfx_post')).toBe(false);
+    });
+
+    it('finds the rest once the classes are known, without counting a post twice', async () => {
+      const slot = addHtml('<div aria-posinset="1"><a aria-label="Author"></a>A post</div>');
+      const comment = addHtml(
+        '<div role="article" class="xrel"><a aria-label="Author"></a>A comment</div>',
+      );
+      const article = addHtml(POST_HTML);
+      posts.onAdd((post) => added.push(post));
+      await vi.waitFor(() => expect(slot.hasAttribute('sfx_post')).toBe(true));
+      expect(article.hasAttribute('sfx_post')).toBe(false);
+      // The ID lookups wait for the first scan.
+      expect(findId).not.toHaveBeenCalled();
+
+      known.set('pos_rel', 'xrel');
+      atomsChanged();
+      scanned.resolve();
+
+      await vi.waitFor(() => expect(added).toHaveLength(2));
+      expect(added.map(({ element, number }) => [element, number])).toEqual([
+        [slot, 1],
+        [article, 2],
+      ]);
+      expect(comment.hasAttribute('sfx_post')).toBe(false);
+      expect(findId).toHaveBeenCalledTimes(2);
+    });
+
+    it('announces the posts even when the scan fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      addHtml('<div aria-posinset="1"><a aria-label="Author"></a>A post</div>');
+      scanned.reject(new Error('no stylesheets'));
+
+      await watch(1);
+    });
+  });
+
+  it('scans again when the user replaces a locator', async () => {
+    const locators = new Locators(atoms);
+    posts = new Posts(atoms, locators.locate, findId);
+    const card = addHtml('<section><a aria-label="Author"></a>A card</section>');
+    await watch(0);
+
+    locators.override({ post: ['section'] });
+
+    await vi.waitFor(() => expect(added).toHaveLength(1));
+    expect(added[0]?.element).toBe(card);
   });
 
   it('finds nothing more after stop', async () => {

@@ -9,7 +9,7 @@ import { Options } from '../../core/options';
 import { pageWatcher } from '../../core/page-watcher';
 import { SavedData } from '../../core/saved';
 import { bindPage } from '../../facebook/feature';
-import { fakeAtoms, makePost } from '../../facebook/testing';
+import { fakeAtoms, fakeLocate, makePost } from '../../facebook/testing';
 import { extensionStore } from '../../platform/extension-store';
 import postFilters from '.';
 import { savedFilters } from './types';
@@ -32,6 +32,7 @@ function fakePage() {
     };
   const page: FacebookPage = {
     atoms: fakeAtoms,
+    locate: fakeLocate,
     posts: {
       onAdd: subscribe(listeners.add),
       onRemove: subscribe(listeners.remove),

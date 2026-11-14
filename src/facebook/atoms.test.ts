@@ -56,6 +56,22 @@ describe('atoms', () => {
     expect(atoms.translate('.S2F_not_a_name')).toBe('.S2F_not_a_name');
   });
 
+  it('resolves a selector only once every name in it has a class', async () => {
+    addStyles('.xflex001 { display: flex; }');
+    await atoms.scan();
+
+    expect(atoms.resolve('div.S2F_disp_flex:not(.S2F_pos_rel)')).toBeNull();
+    expect(atoms.resolve('.S2F_disp_flex > a')).toBe('.xflex001 > a');
+    expect(atoms.resolve('[role=article]')).toBe('[role=article]');
+
+    addStyles('.xrel0002 { position: relative; }');
+    await atoms.scan();
+
+    expect(atoms.resolve('div.S2F_disp_flex:not(.S2F_pos_rel)')).toBe(
+      'div.xflex001:not(.xrel0002)',
+    );
+  });
+
   it('ignores rules with more than one declaration or a longer selector', async () => {
     addStyles(`
       .xmany001 { display: flex; color: red; }

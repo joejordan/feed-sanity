@@ -17,7 +17,8 @@ describe('external_css', () => {
     fakeBrowser.reset();
     link()?.remove();
     options = new Options(extensionStore, 'u/options');
-    await startFeatures([externalCss], options, createPage(), new SavedData(extensionStore, 'u'));
+    const data = new SavedData(extensionStore, 'u');
+    await startFeatures([externalCss], options, createPage(data), data);
   });
 
   it('adds nothing while the URL is empty', () => {

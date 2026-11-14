@@ -1,4 +1,4 @@
-import type { AtomTranslator } from './atoms';
+import type { Locate, Locator } from '../core/locator';
 import { createLogger } from '../core/log';
 import { sleep } from '../core/timing';
 import { pageContext } from './page';
@@ -108,16 +108,18 @@ export function extractPostId(
   return id && /^\d+:?\d{0,2}$/.test(id) ? id.replace(/:.*/, '') : null;
 }
 
-function idFromLinks(post: Element, selectors: readonly string[]): string | null {
-  for (const selector of selectors) {
-    for (const link of post.querySelectorAll<HTMLAnchorElement>(selector)) {
-      const id = extractPostId(link.href);
-      if (id) {
-        return id;
-      }
-    }
-  }
-  return null;
+/**
+ * The ID in the first link that holds one. The locator falls back, so its
+ * strategies are tried in order until one finds a link with an ID.
+ */
+function idFromLinks(post: Element, links: Locator): string | null {
+  let id: string | null = null;
+  // Once a link has given an ID, the rest are let through without being read.
+  links.all<HTMLAnchorElement>(post, (link) => {
+    id ??= extractPostId(link.href);
+    return id !== null;
+  });
+  return id;
 }
 
 /**
@@ -150,7 +152,7 @@ const HOVER_POLLS = new Set([0, 1, 3, 5, 8, 11, 15, 20, 25, 31, 39]);
  * pointer moves over it. This hovers the link and waits for the real address.
  * It takes up to eight seconds, and stops early if the post leaves the page.
  */
-async function idFromTimestamp(post: Element, timestampSelector: string): Promise<string | null> {
+async function idFromTimestamp(post: Element, timestamps: Locator): Promise<string | null> {
   let timestamp: HTMLAnchorElement | null = null;
   let hovered = false;
   let id: string | null = null;
@@ -161,7 +163,7 @@ async function idFromTimestamp(post: Element, timestampSelector: string): Promis
     poll < MAX_POLLS && post.isConnected && (timestamp || poll < POLLS_WITHOUT_TIMESTAMP);
     poll++
   ) {
-    timestamp = post.querySelector<HTMLAnchorElement>(timestampSelector);
+    timestamp = timestamps.first<HTMLAnchorElement>(post);
     if (timestamp) {
       const href = isRealAddress(timestamp.href) ? timestamp.href : timestamp.getAttribute('href');
       id = isRealAddress(href) ? extractPostId(href) : null;
@@ -191,26 +193,20 @@ async function idFromTimestamp(post: Element, timestampSelector: string): Promis
  * a number in it belongs to something else, such as an event, and every post
  * on the page would get the same ID.
  */
-export async function findPostId(
-  post: Element,
-  atoms: Pick<AtomTranslator, 'translate'>,
-): Promise<string | null> {
+export async function findPostId(post: Element, locate: Locate): Promise<string | null> {
   const page = pageContext();
   const fromPage = page.singlePost ? extractPostId(location.href) : null;
   if (fromPage) {
     return fromPage;
   }
   // On Marketplace, a listing's own link holds its ID.
-  const links =
-    page.type === 'marketplace' ? [MARKETPLACE_ID_LINK, ...POST_ID_LINKS] : POST_ID_LINKS;
-  const fromLinks = idFromLinks(
-    post,
-    links.map((selector) => atoms.translate(selector)),
-  );
+  const fromLinks =
+    (page.type === 'marketplace' ? idFromLinks(post, locate(MARKETPLACE_ID_LINK)) : null) ??
+    idFromLinks(post, locate(POST_ID_LINKS));
   if (fromLinks) {
     return fromLinks;
   }
-  const fromTimestamp = await idFromTimestamp(post, atoms.translate(TIMESTAMP));
+  const fromTimestamp = await idFromTimestamp(post, locate(TIMESTAMP));
   if (!fromTimestamp) {
     log.debug('no ID found for', post);
   }

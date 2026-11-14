@@ -1,3 +1,4 @@
+import type { Locate } from '../../core/locator';
 import type { AtomTranslator } from '../../facebook/atoms';
 import type { PostFields } from '../../facebook/post-fields';
 import type { Filter, Rule } from './types';
@@ -11,7 +12,9 @@ const DAY_MS = 24 * HOUR_MS;
 export interface RuleContext {
   post: Element;
   fields: PostFields;
+  /** Translates `S2F_` names in the selectors of `contains_selector` rules. */
   atoms: AtomTranslator;
+  locate: Locate;
   /** The current time. Tests set it. */
   now: () => Date;
   /** Says why a rule could not be tested, such as a broken regular expression. */
@@ -66,7 +69,7 @@ function visibleText(element: Element): string {
  * `:has-visible-text(regex)` its visible text, and `:hidden-within(selector)`
  * whether something between it and `selector` is hidden.
  */
-function testSelector(rule: Rule, { post, atoms }: RuleContext): Tested {
+function testSelector(rule: Rule, { post, atoms, locate }: RuleContext): Tested {
   let contains: string | undefined;
   let visible: string | undefined;
   let hiddenWithin: string | undefined;
@@ -86,13 +89,15 @@ function testSelector(rule: Rule, { post, atoms }: RuleContext): Tested {
 
   // Throws for a selector that is not valid. The rule is then reported and
   // does not match, NOT or no NOT, as for any rule that cannot be tested.
-  const elements = postElements(post, atoms.translate(selector));
+  const elements = postElements(post, atoms.translate(selector), locate);
 
   const pattern = contains ?? visible;
   if (pattern !== undefined) {
     const regex = new RegExp(pattern);
     for (const element of elements) {
-      const caught = regex.exec(contains === undefined ? visibleText(element) : postText(element));
+      const caught = regex.exec(
+        contains === undefined ? visibleText(element) : postText(element, locate),
+      );
       if (caught) {
         return { matched: true, caught };
       }
@@ -120,8 +125,8 @@ function testDay(rule: Rule, { now }: RuleContext): Tested {
 }
 
 /** A rule on how old the post is. Posts whose time cannot be read never match. */
-function testAge(rule: Rule, { post, now }: RuleContext): Tested {
-  const time = postTime(post);
+function testAge(rule: Rule, { post, now, locate }: RuleContext): Tested {
+  const time = postTime(post, locate);
   if (!time) {
     return { matched: false };
   }

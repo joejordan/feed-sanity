@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { postCaptions, postText } from './post-text';
+import { fakeLocate as locate } from './testing';
 
 function post(html: string, attributes = ''): Element {
   document.body.innerHTML = `<div ${attributes}>${html}</div>`;
@@ -19,8 +20,8 @@ describe('postText', () => {
     );
     const content = dialog.querySelector('[role=article]') as Element;
 
-    expect(postText(content)).toBe('The message');
-    expect(postCaptions(content)).toEqual(['In the post']);
+    expect(postText(content, locate)).toBe('The message');
+    expect(postCaptions(content, locate)).toEqual(['In the post']);
   });
 
   it('joins the pieces of text with single spaces', () => {
@@ -28,7 +29,7 @@ describe('postText', () => {
       '<h4><a>Ann Author</a></h4><div><span>Hello</span><b>world</b>\n  !</div>',
     );
 
-    expect(postText(element)).toBe('Ann Author Hello world !');
+    expect(postText(element, locate)).toBe('Ann Author Hello world !');
   });
 
   it('leaves out comments, the comment area and what this project added', () => {
@@ -40,7 +41,7 @@ describe('postText', () => {
       'role="article"',
     );
 
-    expect(postText(element)).toBe('The message');
+    expect(postText(element, locate)).toBe('The message');
   });
 });
 
@@ -52,6 +53,6 @@ describe('postCaptions', () => {
       'role="article"',
     );
 
-    expect(postCaptions(element)).toEqual(['A sunset']);
+    expect(postCaptions(element, locate)).toEqual(['A sunset']);
   });
 });
