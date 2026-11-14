@@ -15,11 +15,35 @@ const KEY_EVENTS = ['keydown', 'keypress', 'keyup'] as const;
 
 const stop = (event: Event): void => event.stopPropagation();
 
+/** Keeps events of these types that start inside `host` from going further up the page. */
+export function stopAtHost(host: HTMLElement, types: readonly string[]): void {
+  for (const type of types) {
+    host.addEventListener(type, stop);
+  }
+}
+
 export interface MountOptions {
   /** The host element's ID. */
   id: string;
   /** Style sheet for inside the shadow root, added after the shared themes. */
   css?: string;
+}
+
+/**
+ * Renders `ui` into a new shadow root on `host`, with the shared themes and
+ * then `css`. Keys typed inside stop at the host. Returns a function that
+ * unmounts the UI and leaves the host where it is.
+ */
+export function renderInShadow(host: HTMLElement, ui: ReactNode, css = ''): () => void {
+  stopAtHost(host, KEY_EVENTS);
+  const shadow = host.attachShadow({ mode: 'open' });
+  const style = document.createElement('style');
+  style.textContent = `${theme}\n${facebookTheme}\n${css}`;
+  const container = document.createElement('div');
+  shadow.append(style, container);
+  const root = createRoot(container);
+  root.render(ui);
+  return () => root.unmount();
 }
 
 /**
@@ -33,21 +57,10 @@ export interface MountOptions {
 export function mount(ui: ReactNode, { id, css = '' }: MountOptions): () => void {
   const host = document.createElement(HOST_TAG);
   host.id = id;
-  for (const type of KEY_EVENTS) {
-    host.addEventListener(type, stop);
-  }
-
-  const shadow = host.attachShadow({ mode: 'open' });
-  const style = document.createElement('style');
-  style.textContent = `${theme}\n${facebookTheme}\n${css}`;
-  const container = document.createElement('div');
-  shadow.append(style, container);
   (document.body ?? document.documentElement).append(host);
-
-  const root = createRoot(container);
-  root.render(ui);
+  const unmount = renderInShadow(host, ui, css);
   return () => {
-    root.unmount();
+    unmount();
     host.remove();
   };
 }

@@ -11,6 +11,7 @@ import { pageWatcher } from '../core/page-watcher';
 import { Atoms } from './atoms';
 import { Posts } from './posts';
 import * as selectors from './selectors';
+import { Videos } from './videos';
 
 const log = createLogger('page');
 
@@ -36,6 +37,8 @@ export interface FacebookPage {
   locate: Locate;
   /** The posts on the page. Subscribing with `onAdd` starts post detection. */
   posts: Pick<Posts, 'onAdd' | 'onRemove' | 'onReset' | 'onUpdate'>;
+  /** The videos on the page. Subscribing with `onAdd` starts looking for them. */
+  videos: Pick<Videos, 'around' | 'onAdd' | 'onControls' | 'onRemove'>;
   /**
    * Reports the elements a locator or selector finds as they enter and
    * leave the page, for anything that is not a post. See `PageWatcher.watch`
@@ -89,6 +92,12 @@ export function bindPage(page: FacebookPage): PageFactory<FacebookPage> {
         onReset: (listener) => listen((guarded) => page.posts.onReset(guarded), listener),
         onUpdate: (listener) => listen((guarded) => page.posts.onUpdate(guarded), listener),
       },
+      videos: {
+        around: (element, within) => page.videos.around(element, within),
+        onAdd: (listener) => listen((guarded) => page.videos.onAdd(guarded), listener),
+        onControls: (listener) => listen((guarded) => page.videos.onControls(guarded), listener),
+        onRemove: (listener) => listen((guarded) => page.videos.onRemove(guarded), listener),
+      },
       watch: (selector, { added, removed, changed }, options) => {
         const handlers: WatchHandlers = {};
         if (added) {
@@ -135,6 +144,7 @@ export function createPage(data: FeatureData): PageFactory<FacebookPage> {
     atoms,
     locate,
     posts: new Posts(atoms, locate),
+    videos: new Videos(locate),
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
   });
 }

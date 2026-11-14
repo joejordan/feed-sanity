@@ -10,6 +10,7 @@ import { pageWatcher } from '../../core/page-watcher';
 import { SavedData } from '../../core/saved';
 import { bindPage } from '../../facebook/feature';
 import { fakeAtoms, fakeLocate, makePost } from '../../facebook/testing';
+import { Videos } from '../../facebook/videos';
 import { extensionStore } from '../../platform/extension-store';
 import postFilters from '.';
 import { savedFilters } from './types';
@@ -39,6 +40,7 @@ function fakePage() {
       onUpdate: subscribe(listeners.update),
       onReset: subscribe(listeners.reset),
     },
+    videos: new Videos(fakeLocate),
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
   };
   return { page, listeners };

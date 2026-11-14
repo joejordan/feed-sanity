@@ -61,6 +61,13 @@ export const OWN = 'data-feed-sanity';
 /** Selects the elements this project added. Their text is not the post's, and they do not count as new content. */
 export const OWN_ELEMENT = `[${OWN}]`;
 
+/**
+ * Attribute on one of Facebook's elements that this project's UI stands in
+ * for, such as the reel viewer's position bar under the video scrubber. A
+ * style sheet of the feature's hides it meanwhile.
+ */
+export const STOOD_IN_FOR = 'data-feed-sanity-hidden';
+
 /** Attribute holding a post's position in the news feed. An element that has it is a post once it has content. */
 export const FEED_POSITION = 'aria-posinset';
 
@@ -291,4 +298,54 @@ export const HASHTAG_LINK = anyOf('hashtag-link', [
 /** The post's time, as seconds since 1970 in `data-utime`. */
 export const POST_TIME = anyOf('post-time', [
   { selector: 'abbr[data-utime]', seen: SFX, note: `None on the feed on ${CHECKED}` },
+]);
+
+// Videos. Facebook draws each one as a plain <video> element in the page,
+// with no iframe and no shadow root, so the element itself is the anchor.
+
+/** The look at videos described in `docs/porting.md`. */
+const VIDEOS_CHECKED = '2026-11-14';
+
+export const VIDEO = anyOf('video', [{ selector: 'video', seen: VIDEOS_CHECKED }]);
+
+/** The wrapper a few levels above a video. Looked for from the video up. */
+export const VIDEO_CONTAINER = anyOf('video-container', [
+  { selector: '[data-video-id]', seen: VIDEOS_CHECKED, note: 'Sometimes with data-video-length' },
+]);
+
+/** One reel in the reel viewer. Looked for from the video up. */
+export const REEL_CARD = anyOf('reel-card', [
+  {
+    selector: '[data-video-id][data-index]',
+    seen: VIDEOS_CHECKED,
+    note: 'The viewer moves between cards with its Next Card and Previous Card buttons',
+  },
+]);
+
+/**
+ * The post a video is in, looked for from the video up: the same elements
+ * that mark a comment's post. A feed video was inside one on 2026-11-14.
+ */
+export const VIDEO_POST = anyOf('video-post', POST_ANCESTOR.strategies);
+
+/**
+ * Facebook's own position and volume sliders. It draws them only on the
+ * video that is playing.
+ */
+export const VIDEO_SLIDER = anyOf('video-slider', [
+  { selector: '[role=slider]', seen: VIDEOS_CHECKED },
+]);
+
+/**
+ * What a click over a video can be meant for other than the video itself:
+ * the player's buttons and sliders, links and form controls. Their labels
+ * are translated, so they are told apart by role.
+ */
+export const VIDEO_CONTROL = anyOf('video-control', [
+  { selector: '[role=button],[role=slider]', seen: VIDEOS_CHECKED, note: "The player's controls" },
+  {
+    selector: 'a[href],[role=link],button,input,select,textarea,[contenteditable=true]',
+    seen: VIDEOS_CHECKED,
+    note: 'A feed video was not inside a link',
+  },
 ]);
