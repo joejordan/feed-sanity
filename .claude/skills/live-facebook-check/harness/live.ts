@@ -4,6 +4,7 @@
 import type { Store } from '../../../../src/core/storage';
 import { MARK } from '../../../../src/facebook/selectors';
 import { currentUserId } from '../../../../src/facebook/user';
+import { startPageWorld } from '../../../../src/page-world';
 import { start } from '../../../../src/start';
 import { HOST_TAG } from '../../../../src/ui/mount';
 
@@ -50,6 +51,13 @@ void start({
   },
   onOpenOptions: (listener) => {
     open = listener;
+  },
+  // This bundle already runs in the page's own world, so the page-world side
+  // of the bridge starts here, beside the rest. The two sides still talk
+  // through events, as in the builds.
+  installPageWorld: () => {
+    startPageWorld();
+    return Promise.resolve();
   },
 });
 Object.assign(globalThis, {

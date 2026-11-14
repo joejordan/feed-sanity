@@ -128,6 +128,11 @@ React data is visible, while the extension runs in an isolated world where it is
 settings live in memory. It has no toolbar button. A pass here says the code handles today's
 markup. It says nothing about packaging, storage or start-up order.
 
+The harness starts the page-world side of the bridge (`src/page-world.ts`) in its own world,
+beside the rest, so the two sides still talk through events. A pass shows that the readers work
+on today's React data. It says nothing about the extension's `world: 'MAIN'` content script or
+the userscript's `blob:` script, which put that side in the page in the real builds.
+
 ## Looking at markup without the bundle
 
 For a question such as "how is a video built", no bundle is needed. Run a probe with

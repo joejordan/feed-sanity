@@ -1,3 +1,4 @@
+import type { BridgeStatus } from '../core/bridge';
 import type { LocatorStats, StrategyState } from '../core/locator';
 import type { Badge } from '../core/platform';
 import type { ClassNameStats } from '../facebook/atoms';
@@ -72,6 +73,22 @@ export const slotSummary = ({ unrecognised }: PostStats): string =>
 export const classNamesSummary = ({ started, known, total }: ClassNameStats): string =>
   started ? `${known} of ${total} known` : 'not looked for yet';
 
+/** Whether the page-world bridge is connected, in words. */
+export function bridgeSummary({ state, problem, readers }: BridgeStatus): string {
+  switch (state) {
+    case 'not started':
+      return 'not started, because no feature that is on needs it';
+    case 'connecting':
+      return 'connecting';
+    case 'connected':
+      return readers.length > 0
+        ? `connected, with ${plural(readers.length, 'reader', 'readers')}: ${readers.join(', ')}`
+        : 'connected, with no readers';
+    default:
+      return `unavailable: ${problem ?? 'no reason given'}. Features that need it say so.`;
+  }
+}
+
 export const NOT_STARTED =
   'Post detection has not started, because no feature that is on needs posts. Post filters start it once a keyword or a filter is set up.';
 
@@ -97,7 +114,7 @@ function locatorLines(locator: LocatorStats, now: number): string[] {
  * addresses and long numbers.
  */
 export function diagnosticsReport(diagnostics: Diagnostics): string {
-  const { version, build, pageType, badge, features, posts, classNames, locators, at } =
+  const { version, build, pageType, badge, features, posts, classNames, locators, bridge, at } =
     diagnostics;
   const missing =
     classNames.started && classNames.missing.length > 0
@@ -108,6 +125,7 @@ export function diagnosticsReport(diagnostics: Diagnostics): string {
     `Version ${version}, ${build}`,
     `Page type: ${reportedPageType(pageType)}`,
     `Toolbar badge: ${badgeSummary(badge)}`,
+    `Page bridge: ${bridgeSummary({ ...bridge, problem: bridge.problem && scrub(bridge.problem) })}`,
     '',
     'Features',
     ...features.map(

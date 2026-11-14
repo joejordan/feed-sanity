@@ -11,6 +11,7 @@ import { checkOverrides, OVERRIDES_EXAMPLE, overridesText } from './overrides';
 import {
   ago,
   badgeSummary,
+  bridgeSummary,
   classNamesSummary,
   diagnosticsReport,
   NEVER_FOUND_AFTER,
@@ -35,7 +36,7 @@ const names = (locators: readonly LocatorStats[]): string =>
   locators.map((locator) => locator.name).join(', ');
 
 function Facts({ diagnostics }: { diagnostics: Diagnostics }) {
-  const { version, build, pageType, badge, classNames } = diagnostics;
+  const { version, build, pageType, badge, classNames, bridge } = diagnostics;
   return (
     <dl className="diag-facts">
       <dt>Version</dt>
@@ -46,6 +47,10 @@ function Facts({ diagnostics }: { diagnostics: Diagnostics }) {
       <dd>{pageType}</dd>
       <dt>Toolbar badge</dt>
       <dd>{badgeSummary(badge)}</dd>
+      <dt>Page bridge</dt>
+      <dd className={bridge.state === 'unavailable' ? 'diag-warn' : undefined}>
+        {bridgeSummary(bridge)}
+      </dd>
       <dt>Class names</dt>
       <dd>
         {classNamesSummary(classNames)}

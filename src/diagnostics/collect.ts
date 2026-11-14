@@ -1,4 +1,5 @@
 import type { FeatureRunner, FeatureStatus } from '../core/app';
+import type { BridgeStatus } from '../core/bridge';
 import type { LocatorStats } from '../core/locator';
 import type { Badge } from '../core/platform';
 import type { ClassNameStats } from '../facebook/atoms';
@@ -18,6 +19,8 @@ export interface Diagnostics {
   readonly posts: PostStats;
   readonly classNames: ClassNameStats;
   readonly locators: readonly LocatorStats[];
+  /** Whether the page-world bridge is connected. */
+  readonly bridge: BridgeStatus;
   /** When it was read, in milliseconds since 1970. */
   readonly at: number;
 }
@@ -46,6 +49,7 @@ export function collectDiagnostics({
     posts: page.posts.stats(),
     classNames: page.atoms.stats(),
     locators: page.locators.stats(),
+    bridge: page.bridge.status(),
     at: Date.now(),
   };
 }

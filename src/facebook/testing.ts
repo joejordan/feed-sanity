@@ -1,11 +1,15 @@
 // Helpers for tests. Nothing in the extension imports this file.
 
 import { vi } from 'vitest';
+import type { BridgeOptions } from '../core/bridge';
+import type { PageReaders } from '../core/page-world';
 import type { AtomTranslator } from './atoms';
-import type { FacebookPage } from './feature';
+import type { PageServices, PageWorld } from './feature';
 import type { Post } from './posts';
+import { PageBridge } from '../core/bridge';
 import { Locators } from '../core/locator';
 import { pageWatcher } from '../core/page-watcher';
+import { servePageWorld } from '../core/page-world';
 import { Videos } from './videos';
 
 /**
@@ -85,14 +89,41 @@ export function placeAt(element: Element, x: number, y: number, width: number, h
   );
 }
 
-/** A page with no posts and the real video tracker, for features that only use videos. */
-export function videoPage(): FacebookPage {
+/**
+ * A bridge whose page-world side serves `readers` in the test's own world,
+ * as the harness in `.claude/skills/live-facebook-check` runs it. With no
+ * readers, the page-world side cannot be installed.
+ */
+export function testBridge(readers?: PageReaders, options?: BridgeOptions): PageWorld {
+  return new PageBridge(installReaders(readers), options);
+}
+
+/**
+ * An installer for `createPage` that serves `readers` in the test's own
+ * world. With no readers, it fails as a page that refuses the script would.
+ */
+export function installReaders(readers?: PageReaders): () => Promise<void> {
+  return () => {
+    if (!readers) {
+      return Promise.reject(new Error('there is no page world in this test'));
+    }
+    servePageWorld(readers);
+    return Promise.resolve();
+  };
+}
+
+/**
+ * A page with no posts and the real video tracker, for features that only
+ * use videos. Its bridge is `bridge`, by default one that cannot be installed.
+ */
+export function videoPage(bridge: PageWorld = testBridge()): PageServices {
   const none = () => () => undefined;
   return {
     atoms: fakeAtoms,
     locate: fakeLocate,
     posts: { onAdd: none, onRemove: none, onReset: none, onUpdate: none },
     videos: new Videos(fakeLocate),
+    bridge,
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
   };
 }

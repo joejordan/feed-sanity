@@ -4,7 +4,7 @@ import type { FeatureOptions, OptionSpecs, Options } from './options';
 import type { Badge } from './platform';
 import type { FeatureData } from './saved';
 import { Listeners } from './listeners';
-import { createLogger } from './log';
+import { createLogger, messageOf } from './log';
 import { Scope } from './scope';
 
 /**
@@ -25,9 +25,6 @@ export interface FeatureStatus {
 }
 
 const noop = (): void => undefined;
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /** The options as a feature sees them, with `watch` tied to the binder's scope. */
 function bindOptions(options: Options, { listen }: Binder): FeatureOptions<OptionSpecs> {
