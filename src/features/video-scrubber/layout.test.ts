@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ControlBox } from './layout';
+import type { ControlBox } from '../video-layout';
 import { AT_BOTTOM, placeStrip } from './layout';
 
 /** A box `x, y, width, height` from the top left of a video placed at 100, 50 on the screen. */

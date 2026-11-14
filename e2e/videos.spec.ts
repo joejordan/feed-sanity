@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
-import { expect, OPTIONS_KEY, ORIGIN, test } from './extension';
+import { CDN, expect, OPTIONS_KEY, ORIGIN, test } from './extension';
 
 const VIDEOS = `${ORIGIN}/videos/`;
 
@@ -170,8 +172,10 @@ test('lets a double click open the viewer', async ({ page }) => {
   await expect(page.locator('body')).toHaveAttribute('data-viewer', '200000000000001');
 });
 
-test('opens the viewer as before when both video options are off', async ({ page, store }) => {
-  await store({ [OPTIONS_KEY]: { video_scrubber: false, video_click_pauses: false } });
+test('opens the viewer as before when every video option is off', async ({ page, store }) => {
+  await store({
+    [OPTIONS_KEY]: { video_scrubber: false, video_click_pauses: false, video_download: false },
+  });
   await page.goto(VIDEOS);
   await expect.poll(() => pausedOf(page, 'playing')).toBe(false);
 
@@ -182,12 +186,85 @@ test('opens the viewer as before when both video options are off', async ({ page
 });
 
 test('removes the scrubber when it is switched off, without a reload', async ({ page, store }) => {
+  // The save buttons are overlays too, so they are switched off to count the scrubbers alone.
+  await store({ [OPTIONS_KEY]: { video_download: false } });
   await open(page);
   await expect(page.locator('feed-sanity-ui[data-feed-sanity]')).toHaveCount(3);
 
-  await store({ [OPTIONS_KEY]: { video_scrubber: false } });
+  await store({ [OPTIONS_KEY]: { video_scrubber: false, video_download: false } });
 
   await expect(page.locator('feed-sanity-ui')).toHaveCount(0);
-  await store({ [OPTIONS_KEY]: { video_scrubber: true } });
+  await store({ [OPTIONS_KEY]: { video_scrubber: true, video_download: false } });
   await expect(scrubberOf(page, 'paused')).toHaveAttribute('aria-valuemax', '20');
+});
+
+const saveButtonOf = (page: Page, id: string) =>
+  player(page, id).getByRole('button', { name: 'Save video' });
+
+/** The message the save button of this player shows under it. */
+const saveStatusOf = (page: Page, id: string) => player(page, id).getByRole('status');
+
+test("saves a feed video's file, read from React's data through the page-world bridge", async ({
+  page,
+}) => {
+  await open(page);
+  const button = saveButtonOf(page, 'playing');
+  // Shown only while the pointer is over the video.
+  await expect(player(page, 'playing').locator('.save')).not.toHaveClass(/shown/);
+  await player(page, 'playing').hover();
+  await expect(player(page, 'playing').locator('.save')).toHaveClass(/shown/);
+  // Inside the video's top left corner, 40 pixels square.
+  const box = await boxOf(button);
+  const video = await boxOf(videoOf(page, 'playing'));
+  expect([box.x - video.x, box.y - video.y, box.width, box.height]).toEqual([8, 8, 40, 40]);
+  await button.hover();
+  const tip = player(page, 'playing').getByRole('tooltip');
+  await expect(tip).toHaveText('Save video');
+  expect((await boxOf(tip)).y).toBeCloseTo(box.y + 48, 0);
+
+  const download = page.waitForEvent('download');
+  await button.click();
+
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('facebook-video-200000000000001.mp4');
+  const saved = readFileSync(await file.path());
+  expect(saved.equals(readFileSync(path.join(import.meta.dirname, 'cdn', 'clip.mp4')))).toBe(true);
+  await expect(saveStatusOf(page, 'playing')).toHaveText(
+    'Saved as facebook-video-200000000000001.mp4.',
+  );
+  await expect(tip).toBeHidden();
+  // The press went to the button alone: the video still plays and no viewer opened.
+  expect(await pausedOf(page, 'playing')).toBe(false);
+  await expect(page).toHaveURL(VIDEOS);
+  await expect(page.locator('body')).not.toHaveAttribute('data-viewer');
+});
+
+test('says that a video with only a manifest cannot be saved yet', async ({ page }) => {
+  await open(page);
+  await player(page, 'paused').hover();
+  const button = saveButtonOf(page, 'paused');
+  await expect(button).toHaveAttribute('aria-disabled', 'true');
+
+  // Playwright does not click an element marked disabled, and a key press is a press too.
+  await button.press('Enter');
+
+  await expect(saveStatusOf(page, 'paused')).toHaveText(/^This video cannot be saved yet\./);
+});
+
+test('opens the file in a new tab when the file server does not let the page read it', async ({
+  page,
+  context,
+}) => {
+  await open(page);
+  await player(page, 'reel').hover();
+  const opened = context.waitForEvent('page');
+
+  await saveButtonOf(page, 'reel').click();
+
+  const tab = await opened;
+  await expect(tab).toHaveURL(`${CDN}/no-cors/clip.mp4`);
+  await tab.close();
+  await expect(saveStatusOf(page, 'reel')).toHaveText(
+    'The file could not be fetched from this page, so it opened in a new tab. Save it from there.',
+  );
 });

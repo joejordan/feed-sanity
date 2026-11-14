@@ -6,6 +6,7 @@ import externalCss from './external-css';
 import postFilters from './post-filters';
 import { filtersPanel } from './post-filters/filters-panel';
 import videoClickPauses from './video-click-pauses';
+import videoDownload from './video-download';
 import videoScrubber from './video-scrubber';
 
 /** Every feature the extension runs, in start order. Add new features here. */
@@ -14,6 +15,7 @@ export const features: readonly Feature<FacebookPage>[] = [
   postFilters,
   videoScrubber,
   videoClickPauses,
+  videoDownload,
 ];
 
 /** The parts of the options dialog that features draw themselves. */

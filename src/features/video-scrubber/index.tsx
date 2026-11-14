@@ -1,12 +1,12 @@
 import type { Scope } from '../../core/scope';
 import type { Video } from '../../facebook/videos';
-import type { MountedOverlay } from '../../ui/overlay';
-import type { ControlBox, StripPlace } from './layout';
+import type { ControlBox } from '../video-layout';
+import type { StripPlace } from './layout';
 import { addStyle } from '../../core/dom';
-import { Listeners } from '../../core/listeners';
 import { defineFeature } from '../../facebook/feature';
 import { STOOD_IN_FOR } from '../../facebook/selectors';
-import { mountOverlay } from '../../ui/overlay';
+import { measureControls } from '../video-layout';
+import { overlayEachVideo } from '../video-overlay';
 import { AT_BOTTOM, placeStrip, sameBox, samePlace } from './layout';
 import { Scrubber } from './scrubber';
 import css from './scrubber.css?inline';
@@ -35,11 +35,7 @@ function coverOf(bar: ControlBox, video: Element, controls: readonly ControlBox[
 
 /** Where the strip goes on `video`, from where the video and Facebook's controls are. Reads layout only. */
 function measurePlace(video: Video): StripPlace {
-  const controls = video.controls().map(({ element, bar }) => ({
-    element,
-    box: element.getBoundingClientRect(),
-    bar,
-  }));
+  const controls = measureControls(video);
   const place = placeStrip(video.element.getBoundingClientRect(), controls);
   const bar = place.hides && controls.find(({ element }) => element === place.hides);
   return bar ? { ...place, hides: coverOf(bar, video.element, controls) } : place;
@@ -114,44 +110,14 @@ export default defineFeature({
     },
   },
   enabledBy: 'video_scrubber',
-  setup({ page, scope, log }) {
-    const hide = hider(scope);
-    /** The overlay on each video. */
-    const shown = new Map<Video, MountedOverlay>();
-    const remove = (video: Video): void => {
-      shown.get(video)?.();
-      shown.delete(video);
-    };
-    scope.add(() => {
-      for (const video of shown.keys()) {
-        remove(video);
-      }
-    });
-    page.videos.onControls((video) => shown.get(video)?.measure());
-    page.videos.onRemove(remove);
-    // Also called at once with the videos already on the page.
-    page.videos.onAdd((video) => {
-      let place = AT_BOTTOM;
-      const moved = new Listeners(log);
-      const scrubber = (
-        <Scrubber
-          video={video.element}
-          place={{ get: () => place, subscribe: (listener) => moved.add(listener) }}
-          hide={hide}
-        />
-      );
-      const overlay = mountOverlay(video.element, scrubber, {
-        container: () => video.container,
-        css,
-        onMeasure: () => {
-          const next = measurePlace(video);
-          if (!samePlace(place, next)) {
-            place = next;
-            moved.emit();
-          }
-        },
-      });
-      shown.set(video, overlay);
+  setup(ctx) {
+    const hide = hider(ctx.scope);
+    overlayEachVideo(ctx, {
+      css,
+      initial: AT_BOTTOM,
+      measure: measurePlace,
+      same: samePlace,
+      render: (video, place) => <Scrubber video={video.element} place={place} hide={hide} />,
     });
   },
 });
