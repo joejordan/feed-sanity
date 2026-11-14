@@ -300,6 +300,19 @@ export const POST_TIME = anyOf('post-time', [
   { selector: 'abbr[data-utime]', seen: SFX, note: `None on the feed on ${CHECKED}` },
 ]);
 
+/**
+ * The "All stories" list down the left of the stories viewer, at
+ * /stories/. Its entries are `div[role=button][id]`. Only look for it on
+ * that page.
+ */
+export const STORIES_LIST = anyOf('stories-list', [
+  {
+    selector: 'div[role=navigation]:not([aria-label])',
+    seen: '2026-11-14',
+    note: 'The two navigation elements in the top bar have a label',
+  },
+]);
+
 // Videos. Facebook draws each one as a plain <video> element in the page,
 // with no iframe and no shadow root, so the element itself is the anchor.
 

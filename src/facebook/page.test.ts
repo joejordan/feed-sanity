@@ -17,6 +17,8 @@ describe('pageContext', () => {
     ['/pg/somepage/posts/', 'profile', 'somepage'],
     ['/groups/gardening/', 'groups', 'gardening'],
     ['/events/123456789/', 'events', '123456789'],
+    ['/stories/', 'stories', null],
+    ['/stories/123456789/UzpfSVNDOjE/', 'stories', '123456789'],
   ])('reads %s as %s / %s', (address, type, id) => {
     expect(context(address)).toMatchObject({ type, id });
   });

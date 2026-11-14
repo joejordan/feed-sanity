@@ -33,6 +33,11 @@ function typeAndId(hostname: string, path: string[]): Pick<PageContext, 'id' | '
   if (hostname.endsWith('messenger.com')) {
     return { type: 'messages', id: (first === 't' ? second : null) ?? null };
   }
+  // The stories viewer opens at /stories/. Other one-part addresses, such as
+  // /watch/ and /groups/, still read as a profile, as in Social Fixer.
+  if (first === 'stories') {
+    return { type: 'stories', id: second ?? null };
+  }
   if (path.length === 1 || second === 'posts') {
     return { type: 'profile', id: first };
   }

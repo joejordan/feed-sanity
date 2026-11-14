@@ -470,6 +470,26 @@ describe('post_filters: saved filters', () => {
     await vi.waitFor(() => expect(tabButtons()).toEqual(['All Posts0', 'Filtered Feed0', 'Cats0']));
   });
 
+  it('keeps the tab list off stories pages', async () => {
+    await saveFilters([filter('kittens', [{ action: 'move-to-tab', tab: 'Cats' }])]);
+    announce(makePost('<p>So many kittens</p>'));
+    await vi.waitFor(() => expect(tabButtons()).toHaveLength(3));
+    const go = (address: string): void => {
+      history.pushState({}, '', address);
+      dispatchEvent(new PopStateEvent('popstate'));
+    };
+
+    // The post stays in the page, as feed posts can under the stories viewer.
+    go('/stories/');
+    await vi.waitFor(() => expect(panel()?.querySelector('nav')).toBeNull());
+    go('/stories/123456789/UzpfSVNDOjE/');
+    await Promise.resolve();
+    expect(panel()?.querySelector('nav')).toBeNull();
+
+    go('/');
+    await vi.waitFor(() => expect(tabButtons()).toHaveLength(3));
+  });
+
   it('starts the tabs over when Facebook moves to another page', async () => {
     await saveFilters([filter('kittens', [{ action: 'move-to-tab', tab: 'Cats' }])]);
     announce(makePost('<p>So many kittens</p>'));

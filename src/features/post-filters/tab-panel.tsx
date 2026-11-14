@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { Tabs } from './tabs';
+import { onUrlChange } from '../../core/navigation';
+import { pageContext } from '../../facebook/page';
 import { mount } from '../../ui/mount';
 import css from './tab-panel.css?inline';
 
@@ -12,9 +14,15 @@ interface TabPanelProps {
 }
 
 /**
+ * True on the pages the tab list shows on: all but the stories viewer, which
+ * has no posts and whose list of stories the tab list would cover.
+ */
+const showsHere = (): boolean => pageContext().type !== 'stories';
+
+/**
  * The list of filter tabs, in a corner of the page. Clicking a tab shows its
  * posts and hides the rest. It stays out of the way until a filter has moved
- * a post to a tab of its own.
+ * a post to a tab of its own, and on stories pages.
  */
 function TabPanel({ tabs, watchAlwaysShow }: TabPanelProps) {
   const [alwaysShow, setAlwaysShow] = useState(false);
@@ -22,10 +30,12 @@ function TabPanel({ tabs, watchAlwaysShow }: TabPanelProps) {
   // this component had subscribed.
   const subscribe = useCallback((onChange: () => void) => tabs.onChange(onChange), [tabs]);
   useSyncExternalStore(subscribe, () => tabs.version);
+  // The address can change while the tabs stay as they were.
+  const here = useSyncExternalStore(onUrlChange, showsHere);
 
   useEffect(() => watchAlwaysShow(setAlwaysShow), [watchAlwaysShow]);
 
-  if (!alwaysShow && !tabs.hasCustomTabs) {
+  if (!here || (!alwaysShow && !tabs.hasCustomTabs)) {
     return null;
   }
   return (
