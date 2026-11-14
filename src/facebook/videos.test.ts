@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Video } from './videos';
 import { PageWatcher } from '../core/page-watcher';
 import { sleep } from '../core/timing';
-import { fakeLocate } from './testing';
+import { addStory, fakeLocate } from './testing';
 import { Videos } from './videos';
 
 /** Adds this markup to the page and returns its first element. */
@@ -102,6 +102,33 @@ describe('Videos', () => {
     expect(added.map((video) => video.surface)).toEqual(['feed', 'reel', 'feed', 'other']);
     history.replaceState({}, '', '/reel/123');
     expect(added[3]?.surface).toBe('reel');
+  });
+
+  it('puts a video in a story card on the story surface, with the card as its container', () => {
+    const { card } = addStory();
+    follow();
+
+    expect(added[0]?.surface).toBe('story');
+    expect(added[0]?.container).toBe(card);
+    // The same markup off a stories page is not a story.
+    history.replaceState({}, '', '/watch/');
+    expect(added[0]?.surface).toBe('other');
+    expect(added[0]?.container).not.toBe(card);
+  });
+
+  it("lists a story's header buttons outside the card among its controls", () => {
+    addStory();
+    follow();
+
+    expect(added[0]?.controls().map(({ element }) => element.id)).toEqual([
+      'avatar',
+      'name',
+      'info',
+      'sticker',
+      'mute',
+      'pause',
+      'menu',
+    ]);
   });
 
   it("reports each of Facebook's sliders that comes to a video or leaves it", async () => {

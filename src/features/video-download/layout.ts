@@ -65,9 +65,11 @@ function placeTip(left: number, top: number, video: Box): TipPlace {
 /**
  * Places the button in the video's top left corner, clear of Facebook's
  * controls, using only where they are on the screen. When a control is in
- * the way, the button moves right along the top edge past it, and when the
- * top edge has no room, down the left edge. Null when neither has room, or
- * the video is too small, and then the button is not shown.
+ * the way, the button looks for room both right along the top edge and down
+ * the left edge, moving past each control it meets, and takes the place
+ * nearer the corner, the top edge on a tie. Under a story's header, the
+ * left edge wins. Null when neither edge has room, or the video is too
+ * small, and then the button is not shown.
  *
  * Controls with no size, controls off the video, and controls that cover
  * half the video or more, which are layers over the whole picture, are left
@@ -111,21 +113,24 @@ export function placeButton(video: Box, controls: readonly ControlBox[]): Button
     top,
     tip: placeTip(left, top, video),
   });
-  const passedOnTop = new Set<Edges>();
-  for (let left = MARGIN; left + BUTTON_SIZE + MARGIN <= video.width; ) {
-    const hit = blocker(left, MARGIN, passedOnTop);
-    if (!hit) {
-      return at(left, MARGIN);
+  const along = (onTop: boolean): ButtonPlace | null => {
+    const passed = new Set<Edges>();
+    const length = onTop ? video.width : video.height;
+    for (let offset = MARGIN; offset + BUTTON_SIZE + MARGIN <= length; ) {
+      const left = onTop ? offset : MARGIN;
+      const top = onTop ? MARGIN : offset;
+      const hit = blocker(left, top, passed);
+      if (!hit) {
+        return at(left, top);
+      }
+      offset = onTop ? hit.right - video.left + GAP : hit.bottom - video.top + GAP;
     }
-    left = hit.right - video.left + GAP;
+    return null;
+  };
+  const top = along(true);
+  const left = along(false);
+  if (!(top && left)) {
+    return top ?? left;
   }
-  const passedOnLeft = new Set<Edges>();
-  for (let top = MARGIN; top + BUTTON_SIZE + MARGIN <= video.height; ) {
-    const hit = blocker(MARGIN, top, passedOnLeft);
-    if (!hit) {
-      return at(MARGIN, top);
-    }
-    top = hit.bottom - video.top + GAP;
-  }
-  return null;
+  return left.top < top.left ? left : top;
 }

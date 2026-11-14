@@ -12,22 +12,22 @@ import {
   VIDEO_POST,
   VIDEO_SLIDER,
 } from './selectors';
+import { storyBottomStrip, storyCardOf, storyHeaderOf } from './stories';
 
 const log = createLogger('videos');
 
-/**
- * Where a video is shown: in a post, in the reel viewer, or anywhere else.
- * Stories have not been looked at yet, so their videos count as `other`.
- */
-export type VideoSurface = 'feed' | 'other' | 'reel';
+/** Where a video is shown: in a post, in the reel viewer, in the stories viewer, or anywhere else. */
+export type VideoSurface = 'feed' | 'other' | 'reel' | 'story';
 
 /** A `<video>` element on the page. */
 export interface Video {
   readonly element: HTMLVideoElement;
   /**
    * The element Facebook wraps the video in, or the video's parent when no
-   * wrapper is found. Null while the video is not in the page. It is looked
-   * up each time it is read, because Facebook can move a video.
+   * wrapper is found. In the stories viewer it is the story card, which
+   * holds Facebook's layers over the picture, so what is put in it goes
+   * above them. Null while the video is not in the page. It is looked up
+   * each time it is read, because Facebook can move a video.
    */
   readonly container: HTMLElement | null;
   /** Looked up each time it is read, like `container`. */
@@ -35,12 +35,19 @@ export interface Video {
   /**
    * Facebook's controls that can lie over the video: the buttons, sliders
    * and links in the smallest element that holds the video's container and
-   * every slider of Facebook's that belongs to the video. Facebook keeps
+   * every slider of Facebook's that belongs to the video, and in the stories
+   * viewer the element that holds the story's header too. Facebook keeps
    * them in the page after they fade out, and some have no size, so measure
    * them to know where they are. `onControls` reports when they may have
    * moved.
    */
   readonly controls: () => VideoControl[];
+  /**
+   * Facebook's element over the video's bottom edge that takes the pointer
+   * there and is not a control, such as the invisible strip in a story's
+   * card, or null. Reads layout.
+   */
+  readonly bottomCover: () => Element | null;
 }
 
 /** One of Facebook's controls in a video's player. */
@@ -69,12 +76,19 @@ class TrackedVideo implements Video {
     if (!this.element.isConnected) {
       return null;
     }
+    const card = this.#storyCard();
+    if (card) {
+      return card;
+    }
     const parent = this.element.parentElement;
     const wrapper = parent && this.#locate(VIDEO_CONTAINER).closest(parent);
     return wrapper instanceof HTMLElement ? wrapper : parent;
   }
 
   get surface(): VideoSurface {
+    if (this.#storyCard()) {
+      return 'story';
+    }
     if (this.#locate(REEL_CARD).closest(this.element)) {
       return 'reel';
     }
@@ -84,9 +98,22 @@ class TrackedVideo implements Video {
     return pageContext().type === 'reel' ? 'reel' : 'other';
   }
 
+  /** The story card the video is in, on a stories page. */
+  #storyCard(): HTMLElement | null {
+    return storyCardOf(this.element, this.#locate);
+  }
+
+  bottomCover(): Element | null {
+    const card = this.element.isConnected ? this.#storyCard() : null;
+    return card && storyBottomStrip(card, this.element, this.#locate);
+  }
+
   controls(): VideoControl[] {
-    // A slider can lie outside the container, as in the reel viewer.
-    let player: Element | null = this.container;
+    const card = this.element.isConnected ? this.#storyCard() : null;
+    // A story's header buttons on the right lie outside its card, and a
+    // slider can lie outside the container, as in the reel viewer.
+    let player: Element | null =
+      (card && storyHeaderOf(card, this.#locate)?.root) || card || this.container;
     for (const slider of this.sliders) {
       // One Facebook has just taken out is forgotten once the watch reports it.
       if (!slider.isConnected) {

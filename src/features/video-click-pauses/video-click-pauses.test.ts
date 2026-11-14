@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import type { FakeStory } from '../../facebook/testing';
 import { startFeatures } from '../../core/app';
 import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { bindPage } from '../../facebook/feature';
-import { fakeVideo, placeAt, videoPage } from '../../facebook/testing';
+import { addStory, fakeVideo, placeAt, videoPage } from '../../facebook/testing';
 import { extensionStore } from '../../platform/extension-store';
 import videoClickPauses from '.';
 
@@ -279,5 +280,185 @@ describe('video_click_pauses', () => {
 
     expect(video.paused).toBe(false);
     expect(heard).toEqual([...PRESS]);
+  });
+
+  describe('in the stories viewer', () => {
+    /** Presses of the story's own pause button. */
+    let paused: number;
+    let story: FakeStory;
+
+    const useStory = (options?: Parameters<typeof addStory>[0]): void => {
+      story = addStory(options);
+      paused = 0;
+      story.part('pause').addEventListener('click', () => {
+        paused++;
+      });
+      stack = [story.part('frame'), story.card, document.body];
+    };
+
+    /** A press in the lower part of the story, clear of its header and sticker. */
+    const pressStory = (target: Element = story.part('frame')): void =>
+      press(target, { x: 250, y: 450 });
+
+    it("pauses and plays a video story with the story's own button, and keeps the press from Facebook", () => {
+      useStory();
+
+      pressStory();
+      expect(paused).toBe(1);
+      // Facebook heard only the click on its own button.
+      expect(heard).toEqual(['click']);
+      expect(lastClick?.defaultPrevented).toBe(true);
+      pressStory();
+
+      expect(paused).toBe(2);
+    });
+
+    it("keeps every event of a press, with a mouse or a finger, from the story's tap zones", () => {
+      useStory();
+      const types = [
+        'pointerdown',
+        'touchstart',
+        'pointerup',
+        'touchend',
+        'mousedown',
+        'mouseup',
+        'click',
+      ] as const;
+      const zone: string[] = [];
+      for (const type of types) {
+        story.card.addEventListener(type, () => zone.push(type));
+      }
+
+      // On the left third of the card, where Facebook goes back.
+      press(story.part('frame'), { x: 120, y: 450 });
+      // A tap: pointer events first, then touch events, then the mouse events made from them.
+      const at = { clientX: 120, clientY: 450, button: 0, bubbles: true, cancelable: true };
+      const eventFor = (type: (typeof types)[number]): Event => {
+        if (type.startsWith('pointer')) {
+          return new PointerEvent(type, {
+            ...at,
+            pointerId: 2,
+            isPrimary: true,
+            pointerType: 'touch',
+          });
+        }
+        if (type.startsWith('touch')) {
+          return new Event(type, at);
+        }
+        return new MouseEvent(type, { ...at, detail: type === 'click' ? 1 : 0 });
+      };
+      for (const type of types) {
+        story.part('frame').dispatchEvent(eventFor(type));
+      }
+
+      expect(zone).toEqual([]);
+      expect(paused).toBe(2);
+    });
+
+    it('pauses a photo story the same way', () => {
+      useStory({ photo: true });
+      stack = [story.part('photo'), story.part('frame'), story.card, document.body];
+
+      pressStory(story.part('photo'));
+
+      expect(paused).toBe(1);
+    });
+
+    it('does nothing on a story with no pause button found, and says so once', () => {
+      const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+      useStory({ pause: false });
+
+      pressStory();
+      pressStory();
+
+      expect(paused).toBe(0);
+      expect(heard).toEqual([...PRESS, ...PRESS]);
+      expect(debug).toHaveBeenCalledTimes(1);
+    });
+
+    it("lets presses on the header, a sticker, this project's UI and the buttons around the card through", () => {
+      useStory();
+      const host = document.createElement('feed-sanity-ui');
+      host.setAttribute('data-feed-sanity', '');
+      story.card.append(host);
+      const targets: [Element, Element[]][] = [
+        [story.part('avatar'), [story.part('avatar'), story.card]],
+        [story.part('sticker'), [story.part('sticker'), story.card]],
+        [host, [host, story.part('frame'), story.card]],
+        [story.part('menu'), [story.part('menu')]],
+        [story.part('next'), [story.part('next')]],
+      ];
+
+      for (const [target, under] of targets) {
+        stack = under;
+        heard = [];
+        pressStory(target);
+        expect(heard, target.id || target.tagName).toEqual([...PRESS]);
+      }
+      expect(paused).toBe(0);
+    });
+
+    it("lets a press close the story's open menu, or leave a focused reply box, with no toggle", () => {
+      useStory();
+      const reply = document.createElement('input');
+      document.body.append(reply);
+
+      story.part('menu').setAttribute('aria-expanded', 'true');
+      pressStory();
+      expect(heard).toEqual([...PRESS]);
+      story.part('menu').setAttribute('aria-expanded', 'false');
+
+      reply.focus();
+      heard = [];
+      pressStory();
+      expect(heard).toEqual([...PRESS]);
+      expect(paused).toBe(0);
+      reply.remove();
+    });
+
+    it('does not toggle the next story when the press outlived the one it began on', () => {
+      useStory();
+      story.part('frame').dispatchEvent(
+        new PointerEvent('pointerdown', {
+          clientX: 250,
+          clientY: 450,
+          button: 0,
+          bubbles: true,
+          pointerId: 1,
+          isPrimary: true,
+        }),
+      );
+      // Facebook gives the card the next story while the button is held.
+      story.card.setAttribute('data-id', 'story-2');
+      for (const type of ['pointerup', 'mouseup', 'click'] as const) {
+        const init = { clientX: 250, clientY: 450, bubbles: true, cancelable: true, detail: 1 };
+        story
+          .part('frame')
+          .dispatchEvent(
+            type === 'pointerup'
+              ? new PointerEvent(type, { ...init, pointerId: 1, isPrimary: true })
+              : new MouseEvent(type, init),
+          );
+      }
+
+      expect(paused).toBe(0);
+    });
+
+    it('toggles twice on a double click, and keeps the double click from Facebook', () => {
+      useStory();
+      const doubled = vi.fn();
+      document.addEventListener('dblclick', doubled);
+
+      pressStory();
+      pressStory();
+      const dblclick = new MouseEvent('dblclick', { clientX: 250, clientY: 450, bubbles: true });
+      // At the time of the presses, as `press` gives them.
+      Object.defineProperty(dblclick, 'timeStamp', { value: 0 });
+      story.part('frame').dispatchEvent(dblclick);
+
+      expect(paused).toBe(2);
+      expect(doubled).not.toHaveBeenCalled();
+      document.removeEventListener('dblclick', doubled);
+    });
   });
 });

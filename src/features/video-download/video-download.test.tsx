@@ -6,6 +6,7 @@ import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { bindPage } from '../../facebook/feature';
 import {
+  addStory,
   FakeResizeObserver,
   fakeVideo,
   placeAt,
@@ -78,6 +79,7 @@ describe('video_download', () => {
     await options.set('video_download', false);
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    history.replaceState({}, '', '/');
   });
 
   const start = async (
@@ -123,6 +125,34 @@ describe('video_download', () => {
     });
     pointer(player, 'pointerleave');
     await vi.waitFor(() => expect(wrapIn(player)?.classList).not.toContain('shown'));
+  });
+
+  it("goes last in a story's card, below the story's header at the left", async () => {
+    const { card } = addStory();
+    await start();
+
+    expect(card.lastElementChild?.tagName.toLowerCase()).toBe(HOST_TAG);
+    await vi.waitFor(() =>
+      expect((wrapIn(card) as HTMLElement | null)?.style.cssText).toContain('left: 8px; top: 72px'),
+    );
+  });
+
+  it('gives a story that replaces the last one in the same card a fresh button', async () => {
+    const story = addStory();
+    await start();
+    await vi.waitFor(() => expect(wrapIn(story.card)).not.toBeNull());
+
+    const { video: next } = fakeVideo({ duration: 30 });
+    placeAt(next, 100, 0, 356, 633);
+    story.video?.replaceWith(next);
+    await vi.waitFor(() => {
+      for (const host of story.card.querySelectorAll(HOST_TAG)) {
+        placeAt(host, 100, 0, 0, 0);
+      }
+      FakeResizeObserver.latest?.report();
+      expect(story.card.querySelectorAll(`:scope > ${HOST_TAG}`)).toHaveLength(1);
+      expect(wrapIn(story.card)).not.toBeNull();
+    });
   });
 
   it('shows no button on a live video', async () => {

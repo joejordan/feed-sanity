@@ -20,24 +20,28 @@ export interface VideoOverlayOptions<T> {
    */
   measure: (video: Video) => T;
   same: (a: T, b: T) => boolean;
-  /** The UI for `video`. `remeasure` asks for its place to be measured again soon. */
-  render: (video: Video, place: Watched<T>, remeasure: () => void) => ReactNode;
+  /** The UI for `video`. */
+  render: (video: Video, place: Watched<T>) => ReactNode;
 }
 
 /**
  * Lays UI over every video on the page, and each one that comes later,
  * with `mountOverlay` in the video's container. The UI's place is measured
- * when the overlay is, and again when the tracker reports that Facebook's
- * controls may have moved. The overlay goes when its video leaves the page,
+ * when the overlay is, again when the tracker reports that Facebook's
+ * controls may have moved, and again each time the pointer comes over the
+ * container, since Facebook's controls fade in then and its elements can
+ * change without a resize. The overlay goes when its video leaves the page,
  * and every one goes when `scope` is disposed.
  */
 export function overlayEachVideo<T>(
   { page, scope, log }: { page: FacebookPage; scope: Scope; log: Logger },
   { css, initial, measure, same, render }: VideoOverlayOptions<T>,
 ): void {
-  const shown = new Map<Video, MountedOverlay>();
+  const shown = new Map<Video, MountedOverlay & { stop: () => void }>();
   const remove = (video: Video): void => {
-    shown.get(video)?.();
+    const overlay = shown.get(video);
+    overlay?.stop();
+    overlay?.();
     shown.delete(video);
   };
   scope.add(() => {
@@ -51,15 +55,22 @@ export function overlayEachVideo<T>(
   page.videos.onAdd((video) => {
     let place = initial;
     const moved = new Listeners(log);
-    const ui = render(
-      video,
-      { get: () => place, subscribe: (listener) => moved.add(listener) },
-      () => shown.get(video)?.measure(),
-    );
+    const ui = render(video, { get: () => place, subscribe: (listener) => moved.add(listener) });
+    /** The container the pointer is listened for on. */
+    let entered: Element | null = null;
+    const enter = (): void => shown.get(video)?.measure();
+    const follow = (container: Element | null): void => {
+      if (container !== entered) {
+        entered?.removeEventListener('pointerenter', enter);
+        container?.addEventListener('pointerenter', enter);
+        entered = container;
+      }
+    };
     const overlay = mountOverlay(video.element, ui, {
       container: () => video.container,
       css,
       onMeasure: () => {
+        follow(video.container);
         const next = measure(video);
         if (!same(place, next)) {
           place = next;
@@ -67,6 +78,6 @@ export function overlayEachVideo<T>(
         }
       },
     });
-    shown.set(video, overlay);
+    shown.set(video, Object.assign(overlay, { stop: () => follow(null) }));
   });
 }

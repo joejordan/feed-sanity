@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { Locator, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { CDN, expect, OPTIONS_KEY, ORIGIN, test } from './extension';
+import { boxOf, currentTime, expectStripAt, isPaused, STOOD_IN_FOR, used } from './media';
 
 const VIDEOS = `${ORIGIN}/videos/`;
 
@@ -16,33 +17,9 @@ const videoOf = (page: Page, id: string) => player(page, id).locator('video');
 /** The layer the page lays over the playing feed video to take its clicks. */
 const pictureOf = (page: Page) => player(page, 'playing').locator('[role=presentation]');
 
-const timeOf = (page: Page, id: string) =>
-  videoOf(page, id).evaluate((video: HTMLVideoElement) => video.currentTime);
+const timeOf = (page: Page, id: string) => currentTime(videoOf(page, id));
 
-const pausedOf = (page: Page, id: string) =>
-  videoOf(page, id).evaluate((video: HTMLVideoElement) => video.paused);
-
-/** The box of `locator`, which must be on the page. */
-async function boxOf(locator: Locator) {
-  const box = await locator.boundingBox();
-  if (!box) {
-    throw new Error('no box');
-  }
-  return box;
-}
-
-type Box = Awaited<ReturnType<typeof boxOf>>;
-
-/** Checks that the strip is 12 pixels tall along the bottom edge of the video, `inset` pixels short of each side. */
-function expectStripAt(strip: Box, video: Box, inset = 0) {
-  expect(strip.height).toBeCloseTo(12, 0);
-  expect(strip.y + strip.height).toBeCloseTo(video.y + video.height, 0);
-  expect(strip.x).toBeCloseTo(video.x + inset, 0);
-  expect(strip.width).toBeCloseTo(video.width - 2 * inset, 0);
-}
-
-/** What the page's own controls last reported being used. */
-const used = (page: Page) => page.locator('body').getAttribute('data-used');
+const pausedOf = (page: Page, id: string) => isPaused(videoOf(page, id));
 
 /** Opens the page and waits until the videos have a length and the first one plays. */
 async function open(page: Page) {
@@ -107,7 +84,7 @@ test("takes the place of a reel's position bar, which is hidden meanwhile", asyn
   const video = await boxOf(videoOf(page, 'reel'));
   expectStripAt(strip, video, 8);
   // The outermost of the elements with the bar's box.
-  await expect(bar).toHaveAttribute('data-feed-sanity-hidden');
+  await expect(bar).toHaveAttribute(STOOD_IN_FOR);
   await expect(bar).toBeHidden();
 
   // Over the bottom of a corner button too, as the page's bar was.
@@ -124,7 +101,7 @@ test("takes the place of a reel's position bar, which is hidden meanwhile", asyn
   await store({ [OPTIONS_KEY]: { video_scrubber: false } });
 
   await expect(bar).toBeVisible();
-  await expect(bar).not.toHaveAttribute('data-feed-sanity-hidden');
+  await expect(bar).not.toHaveAttribute(STOOD_IN_FOR);
   await page.locator('#reel-position').click();
   await expect.poll(() => used(page)).toBe('reel-position');
 });
