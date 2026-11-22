@@ -1,0 +1,58 @@
+/* Every class here starts with data-, because all panels share the dialog's shadow root. */
+
+.data {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.data p {
+  margin: 0;
+}
+
+.data-heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.data-subheading {
+  margin: 12px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.data-file {
+  display: none;
+}
+
+.data-code {
+  width: 100%;
+  font-family: monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.data-status {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--fs-surface);
+  font-size: 13px;
+}
+
+.data-status.data-error {
+  color: var(--fs-error);
+}
+
+.data-danger {
+  background: var(--fs-error);
+  color: #fff;
+}

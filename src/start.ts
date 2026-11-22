@@ -5,11 +5,13 @@ import { readLocatorOverrides } from './core/locator';
 import { createLogger } from './core/log';
 import { Options } from './core/options';
 import { SavedData } from './core/saved';
+import { dataPanel } from './data/data-panel';
 import { collectDiagnostics } from './diagnostics/collect';
 import { diagnosticsPanel } from './diagnostics/diagnostics-panel';
 import { createPage, LOCATOR_OVERRIDES } from './facebook/feature';
 import { currentUserId } from './facebook/user';
 import { features, optionsPanels } from './features';
+import { savedFilters } from './features/post-filters/types';
 import { openOptionsDialog } from './ui/options-dialog';
 
 /** Starts every feature on the current page. Shared by the extension and the userscript. */
@@ -19,12 +21,14 @@ export function start(platform: Platform): Promise<string[]> {
   const data = new SavedData(platform.store, user);
   const page = createPage(data, () => platform.installPageWorld());
   const runner = new FeatureRunner(features, options, page, data);
+  const overrides = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
   const panels = [
     ...optionsPanels(data),
+    dataPanel({ options, filters: savedFilters(data), locators: overrides }),
     diagnosticsPanel({
       collect: () =>
         collectDiagnostics({ version, build: platform.build, page: page.stats, runner }),
-      overrides: data.value(LOCATOR_OVERRIDES, readLocatorOverrides),
+      overrides,
       locatorNames: () => page.stats.locators.names(),
     }),
   ];

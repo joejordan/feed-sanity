@@ -190,6 +190,34 @@ test('opens the options dialog from the toolbar button', async ({ page, pressToo
   ).toBeVisible();
 });
 
+test('imports a JSON backup in the Data section and applies it live', async ({
+  page,
+  pressToolbarButton,
+}) => {
+  await page.goto(FEED);
+  await pressToolbarButton();
+
+  await dialog(page).getByRole('button', { name: 'Data', exact: true }).click();
+  const box = dialog(page).getByRole('textbox', { name: 'Settings JSON to import' });
+  await box.fill(
+    JSON.stringify({
+      options: {
+        hidden_keywords: 'typewriter',
+        legacy_fs_option: true,
+      },
+      filters: [],
+    }),
+  );
+  await dialog(page).getByRole('button', { name: 'Import JSON' }).click();
+
+  await expect(dialog(page).getByRole('status')).toHaveText(
+    /Imported 1 option, 0 filters \(1 unrecognised option skipped\)\./,
+  );
+  await dialog(page).getByRole('button', { name: 'Close' }).click();
+
+  await expectHidden(page, 'Bram Okafor');
+});
+
 test('saves a setting changed in the options dialog to extension storage', async ({
   page,
   pressToolbarButton,
