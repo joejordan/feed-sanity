@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createOpenPostComposerAction } from './page-actions';
+import { createOpenPostComposerAction, createSetHomeFeedAction } from './page-actions';
 import { checkComposerInfo, checkOpenComposer } from './post-composer';
 
 describe('createOpenPostComposerAction', () => {
@@ -89,5 +89,107 @@ describe('post-composer validators', () => {
     expect(checkOpenComposer({ opened: true })).toBe(true);
     expect(checkOpenComposer({ opened: false })).toBe(false);
     expect(checkOpenComposer(null)).toBe(false);
+  });
+});
+
+describe('createSetHomeFeedAction', () => {
+  beforeEach(() => {
+    history.replaceState({}, '', '/');
+    document.body.innerHTML = '<div role="main"><div role="feed"></div></div>';
+  });
+
+  it('overrides getCometFeedVariablesForSk on plain Home and triggers refreshHandler', () => {
+    const varsMod = {
+      getCometFeedVariablesForSk: vi.fn((feedStyle: unknown, sk: unknown) => ({ feedStyle, sk })),
+    };
+    const refreshCtx = { Provider: Symbol('CometHomeRefreshContext.Provider') };
+    const refreshHandler = vi.fn();
+    const feed = document.querySelector('[role=feed]') as HTMLElement;
+    Object.assign(feed, {
+      '__reactFiber$1': {
+        type: refreshCtx.Provider,
+        memoizedProps: { value: { refreshHandler } },
+        return: null,
+      },
+    });
+    const loader = {
+      require: (name: string) => {
+        if (name === 'CometHomeRootEntryPointVariables') {
+          return varsMod;
+        }
+        if (name === 'CometHomeRefreshContext') {
+          return refreshCtx;
+        }
+      },
+    };
+
+    const action = createSetHomeFeedAction(loader);
+    expect(action({ feedStyle: 17, refresh: true })).toEqual({ applied: true, refreshed: true });
+    expect(refreshHandler).toHaveBeenCalledWith('MANUAL');
+    expect(varsMod.getCometFeedVariablesForSk(5, 'h_nor')).toEqual({
+      feedStyle: 17,
+      sk: 'h_chr',
+    });
+
+    // Explicit Home queries like `/?sk=h_nor` or `/?notif_id=1` are not plain Home and stay untouched.
+    history.replaceState({}, '', '/?sk=h_nor');
+    expect(varsMod.getCometFeedVariablesForSk(5, 'h_nor')).toEqual({
+      feedStyle: 5,
+      sk: 'h_nor',
+    });
+    history.replaceState({}, '', '/?notif_id=123');
+    expect(varsMod.getCometFeedVariablesForSk(5, 'h_nor')).toEqual({
+      feedStyle: 5,
+      sk: 'h_nor',
+    });
+    history.replaceState({}, '', '/');
+
+    // Clearing restores default Home variables untouched.
+    expect(action({ feedStyle: null, refresh: false })).toEqual({
+      applied: true,
+      refreshed: false,
+    });
+    expect(varsMod.getCometFeedVariablesForSk(5, 'h_nor')).toEqual({
+      feedStyle: 5,
+      sk: 'h_nor',
+    });
+  });
+
+  it('observes CometHomeRootEntryPointVariables passively via __debug.modulesMap without forcing require', () => {
+    const varsExports = {
+      getCometFeedVariablesForSk: vi.fn((feedStyle: unknown, sk: unknown) => ({ feedStyle, sk })),
+    };
+    const entry: Record<string, unknown> = {
+      factoryFinished: false,
+      exports: undefined,
+      factory() {
+        entry.exports = varsExports;
+        entry.factoryFinished = true;
+      },
+    };
+    const modulesMap: Record<string, unknown> = {
+      CometHomeRootEntryPointVariables: entry,
+    };
+    const forcedRequire = vi.fn();
+    const loader = {
+      require: (name: string) => {
+        if (name === '__debug') {
+          return { modulesMap };
+        }
+        forcedRequire(name);
+      },
+    };
+
+    const action = createSetHomeFeedAction(loader);
+    // Does not force-require the uninitialized module while it is still pending.
+    expect(action({ feedStyle: 17, refresh: false })).toEqual({ applied: false, refreshed: false });
+    expect(forcedRequire).not.toHaveBeenCalled();
+
+    // Once Facebook initializes the module, the wrapper installs passively.
+    (entry.factory as () => void)();
+    expect(varsExports.getCometFeedVariablesForSk(5, 'h_nor')).toEqual({
+      feedStyle: 17,
+      sk: 'h_chr',
+    });
   });
 });

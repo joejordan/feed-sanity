@@ -6,14 +6,21 @@ import type { Watched } from '../../ui/watched';
 import type { ComposerState } from './feed-composer';
 import type { FeedEntry } from './feeds';
 import { BridgeError } from '../../core/bridge';
+import { addStyle } from '../../core/dom';
 import { intercept, isPlainPress, PRESS_EVENTS } from '../../core/intercept';
 import { onUrlChange } from '../../core/navigation';
+import { hideElement, markElement, mountSlot, whileOnRoute } from '../../core/surface';
 import { defineFeature } from '../../facebook/feature';
-import { shows, siteAddressOf } from '../../facebook/home-feed';
+import { HOME_ADDRESS, isPlainHome, shows, siteAddressOf } from '../../facebook/home-feed';
+import { findFeedsLeftRail } from '../../facebook/home-rails';
 import {
   FEED_COMPOSER,
   FEED_CONTAINER,
-  OWN,
+  FEED_MAIN,
+  FEEDS_LEFT_RAIL,
+  HOME_ACTIVE,
+  HOME_LAYOUT,
+  TOOLTIP,
   TOP_BAR_ACTIONS,
   TOP_BAR_AVATAR,
   TOP_BAR_HOME,
@@ -26,10 +33,14 @@ import { FeedComposer } from './feed-composer';
 import composerCss from './feed-composer.css?inline';
 import { FeedMenu } from './feed-menu';
 import css from './feed-menu.css?inline';
-import { FACEBOOK_FEED, FEEDS } from './feeds';
+import { FACEBOOK_FEED, FEEDS, feedById } from './feeds';
+import layoutCss from './home-layout.css?inline';
 import { destination, feedShown, isAlternateHomeFeed, movedRecently, moveTo } from './rules';
 
+const LAYOUT_STYLE_ID = 'feed_sanity_home_layout';
 const COMPOSER_HOST_ID = 'feed_sanity_home_composer';
+const LEFT_RAIL_ID = 'feed_sanity_home_left_rail';
+const RIGHT_RAIL_ID = 'feed_sanity_home_right_rail';
 
 const OPTIONS = {
   home_feed: {
@@ -57,6 +68,13 @@ const OPTIONS = {
       'Show the "What\'s on your mind?" post box at the top of the Friends, Favorites, Groups, Pages and Most recent feeds.',
     default: true,
   },
+  home_feed_rails: {
+    section: 'Home Feed',
+    title: 'Home sidebars and responsive layout on other feeds',
+    description:
+      "Replace the fixed Feeds sidebar on Friends, Favorites, Groups, Pages and Most recent with Facebook's Home left and right sidebars (including Birthdays), hiding them on narrow windows.",
+    default: true,
+  },
 } satisfies OptionSpecs;
 
 /**
@@ -64,9 +82,12 @@ const OPTIONS = {
  * logo, to the saved feed instead, keeping each such press from Facebook as
  * a whole. `chosen` gives the saved feed's id.
  */
-function sendHomePresses(scope: Scope, chosen: () => string): void {
+function sendHomePresses(scope: Scope, chosen: () => string, shouldIntercept: () => boolean): void {
   /** Where a press on a home link goes instead, or null when it goes to Facebook. */
   const redirected = (event: MouseEvent): string | null => {
+    if (!shouldIntercept()) {
+      return null;
+    }
     const link = isPlainPress(event)
       ? event.composedPath().find((node) => node instanceof HTMLAnchorElement)
       : undefined;
@@ -82,15 +103,11 @@ function sendHomePresses(scope: Scope, chosen: () => string): void {
         return taken;
       case 'click': {
         const click = event as MouseEvent;
-        // A click from the keyboard has no press before it, and ends none: a
-        // press let go outside the window is over by now. A press let go
-        // away from the link clicks something else, and goes nowhere.
         const fromKeyboard = click.detail === 0;
         const endsPress = taken && !fromKeyboard;
         const to = fromKeyboard || endsPress ? redirected(click) : null;
         taken = false;
         if (to === null) {
-          // The end of a press Facebook did not see start is kept from it too.
           return endsPress;
         }
         event.preventDefault();
@@ -108,68 +125,339 @@ function sendHomePresses(scope: Scope, chosen: () => string): void {
   });
 }
 
+/** Logs unexpected bridge failures while ignoring expected cancellation or unavailability. */
+function isUnexpectedBridgeError(error: unknown): boolean {
+  const failure = error instanceof BridgeError ? error.failure : undefined;
+  return failure !== 'cancelled' && failure !== 'unavailable';
+}
+
+/** Extracts a validated Facebook avatar image URL from an `<image>` or `<img>` element. */
+function avatarSrcFromElement(element: Element | null): string | null {
+  if (!element) {
+    return null;
+  }
+  const raw =
+    element.getAttribute('xlink:href') ??
+    element.getAttribute('href') ??
+    element.getAttribute('src');
+  return raw && isFacebookAddress(raw) ? raw : null;
+}
+
 /**
- * Chooses the feed Facebook's home page shows.
+ * Chooses the feed Facebook's home page shows and gives alternate feeds
+ * (`Friends`, `Favorites`, `Groups`, `Pages`, `Most recent`, `/?sk=h_chr`) the
+ * full responsive Home experience.
  *
- * With a feed other than Facebook's own saved, arriving at the plain home
- * address leads to that feed instead. On a full load that is decided as
- * soon as the options are read, before Facebook draws its own feed, and
- * the address is replaced. A press of a link to the plain home address,
- * such as Home or the logo, is kept from Facebook and goes to the feed
- * through one of Facebook's own links to it when the page has one, so
- * Facebook moves there without a reload, or else by loading it. Any other
- * arrival inside the page, such as Back, replaces the address with the
- * feed's and loads it. Every other address is left alone, including the
- * home address with anything in its query.
- *
- * A menu on the Home button switches between the feeds and saves the one
- * picked. Picking Home saves Facebook's own feed, which is the way back to
- * it.
+ * On live Facebook, plain `/` switches `CometModernHomeFeedQuery` in place
+ * through the page-world bridge so the URL stays `https://www.facebook.com/`
+ * with Facebook's native Home layout, rails, and composer intact. Whenever
+ * in-place switching is unavailable (for example without the bridge), it falls
+ * back to Facebook's `/feeds` query URLs, where our responsive Home rails,
+ * inline composer, and active Home tab state fill in the missing Home chrome.
  */
 export default defineFeature({
   id: 'home_feed',
   options: OPTIONS,
-  setup({ options, scope, child, log }) {
+  setup({ options, page: featurePage, scope, child, log }) {
+    scope.add(addStyle(LAYOUT_STYLE_ID, layoutCss));
+
     const choice: Watched<string> = {
       get: () => options.get('home_feed'),
       subscribe: (listener) => options.watch('home_feed', listener),
     };
     const shown = watchedValue(feedShown(location)?.id ?? null, log);
 
-    /** Takes a person who just arrived at the plain home address to the saved feed. */
-    const arrived = (): void => {
-      const to = destination(location, choice.get());
-      // A return to the plain address just after a move means Facebook sent the person back.
-      if (to !== null && !movedRecently()) {
+    /** True once the page-world `set-home-feed` action confirmed Facebook's Relay loader is live. */
+    let inPlaceCapable = false;
+    /** True while a non-null feedStyle override is installed in page-world `set-home-feed`. */
+    let pageWorldOverrideActive = false;
+    /** Which feed is currently active in-place on `/` (null when not overridden in-place). */
+    let inPlaceFeedId: string | null = null;
+    /** Tracks a pending in-place refresh waiting for `[role=feed]` to mount on `/`. */
+    let pendingFeedWatch: (() => void) | undefined;
+    let arrivalSeq = 0;
+
+    const clearPendingRefresh = (): void => {
+      pendingFeedWatch?.();
+      pendingFeedWatch = undefined;
+    };
+    scope.add(clearPendingRefresh);
+
+    const computeShown = (): string | null => {
+      if (isPlainHome(location) && inPlaceFeedId !== null) {
+        return inPlaceFeedId;
+      }
+      return feedShown(location)?.id ?? null;
+    };
+
+    const syncShown = (): void => {
+      shown.set(computeShown());
+    };
+
+    const fallbackMove = (to: string): void => {
+      if (!movedRecently()) {
         moveTo(to, { replace: true });
       }
     };
+
+    /**
+     * Attempts to configure Facebook's live Home feed stream in place on `/`.
+     * Returns whether Facebook's Home feed module accepted the override.
+     */
+    const applyInPlace = async (
+      feed: FeedEntry,
+      refresh: boolean,
+    ): Promise<{ applied: boolean; refreshed: boolean }> => {
+      try {
+        return await featurePage.bridge.setHomeFeed(feed.feedStyle, refresh);
+      } catch {
+        return { applied: false, refreshed: false };
+      }
+    };
+
+    /** Takes a person who just arrived at the plain home address to the saved feed. */
+    const arrived = (): void => {
+      clearPendingRefresh();
+      const seq = ++arrivalSeq;
+      const savedId = choice.get();
+      const to = destination(location, savedId);
+
+      if (to === null) {
+        if (!isPlainHome(location)) {
+          inPlaceFeedId = null;
+        }
+        syncShown();
+        return;
+      }
+
+      const feed = feedById(savedId);
+
+      const attempt = async (allowDomWait: boolean): Promise<void> => {
+        const result = await applyInPlace(feed, true);
+        if (result.applied) {
+          inPlaceCapable = true;
+          pageWorldOverrideActive = feed.feedStyle !== null;
+        }
+        if (seq !== arrivalSeq || !isPlainHome(location)) {
+          return;
+        }
+        if (result.applied) {
+          inPlaceFeedId = feed.id;
+          syncShown();
+          if (!result.refreshed) {
+            // Facebook's module loader is present, but `[role=feed]` has not
+            // mounted yet. Trigger the live Relay switch as soon as it does.
+            let done = false;
+            const stopFeedWatch = featurePage.watch(featurePage.locate(FEED_CONTAINER), {
+              added: () => {
+                if (done || seq !== arrivalSeq || !isPlainHome(location)) {
+                  return;
+                }
+                done = true;
+                clearPendingRefresh();
+                void applyInPlace(feed, true);
+              },
+            });
+            if (done) {
+              stopFeedWatch();
+            } else {
+              pendingFeedWatch = stopFeedWatch;
+            }
+          }
+          return;
+        }
+        // At `document_start`, Facebook's head scripts may not have defined
+        // `window.require` yet. Wait once for DOMContentLoaded before falling
+        // back to URL redirection.
+        if (allowDomWait && document.readyState === 'loading') {
+          let removeReadyCleanup: (() => void) | undefined;
+          const onReady = (): void => {
+            removeReadyCleanup?.();
+            if (seq === arrivalSeq && isPlainHome(location)) {
+              void attempt(false);
+            }
+          };
+          document.addEventListener('DOMContentLoaded', onReady, { once: true });
+          removeReadyCleanup = scope.add(() =>
+            document.removeEventListener('DOMContentLoaded', onReady),
+          );
+          return;
+        }
+        fallbackMove(to);
+      };
+
+      void attempt(true);
+    };
+
     arrived();
-    scope.add(
-      onUrlChange(() => {
-        shown.set(feedShown(location)?.id ?? null);
-        arrived();
-      }),
-    );
-    // Presses are heard only while a feed of the person's own is saved.
+    scope.add(onUrlChange(arrived));
+
+    // Presses on Home / Logo are redirected only when in-place switching is not active.
     let presses: ReturnType<typeof child> | undefined;
     options.watch('home_feed', (id) => {
       if (id === FACEBOOK_FEED) {
         presses?.scope.dispose();
         presses = undefined;
+        if (inPlaceCapable && pageWorldOverrideActive) {
+          pageWorldOverrideActive = false;
+          inPlaceFeedId = null;
+          void featurePage.bridge.setHomeFeed(null, isPlainHome(location)).catch(() => undefined);
+          syncShown();
+        }
       } else if (!presses) {
         presses = child();
-        sendHomePresses(presses.scope, choice.get);
+        sendHomePresses(presses.scope, choice.get, () => !inPlaceCapable);
       }
     });
 
     const pick = (feed: FeedEntry): void => {
+      if (isPlainHome(location)) {
+        // Clear `pageWorldOverrideActive` before saving `home` so the `home_feed`
+        // watcher does not fire a duplicate `setHomeFeed(null, true)` refetch.
+        if (feed.feedStyle === null) {
+          pageWorldOverrideActive = false;
+          inPlaceFeedId = null;
+        }
+        options.set('home_feed', feed.id).catch((error: unknown) => {
+          log.error('could not save the feed', error);
+        });
+        void applyInPlace(feed, true).then((result) => {
+          if (result.applied && (result.refreshed || feed.feedStyle === null)) {
+            inPlaceCapable = true;
+            pageWorldOverrideActive = feed.feedStyle !== null;
+            inPlaceFeedId = feed.feedStyle === null ? null : feed.id;
+            syncShown();
+            return;
+          }
+          if (!shows(location, feed.address)) {
+            moveTo(feed.address);
+          }
+        });
+        return;
+      }
+
+      if (inPlaceCapable) {
+        // Update page-world `activeFeedStyle` BEFORE navigating back to `/` so
+        // Facebook's route preload uses the newly picked feed (or restores Home).
+        pageWorldOverrideActive = feed.feedStyle !== null;
+        inPlaceFeedId = feed.feedStyle === null ? null : feed.id;
+        options.set('home_feed', feed.id).catch((error: unknown) => {
+          log.error('could not save the feed', error);
+        });
+        void applyInPlace(feed, false).finally(() => {
+          moveTo(HOME_ADDRESS);
+        });
+        return;
+      }
+
       options.set('home_feed', feed.id).catch((error: unknown) => {
         log.error('could not save the feed', error);
       });
+
       if (!shows(location, feed.address)) {
         moveTo(feed.address);
       }
+    };
+
+    /** Marks the top-bar Home link active (blue underline + accent icon) on alternate feeds. */
+    const homeLinks = new Set<Element>();
+    let activeHomeScope: Scope | undefined;
+    const syncHomeActive = (): void => {
+      const prev = activeHomeScope;
+      activeHomeScope = undefined;
+      if (isAlternateHomeFeed(location)) {
+        const next = scope.child();
+        for (const link of homeLinks) {
+          if (link.isConnected && link.getAttribute('aria-current') !== 'page') {
+            markElement(next, link, HOME_ACTIVE);
+          }
+        }
+        activeHomeScope = next;
+      }
+      prev?.dispose();
+    };
+    scope.add(onUrlChange(syncHomeActive));
+
+    featurePage.watch(
+      featurePage.locate(TOP_BAR_HOME),
+      {
+        added: (link) => {
+          homeLinks.add(link);
+          syncHomeActive();
+        },
+        removed: (link) => {
+          homeLinks.delete(link);
+          syncHomeActive();
+        },
+        changed: () => syncHomeActive(),
+      },
+      { attributes: ['aria-current'] },
+    );
+
+    /**
+     * Suppresses Facebook's plain "Home" tooltip whenever a custom Home feed is
+     * saved and the user is hovering/focusing the Home link, so our centered
+     * "Home | <Feed>" tooltip replaces it cleanly without mutating React text.
+     */
+    const isHomeHoveredOrFocused = (): boolean => {
+      for (const link of homeLinks) {
+        if (
+          link.isConnected &&
+          (link.matches(':hover') ||
+            document.activeElement === link ||
+            link.contains(document.activeElement))
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+    let tipWatchScope: Scope | undefined;
+    const syncTooltipSuppression = (): void => {
+      const want = choice.get() !== FACEBOOK_FEED && options.get('home_feed_menu');
+      if (!want) {
+        tipWatchScope?.dispose();
+        tipWatchScope = undefined;
+        return;
+      }
+      if (tipWatchScope) {
+        return;
+      }
+      const next = scope.child();
+      tipWatchScope = next;
+      const releases = new Map<Element, () => void>();
+      const stopTipWatch = featurePage.watch(featurePage.locate(TOOLTIP), {
+        added: (tipEl) => {
+          if (isHomeHoveredOrFocused() && tipEl.textContent?.trim() === 'Home') {
+            releases.set(tipEl, hideElement(next, tipEl));
+          }
+        },
+        removed: (tipEl) => {
+          releases.get(tipEl)?.();
+          releases.delete(tipEl);
+        },
+      });
+      next.add(() => {
+        stopTipWatch();
+        releases.clear();
+      });
+    };
+    options.watch('home_feed', syncTooltipSuppression);
+    options.watch('home_feed_menu', syncTooltipSuppression);
+
+    const toggleFeature = (
+      key: 'home_feed_menu' | 'home_feed_composer' | 'home_feed_rails',
+      run: (page: FacebookPage, subScope: Scope) => void,
+    ): void => {
+      let current: ReturnType<typeof child> | undefined;
+      options.watch(key, (on) => {
+        current?.scope.dispose();
+        current = undefined;
+        if (on) {
+          current = child();
+          run(current.page, current.scope);
+        }
+      });
     };
 
     /** Minimum width of the Home cell at which its inline caret is shown. */
@@ -200,9 +488,6 @@ export default defineFeature({
             break;
           }
         }
-        // Only fall back to the right top bar on pages that have Facebook's
-        // Home button and collapsed it (e.g. <= 700 px), not on full-screen
-        // viewers like Stories that have no Home button at all.
         fallback.set(homePresent && !homeVisible && actionsVisible);
       };
 
@@ -268,35 +553,15 @@ export default defineFeature({
       });
     };
 
-    let menu: ReturnType<typeof child> | undefined;
-    options.watch('home_feed_menu', (on) => {
-      menu?.scope.dispose();
-      menu = undefined;
-      if (on) {
-        menu = child();
-        showMenu(menu.page, menu.scope);
-      }
-    });
-
-    const readAvatarSrc = (page: FacebookPage): string | null => {
-      const element = page.locate(TOP_BAR_AVATAR).first(document);
-      if (!element) {
-        return null;
-      }
-      const raw =
-        element.getAttribute('xlink:href') ??
-        element.getAttribute('href') ??
-        element.getAttribute('src');
-      return raw && isFacebookAddress(raw) ? raw : null;
-    };
+    toggleFeature('home_feed_menu', showMenu);
 
     const showComposer = (page: FacebookPage, composerScope: Scope): void => {
+      const readAvatar = (): string | null =>
+        avatarSrcFromElement(page.locate(TOP_BAR_AVATAR).first(document));
       const state = watchedValue<ComposerState>(
-        { shortName: null, userId: null, avatarSrc: readAvatarSrc(page) },
+        { shortName: null, userId: null, avatarSrc: readAvatar() },
         log,
       );
-      const feeds = new Set<Element>();
-      const mounts = new Map<Element, () => void>();
       let infoLoaded = false;
 
       const updateState = (changes: Partial<ComposerState>): void => {
@@ -324,8 +589,7 @@ export default defineFeature({
             }
           })
           .catch((error: unknown) => {
-            const failure = error instanceof BridgeError ? error.failure : undefined;
-            if (failure !== 'cancelled' && failure !== 'unavailable') {
+            if (isUnexpectedBridgeError(error)) {
               log.debug('could not read user info for post composer', error);
             }
           });
@@ -333,84 +597,193 @@ export default defineFeature({
 
       const openComposer = (mode: ComposerMode): void => {
         void page.bridge.openPostComposer(mode).catch((error: unknown) => {
-          const failure = error instanceof BridgeError ? error.failure : undefined;
-          if (failure !== 'cancelled' && failure !== 'unavailable') {
+          if (isUnexpectedBridgeError(error)) {
             log.error('could not open post composer', error);
           }
         });
       };
 
-      const unmountFeed = (feed: Element): void => {
-        mounts.get(feed)?.();
-        mounts.delete(feed);
-      };
-
-      const unmountAll = (): void => {
-        for (const unmount of mounts.values()) {
-          unmount();
-        }
-        mounts.clear();
-      };
-
-      const syncFeeds = (): void => {
-        if (!isAlternateHomeFeed(location) || page.locate(FEED_COMPOSER).first(document) !== null) {
-          unmountAll();
-          return;
-        }
-        updateState({ avatarSrc: readAvatarSrc(page) });
-        for (const feed of feeds) {
-          if (!feed.isConnected || mounts.has(feed)) {
-            continue;
+      whileOnRoute(composerScope, isAlternateHomeFeed, (routeScope) => {
+        const feedScopes = new Map<Element, Scope>();
+        if (!state.get().avatarSrc) {
+          const initial = readAvatar();
+          if (initial) {
+            updateState({ avatarSrc: initial });
+          } else {
+            let foundAvatar = false;
+            let stopAvatar: (() => void) | undefined;
+            stopAvatar = page.watch(page.locate(TOP_BAR_AVATAR), {
+              added: (el) => {
+                const src = avatarSrcFromElement(el);
+                if (src) {
+                  foundAvatar = true;
+                  updateState({ avatarSrc: src });
+                  stopAvatar?.();
+                }
+              },
+            });
+            if (foundAvatar) {
+              stopAvatar();
+            } else {
+              routeScope.add(stopAvatar);
+            }
           }
-          loadUserInfo(feed);
-          const host = document.createElement(HOST_TAG);
-          host.id = COMPOSER_HOST_ID;
-          host.setAttribute(OWN, '');
-          host.style.display = 'block';
-          host.style.width = '100%';
-          feed.before(host);
-          const unmountUi = renderInShadow(
-            host,
-            <FeedComposer state={state} onOpen={openComposer} />,
-            composerCss,
-          );
-          mounts.set(feed, () => {
-            unmountUi();
-            host.remove();
-          });
         }
-      };
-
-      page.watch(page.locate(FEED_CONTAINER), {
-        added: (feed) => {
-          feeds.add(feed);
-          syncFeeds();
-        },
-        removed: (feed) => {
-          feeds.delete(feed);
-          unmountFeed(feed);
-        },
-      });
-
-      page.watch(page.locate(TOP_BAR_AVATAR), {
-        added: () => updateState({ avatarSrc: readAvatarSrc(page) }),
-      });
-
-      composerScope.add(onUrlChange(syncFeeds));
-      composerScope.add(() => {
-        unmountAll();
-        feeds.clear();
+        const stopFeeds = page.watch(page.locate(FEED_CONTAINER), {
+          added: (feed) => {
+            if (feedScopes.has(feed) || page.locate(FEED_COMPOSER).first(document) !== null) {
+              return;
+            }
+            if (!state.get().avatarSrc) {
+              updateState({ avatarSrc: readAvatar() });
+            }
+            loadUserInfo(feed);
+            const itemScope = routeScope.child();
+            const host = document.createElement(HOST_TAG);
+            host.id = COMPOSER_HOST_ID;
+            host.style.display = 'block';
+            host.style.width = '100%';
+            mountSlot(itemScope, feed, 'before', host);
+            itemScope.add(
+              renderInShadow(
+                host,
+                <FeedComposer state={state} onOpen={openComposer} />,
+                composerCss,
+              ),
+            );
+            feedScopes.set(feed, itemScope);
+          },
+          removed: (feed) => {
+            feedScopes.get(feed)?.dispose();
+            feedScopes.delete(feed);
+          },
+        });
+        routeScope.add(() => {
+          stopFeeds();
+          feedScopes.clear();
+        });
       });
     };
 
-    let composer: ReturnType<typeof child> | undefined;
-    options.watch('home_feed_composer', (on) => {
-      composer?.scope.dispose();
-      composer = undefined;
-      if (on) {
-        composer = child();
-        showComposer(composer.page, composer.scope);
-      }
-    });
+    toggleFeature('home_feed_composer', showComposer);
+
+    /**
+     * Replaces Facebook's fixed Feeds left sidebar with responsive Home left
+     * and right rails on alternate feed URLs (`/?filter=...&sk=h_chr`, `/?sk=h_chr`).
+     */
+    const showHomeRails = (page: FacebookPage, railsScope: Scope): void => {
+      whileOnRoute(railsScope, isAlternateHomeFeed, (routeScope) => {
+        const mainScopes = new Map<Element, Scope>();
+        const mains = new Set<Element>();
+
+        const mountRailSlot = (
+          itemScope: Scope,
+          main: Element,
+          spec: {
+            id: string;
+            role: string;
+            ariaLabel: string;
+            placement: 'before' | 'after';
+            label: string;
+            mount: (slot: Element, signal: AbortSignal) => Promise<(() => void) | null>;
+            onMounted?: (slotScope: Scope) => void;
+          },
+        ): void => {
+          const slotScope = itemScope.child();
+          const slot = document.createElement('div');
+          slot.id = spec.id;
+          slot.setAttribute('role', spec.role);
+          slot.setAttribute('aria-label', spec.ariaLabel);
+          mountSlot(slotScope, main, spec.placement, slot);
+          const controller = new AbortController();
+          slotScope.add(() => controller.abort());
+          void spec
+            .mount(slot, controller.signal)
+            .then((handle) => {
+              if (!handle) {
+                // Remove empty slot if Facebook's rail declined to mount.
+                slotScope.dispose();
+                return;
+              }
+              slotScope.add(handle);
+              if (!slotScope.disposed) {
+                spec.onMounted?.(slotScope);
+              }
+            })
+            .catch((error: unknown) => {
+              slotScope.dispose();
+              if (isUnexpectedBridgeError(error)) {
+                log.debug(`could not mount ${spec.label}`, error);
+              }
+            });
+        };
+
+        const tryAttach = (main: Element): void => {
+          if (mainScopes.has(main)) {
+            return;
+          }
+          const parent = main.parentElement;
+          const feedsLeftRail = findFeedsLeftRail(main, page.locate);
+          if (!parent || !feedsLeftRail) {
+            return;
+          }
+          const itemScope = routeScope.child();
+          markElement(itemScope, parent, HOME_LAYOUT);
+
+          mountRailSlot(itemScope, main, {
+            id: LEFT_RAIL_ID,
+            role: 'navigation',
+            ariaLabel: 'Shortcuts',
+            placement: 'before',
+            label: 'home left rail',
+            mount: (slot, signal) => page.bridge.mountHomeLeftRail(slot, signal),
+            onMounted: (slotScope) => {
+              // Only hide Facebook's native Feeds sidebar once our replacement
+              // Home left rail actually mounted, so a bridge failure never
+              // leaves the user without navigation.
+              hideElement(slotScope, feedsLeftRail);
+            },
+          });
+          mountRailSlot(itemScope, main, {
+            id: RIGHT_RAIL_ID,
+            role: 'complementary',
+            ariaLabel: 'Sidebar',
+            placement: 'after',
+            label: 'home right rail',
+            mount: (slot, signal) => page.bridge.mountHomeRightRail(slot, signal),
+          });
+
+          mainScopes.set(main, itemScope);
+        };
+
+        const stopMain = page.watch(page.locate(FEED_MAIN), {
+          added: (main) => {
+            mains.add(main);
+            tryAttach(main);
+          },
+          removed: (main) => {
+            mains.delete(main);
+            mainScopes.get(main)?.dispose();
+            mainScopes.delete(main);
+          },
+        });
+        // Also retry when the fixed Feeds sidebar mounts after `[role=main]`.
+        const stopNav = page.watch(page.locate(FEEDS_LEFT_RAIL), {
+          added: () => {
+            for (const main of mains) {
+              tryAttach(main);
+            }
+          },
+        });
+        routeScope.add(() => {
+          stopMain();
+          stopNav();
+          mains.clear();
+          mainScopes.clear();
+        });
+      });
+    };
+
+    toggleFeature('home_feed_rails', showHomeRails);
   },
 });

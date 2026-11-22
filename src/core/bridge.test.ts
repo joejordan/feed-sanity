@@ -76,6 +76,7 @@ describe('PageBridge', () => {
       readers: [],
       toggles: [],
       actions: [],
+      mounts: [],
     });
     expect(install).not.toHaveBeenCalled();
   });
@@ -92,6 +93,7 @@ describe('PageBridge', () => {
       readers: ['tag'],
       toggles: [],
       actions: [],
+      mounts: [],
     });
     expect(states).toEqual(['connecting', 'connected']);
     expect(errors).not.toHaveBeenCalled();
@@ -151,6 +153,7 @@ describe('PageBridge', () => {
       readers: [],
       toggles: [],
       actions: [],
+      mounts: [],
     });
     expect(errors).toHaveBeenCalledTimes(1);
   });
@@ -264,6 +267,7 @@ describe('PageBridge', () => {
       readers: ['tag'],
       toggles: [],
       actions: [],
+      mounts: [],
     });
   });
 
@@ -309,6 +313,85 @@ describe('PageBridge', () => {
     expect(received).toEqual([{ mode: 'feeling' }]);
     expect(bridge.status().actions).toEqual(['open']);
     await expect(bridge.run('missing')).rejects.toMatchObject({ failure: 'failed' });
+  });
+
+  it('mounts a lifecycle-managed target and auto-unmounts on explicit release or DOM disconnect', async () => {
+    const unmounts: string[] = [];
+    const bridge = make(
+      () => {
+        servePageWorld(
+          {},
+          {},
+          {},
+          {
+            rail: (target) => {
+              target.setAttribute('data-mounted', 'yes');
+              return () => {
+                unmounts.push(target.id);
+                target.removeAttribute('data-mounted');
+              };
+            },
+          },
+        );
+        return Promise.resolve();
+      },
+      { log },
+    );
+
+    const a = document.createElement('div');
+    a.id = 'a';
+    const b = document.createElement('div');
+    b.id = 'b';
+    document.body.append(a, b);
+
+    const releaseA = await bridge.mount(a, 'rail');
+    const releaseB = await bridge.mount(b, 'rail');
+    expect(releaseA).toBeTypeOf('function');
+    expect(releaseB).toBeTypeOf('function');
+    expect(a.getAttribute('data-mounted')).toBe('yes');
+    expect(bridge.status().mounts).toEqual(['rail']);
+
+    // Double release is idempotent.
+    releaseA?.();
+    releaseA?.();
+    await vi.waitFor(() => expect(unmounts).toEqual(['a']));
+    expect(a.hasAttribute('data-mounted')).toBe(false);
+
+    // Removing `b` from the DOM triggers the page-world disconnect guard.
+    b.remove();
+    await vi.waitFor(() => expect(unmounts).toEqual(['a', 'b']));
+    releaseB?.();
+    expect(unmounts).toEqual(['a', 'b']);
+  });
+
+  it('handles mount decline (null), throwing mounts, unknown mounts, and detached elements', async () => {
+    const bridge = make(
+      () => {
+        servePageWorld(
+          {},
+          {},
+          {},
+          {
+            declining: () => null,
+            broken: () => {
+              throw new Error('boom');
+            },
+          },
+        );
+        return Promise.resolve();
+      },
+      { log },
+    );
+    const connected = document.createElement('div');
+    const detached = document.createElement('div');
+    document.body.append(connected);
+
+    expect(await bridge.mount(connected, 'declining')).toBeNull();
+    await expect(bridge.mount(connected, 'broken')).rejects.toMatchObject({ failure: 'failed' });
+    await expect(bridge.mount(connected, 'missing')).rejects.toMatchObject({ failure: 'failed' });
+    await expect(bridge.mount(detached, 'declining')).rejects.toMatchObject({
+      failure: 'detached',
+    });
   });
 
   it('listens for a late page-world side only while it connects', async () => {

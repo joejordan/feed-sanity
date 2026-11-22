@@ -5,10 +5,13 @@ import {
   askEvent,
   CONNECT_EVENT,
   connectedEvent,
+  isPlainObject,
   messageEvent,
+  mountEvent,
   READY_EVENT,
   readMessage,
   toggleEvent,
+  unmountEvent,
 } from './bridge-protocol';
 import { Listeners } from './listeners';
 import { createLogger, messageOf } from './log';
@@ -31,6 +34,8 @@ export interface BridgeStatus {
   readonly toggles: readonly string[];
   /** The actions the page-world side offers, once connected. */
   readonly actions: readonly string[];
+  /** The lifecycle-managed mounts the page-world side offers, once connected. */
+  readonly mounts: readonly string[];
 }
 
 /** Why a question got no answer. */
@@ -43,7 +48,7 @@ export type BridgeFailure =
   | 'cancelled'
   /** The element was not in the page, where the page-world side cannot hear about it. */
   | 'detached'
-  /** The page-world side has no such reader or toggle, or it failed. */
+  /** The page-world side has no such reader, toggle, action or mount, or it failed. */
   | 'failed';
 
 export class BridgeError extends Error {
@@ -68,6 +73,7 @@ const NOT_STARTED: BridgeStatus = {
   readers: [],
   toggles: [],
   actions: [],
+  mounts: [],
 };
 
 const cancelled = (): BridgeError => new BridgeError('cancelled', 'the question was withdrawn');
@@ -76,23 +82,23 @@ const isStringList = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((name) => typeof name === 'string');
 
 /**
- * The content side of the page-world bridge: asks questions about an element
- * or switches a named toggle that only code in the page's own world can reach,
- * such as what React or Facebook's module loader keeps on the page.
+ * The content side of the page-world bridge: asks questions about an element,
+ * switches a named toggle, runs a named action, or mounts a native page-world
+ * component that only code in the page's own world can reach.
  *
  * The other side, `servePageWorld` in `src/core/page-world.ts`, holds named
- * readers and toggles. `install`, which comes from the build's `Platform`,
- * puts it in the page. The two sides find each other through a fixed pair of
- * events, then talk on a channel whose names are random for each page load.
- * Questions and answers are events on the element asked about (or `document`
- * for toggles), so elements are never copied, and their `detail` is a JSON
- * string.
+ * readers, toggles, actions and mounts. `install`, which comes from the
+ * build's `Platform`, puts it in the page. The two sides find each other
+ * through a fixed pair of events, then talk on a channel whose names are
+ * random for each page load. Questions and answers are events on the element
+ * asked about (or `document` for toggles, actions and unmounts), so elements
+ * are never copied, and their `detail` is a JSON string.
  *
  * The page can see and send these events too, so an answer is data to check
  * before use, never something to trust.
  *
- * Nothing happens until the first `ask`, `set` or `onStatus`. If the
- * page-world side cannot be put in the page, or does not answer within
+ * Nothing happens until the first `ask`, `set`, `run`, `mount` or `onStatus`.
+ * If the page-world side cannot be put in the page, or does not answer within
  * `connectMs`, the bridge is unavailable for the rest of the page load. That
  * is logged once, and every call fails at once with `unavailable`.
  */
@@ -143,22 +149,7 @@ export class PageBridge {
    * caller must check, or rejects with a `BridgeError`.
    */
   async ask(element: Element, reader: string, signal?: AbortSignal): Promise<unknown> {
-    await this.#settledOrAborted(signal);
-    // It may have been aborted while the wait above was resolving, and a
-    // listener added to an aborted signal is never called.
-    if (signal?.aborted) {
-      throw cancelled();
-    }
-    const { state, readers } = this.#status;
-    if (state !== 'connected') {
-      throw new BridgeError('unavailable', 'the page-world bridge is unavailable');
-    }
-    if (!readers.includes(reader)) {
-      throw new BridgeError('failed', `the page-world side has no reader called ${reader}`);
-    }
-    if (!element.isConnected) {
-      throw new BridgeError('detached', 'the element is not in the page');
-    }
+    await this.#ensureReady('readers', 'reader', reader, signal, element);
     return this.#send(
       element,
       askEvent(this.#channel),
@@ -174,17 +165,7 @@ export class PageBridge {
    * rejects with a `BridgeError`.
    */
   async set(toggle: string, enabled: boolean, signal?: AbortSignal): Promise<unknown> {
-    await this.#settledOrAborted(signal);
-    if (signal?.aborted) {
-      throw cancelled();
-    }
-    const { state, toggles } = this.#status;
-    if (state !== 'connected') {
-      throw new BridgeError('unavailable', 'the page-world bridge is unavailable');
-    }
-    if (!toggles.includes(toggle)) {
-      throw new BridgeError('failed', `the page-world side has no toggle called ${toggle}`);
-    }
+    await this.#ensureReady('toggles', 'toggle', toggle, signal);
     return this.#send(
       document,
       toggleEvent(this.#channel),
@@ -204,17 +185,7 @@ export class PageBridge {
     payload: Record<string, unknown> = {},
     signal?: AbortSignal,
   ): Promise<unknown> {
-    await this.#settledOrAborted(signal);
-    if (signal?.aborted) {
-      throw cancelled();
-    }
-    const { state, actions } = this.#status;
-    if (state !== 'connected') {
-      throw new BridgeError('unavailable', 'the page-world bridge is unavailable');
-    }
-    if (!actions.includes(action)) {
-      throw new BridgeError('failed', `the page-world side has no action called ${action}`);
-    }
+    await this.#ensureReady('actions', 'action', action, signal);
     return this.#send(
       document,
       actionEvent(this.#channel),
@@ -222,6 +193,70 @@ export class PageBridge {
       `the ${action} action`,
       signal,
     );
+  }
+
+  /**
+   * Mounts the named page-world component `mount` into `element` (which must
+   * be connected in the DOM). Resolves with an idempotent unmount function, or
+   * null when the mount declined to start. Rejects with a `BridgeError` when
+   * the bridge is unavailable or the mount failed.
+   */
+  async mount(
+    element: Element,
+    mount: string,
+    payload: Record<string, unknown> = {},
+    signal?: AbortSignal,
+  ): Promise<(() => void) | null> {
+    await this.#ensureReady('mounts', 'mount', mount, signal, element);
+    const answer = await this.#send(
+      element,
+      mountEvent(this.#channel),
+      (id) => ({ id, mount, payload }),
+      `the ${mount} mount`,
+      signal,
+    );
+    if (!isPlainObject(answer) || typeof answer.mountId !== 'number') {
+      return null;
+    }
+    const { mountId } = answer;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      void this.#send(
+        document,
+        unmountEvent(this.#channel),
+        (id) => ({ id, mountId }),
+        `unmounting ${mount}`,
+        undefined,
+      ).catch(() => undefined);
+    };
+  }
+
+  async #ensureReady(
+    listKey: 'readers' | 'toggles' | 'actions' | 'mounts',
+    kind: string,
+    name: string,
+    signal: AbortSignal | undefined,
+    element?: Element,
+  ): Promise<void> {
+    await this.#settledOrAborted(signal);
+    // It may have been aborted while the wait above was resolving, and a
+    // listener added to an aborted signal is never called.
+    if (signal?.aborted) {
+      throw cancelled();
+    }
+    if (this.#status.state !== 'connected') {
+      throw new BridgeError('unavailable', 'the page-world bridge is unavailable');
+    }
+    if (!this.#status[listKey].includes(name)) {
+      throw new BridgeError('failed', `the page-world side has no ${kind} called ${name}`);
+    }
+    if (element && !element.isConnected) {
+      throw new BridgeError('detached', 'the element is not in the page');
+    }
   }
 
   /** Waits for the bridge to connect or fail, and rejects as soon as `signal` aborts. */
@@ -254,8 +289,14 @@ export class PageBridge {
     const id = this.#nextId++;
     const type = answerEvent(this.#channel);
     return new Promise((resolve, reject) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const end = (): void => {
-        clearTimeout(timer);
+        settled = true;
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
         target.removeEventListener(type, heard);
         signal?.removeEventListener('abort', aborted);
       };
@@ -275,13 +316,17 @@ export class PageBridge {
         end();
         reject(cancelled());
       };
-      const timer = setTimeout(() => {
-        end();
-        reject(new BridgeError('timeout', `${label} did not answer in time`));
-      }, this.#answerMs);
       target.addEventListener(type, heard);
-      signal?.addEventListener('abort', aborted);
       target.dispatchEvent(messageEvent(requestType, payload(id)));
+      // `servePageWorld` answers synchronously during `dispatchEvent`; skip
+      // allocating a timer and abort listener in that common path.
+      if (!settled) {
+        timer = setTimeout(() => {
+          end();
+          reject(new BridgeError('timeout', `${label} did not answer in time`));
+        }, this.#answerMs);
+        signal?.addEventListener('abort', aborted);
+      }
     });
   }
 
@@ -297,7 +342,7 @@ export class PageBridge {
 
   #connect(): Promise<void> {
     this.#channel = `feed-sanity-${crypto.randomUUID()}`;
-    this.#update({ state: 'connecting', problem: null, readers: [], toggles: [], actions: [] });
+    this.#update({ ...NOT_STARTED, state: 'connecting' });
     const connected = connectedEvent(this.#channel);
     const hello = (): void => {
       document.dispatchEvent(messageEvent(CONNECT_EVENT, { channel: this.#channel }));
@@ -317,16 +362,18 @@ export class PageBridge {
         resolve();
       };
       const unavailable = (problem: string): void =>
-        end({ state: 'unavailable', problem, readers: [], toggles: [], actions: [] });
+        end({ ...NOT_STARTED, state: 'unavailable', problem });
       const heard = (event: Event): void => {
         const message = readMessage(event);
         const readers = message?.readers;
         const toggles = message?.toggles;
         const actions = message?.actions;
+        const mounts = message?.mounts;
         if (
           isStringList(readers) &&
           (toggles === undefined || isStringList(toggles)) &&
-          (actions === undefined || isStringList(actions))
+          (actions === undefined || isStringList(actions)) &&
+          (mounts === undefined || isStringList(mounts))
         ) {
           end({
             state: 'connected',
@@ -334,6 +381,7 @@ export class PageBridge {
             readers,
             toggles: toggles ?? [],
             actions: actions ?? [],
+            mounts: mounts ?? [],
           });
         }
       };

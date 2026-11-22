@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { checkSponsored, postSponsored } from './sponsored';
+import { checkSponsored, postSponsored, rightRailSponsored, rightRailUnits } from './sponsored';
 
 describe('checkSponsored', () => {
   it('takes the answer when it is true or false', () => {
@@ -32,5 +32,27 @@ describe('postSponsored', () => {
 
     expect(await postSponsored({ ask }, post, signal)).toBe(true);
     expect(ask).toHaveBeenCalledWith(post, 'post-sponsored', signal);
+  });
+});
+
+describe('rightRailSponsored & rightRailUnits', () => {
+  it('asks the right-rail-sponsored reader and checks the answer', async () => {
+    const ask = vi.fn(() => Promise.resolve({ sponsored: true }));
+    const unit = document.createElement('div');
+    const signal = new AbortController().signal;
+
+    expect(await rightRailSponsored({ ask }, unit, signal)).toBe(true);
+    expect(ask).toHaveBeenCalledWith(unit, 'right-rail-sponsored', signal);
+  });
+
+  it('descends single-child wrappers to find card siblings and skips single-child placeholders', () => {
+    const rail = document.createElement('div');
+    rail.innerHTML =
+      '<div><div><div id="ad">Sponsored</div><div id="bday">Birthdays</div></div></div>';
+    expect(rightRailUnits(rail).map((el) => el.id)).toEqual(['ad', 'bday']);
+
+    const loadingRail = document.createElement('div');
+    loadingRail.innerHTML = '<div><div><div></div></div></div>';
+    expect(rightRailUnits(loadingRail)).toEqual([]);
   });
 });

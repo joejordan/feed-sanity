@@ -254,3 +254,122 @@ test('shows the inline post composer on alternate Home feeds and opens the nativ
   await store({ [OPTIONS_KEY]: { home_feed_composer: false } });
   await expect(composerHost).toHaveCount(0);
 });
+
+test('marks the Home tab active on alternate feeds and shows "Home | <Feed>" tooltip', async ({
+  page,
+  store,
+}) => {
+  await store({ [OPTIONS_KEY]: { home_feed: 'friends' } });
+  await page.goto(FRIENDS);
+  // Real Facebook removes aria-current="page" from Home on alternate feeds.
+  await page.evaluate(() => document.querySelector('#home')?.removeAttribute('aria-current'));
+
+  const home = homeLink(page);
+  await expect(home).toHaveAttribute('data-feed-sanity-home-active', '');
+
+  // Hovering the Home link shows our custom "Home | Friends" tooltip.
+  await home.hover();
+  await expect(page.getByRole('tooltip')).toHaveText('Home | Friends');
+});
+
+test('replaces the fixed Feeds sidebar with responsive Home rails on narrow viewports', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await page.goto(FRIENDS);
+
+  // Provide Facebook's page-world Home rail modules and add a realistic Feeds
+  // shell with a fixed 360 px navigation sibling and min-width: 900px.
+  await page.evaluate(() => {
+    const win = globalThis as unknown as Record<string, unknown>;
+    const LeftRail = () => 'Home Left Rail';
+    const RightRail = () => 'Birthdays';
+    class FakeComponent {
+      props: Record<string, unknown>;
+      state = { failed: false };
+      constructor(props: Record<string, unknown>) {
+        this.props = props;
+      }
+    }
+    const modules: Record<string, unknown> = {
+      'CometHomeRoot.entrypoint': {
+        root: { load: () => Promise.resolve() },
+        getPreloadProps: () => ({
+          queries: {
+            leftRailContainerQueryReference: { parameters: { id: 'lr' }, variables: {} },
+            rightSideHeaderCardsQueryReference: { parameters: { id: 'rr' }, variables: {} },
+          },
+        }),
+      },
+      CometRelay: {
+        useRelayEnvironment: () => ({}),
+        loadQuery: () => ({ dispose: () => undefined }),
+      },
+      'CometClassicHomeLeftRailContainer.react': LeftRail,
+      'CometHomeRightRail.react': RightRail,
+      react: {
+        createElement: (type: unknown, props: unknown, ...children: unknown[]) => ({
+          type,
+          props,
+          children,
+        }),
+        useMemo: <T>(fn: () => T) => fn(),
+        useEffect: () => undefined,
+        Component: FakeComponent,
+        Suspense: 'Suspense',
+      },
+      ReactDOM: {
+        createRoot: (target: HTMLElement) => ({
+          render: () => {
+            target.textContent =
+              target.id === 'feed_sanity_home_left_rail' ? 'Shortcuts' : 'Birthdays';
+          },
+          unmount: () => {
+            target.textContent = '';
+          },
+        }),
+      },
+    };
+    win.require = (name: string) => modules[name];
+
+    const main = document.querySelector('[role=main]');
+    if (!main || !main.parentElement) {
+      return;
+    }
+    const shell = document.createElement('div');
+    shell.id = 'e2e-feeds-shell';
+    shell.style.display = 'flex';
+    shell.style.minWidth = '900px';
+    const fixedNav = document.createElement('div');
+    fixedNav.id = 'e2e-fixed-feeds-nav';
+    fixedNav.setAttribute('role', 'navigation');
+    fixedNav.style.width = '360px';
+    fixedNav.textContent = 'Feeds';
+    main.parentElement.insertBefore(shell, main);
+    shell.append(fixedNav, main);
+  });
+
+  const leftRail = page.locator('#feed_sanity_home_left_rail');
+  const rightRail = page.locator('#feed_sanity_home_right_rail');
+  await expect(page.locator('#e2e-feeds-shell')).toHaveAttribute(
+    'data-feed-sanity-home-layout',
+    '',
+  );
+  await expect(page.locator('#e2e-fixed-feeds-nav')).toBeHidden();
+  await expect(leftRail).toBeVisible();
+  await expect(rightRail).toBeVisible();
+
+  // Below 1100 px: left rail disappears, right rail stays visible.
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await expect(leftRail).toBeHidden();
+  await expect(rightRail).toBeVisible();
+
+  // Below 900 px: right rail disappears too and page has no horizontal overflow.
+  await page.setViewportSize({ width: 760, height: 800 });
+  await expect(leftRail).toBeHidden();
+  await expect(rightRail).toBeHidden();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+});

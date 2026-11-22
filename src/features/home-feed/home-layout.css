@@ -1,0 +1,90 @@
+/*
+ * Page-level layout and state styles for `home_feed`:
+ * 1. Responsive 3-column Home layout on alternate feed URLs matching
+ *    Facebook's own `CometHomeLayout` breakpoints (left rail <= 1099 px,
+ *    right rail <= 899 px, zero min-width overflow).
+ * 2. Active blue underline and accent icon on the top-bar Home tab whenever
+ *    an alternate Home feed is shown.
+ * 3. Suppressing Facebook's plain "Home" tooltip while Feed Sanity displays
+ *    the customized "Home | <Feed>" tooltip.
+ */
+
+[data-feed-sanity-home-layout] {
+  min-width: 0 !important;
+}
+
+#feed_sanity_home_left_rail,
+#feed_sanity_home_right_rail {
+  position: sticky;
+  top: 56px;
+  flex: 0 9999 360px;
+  min-width: 280px;
+  max-width: 360px;
+  height: calc(100vh - 56px);
+  max-height: calc(100vh - 56px);
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+#feed_sanity_home_left_rail {
+  padding-top: 16px;
+}
+
+#feed_sanity_home_right_rail {
+  padding-top: 8px;
+}
+
+[data-feed-sanity-home-layout] > [role="main"] {
+  flex: 1 1 744px;
+  min-width: 0 !important;
+  max-width: 100%;
+}
+
+/* Keep the 680 px feed column and inline composer inside narrow viewports. */
+[data-feed-sanity-home-layout] [role="feed"],
+[data-feed-sanity-home-layout] [role="main"] > div {
+  max-width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 1099px) {
+  #feed_sanity_home_left_rail,
+  [data-feed-sanity-home-layout] > [role="navigation"]:not([data-feed-sanity]) {
+    display: none;
+  }
+}
+
+@media (max-width: 899px) {
+  #feed_sanity_home_right_rail {
+    display: none;
+  }
+
+  [data-feed-sanity-home-layout] > [role="main"] [role="main"] {
+    padding-inline: 0 !important;
+  }
+}
+
+/* Active state on the top-bar Home link when viewing an alternate Home feed. */
+a[data-feed-sanity-home-active] {
+  position: relative;
+}
+
+a[data-feed-sanity-home-active] svg {
+  color: var(--accent, #0866ff) !important;
+  fill: var(--accent, #0866ff) !important;
+}
+
+a[data-feed-sanity-home-active]::after {
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  left: 2px;
+  height: 3px;
+  border-radius: 1px 1px 0 0;
+  background: var(--accent, #0866ff);
+  content: "";
+  pointer-events: none;
+}

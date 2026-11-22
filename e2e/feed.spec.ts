@@ -179,6 +179,11 @@ test('opens the options dialog from the toolbar button', async ({ page, pressToo
     dialog(page).getByRole('checkbox', { name: 'Post box on other feeds' }),
   ).toBeVisible();
   await expect(
+    dialog(page).getByRole('checkbox', {
+      name: 'Home sidebars and responsive layout on other feeds',
+    }),
+  ).toBeVisible();
+  await expect(
     dialog(page).getByRole('checkbox', { name: 'Stop automatic feed refresh' }),
   ).toBeVisible();
 

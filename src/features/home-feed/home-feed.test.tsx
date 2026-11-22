@@ -7,7 +7,7 @@ import { startFeatures } from '../../core/app';
 import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { bindPage } from '../../facebook/feature';
-import { FakeResizeObserver, placeAt, videoPage } from '../../facebook/testing';
+import { FakeResizeObserver, placeAt, testBridge, videoPage } from '../../facebook/testing';
 import { extensionStore } from '../../platform/extension-store';
 import { HOST_TAG } from '../../ui/mount';
 import homeFeed from '.';
@@ -90,6 +90,7 @@ describe('home_feed', () => {
       await each.set('home_feed', 'home');
       await each.set('home_feed_menu', false);
       await each.set('home_feed_composer', false);
+      await each.set('home_feed_rails', false);
     }
     vi.unstubAllGlobals();
   });
@@ -107,7 +108,7 @@ describe('home_feed', () => {
     it('replaces a full load of the plain home address with the saved feed', async () => {
       await start({ home_feed: 'friends' });
 
-      expect(replace).toHaveBeenCalledExactlyOnceWith(FRIENDS);
+      await vi.waitFor(() => expect(replace).toHaveBeenCalledExactlyOnceWith(FRIENDS));
     });
 
     it("leaves the load alone with Facebook's own feed saved, or on another address", async () => {
@@ -135,7 +136,9 @@ describe('home_feed', () => {
       history.pushState({}, '', '/');
       dispatchEvent(new PopStateEvent('popstate'));
 
-      expect(replace).toHaveBeenCalledExactlyOnceWith('/?filter=pages&sk=h_chr');
+      await vi.waitFor(() =>
+        expect(replace).toHaveBeenCalledExactlyOnceWith('/?filter=pages&sk=h_chr'),
+      );
     });
   });
 
@@ -347,6 +350,159 @@ describe('home_feed', () => {
       await start();
       const actionShadow = actions.parentElement?.querySelector(`:scope > ${HOST_TAG}`)?.shadowRoot;
       expect(actionShadow?.querySelector(`[aria-label="${CARET_NAME}"]`)).toBeNull();
+    });
+
+    it('marks the Home link active on alternate feeds and shows "Home | <Feed>" tooltip', async () => {
+      history.replaceState({}, '', FRIENDS);
+      await start({ home_feed: 'friends' });
+      await caretShown();
+
+      expect(homeLink().hasAttribute('data-feed-sanity-home-active')).toBe(true);
+
+      // Hovering the Home link shows "Home | Friends" after the tooltip delay.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await userEvent.hover(homeLink());
+      await vi.waitFor(() => {
+        const tip = shadow()?.querySelector('[role=tooltip]');
+        expect(tip?.textContent).toBe('Home | Friends');
+      });
+    });
+
+    it('switches feeds in place on / without changing URL when set-home-feed is available', async () => {
+      const calls: Record<string, unknown>[] = [];
+      const bridge = testBridge(
+        {},
+        undefined,
+        {},
+        {
+          'set-home-feed': (payload) => {
+            calls.push(payload);
+            return { applied: true, refreshed: true };
+          },
+        },
+      );
+      user++;
+      await browser.storage.local.set({ [`${user}/options`]: { home_feed: 'friends' } });
+      options = new Options(extensionStore, `${user}/options`);
+      started.push(options);
+      expect(
+        await startFeatures(
+          [homeFeed],
+          options,
+          bindPage(videoPage(bridge)),
+          new SavedData(extensionStore, String(user)),
+        ),
+      ).toEqual([]);
+
+      await vi.waitFor(() => expect(calls).toContainEqual({ feedStyle: 17, refresh: true }));
+      // Let `arrived()` finish its post-bridge state update before leaving `/`.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(replace).not.toHaveBeenCalled();
+      expect(location.pathname).toBe('/');
+
+      // Navigating off `/` and switching back to Home must still clear page-world activeFeedStyle.
+      history.pushState({}, '', '/watch/');
+      globalThis.dispatchEvent(new PopStateEvent('popstate'));
+      await options.set('home_feed', 'home');
+      await vi.waitFor(() => expect(calls).toContainEqual({ feedStyle: null, refresh: false }));
+    });
+
+    it('replaces the fixed Feeds left sidebar with responsive Home left and right rails', async () => {
+      history.replaceState({}, '', FRIENDS);
+      document.body.innerHTML = `
+        ${PAGE}
+        <div id="shell" style="display: flex; min-width: 900px">
+          <div role="navigation" id="feeds-rail"><a href="${FRIENDS}">Friends</a></div>
+          <div role="main"><div role="feed"></div></div>
+        </div>`;
+      const mounted: string[] = [];
+      const unmounted: string[] = [];
+      const bridge = testBridge(
+        {},
+        undefined,
+        {},
+        {},
+        {
+          'home-left-rail': (target) => {
+            mounted.push(`left:${target.id}`);
+            return () => unmounted.push(`left:${target.id}`);
+          },
+          'home-right-rail': (target) => {
+            mounted.push(`right:${target.id}`);
+            return () => unmounted.push(`right:${target.id}`);
+          },
+        },
+      );
+      user++;
+      options = new Options(extensionStore, `${user}/options`);
+      started.push(options);
+      expect(
+        await startFeatures(
+          [homeFeed],
+          options,
+          bindPage(videoPage(bridge)),
+          new SavedData(extensionStore, String(user)),
+        ),
+      ).toEqual([]);
+
+      const shell = document.querySelector('#shell') as HTMLElement;
+      const feedsRail = document.querySelector('#feeds-rail') as HTMLElement;
+      expect(shell.hasAttribute('data-feed-sanity-home-layout')).toBe(true);
+      await vi.waitFor(() => {
+        expect(mounted).toEqual([
+          'left:feed_sanity_home_left_rail',
+          'right:feed_sanity_home_right_rail',
+        ]);
+        expect(feedsRail.getAttribute('data-feed-sanity-hidden')).toBe('none');
+      });
+      expect(document.querySelector('#feed_sanity_home_left_rail')).not.toBeNull();
+      expect(document.querySelector('#feed_sanity_home_right_rail')).not.toBeNull();
+
+      // Turning the option off restores the shell and unmounts both rails cleanly.
+      await options.set('home_feed_rails', false);
+      expect(shell.hasAttribute('data-feed-sanity-home-layout')).toBe(false);
+      expect(feedsRail.hasAttribute('data-feed-sanity-hidden')).toBe(false);
+      expect(document.querySelector('#feed_sanity_home_left_rail')).toBeNull();
+      expect(document.querySelector('#feed_sanity_home_right_rail')).toBeNull();
+      await vi.waitFor(() => expect(unmounted).toHaveLength(2));
+    });
+
+    it('keeps Facebook Feeds sidebar visible and removes empty slots when rail mounting declines', async () => {
+      history.replaceState({}, '', FRIENDS);
+      document.body.innerHTML = `
+        ${PAGE}
+        <div id="shell" style="display: flex; min-width: 900px">
+          <div role="navigation" id="feeds-rail"><a href="${FRIENDS}">Friends</a></div>
+          <div role="main"><div role="feed"></div></div>
+        </div>`;
+      const bridge = testBridge(
+        {},
+        undefined,
+        {},
+        {},
+        {
+          'home-left-rail': () => null,
+          'home-right-rail': () => null,
+        },
+      );
+      user++;
+      options = new Options(extensionStore, `${user}/options`);
+      started.push(options);
+      expect(
+        await startFeatures(
+          [homeFeed],
+          options,
+          bindPage(videoPage(bridge)),
+          new SavedData(extensionStore, String(user)),
+        ),
+      ).toEqual([]);
+
+      const feedsRail = document.querySelector('#feeds-rail') as HTMLElement;
+      await vi.waitFor(() => {
+        expect(document.querySelector('#feed_sanity_home_left_rail')).toBeNull();
+        expect(document.querySelector('#feed_sanity_home_right_rail')).toBeNull();
+      });
+      expect(feedsRail.hasAttribute('data-feed-sanity-hidden')).toBe(false);
     });
   });
 });

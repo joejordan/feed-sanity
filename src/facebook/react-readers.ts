@@ -44,11 +44,18 @@ const isObject = (value: unknown): value is Loose => typeof value === 'object' &
 const text = (value: unknown): string | null =>
   typeof value === 'string' && value.length > 0 ? value : null;
 
+let cachedFiberKey: string | undefined;
+
 /** The fiber React keeps on `element`, if it keeps one. */
 function fiberOf(element: Element): unknown {
+  const host = element as unknown as Loose;
+  if (cachedFiberKey && cachedFiberKey in host) {
+    return host[cachedFiberKey];
+  }
   for (const key of Object.keys(element)) {
     if (key.startsWith(FIBER_PREFIX)) {
-      return (element as unknown as Loose)[key];
+      cachedFiberKey = key;
+      return host[key];
     }
   }
   return undefined;
@@ -160,9 +167,79 @@ export function readComposerInfo(): ComposerInfoAnswer | null {
   }
 }
 
+/** The reader that says whether a Right Rail card unit is a Sponsored ad unit. */
+export const RIGHT_RAIL_SPONSORED = 'right-rail-sponsored';
+
+const MAX_RIGHT_RAIL_UP = 6;
+const MAX_RIGHT_RAIL_DEPTH = 16;
+const MAX_RIGHT_RAIL_NODES = 240;
+
+const AD_UNIT_PATTERN = /CometAdsSideFeedUnitItem|CometHomeRightSideEgo/;
+
+function componentName(type: unknown): string | undefined {
+  if (typeof type === 'function') {
+    const fn = type as { displayName?: unknown; name?: unknown };
+    if (typeof fn.displayName === 'string') {
+      return fn.displayName;
+    }
+    return typeof fn.name === 'string' ? fn.name : undefined;
+  }
+  if (isObject(type) && typeof type.displayName === 'string') {
+    return type.displayName;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a Right Rail unit element renders Facebook's right-rail ad components
+ * (`CometAdsSideFeedUnitItem` or `CometHomeRightSideEgo`). Checks immediate
+ * parent fibers and runs a bounded breadth-first search down the element's
+ * React fiber subtree so shallow wrapper components are found before deep leaf
+ * subtrees.
+ */
+export function readRightRailSponsored(element: Element): PostSponsoredAnswer | null {
+  const root = fiberOf(element);
+  if (!isObject(root)) {
+    return null;
+  }
+  let up: unknown = root.return;
+  for (let step = 0; step < MAX_RIGHT_RAIL_UP && isObject(up); step++) {
+    const name = componentName(up.type);
+    if (name && AD_UNIT_PATTERN.test(name)) {
+      return { sponsored: true };
+    }
+    up = up.return;
+  }
+  const fibers: Loose[] = [root];
+  const depths: number[] = [0];
+  let head = 0;
+  while (head < fibers.length && head < MAX_RIGHT_RAIL_NODES) {
+    const fiber = fibers[head];
+    const depth = depths[head] ?? 0;
+    head++;
+    if (!fiber) {
+      break;
+    }
+    const name = componentName(fiber.type);
+    if (name && AD_UNIT_PATTERN.test(name)) {
+      return { sponsored: true };
+    }
+    if (depth < MAX_RIGHT_RAIL_DEPTH) {
+      let child: unknown = fiber.child;
+      while (isObject(child) && fibers.length < MAX_RIGHT_RAIL_NODES) {
+        fibers.push(child);
+        depths.push(depth + 1);
+        child = child.sibling;
+      }
+    }
+  }
+  return { sponsored: false };
+}
+
 /** Every reader the page-world side offers. */
 export const PAGE_READERS: PageReaders = {
   [VIDEO_SOURCES]: readVideoSources,
   [POST_SPONSORED]: readPostSponsored,
   [COMPOSER_INFO]: readComposerInfo,
+  [RIGHT_RAIL_SPONSORED]: readRightRailSponsored,
 };

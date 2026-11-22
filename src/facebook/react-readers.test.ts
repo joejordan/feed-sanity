@@ -5,7 +5,9 @@ import {
   MAX_IMPLEMENTATIONS,
   PAGE_READERS,
   POST_SPONSORED,
+  RIGHT_RAIL_SPONSORED,
   readPostSponsored,
+  readRightRailSponsored,
   readVideoSources,
   VIDEO_SOURCES,
 } from './react-readers';
@@ -175,5 +177,35 @@ describe('readPostSponsored', () => {
 
   it('is offered to the page-world side by name', () => {
     expect(PAGE_READERS[POST_SPONSORED]).toBe(readPostSponsored);
+  });
+});
+
+describe('readRightRailSponsored', () => {
+  it('detects right-rail ad components in child fibers and leaves Birthdays alone', () => {
+    const adUnit = document.createElement('div');
+    const AdComp = () => null;
+    AdComp.displayName = 'h [from CometAdsSideFeedUnitItem.react]';
+    Object.assign(adUnit, {
+      '__reactFiber$1': {
+        type: 'div',
+        child: { type: AdComp, child: null, sibling: null },
+        sibling: null,
+      },
+    });
+
+    const birthdayUnit = document.createElement('div');
+    const BdayComp = () => null;
+    BdayComp.displayName = 'h [from CometHomeRightSideBirthdayReminders.react]';
+    Object.assign(birthdayUnit, {
+      '__reactFiber$1': {
+        type: 'div',
+        child: { type: BdayComp, child: null, sibling: null },
+        sibling: null,
+      },
+    });
+
+    expect(readRightRailSponsored(adUnit)).toEqual({ sponsored: true });
+    expect(readRightRailSponsored(birthdayUnit)).toEqual({ sponsored: false });
+    expect(PAGE_READERS[RIGHT_RAIL_SPONSORED]).toBe(readRightRailSponsored);
   });
 });

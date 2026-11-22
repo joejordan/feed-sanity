@@ -22,7 +22,7 @@ export const CONNECT_EVENT = 'feed-sanity-page-world-connect';
 /** A channel name: this project's prefix and a random UUID, made fresh on each page load. */
 export const CHANNEL = /^feed-sanity-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** Sent on `document` by the page-world side once connected, with `{ "readers": [...], "toggles": [...], "actions": [...] }`. */
+/** Sent on `document` by the page-world side once connected, with `{ "readers": [...], "toggles": [...], "actions": [...], "mounts": [...] }`. */
 export const connectedEvent = (channel: string): string => `${channel}-connected`;
 
 /** Sent on the element asked about, with `{ "id": 1, "reader": "..." }`. */
@@ -34,13 +34,23 @@ export const toggleEvent = (channel: string): string => `${channel}-toggle`;
 /** Sent on `document` with `{ "id": 1, "action": "...", "payload": { ... } }`. */
 export const actionEvent = (channel: string): string => `${channel}-action`;
 
+/** Sent on the target slot element with `{ "id": 1, "mount": "...", "payload": { ... } }`. */
+export const mountEvent = (channel: string): string => `${channel}-mount`;
+
+/** Sent on `document` with `{ "id": 1, "mountId": 1 }` to tear down a live page-world mount. */
+export const unmountEvent = (channel: string): string => `${channel}-unmount`;
+
 /**
  * Sent on the same target in reply, with `{ "id": 1, "value": ... }`, or
- * `{ "id": 1, "error": "..." }` when the reader, toggle or action is not known or failed.
+ * `{ "id": 1, "error": "..." }` when the reader, toggle, action or mount is not known or failed.
  */
 export const answerEvent = (channel: string): string => `${channel}-answer`;
 
 export type Message = Record<string, unknown>;
+
+/** True when `value` is a non-null, non-array object. */
+export const isPlainObject = (value: unknown): value is Message =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** The message in an event's `detail`, or undefined when it is not a JSON object. */
 export function readMessage(event: Event): Message | undefined {
@@ -54,9 +64,7 @@ export function readMessage(event: Event): Message | undefined {
   } catch {
     return undefined;
   }
-  return typeof message === 'object' && message !== null && !Array.isArray(message)
-    ? (message as Message)
-    : undefined;
+  return isPlainObject(message) ? message : undefined;
 }
 
 /**

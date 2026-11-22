@@ -2,7 +2,7 @@
 
 import { vi } from 'vitest';
 import type { BridgeOptions } from '../core/bridge';
-import type { PageActions, PageReaders, PageToggles } from '../core/page-world';
+import type { PageActions, PageMounts, PageReaders, PageToggles } from '../core/page-world';
 import type { AtomTranslator } from './atoms';
 import type { PageServices, PageWorld } from './feature';
 import type { Post } from './posts';
@@ -133,24 +133,26 @@ export function testBridge(
   options?: BridgeOptions,
   toggles?: PageToggles,
   actions?: PageActions,
+  mounts?: PageMounts,
 ): PageWorld {
-  return new PageBridge(installReaders(readers, toggles, actions), options);
+  return new PageBridge(installReaders(readers, toggles, actions, mounts), options);
 }
 
 /**
- * An installer for `createPage` that serves `readers`, `toggles` and `actions`
- * in the test's own world. With none, it fails as a page that refuses the script would.
+ * An installer for `createPage` that serves `readers`, `toggles`, `actions`
+ * and `mounts` in the test's own world. With none, it fails as a page that refuses the script would.
  */
 export function installReaders(
   readers?: PageReaders,
   toggles?: PageToggles,
   actions?: PageActions,
+  mounts?: PageMounts,
 ): () => Promise<void> {
   return () => {
-    if (!readers && !toggles && !actions) {
+    if (!readers && !toggles && !actions && !mounts) {
       return Promise.reject(new Error('there is no page world in this test'));
     }
-    servePageWorld(readers ?? {}, toggles ?? {}, actions ?? {});
+    servePageWorld(readers ?? {}, toggles ?? {}, actions ?? {}, mounts ?? {});
     return Promise.resolve();
   };
 }

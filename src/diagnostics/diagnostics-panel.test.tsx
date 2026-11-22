@@ -81,6 +81,7 @@ describe('DiagnosticsPanel', () => {
           readers: [],
           toggles: [],
           actions: [],
+          mounts: [],
         },
       }),
     );

@@ -109,11 +109,11 @@ function tellPointer(
   }, 0);
 }
 
-/** The button's tooltip, under it, in the top layer. */
-function Tip({ caret }: { caret: HTMLElement }) {
+/** A Facebook-styled tooltip positioned under `target` in the top layer. */
+function Tip({ target, text }: { target: Element; text: string }) {
   const tip = useRef<HTMLDivElement>(null);
   useTopLayer(tip);
-  const box = caret.getBoundingClientRect();
+  const box = useMemo(() => target.getBoundingClientRect(), [target]);
   const center = Math.max(48, Math.min(box.left + box.width / 2, innerWidth - 48));
   return (
     <div
@@ -123,7 +123,7 @@ function Tip({ caret }: { caret: HTMLElement }) {
       popover="manual"
       style={{ left: `${center}px`, top: `${box.bottom + 8}px` }}
     >
-      {CARET_NAME}
+      {text}
     </div>
   );
 }
@@ -366,10 +366,16 @@ export function FeedMenu({
   const isVisible = useSyncExternalStore(visible.subscribe, visible.get);
   const [opened, setOpened] = useState<{ start: Start; byKeyboard: boolean } | null>(null);
   const [tip, setTip] = useTip();
+  const [homeTip, setHomeTip] = useTip();
   const cell = useRef<HTMLDivElement>(null);
   const caret = useRef<HTMLButtonElement>(null);
   const open = opened !== null;
+  const openRef = useRef(open);
+  openRef.current = open;
   const isToolbar = mode === 'toolbar';
+  const chosenFeed = feeds.find((feed) => feed.id === chosen) ?? feedById(chosen);
+  const customHomeTip =
+    !isToolbar && chosen !== FACEBOOK_FEED ? `Home | ${chosenFeed.label}` : null;
 
   // Facebook does not hear the pointer over the button or the menu, so it
   // does not show its own Home tooltip there.
@@ -380,14 +386,50 @@ export function FeedMenu({
     }
   }, [isVisible]);
 
-  // Close the menu and tooltip if the button hides (for example, when the
+  // Show "Home | <Feed>" under the Home tab when a custom Home feed is chosen.
+  useEffect(() => {
+    if (!isVisible || !customHomeTip) {
+      setHomeTip(false);
+      return;
+    }
+    const outside = (target: EventTarget | null): boolean =>
+      !(target instanceof Node && anchor.contains(target));
+    const onEnter = (event: Event): void => {
+      const related = (event as PointerEvent).relatedTarget;
+      if (!openRef.current && outside(related)) {
+        setHomeTip(true, TIP_DELAY_MS);
+      }
+    };
+    const onLeave = (event: Event): void => {
+      const related = (event as PointerEvent).relatedTarget;
+      if (event.type !== 'pointerout' || outside(related)) {
+        setHomeTip(false);
+      }
+    };
+    const onFocus = (): void => setHomeTip(!openRef.current && focusedByKeyboard(anchor));
+    anchor.addEventListener('pointerover', onEnter);
+    anchor.addEventListener('pointerout', onLeave);
+    anchor.addEventListener('pointerdown', onLeave);
+    anchor.addEventListener('focus', onFocus);
+    anchor.addEventListener('blur', onLeave);
+    return () => {
+      anchor.removeEventListener('pointerover', onEnter);
+      anchor.removeEventListener('pointerout', onLeave);
+      anchor.removeEventListener('pointerdown', onLeave);
+      anchor.removeEventListener('focus', onFocus);
+      anchor.removeEventListener('blur', onLeave);
+    };
+  }, [anchor, customHomeTip, isVisible, setHomeTip]);
+
+  // Close the menu and tooltips if the button hides (for example, when the
   // window widens again and the Home button returns).
   useEffect(() => {
     if (!isVisible) {
       setOpened(null);
       setTip(false);
+      setHomeTip(false);
     }
-  }, [isVisible, setTip]);
+  }, [isVisible, setHomeTip, setTip]);
 
   const close = useCallback((focusCaret: boolean) => {
     setOpened(null);
@@ -397,6 +439,7 @@ export function FeedMenu({
   }, []);
   const openAt = (start: Start, byKeyboard: boolean): void => {
     setTip(false);
+    setHomeTip(false);
     setOpened({ start, byKeyboard });
   };
 
@@ -429,6 +472,7 @@ export function FeedMenu({
           }
         }}
         onPointerEnter={(event) => {
+          setHomeTip(false);
           setTip(true, TIP_DELAY_MS);
           if (!isToolbar) {
             tellPointer(anchor, 'left', event);
@@ -439,26 +483,34 @@ export function FeedMenu({
           if (isToolbar) {
             return;
           }
-          // Back onto the house icon: Facebook may show its tooltip again.
+          // Back onto the house icon: Facebook (or our custom Home tip) may show again.
           const { relatedTarget } = event;
           if (!open && relatedTarget instanceof Element && anchor.contains(relatedTarget)) {
-            tellPointer(relatedTarget, 'came', event);
+            if (customHomeTip) {
+              setHomeTip(true, TIP_DELAY_MS);
+            } else {
+              tellPointer(relatedTarget, 'came', event);
+            }
           }
         }}
         onPointerDown={() => setTip(false)}
-        onFocus={(event) => setTip(!open && focusedByKeyboard(event.currentTarget))}
+        onFocus={(event) => {
+          setHomeTip(false);
+          setTip(!open && focusedByKeyboard(event.currentTarget));
+        }}
         onBlur={() => setTip(false)}
       >
         {isToolbar ? (
           <>
-            <Icon path={feedById(chosen).icon} className="toolbar-icon" />
+            <Icon path={chosenFeed.icon} className="toolbar-icon" />
             <Icon path={CHEVRON} className="toolbar-chevron" />
           </>
         ) : (
           <Icon path={CHEVRON} className="chevron" />
         )}
       </button>
-      {tip && !open && caret.current && <Tip caret={caret.current} />}
+      {tip && !open && caret.current && <Tip target={caret.current} text={CARET_NAME} />}
+      {homeTip && !tip && !open && customHomeTip && <Tip target={anchor} text={customHomeTip} />}
       {opened && caret.current && (
         <Menu
           id={`${id}-menu`}

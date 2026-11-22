@@ -38,11 +38,12 @@ describe('diagnosticsReport', () => {
             readers: ['video-sources'],
             toggles: ['stop-feed-refresh'],
             actions: ['open-post-composer'],
+            mounts: ['home-left-rail'],
           },
         }),
       ),
     ).toContain(
-      'Page bridge: connected, with 1 reader: video-sources; 1 toggle: stop-feed-refresh; 1 action: open-post-composer',
+      'Page bridge: connected, with 1 reader: video-sources; 1 toggle: stop-feed-refresh; 1 action: open-post-composer; 1 mount: home-left-rail',
     );
     const unavailable = diagnosticsReport(
       diagnostics({
@@ -52,6 +53,7 @@ describe('diagnosticsReport', () => {
           readers: [],
           toggles: [],
           actions: [],
+          mounts: [],
         },
       }),
     );
@@ -61,7 +63,14 @@ describe('diagnosticsReport', () => {
     expect(
       diagnosticsReport(
         diagnostics({
-          bridge: { state: 'not started', problem: null, readers: [], toggles: [], actions: [] },
+          bridge: {
+            state: 'not started',
+            problem: null,
+            readers: [],
+            toggles: [],
+            actions: [],
+            mounts: [],
+          },
         }),
       ),
     ).toContain('Page bridge: not started, because no feature that is on needs it');

@@ -5,9 +5,10 @@
 // `src/core/platform.ts`.
 import { servePageWorld } from './core/page-world';
 import { PAGE_ACTIONS } from './facebook/page-actions';
+import { PAGE_MOUNTS } from './facebook/page-mounts';
 import { PAGE_TOGGLES } from './facebook/page-toggles';
 import { PAGE_READERS } from './facebook/react-readers';
 
 export function startPageWorld(): void {
-  servePageWorld(PAGE_READERS, PAGE_TOGGLES, PAGE_ACTIONS);
+  servePageWorld(PAGE_READERS, PAGE_TOGGLES, PAGE_ACTIONS, PAGE_MOUNTS);
 }

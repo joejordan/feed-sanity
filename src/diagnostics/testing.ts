@@ -64,6 +64,7 @@ export const diagnostics = (changes: Partial<Diagnostics> = {}): Diagnostics => 
     readers: ['video-sources'],
     toggles: [],
     actions: [],
+    mounts: [],
   },
   at: NOW,
   ...changes,
