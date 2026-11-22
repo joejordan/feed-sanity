@@ -1,29 +1,23 @@
 import type { OptionsPanel } from '../ui/options-dialog/panel';
 import type { Feature, PageFactory } from './feature';
 import type { Platform } from './platform';
+import type { SiteThemeMapping } from './theming';
+import { initSiteTheme } from '../ui/appearance';
 import { setSiteThemeCss } from '../ui/mount';
 import { openOptionsDialog } from '../ui/options-dialog';
 import { FeatureRunner } from './app';
+import { createDomEnvironment } from './dom-env';
 import { createLogger } from './log';
 import { Options } from './options';
 import { SavedData } from './saved';
+
+export { scrubCommonPii } from './pii';
 
 /** One site-contributed section rendered in Diagnostics and text bug reports. */
 export interface DiagnosticSection {
   readonly title: string;
   readonly lines: readonly string[];
 }
-
-/**
- * Site-agnostic privacy scrubber applied to error messages and diagnostics
- * before copying a bug report: strips URLs, email addresses, and long numeric
- * identifiers. Individual `SiteAdapter`s layer site-specific scrubbers on top.
- */
-export const scrubCommonPii = (message: string): string =>
-  message
-    .replaceAll(/\b(?:[a-z][a-z0-9+.-]*:)+\/\/\S+/gi, '<address>')
-    .replaceAll(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '<email>')
-    .replaceAll(/\d{6,}/g, '<number>');
 
 /**
  * Contract every target site implements (`src/sites/facebook/`,
@@ -38,6 +32,10 @@ export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory
   readonly matchesHost: (hostname: string) => boolean;
   /** CSS token overrides mapping the host's palette onto `--fs-*` shadow-DOM tokens. */
   readonly themeCss: string;
+  /** Optional declarative mapping enabling first-class user theming on this site. */
+  readonly themeMapping?: SiteThemeMapping;
+  /** Optional `DomEnvironment` flags for theme propagation (Shadow DOM / same-origin iframes). */
+  readonly themeEnvOptions?: { readonly pierceShadow?: boolean; readonly includeIframes?: boolean };
   /** Identifies the signed-in account on this host (or `'anonymous'`). */
   readonly accountId: () => string;
   /** Storage key prefix for this site and account. */
@@ -112,9 +110,22 @@ export function startSite<P, F extends PageFactory<P>>(
   const prefix = site.storagePrefix(account);
   const options = new Options(platform.store, `${prefix}/options`);
   const data = new SavedData(platform.store, prefix);
+  const theme = site.themeMapping
+    ? initSiteTheme(
+        createDomEnvironment({
+          log: createLogger('theme'),
+          ...site.themeEnvOptions,
+        }),
+        data,
+        site.themeMapping,
+      )
+    : undefined;
   const page = site.createPage(data, () => platform.installPageWorld());
   const runner = new FeatureRunner(site.features, options, page, data);
-  const panels = site.createPanels({ options, data, page, runner, platform });
+  const panels = [
+    ...(theme ? [theme.panel] : []),
+    ...site.createPanels({ options, data, page, runner, platform }),
+  ];
 
   // The browser may keep the badge of the page this tab showed before, so
   // the first one is sent even when it is empty.

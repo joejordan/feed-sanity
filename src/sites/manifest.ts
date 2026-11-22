@@ -8,6 +8,7 @@ import {
   MATCHES as FACEBOOK_MATCHES,
 } from '../facebook/urls.ts';
 import { INSTAGRAM_EXCLUDE_MATCHES, INSTAGRAM_MATCHES } from './instagram/urls.ts';
+import { X_EXCLUDE_MATCHES, X_MATCHES } from './x/urls.ts';
 
 export interface SiteManifestEntry {
   readonly id: string;
@@ -46,6 +47,18 @@ export const SITE_MANIFEST: readonly SiteManifestEntry[] = [
     excludeGlobs: [],
     contentScript: 'instagram.js',
     pageWorldScript: 'instagram-page-world.js',
+  },
+  {
+    id: 'x',
+    displayName: 'X (Twitter)',
+    description:
+      'Strip Promoted ads before timeline render, hide Suggested/keyword posts, default to Following tab, hide Grok/Premium/Sidebar clutter, video scrubber, and External CSS.',
+    required: false,
+    matches: X_MATCHES,
+    excludeMatches: X_EXCLUDE_MATCHES,
+    excludeGlobs: [],
+    contentScript: 'x.js',
+    pageWorldScript: 'x-page-world.js',
   },
 ];
 

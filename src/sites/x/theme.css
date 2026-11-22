@@ -1,0 +1,42 @@
+/*
+ * X.com palette mapping onto Feed Sanity's shadow-DOM `--fs-*` tokens.
+ * Tracks light and dark schemes automatically while matching X's primary accent.
+ */
+:host {
+  --fs-background: #ffffff;
+  --fs-surface: #f7f9f9;
+  --fs-hover: rgb(15 20 25 / 6%);
+  --fs-press: rgb(15 20 25 / 12%);
+  --fs-icon: #0f1419;
+  --fs-icon-secondary: #536471;
+  --fs-text: #0f1419;
+  --fs-text-secondary: #536471;
+  --fs-divider: #eff3f4;
+  --fs-accent: #1d9bf0;
+  --fs-accent-surface: rgb(29 155 240 / 14%);
+  --fs-accent-text: #ffffff;
+  --fs-button-secondary: rgb(15 20 25 / 8%);
+  --fs-comment: #eff3f4;
+  --fs-shadow-2: rgb(101 119 134 / 20%);
+  --fs-input: #ffffff;
+  --fs-error: #f4212e;
+  --fs-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :host {
+    --fs-background: #16181c;
+    --fs-surface: #202327;
+    --fs-hover: rgb(231 233 234 / 8%);
+    --fs-press: rgb(231 233 234 / 14%);
+    --fs-icon: #e7e9ea;
+    --fs-icon-secondary: #71767b;
+    --fs-text: #e7e9ea;
+    --fs-text-secondary: #71767b;
+    --fs-divider: #2f3336;
+    --fs-button-secondary: rgb(231 233 234 / 10%);
+    --fs-comment: #202327;
+    --fs-shadow-2: rgb(255 255 255 / 14%);
+    --fs-input: #000000;
+  }
+}

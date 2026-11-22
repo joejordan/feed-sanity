@@ -3,7 +3,7 @@ import type { FacebookPage } from '../../facebook/feature';
 import { version } from '../../../package.json';
 import { readLocatorOverrides } from '../../core/locator';
 import { dataPanel } from '../../data/data-panel';
-import { collectDiagnostics } from '../../diagnostics/collect';
+import { collectDiagnostics, reportedPageType } from '../../diagnostics/collect';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import { scrub } from '../../diagnostics/report';
 import { createPage, LOCATOR_OVERRIDES } from '../../facebook/feature';
@@ -13,6 +13,7 @@ import { currentUserId } from '../../facebook/user';
 import { features, optionsPanels } from '../../features';
 import { savedFilters } from '../../features/post-filters/types';
 import { sitesPanel } from '../../ui/sites-panel';
+import { facebookThemeMapping } from './theme-mapping';
 
 /**
  * Facebook `SiteAdapter` wiring Feed Sanity's Facebook features, Meta Comet
@@ -24,6 +25,7 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
   displayName: 'Facebook',
   matchesHost: (hostname) => /(?:^|\.)facebook\.com$/i.test(hostname),
   themeCss: facebookTheme,
+  themeMapping: facebookThemeMapping,
   accountId: currentUserId,
   // Keep Facebook's `<c_user>` prefix so existing user settings stay where
   // they are; new sites use `siteStoragePrefix`.
@@ -47,6 +49,7 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
         collect: () => collectDiagnostics({ version, build: platform.build, page: stats, runner }),
         overrides,
         locatorNames: () => stats.locators.names(),
+        scrubPageType: reportedPageType,
       }),
     ];
   },

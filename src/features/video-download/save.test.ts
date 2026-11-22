@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isFacebookAddress } from '../../facebook/urls';
 import { FetchRefused, fetchFile, fileName, REVOKE_MS, saveBlob, saveVideo } from './save';
 
 const FILE = 'https://video.xx.fbcdn.net/v/t42/hd.mp4?oe=1';
@@ -127,6 +128,7 @@ describe('saveVideo', () => {
     signal: new AbortController().signal,
     progress: vi.fn(),
     parent: document.body,
+    isAllowed: isFacebookAddress,
   });
 
   it('opens the address in a new tab when the file cannot be fetched from the page', async () => {

@@ -15,7 +15,7 @@
   --fs-text-secondary: rgb(var(--ig-secondary-text, 115, 115, 115));
   --fs-divider: rgb(var(--ig-elevated-separator, 219, 219, 219));
   --fs-accent: rgb(var(--ig-colors-button-primary-background, 0, 149, 246));
-  --fs-accent-surface: rgb(var(--ig-colors-button-primary-background, 0, 149, 246) / 14%);
+  --fs-accent-surface: rgba(var(--ig-colors-button-primary-background, 0, 149, 246), 0.14);
   --fs-accent-text: rgb(var(--ig-colors-button-primary-text, 255, 255, 255));
   --fs-button-secondary: rgb(var(--ig-colors-button-secondary-background, 239, 239, 239));
   --fs-comment: rgb(var(--ig-secondary-background, 245, 245, 245));

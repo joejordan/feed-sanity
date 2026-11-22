@@ -6,7 +6,10 @@ import type { DiagnosticSection } from '../core/site';
 import type { ClassNameStats } from '../facebook/atoms';
 import type { PageStats } from '../facebook/feature';
 import type { PostStats } from '../facebook/posts';
-import { pageContext } from '../facebook/page';
+import { mayBeName, pageContext } from '../facebook/page';
+
+/** Facebook page type as a report gives it: `other` for a type that may be a name. */
+export const reportedPageType = (type: string): string => (mayBeName(type) ? 'other' : type);
 
 /** Everything the Diagnostics section shows, read at one moment. */
 export interface Diagnostics {

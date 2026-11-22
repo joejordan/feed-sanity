@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ago, diagnosticsReport, reportedPageType, scrub } from './report';
+import { reportedPageType } from './collect';
+import { ago, diagnosticsReport, scrub } from './report';
 import { diagnostics, locator, NOW, strategy } from './testing';
 
 describe('diagnosticsReport', () => {
@@ -126,11 +127,21 @@ describe('diagnosticsReport', () => {
           },
         ],
       }),
+      scrub,
+      reportedPageType,
     );
 
     expect(report).toContain('Page type: other');
     expect(report).toContain('Last error: could not read <address> for <number>');
     expect(report).not.toMatch(/jane|doe|facebook\.com|\d{6,}/i);
+
+    // Non-Facebook closed-enum page types are preserved verbatim when no Facebook name scrubber is passed.
+    expect(diagnosticsReport(diagnostics({ site: 'x', pageType: 'grok' }))).toContain(
+      'Page type: grok',
+    );
+    expect(diagnosticsReport(diagnostics({ site: 'instagram', pageType: 'following' }))).toContain(
+      'Page type: following',
+    );
   });
 
   it('renders extraSections through the active scrubMessage function', () => {

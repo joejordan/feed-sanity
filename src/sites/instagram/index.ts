@@ -14,6 +14,7 @@ import igHideClutter from './features/hide-clutter';
 import igVideoControls from './features/video-controls';
 import { instagramAccountId, instagramPageType, scrubInstagramPii } from './page';
 import instagramTheme from './theme.css?inline';
+import { instagramThemeMapping } from './theme-mapping';
 import { isInstagramHost } from './urls';
 
 export const instagramFeatures: readonly Feature<InstagramPage>[] = [
@@ -34,6 +35,7 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
   displayName: 'Instagram',
   matchesHost: isInstagramHost,
   themeCss: instagramTheme,
+  themeMapping: instagramThemeMapping,
   accountId: instagramAccountId,
   storagePrefix: (accountId) => siteStoragePrefix('instagram', accountId),
   scrubPii: scrubInstagramPii,

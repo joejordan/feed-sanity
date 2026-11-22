@@ -26,6 +26,8 @@ export interface OptionsPanel<T = unknown> {
    * panel has a problem, the dialog says so and will not save.
    */
   problem?: (value: T) => string | null;
+  /** Optional cleanup invoked when the options dialog closes (e.g. clearing live previews). */
+  onClose?: () => void;
   Panel: (props: PanelProps<T>) => ReactNode;
 }
 

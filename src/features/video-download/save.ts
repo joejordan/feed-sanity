@@ -1,5 +1,3 @@
-import { isFacebookAddress } from '../../facebook/urls';
-
 /** How long a saved file's `blob:` address is kept, in milliseconds, so the browser can finish reading it. */
 export const REVOKE_MS = 60_000;
 
@@ -17,15 +15,15 @@ export class FetchRefused extends Error {
   }
 }
 
-/** The file's name: `facebook-video-<ID>.mp4`, or the date and time when the video has no ID. */
-export function fileName(videoId: string | null, now = new Date()): string {
+/** The file's name: `<prefix>-video-<ID>.mp4`, or the date and time when the video has no ID. */
+export function fileName(videoId: string | null, now = new Date(), prefix = 'facebook'): string {
   if (videoId) {
-    return `facebook-video-${videoId}.mp4`;
+    return `${prefix}-video-${videoId}.mp4`;
   }
   const two = (value: number): string => String(value).padStart(2, '0');
   const date = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
   const time = `${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}`;
-  return `facebook-video-${date}-${time}.mp4`;
+  return `${prefix}-video-${date}-${time}.mp4`;
 }
 
 /**
@@ -38,6 +36,7 @@ export async function fetchFile(
   url: string,
   signal: AbortSignal,
   progress: Progress,
+  siteName = 'Facebook',
 ): Promise<Blob> {
   let response: Response;
   try {
@@ -49,7 +48,7 @@ export async function fetchFile(
     throw new FetchRefused();
   }
   if (!response.ok) {
-    throw new Error(`Facebook's server answered with status ${response.status}`);
+    throw new Error(`${siteName}'s server answered with status ${response.status}`);
   }
   const length = Number(response.headers.get('content-length'));
   const total = Number.isFinite(length) && length > 0 ? length : null;
@@ -98,11 +97,11 @@ export function saveBlob(blob: Blob, name: string, parent: Element): void {
 }
 
 /**
- * Opens one of Facebook's addresses in a new tab, with no link back to this
+ * Opens an allowed host media address in a new tab, with no link back to this
  * page. Does nothing for any other address.
  */
-export function openInTab(url: string): void {
-  if (isFacebookAddress(url)) {
+export function openInTab(url: string, isAllowed: (address: string) => boolean): void {
+  if (isAllowed(url)) {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
@@ -119,19 +118,31 @@ export type Saved = 'opened' | 'refused' | 'saved';
  * is refused, as when the file server does not allow this page to read it,
  * opens the address in a new tab instead, where the person can save it
  * from the browser's own player, or says it could not when the press is too
- * old for a new tab. `url` must be one of Facebook's addresses.
+ * old for a new tab. `url` must pass `isAllowed`.
  */
 export async function saveVideo(
   url: string,
   name: string,
-  { signal, progress, parent }: { signal: AbortSignal; progress: Progress; parent: Element },
+  {
+    signal,
+    progress,
+    parent,
+    isAllowed,
+    siteName = 'Facebook',
+  }: {
+    signal: AbortSignal;
+    progress: Progress;
+    parent: Element;
+    isAllowed: (address: string) => boolean;
+    siteName?: string;
+  },
 ): Promise<Saved> {
-  if (!isFacebookAddress(url)) {
-    throw new Error("the address is not one of Facebook's");
+  if (!isAllowed(url)) {
+    throw new Error(`the address is not one of ${siteName}'s`);
   }
   let blob: Blob;
   try {
-    blob = await fetchFile(url, signal, progress);
+    blob = await fetchFile(url, signal, progress, siteName);
   } catch (error) {
     if (!(error instanceof FetchRefused)) {
       throw error;
@@ -142,7 +153,7 @@ export async function saveVideo(
     if (navigator.userActivation?.isActive === false) {
       return 'refused';
     }
-    openInTab(url);
+    openInTab(url, isAllowed);
     return 'opened';
   }
   saveBlob(blob, name, parent);

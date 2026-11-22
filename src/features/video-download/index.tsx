@@ -4,6 +4,7 @@ import type { Watched } from '../../ui/watched';
 import type { Placement } from './download-button';
 import { Listeners } from '../../core/listeners';
 import { defineFeature } from '../../facebook/feature';
+import { isFacebookAddress } from '../../facebook/urls';
 import { measureControls } from '../video-layout';
 import { overlayEachVideo } from '../video-overlay';
 import { DownloadButton, samePlacement } from './download-button';
@@ -74,6 +75,8 @@ export default defineFeature({
             placement={placement}
             bridge={bridge}
             sources={(signal) => page.bridge.videoSources(video.element, signal)}
+            isAllowedUrl={isFacebookAddress}
+            siteName="Facebook"
           />
         );
       },

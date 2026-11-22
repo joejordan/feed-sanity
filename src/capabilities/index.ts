@@ -10,12 +10,39 @@ import type { Feature, FeatureContext, FeatureDefinition } from '../core/feature
 import type { OptionSpecs } from '../core/options';
 import { defineFeature } from '../core/feature';
 
+/** Aggregate tracking statistics reported by any feed capability implementation. */
+export interface FeedStats {
+  readonly started: boolean;
+  readonly tracked: number;
+  readonly withId: number;
+  readonly withoutId: number;
+  readonly identifying: number;
+  readonly unrecognised: number;
+}
+
+/** One interactive host control overlaying a video player. */
+export interface VideoControl {
+  readonly element: Element;
+  /** True for a horizontal seek/position slider running across the player. */
+  readonly bar: boolean;
+}
+
+/** Progressive video file or manifest metadata returned by a site's media reader. */
+export interface MediaSources {
+  readonly file: string | null;
+  readonly manifest: boolean | string | null;
+  readonly videoId: string | null;
+}
+
 /** A single logical feed item (Facebook post, Instagram post, X tweet, TikTok card, Reddit post). */
 export interface FeedItem {
   readonly element: HTMLElement;
   readonly content: HTMLElement;
   readonly id: string | null;
   readonly permalink: boolean;
+  readonly isAd?: boolean;
+  readonly isSuggested?: boolean;
+  readonly readLowerText?: () => string;
 }
 
 /** Feed stream capability for cross-site post filtering, ad hiding, and mark-as-read features. */
@@ -40,7 +67,8 @@ export interface MediaItem {
 export interface MediaCapability {
   onAdd: (listener: (video: MediaItem) => void) => () => void;
   onRemove: (listener: (video: MediaItem) => void) => () => void;
-  around: (element: Element) => MediaItem | undefined;
+  onControls?: (listener: (video: MediaItem) => void) => () => void;
+  around: (element: Element, within?: Element) => MediaItem | undefined;
 }
 
 /** Navigation/chrome capability (top bar, sidebars, active feed switching). */

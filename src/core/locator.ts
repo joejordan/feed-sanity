@@ -58,6 +58,12 @@ export interface SelectorResolver {
   onChange: (listener: () => void) => () => void;
 }
 
+/** Pass-through resolver for sites whose selectors need no runtime class translation. */
+export const IDENTITY_RESOLVER: SelectorResolver = {
+  resolve: (selector) => selector,
+  onChange: () => () => undefined,
+};
+
 /**
  * Finds one kind of element. A strategy that cannot be run yet, or whose
  * selector is not valid, is skipped, so no lookup ever throws.

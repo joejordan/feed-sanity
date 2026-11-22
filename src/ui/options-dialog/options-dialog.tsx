@@ -135,9 +135,28 @@ export function OptionsDialog({ options, panels = [], onClose }: OptionsDialogPr
   const [panelEdits, setPanelEdits] = useState<ReadonlyMap<OptionsPanel, unknown>>(new Map());
   const [saving, setSaving] = useState(false);
 
+  const closedRef = useRef(false);
+  const closeDialog = () => {
+    if (!closedRef.current) {
+      closedRef.current = true;
+      for (const panel of panels) {
+        panel.onClose?.();
+      }
+    }
+    onClose();
+  };
+
   useEffect(() => {
     dialog.current?.showModal();
-  }, []);
+    return () => {
+      if (!closedRef.current) {
+        closedRef.current = true;
+        for (const panel of panels) {
+          panel.onClose?.();
+        }
+      }
+    };
+  }, [panels]);
 
   const query = search.trim().toLowerCase();
   const shown = all.filter(([, spec]) => (query ? matches(spec, query) : spec.section === section));
@@ -168,7 +187,7 @@ export function OptionsDialog({ options, panels = [], onClose }: OptionsDialogPr
     } catch (error) {
       log.error('could not save the options', error);
     } finally {
-      onClose();
+      closeDialog();
     }
   };
 
@@ -180,7 +199,7 @@ export function OptionsDialog({ options, panels = [], onClose }: OptionsDialogPr
       onCancel={(event) => {
         // Escape. Close through the same path as the buttons.
         event.preventDefault();
-        onClose();
+        closeDialog();
       }}
     >
       <header className="header">
@@ -195,7 +214,7 @@ export function OptionsDialog({ options, panels = [], onClose }: OptionsDialogPr
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <button className="close" type="button" aria-label="Close" onClick={onClose}>
+        <button className="close" type="button" aria-label="Close" onClick={closeDialog}>
           ×
         </button>
       </header>
@@ -241,7 +260,7 @@ export function OptionsDialog({ options, panels = [], onClose }: OptionsDialogPr
       </div>
       <footer className="footer">
         {problems.length > 0 && <p className="error">{problems.join(' ')}</p>}
-        <button className="button" type="button" onClick={onClose}>
+        <button className="button" type="button" onClick={closeDialog}>
           Cancel
         </button>
         <button

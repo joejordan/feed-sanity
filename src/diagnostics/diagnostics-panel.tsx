@@ -233,6 +233,7 @@ interface DiagnosticsPanelProps extends PanelProps<string> {
   collect: () => Diagnostics;
   check: Check;
   scrubMessage?: (message: string) => string;
+  scrubPageType?: (pageType: string) => string;
 }
 
 /**
@@ -247,6 +248,7 @@ export function DiagnosticsPanel({
   collect,
   check,
   scrubMessage,
+  scrubPageType,
 }: DiagnosticsPanelProps) {
   const [diagnostics, setDiagnostics] = useState(collect);
   const [copy, setCopy] = useState<Copied>();
@@ -257,7 +259,7 @@ export function DiagnosticsPanel({
   }, [collect]);
 
   const copyReport = async () => {
-    const report = diagnosticsReport(diagnostics, scrubMessage);
+    const report = diagnosticsReport(diagnostics, scrubMessage, scrubPageType);
     try {
       await navigator.clipboard.writeText(report);
       setCopy({ copied: true });
@@ -324,6 +326,8 @@ export interface DiagnosticsPanelSource {
   locatorNames: () => readonly string[];
   /** Optional site-specific PII scrubber for the text report. */
   scrubMessage?: (message: string) => string;
+  /** Optional scrubber for `pageType` in copied reports (e.g. masking Facebook profile slugs). */
+  scrubPageType?: (pageType: string) => string;
 }
 
 /** The Diagnostics part of the options dialog. Its value is the overrides as the user typed them. */
@@ -332,6 +336,7 @@ export function diagnosticsPanel({
   overrides,
   locatorNames,
   scrubMessage,
+  scrubPageType,
 }: DiagnosticsPanelSource): OptionsPanel {
   // The dialog asks on every render, and the editor asks again, mostly about the same text.
   let last: { text: string; checked: CheckedOverrides } | undefined;
@@ -363,6 +368,7 @@ export function diagnosticsPanel({
         collect={collect}
         check={check}
         {...(scrubMessage ? { scrubMessage } : {})}
+        {...(scrubPageType ? { scrubPageType } : {})}
       />
     ),
   });

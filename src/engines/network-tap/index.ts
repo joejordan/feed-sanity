@@ -121,8 +121,8 @@ function notifyObservers(matched: readonly NetworkRule[], info: NetworkResponseI
  * `host` (defaults to `globalThis`). Safe to instantiate in MAIN world at
  * `document_start`; touches nothing until `addRule` is called.
  *
- * Note: `transformResponseText` applies to `fetch` responses; `XMLHttpRequest`
- * supports `transformRequestBody` and read-only `onResponse` observation.
+ * Supports `transformRequestBody`, `transformResponseText`, and read-only
+ * `onResponse` across both `fetch` and `XMLHttpRequest`.
  */
 export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap {
   const rules = new Set<NetworkRule>();
@@ -240,6 +240,11 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
           statusText: response.statusText,
           headers,
         });
+        Object.defineProperties(rebuilt, {
+          url: { value: response.url, configurable: true },
+          redirected: { value: response.redirected, configurable: true },
+          type: { value: response.type, configurable: true },
+        });
         void response.body?.cancel().catch(() => undefined);
         return rebuilt;
       } catch {
@@ -328,8 +333,115 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
           return baseSend.call(this, body);
         }
         const { body: nextBody } = applyRequestTransforms(matched, meta.url, meta.method, body);
-        if (matched.some((rule) => rule.onResponse !== undefined)) {
-          const capturedBody = nextBody;
+        const hasResponseTransformer = matched.some(
+          (rule) => rule.transformResponseText !== undefined,
+        );
+        const hasObserver = matched.some((rule) => rule.onResponse !== undefined);
+        const capturedBody = nextBody;
+
+        if (hasResponseTransformer) {
+          const proto = Object.getPrototypeOf(this) as XMLHttpRequest;
+          const nativeTextDesc = Object.getOwnPropertyDescriptor(proto, 'responseText');
+          const nativeRespDesc = Object.getOwnPropertyDescriptor(proto, 'response');
+          const readNativeText = (): string =>
+            nativeTextDesc?.get
+              ? String(nativeTextDesc.get.call(this) ?? '')
+              : String(Reflect.get(proto, 'responseText', this) ?? '');
+          const readNativeResp = (): unknown =>
+            nativeRespDesc?.get
+              ? nativeRespDesc.get.call(this)
+              : Reflect.get(proto, 'response', this);
+
+          let computed = false;
+          let transformedText: string | undefined;
+          let transformedJson: unknown;
+          let hasTransformedJson = false;
+
+          const ensureTransformed = (): void => {
+            if (computed || this.readyState !== 4 || this.status === 0) {
+              return;
+            }
+            computed = true;
+            const rType = this.responseType;
+            if (rType !== '' && rType !== 'text' && rType !== 'json') {
+              return;
+            }
+            let rawText: string;
+            try {
+              if (rType === 'json') {
+                const rawJson = readNativeResp();
+                if (rawJson === null || rawJson === undefined) {
+                  return;
+                }
+                rawText = JSON.stringify(rawJson);
+              } else {
+                rawText = readNativeText();
+              }
+            } catch {
+              return;
+            }
+            let text = rawText;
+            let mutated = false;
+            for (const rule of matched) {
+              const info: NetworkResponseInfo = {
+                url: meta.url,
+                method: meta.method,
+                body: capturedBody,
+                status: this.status,
+                text,
+              };
+              notifyObserver(rule, info);
+              if (rule.transformResponseText) {
+                try {
+                  const next = rule.transformResponseText(info);
+                  if (next !== undefined && next !== text) {
+                    text = next;
+                    mutated = true;
+                  }
+                } catch {
+                  // Keep previous text on transformer failure.
+                }
+              }
+            }
+            if (mutated) {
+              transformedText = text;
+              if (rType === 'json') {
+                try {
+                  transformedJson = JSON.parse(text);
+                  hasTransformedJson = true;
+                } catch {
+                  hasTransformedJson = false;
+                }
+              }
+            }
+          };
+
+          Object.defineProperty(this, 'responseText', {
+            configurable: true,
+            get: () => {
+              ensureTransformed();
+              return transformedText === undefined ? readNativeText() : transformedText;
+            },
+          });
+          Object.defineProperty(this, 'response', {
+            configurable: true,
+            get: () => {
+              ensureTransformed();
+              if (this.responseType === 'json' && hasTransformedJson) {
+                return transformedJson;
+              }
+              if (
+                (this.responseType === '' || this.responseType === 'text') &&
+                transformedText !== undefined
+              ) {
+                return transformedText;
+              }
+              return readNativeResp();
+            },
+          });
+          // Ensure observers and stats run even if the caller ignores `responseText`.
+          this.addEventListener('loadend', () => ensureTransformed(), { once: true });
+        } else if (hasObserver) {
           // Use `loadend` so aborted or errored XHRs never leak stale listeners.
           this.addEventListener(
             'loadend',

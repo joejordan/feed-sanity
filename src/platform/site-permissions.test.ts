@@ -27,6 +27,18 @@ describe('site permissions and runtime script registration', () => {
     expect(optionalSiteForUrl('https://www.instagram.com/accounts/login/')).toBeUndefined();
     expect(optionalSiteForUrl('https://www.instagram.com/api/v1/feed/timeline/')).toBeUndefined();
     expect(optionalSiteForUrl('https://www.instagram.com/graphql/query')).toBeUndefined();
+    expect(optionalSiteForUrl('https://x.com/home')?.id).toBe('x');
+    expect(optionalSiteForUrl('https://twitter.com/explore')?.id).toBe('x');
+    expect(optionalSiteForUrl('https://x.com/i/flow/login')).toBeUndefined();
+    expect(optionalSiteForUrl('https://x.com/i/api/graphql/foo/HomeTimeline')).toBeUndefined();
+    // Wildcard subdomain, mid-host glob, and invalid URL edge cases.
+    expect(matchesOriginPattern('https://sub.x.com/home', 'https://*.x.com/*')).toBe(true);
+    expect(matchesOriginPattern('https://x.com/home', 'https://*.x.com/*')).toBe(true);
+    expect(matchesOriginPattern('https://evilx.com/home', 'https://*.x.com/*')).toBe(false);
+    expect(
+      matchesOriginPattern('https://static.cdn.facebook.com/a', 'https://static.*.facebook.com/*'),
+    ).toBe(true);
+    expect(matchesOriginPattern('not a url', 'https://x.com/*')).toBe(false);
   });
 
   it('registers full MV3 script specs and serializes overlapping syncs across permission flips', async () => {
@@ -80,12 +92,14 @@ describe('site permissions and runtime script registration', () => {
     // The serialized rerun sees `granted === false` and leaves zero scripts registered.
     expect(registered.size).toBe(0);
 
-    // Granting again registers both scripts with full match/exclude/world metadata.
+    // Granting again registers all optional site scripts with full match/exclude/world metadata.
     granted = true;
     await syncOptionalSiteScripts(host);
     expect([...registered.keys()].sort()).toEqual([
       'feed-sanity-instagram-content',
       'feed-sanity-instagram-page-world',
+      'feed-sanity-x-content',
+      'feed-sanity-x-page-world',
     ]);
     expect(registered.get('feed-sanity-instagram-page-world')).toMatchObject({
       matches: ['https://www.instagram.com/*'],
@@ -100,6 +114,26 @@ describe('site permissions and runtime script registration', () => {
     });
     expect(registered.get('feed-sanity-instagram-content')).toMatchObject({
       js: ['instagram.js'],
+      runAt: 'document_start',
+      world: 'ISOLATED',
+    });
+    expect(registered.get('feed-sanity-x-page-world')).toMatchObject({
+      matches: ['https://x.com/*', 'https://twitter.com/*'],
+      excludeMatches: [
+        'https://x.com/i/flow/login*',
+        'https://twitter.com/i/flow/login*',
+        'https://x.com/i/oauth*',
+        'https://twitter.com/i/oauth*',
+        'https://x.com/i/api/*',
+        'https://twitter.com/i/api/*',
+      ],
+      js: ['x-page-world.js'],
+      runAt: 'document_start',
+      world: 'MAIN',
+    });
+    expect(registered.get('feed-sanity-x-content')).toMatchObject({
+      matches: ['https://x.com/*', 'https://twitter.com/*'],
+      js: ['x.js'],
       runAt: 'document_start',
       world: 'ISOLATED',
     });
@@ -173,16 +207,24 @@ describe('site permissions and runtime script registration', () => {
     expect(deniedHost.scripting.executeScript).not.toHaveBeenCalled();
   });
 
-  it('supports MV2 contentScripts fallback and ignores revoking required or unknown sites', async () => {
-    let granted = true;
+  it('supports MV2 contentScripts fallback, isolates per-site revocations, and ignores required/unknown sites', async () => {
+    const grantedOrigins = new Set([
+      'https://www.instagram.com/*',
+      'https://x.com/*',
+      'https://twitter.com/*',
+    ]);
     const unregister = vi.fn(async () => undefined);
     const register = vi.fn(async () => ({ unregister }));
     const host = {
       permissions: {
-        contains: vi.fn(async () => granted),
+        contains: vi.fn(async (query: { origins?: string[] }) =>
+          (query.origins ?? []).every((o) => grantedOrigins.has(o)),
+        ),
         request: vi.fn(async () => true),
-        remove: vi.fn(async () => {
-          granted = false;
+        remove: vi.fn(async (query: { origins?: string[] }) => {
+          for (const o of query.origins ?? []) {
+            grantedOrigins.delete(o);
+          }
           return true;
         }),
       },
@@ -191,25 +233,35 @@ describe('site permissions and runtime script registration', () => {
 
     await syncOptionalSiteScripts(host);
     await syncOptionalSiteScripts(host);
-    expect(register).toHaveBeenCalledTimes(1);
+    expect(register).toHaveBeenCalledTimes(2);
 
     // Required and unknown sites cannot be revoked.
     expect(await revokeSitePermission(host, 'facebook')).toBe(false);
     expect(await revokeSitePermission(host, 'nonexistent')).toBe(false);
     expect(host.permissions.remove).not.toHaveBeenCalled();
 
+    // Revoking Instagram unregisters only Instagram and leaves X intact.
     expect(await revokeSitePermission(host, 'instagram')).toBe(true);
     expect(unregister).toHaveBeenCalledTimes(1);
+    expect(grantedOrigins.has('https://x.com/*')).toBe(true);
   });
 
   it('answers runtime messages using Chrome MV3 sendResponse + return true contract', async () => {
-    let granted = true;
+    const grantedOrigins = new Set([
+      'https://www.instagram.com/*',
+      'https://x.com/*',
+      'https://twitter.com/*',
+    ]);
     const host = {
       permissions: {
-        contains: vi.fn(async () => granted),
+        contains: vi.fn(async (query: { origins?: string[] }) =>
+          (query.origins ?? []).every((o) => grantedOrigins.has(o)),
+        ),
         request: vi.fn(async () => true),
-        remove: vi.fn(async () => {
-          granted = false;
+        remove: vi.fn(async (query: { origins?: string[] }) => {
+          for (const o of query.origins ?? []) {
+            grantedOrigins.delete(o);
+          }
           return true;
         }),
       },
@@ -230,6 +282,7 @@ describe('site permissions and runtime script registration', () => {
     });
     expect(getRes.find((s) => s.id === 'facebook')?.enabled).toBe(true);
     expect(getRes.find((s) => s.id === 'instagram')?.enabled).toBe(true);
+    expect(getRes.find((s) => s.id === 'x')?.enabled).toBe(true);
 
     const revokeRes = await new Promise<Array<{ id: string; enabled: boolean }>>((resolve) => {
       const keepOpen = listener(sitePermissionRevokeMessage('instagram'), {}, (res) =>
@@ -238,6 +291,7 @@ describe('site permissions and runtime script registration', () => {
       expect(keepOpen).toBe(true);
     });
     expect(revokeRes.find((s) => s.id === 'instagram')?.enabled).toBe(false);
+    expect(revokeRes.find((s) => s.id === 'x')?.enabled).toBe(true);
     expect(listener('unrelated', {}, vi.fn())).toBeUndefined();
   });
 });

@@ -10,6 +10,7 @@ import { SavedData } from '../core/saved';
 import { LOCATOR_OVERRIDES } from '../facebook/feature';
 import { extensionStore } from '../platform/extension-store';
 import { OptionsDialog } from '../ui/options-dialog/options-dialog';
+import { reportedPageType } from './collect';
 import { DiagnosticsPanel, diagnosticsPanel, REFRESH_MS } from './diagnostics-panel';
 import { checkOverrides } from './overrides';
 import { diagnostics, locator, strategy } from './testing';
@@ -34,6 +35,7 @@ function renderPanel(collect: () => Diagnostics, initial = '{}') {
         onChange={setText}
         collect={collect}
         check={(typed) => checkOverrides(typed, ['post', 'post-reactions'])}
+        scrubPageType={reportedPageType}
       />
     );
   }

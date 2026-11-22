@@ -8,9 +8,35 @@ export const HOST_TAG = 'feed-sanity-ui';
 /** Optional site-specific theme overrides (mapping host CSS vars onto `--fs-*`). */
 let siteThemeCss = '';
 
+/** Optional user-selected theme overrides applied on top of `siteThemeCss`. */
+let userThemeCss = '';
+
+/** Live style elements inside currently mounted shadow roots, updated reactively on theme changes. */
+const mountedStyles = new Map<HTMLStyleElement, string>();
+
+const buildShadowCss = (extraCss: string): string =>
+  [theme, siteThemeCss, userThemeCss, extraCss].filter(Boolean).join('\n');
+
+const refreshMountedStyles = (): void => {
+  for (const [style, extraCss] of mountedStyles) {
+    if (!style.isConnected) {
+      mountedStyles.delete(style);
+      continue;
+    }
+    style.textContent = buildShadowCss(extraCss);
+  }
+};
+
 /** Registers the active site's CSS token layer injected into every shadow root. */
 export function setSiteThemeCss(css: string): void {
   siteThemeCss = css;
+  refreshMountedStyles();
+}
+
+/** Applies or clears user-selected theme overrides across all active and future shadow roots. */
+export function setUserThemeCss(css: string): void {
+  userThemeCss = css;
+  refreshMountedStyles();
 }
 
 /**
@@ -45,17 +71,21 @@ export function renderInShadow(host: HTMLElement, ui: ReactNode, css = ''): () =
   stopAtHost(host, KEY_EVENTS);
   const shadow = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');
-  style.textContent = [theme, siteThemeCss, css].filter(Boolean).join('\n');
+  style.textContent = buildShadowCss(css);
+  mountedStyles.set(style, css);
   const container = document.createElement('div');
   shadow.append(style, container);
   const root = createRoot(container);
   root.render(ui);
-  return () => root.unmount();
+  return () => {
+    mountedStyles.delete(style);
+    root.unmount();
+  };
 }
 
 /**
  * Renders `ui` into a new shadow root at the end of the page body, where
- * Facebook's styles cannot reach it and its own styles stay inside. Returns a
+ * host styles cannot reach it and its own styles stay inside. Returns a
  * function that unmounts it and removes the host element.
  *
  * The toolbar button and the userscript menu work while the page is still

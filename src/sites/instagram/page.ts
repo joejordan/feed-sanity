@@ -1,4 +1,4 @@
-import { scrubCommonPii } from '../../core/site';
+import { scrubCommonPii } from '../../core/pii';
 
 /** Reads Instagram's signed-in numeric user ID from `ds_user_id`, or `'anonymous'`. */
 export function instagramAccountId(cookies: string = document.cookie): string {

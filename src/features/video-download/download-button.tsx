@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import type { MediaSources } from '../../capabilities';
 import type { BridgeStatus } from '../../core/bridge';
-import type { VideoSources } from '../../facebook/video-sources';
 import type { Watched } from '../../ui/watched';
 import type { ButtonPlace } from './layout';
 import { BridgeError } from '../../core/bridge';
@@ -19,8 +19,9 @@ export const STOP_NAME = 'Stop saving the video';
 
 export const UNAVAILABLE =
   "Videos cannot be saved here: Feed Sanity could not reach the page's video data.";
-export const NOT_YET =
-  'This video cannot be saved yet. Facebook sends it as separate streams of sound and picture, and only videos that come as one file can be saved.';
+export const notYetMessage = (siteName = 'Facebook'): string =>
+  `This video cannot be saved yet. ${siteName} sends it as separate streams of sound and picture, and only videos that come as one file can be saved.`;
+export const NOT_YET = notYetMessage('Facebook');
 export const NO_FILE = 'No file was found for this video, so it cannot be saved.';
 export const OPENED =
   'The file could not be fetched from this page, so it opened in a new tab. Save it from there.';
@@ -35,7 +36,7 @@ export const NO_ANSWER = "The page did not say where this video's file is. Try a
  */
 type Files = 'file' | 'manifest' | 'none' | 'unknown';
 
-const filesOf = (sources: VideoSources | null): Files => {
+const filesOf = (sources: MediaSources | null): Files => {
   if (sources?.file) {
     return 'file';
   }
@@ -43,12 +44,12 @@ const filesOf = (sources: VideoSources | null): Files => {
 };
 
 /** Why the video cannot be saved, or null when it may be. */
-function reasonOf(bridge: BridgeStatus, files: Files): string | null {
+function reasonOf(bridge: BridgeStatus, files: Files, siteName: string): string | null {
   if (bridge.state === 'unavailable') {
     return UNAVAILABLE;
   }
   if (files === 'manifest') {
-    return NOT_YET;
+    return notYetMessage(siteName);
   }
   return files === 'none' ? NO_FILE : null;
 }
@@ -146,7 +147,13 @@ export interface DownloadButtonProps {
   placement: Watched<Placement>;
   bridge: Watched<BridgeStatus>;
   /** Asks the page for the video's files. */
-  sources: (signal: AbortSignal) => Promise<VideoSources | null>;
+  sources: (signal: AbortSignal) => Promise<MediaSources | null>;
+  /** Site-specific URL allowlist validator for media downloads and fallback tabs. */
+  isAllowedUrl: (address: string) => boolean;
+  /** Optional download filename prefix (defaults to `'facebook'`). */
+  filePrefix?: string;
+  /** Optional display name used in stream/server error copy (defaults to `'Facebook'`). */
+  siteName?: string;
 }
 
 /**
@@ -195,6 +202,9 @@ export function DownloadButton({
   placement: placementSource,
   bridge: bridgeSource,
   sources,
+  isAllowedUrl,
+  filePrefix,
+  siteName = 'Facebook',
 }: DownloadButtonProps) {
   const id = useId();
   const { button: place, container } = useSyncExternalStore(
@@ -250,7 +260,7 @@ export function DownloadButton({
     return null;
   }
 
-  const reason = reasonOf(bridge, files);
+  const reason = reasonOf(bridge, files, siteName);
 
   const save = async (controller: AbortController, parent: Element): Promise<void> => {
     setJob({ kind: 'saving', received: 0, total: null });
@@ -259,14 +269,16 @@ export function DownloadButton({
       const now = filesOf(found);
       setFiles(now);
       if (!found?.file) {
-        setJob({ kind: 'said', text: now === 'manifest' ? NOT_YET : NO_FILE });
+        setJob({ kind: 'said', text: now === 'manifest' ? notYetMessage(siteName) : NO_FILE });
         return;
       }
-      const name = fileName(found.videoId);
+      const name = fileName(found.videoId, undefined, filePrefix);
       const saved = await saveVideo(found.file, name, {
         signal: controller.signal,
         progress: (received, total) => setJob({ kind: 'saving', received, total }),
         parent,
+        isAllowed: isAllowedUrl,
+        siteName,
       });
       if (saved === 'refused') {
         setJob({ kind: 'said', text: PRESS_AGAIN, open: found.file });
@@ -290,7 +302,7 @@ export function DownloadButton({
     }
     // A fresh press, so the browser lets the tab open.
     if (job.kind === 'said' && job.open) {
-      openInTab(job.open);
+      openInTab(job.open, isAllowedUrl);
       setJob({ kind: 'said', text: OPENED });
       return;
     }

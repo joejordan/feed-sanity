@@ -5,8 +5,7 @@ import type { ClassNameStats } from '../facebook/atoms';
 import type { PostStats } from '../facebook/posts';
 import type { Diagnostics } from './collect';
 import { NAME } from '../../project';
-import { scrubCommonPii } from '../core/site';
-import { mayBeName } from '../facebook/page';
+import { scrubCommonPii } from '../core/pii';
 
 /** A locator looked up this many times without finding anything is worth a look. */
 export const NEVER_FOUND_AFTER = 20;
@@ -16,9 +15,6 @@ export const STRATEGY_STATES: Record<StrategyState, string> = {
   waiting: 'waiting for a class',
   invalid: 'invalid',
 };
-
-/** The page type as a report gives it: `other` for a type that may be a name. */
-export const reportedPageType = (type: string): string => (mayBeName(type) ? 'other' : type);
 
 /**
  * An error message with web addresses, Facebook addresses written without
@@ -131,7 +127,11 @@ function locatorLines(locator: LocatorStats, now: number): string[] {
  * type is left out when it may be a name, and error messages lose their
  * addresses and long numbers.
  */
-export function diagnosticsReport(diagnostics: Diagnostics, scrubMessage = scrub): string {
+export function diagnosticsReport(
+  diagnostics: Diagnostics,
+  scrubMessage = scrub,
+  scrubPageType: (pageType: string) => string = (type) => type,
+): string {
   const {
     version,
     build,
@@ -158,7 +158,7 @@ export function diagnosticsReport(diagnostics: Diagnostics, scrubMessage = scrub
   return [
     `${NAME} diagnostics`,
     `Version ${version}, ${build}`,
-    `Page type: ${reportedPageType(pageType)}`,
+    `Page type: ${scrubPageType(pageType)}`,
     `Toolbar badge: ${badgeSummary(badge)}`,
     `Page bridge: ${bridgeSummary({ ...bridge, problem: bridge.problem && scrubMessage(bridge.problem) })}`,
     '',

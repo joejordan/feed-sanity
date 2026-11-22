@@ -10,11 +10,19 @@ import { PAGE_TOGGLES } from './facebook/page-toggles';
 import { PAGE_READERS } from './facebook/react-readers';
 import { startInstagramPageWorld } from './sites/instagram/page-world';
 import { isInstagramHost } from './sites/instagram/urls';
+import { startXPageWorld } from './sites/x/page-world';
+import { isXHost } from './sites/x/urls';
 
 export function startPageWorld(): void {
-  if (typeof location !== 'undefined' && isInstagramHost(location.hostname)) {
-    startInstagramPageWorld();
-    return;
+  if (typeof location !== 'undefined') {
+    if (isInstagramHost(location.hostname)) {
+      startInstagramPageWorld();
+      return;
+    }
+    if (isXHost(location.hostname)) {
+      startXPageWorld();
+      return;
+    }
   }
   servePageWorld(PAGE_READERS, PAGE_TOGGLES, PAGE_ACTIONS, PAGE_MOUNTS);
 }
