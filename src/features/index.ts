@@ -14,7 +14,6 @@ import videoScrubber from './video-scrubber';
 
 /** Every feature the extension runs, in start order. Add new features here. */
 export const features: readonly Feature<FacebookPage>[] = [
-  externalCss,
   homeFeed,
   stopFeedRefresh,
   postFilters,
@@ -22,6 +21,7 @@ export const features: readonly Feature<FacebookPage>[] = [
   videoScrubber,
   videoClickPauses,
   videoDownload,
+  externalCss,
 ];
 
 /** The parts of the options dialog that features draw themselves. */

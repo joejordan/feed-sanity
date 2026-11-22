@@ -47,7 +47,7 @@ const OPTIONS = {
     section: 'Home Feed',
     title: 'Feed menu on the Home button',
     description:
-      'Show a small arrow beside the Home button in the top bar that opens a list of feeds to switch to.',
+      'Show a small arrow beside the Home button in the top bar that opens a list of feeds to switch to. Moves beside the right-side top-bar buttons on narrow windows.',
     default: true,
   },
   home_feed_composer: {

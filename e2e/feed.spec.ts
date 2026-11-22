@@ -169,6 +169,25 @@ test('opens the options dialog from the toolbar button', async ({ page, pressToo
   // Drawn in a shadow root of its own.
   const host = page.locator('feed-sanity-ui#feed_sanity_options');
   expect(await host.evaluate((element) => element.shadowRoot?.mode)).toBe('open');
+
+  // Opens on Home Feed with all feed options, and lists Hide Posts controls cleanly.
+  await expect(dialog(page).getByRole('combobox', { name: 'Feed on the Home page' })).toBeVisible();
+  await expect(
+    dialog(page).getByRole('checkbox', { name: 'Feed menu on the Home button' }),
+  ).toBeVisible();
+  await expect(
+    dialog(page).getByRole('checkbox', { name: 'Post box on other feeds' }),
+  ).toBeVisible();
+  await expect(
+    dialog(page).getByRole('checkbox', { name: 'Stop automatic feed refresh' }),
+  ).toBeVisible();
+
+  await dialog(page).getByRole('button', { name: 'Hide Posts', exact: true }).click();
+  await expect(dialog(page).getByRole('checkbox', { name: 'Hide suggested posts' })).toBeVisible();
+  await expect(dialog(page).getByRole('checkbox', { name: 'Hide ads' })).toBeVisible();
+  await expect(
+    dialog(page).getByRole('checkbox', { name: 'Conceal posts until checked' }),
+  ).toBeVisible();
 });
 
 test('saves a setting changed in the options dialog to extension storage', async ({
