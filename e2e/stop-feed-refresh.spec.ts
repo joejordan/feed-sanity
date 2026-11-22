@@ -39,23 +39,45 @@ test('disables automatic feed refresh modules on load and restores them when tur
     });
 
   // A module loaded later (as when navigating to /groups/feed/) is patched automatically.
-  const countWhileOn = await page.evaluate(() => {
+  await page.evaluate(() => {
     const api = (
       globalThis as unknown as {
-        __e2eRefresh: {
-          loadGroupsModule: () => void;
-          mountGroupsHook: () => void;
-          triggerGroupsRefresh: () => number;
-        };
+        __e2eRefresh: { loadGroupsModule: () => void };
       }
     ).__e2eRefresh;
     api.loadGroupsModule();
-    api.mountGroupsHook();
-    return api.triggerGroupsRefresh();
   });
-  expect(countWhileOn).toBe(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const api = (
+          globalThis as unknown as {
+            __e2eRefresh: {
+              mountGroupsHook: () => void;
+              triggerGroupsRefresh: () => number;
+              getRequireLazyCalls: () => number;
+            };
+          }
+        ).__e2eRefresh;
+        api.mountGroupsHook();
+        const before = api.triggerGroupsRefresh();
+        const after = api.triggerGroupsRefresh();
+        return {
+          delta: after - before,
+          lazyCalls: api.getRequireLazyCalls(),
+        };
+      }),
+    )
+    .toEqual({ delta: 0, lazyCalls: 0 });
 
   // Turning the option off restores all three without a reload.
+  const countBeforeOff = await page.evaluate(() =>
+    (
+      globalThis as unknown as {
+        __e2eRefresh: { triggerGroupsRefresh: () => number };
+      }
+    ).__e2eRefresh.triggerGroupsRefresh(),
+  );
   await store({ [OPTIONS_KEY]: { stop_feed_refresh: false } });
   await expect
     .poll(() =>
@@ -74,7 +96,7 @@ test('disables automatic feed refresh modules on load and restores them when tur
           vis: staleness.FEED_VISIBILITY_TIMEOUT,
           push: staleness.FEED_STALE_PUSH_VIEW_TIMEOUT,
           groupEligible: returnToFeed.isRouteEligible('comet.group'),
-          groupsCount: triggerGroupsRefresh(),
+          groupsDelta: triggerGroupsRefresh(),
         };
       }),
     )
@@ -83,7 +105,7 @@ test('disables automatic feed refresh modules on load and restores them when tur
       vis: 120_000,
       push: 1_800_000,
       groupEligible: true,
-      groupsCount: 1,
+      groupsDelta: countBeforeOff + 1,
     });
 
   // Turning it back on re-disables all three without a reload.
@@ -100,17 +122,19 @@ test('disables automatic feed refresh modules on load and restores them when tur
             };
           }
         ).__e2eRefresh;
+        const before = triggerGroupsRefresh();
+        const after = triggerGroupsRefresh();
         return {
           visInfinite: staleness.FEED_VISIBILITY_TIMEOUT === Number.POSITIVE_INFINITY,
           groupEligible: returnToFeed.isRouteEligible('comet.group'),
-          groupsCount: triggerGroupsRefresh(),
+          groupsDelta: after - before,
         };
       }),
     )
     .toEqual({
       visInfinite: true,
       groupEligible: false,
-      groupsCount: 1,
+      groupsDelta: 0,
     });
 });
 

@@ -16,31 +16,6 @@
       </div>
     </div>
     <script>
-      const modules = new Map();
-      const waiting = new Map();
-
-      function defineModule(name, exports) {
-        modules.set(name, exports);
-        const callbacks = waiting.get(name);
-        if (callbacks) {
-          waiting.delete(name);
-          for (const cb of callbacks) {
-            cb(exports);
-          }
-        }
-      }
-
-      globalThis.requireLazy = (deps, callback) => {
-        const [name] = deps;
-        if (modules.has(name)) {
-          callback(modules.get(name));
-        } else {
-          const list = waiting.get(name) ?? [];
-          list.push(callback);
-          waiting.set(name, list);
-        }
-      };
-
       const staleness = {
         FEED_STALE_TIMEOUT: 600_000,
         FEED_VISIBILITY_TIMEOUT: 120_000,
@@ -53,10 +28,25 @@
           return route === 'comet.group' || route === 'comet.profile.timeline.list';
         },
       };
-      defineModule('CometFeedStalenessConstantsEntryPointVariables', staleness);
-      defineModule('CometReturnToFeedRouteUtils', returnToFeed);
 
-      const modulesMap = {};
+      const modulesMap = {
+        CometFeedStalenessConstantsEntryPointVariables: {
+          exports: staleness,
+          factoryFinished: true,
+          hasError: false,
+        },
+        CometReturnToFeedRouteUtils: {
+          exports: returnToFeed,
+          factoryFinished: true,
+          hasError: false,
+        },
+      };
+
+      let requireLazyCalls = 0;
+      globalThis.requireLazy = () => {
+        requireLazyCalls += 1;
+      };
+
       const loadModule = (name) => {
         if (name === '__debug') {
           return { modulesMap };
@@ -74,15 +64,16 @@
       const groupsEntry = {
         exports: { default: originalGroupsHook },
         defaultExport: originalGroupsHook,
+        factoryFinished: true,
+        hasError: false,
       };
 
       globalThis.__e2eRefresh = {
         staleness,
         returnToFeed,
+        getRequireLazyCalls: () => requireLazyCalls,
         loadGroupsModule() {
           modulesMap.useGroupsCometCrossFeedRefresh = groupsEntry;
-          // Mirror Facebook's real loader, which hands the unwrapped default function to requireLazy.
-          defineModule('useGroupsCometCrossFeedRefresh', groupsEntry.defaultExport);
         },
         mountGroupsHook() {
           loadModule('useGroupsCometCrossFeedRefresh')({

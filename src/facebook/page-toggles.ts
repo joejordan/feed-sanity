@@ -25,11 +25,14 @@ export const RETURN_TO_FEED_MODULE = 'CometReturnToFeedRouteUtils';
 export const GROUPS_REFRESH_MODULE = 'useGroupsCometCrossFeedRefresh';
 
 /**
- * How often to check for Facebook's `requireLazy` bootloader before it has run
- * at `document_start`, and when to give up on a page that never defines one.
+ * How often to poll Facebook's module loader while waiting for `require` /
+ * `requireLazy` or for the three refresh modules to be initialized by Facebook.
+ * Once all three modules are captured (or the toggle is turned off), polling
+ * stops completely.
  */
-const POLL_MS = 25;
-const MAX_WAIT_MS = 15_000;
+const BOOT_POLL_MS = 50;
+const LAZY_POLL_MS = 500;
+const MAX_LOADER_WAIT_MS = 15_000;
 
 /**
  * The staleness constants overridden while Anti-Zuck is on.
@@ -92,8 +95,12 @@ export function createStopFeedRefreshToggle(
   loader: PageLoader = globalThis as PageLoader,
 ): PageToggle {
   let enabled = false;
-  let subscribed = false;
+  let usingModulesMap = false;
+  let subscribedLazy = false;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let pollIntervalMs = 0;
+  let loaderDeadline = 0;
+  const wrappedFactories = new WeakSet<Loose>();
 
   let stalenessMod: Loose | undefined;
   const originalStaleness = new Map<string, unknown>();
@@ -109,19 +116,25 @@ export function createStopFeedRefreshToggle(
   // not tear down and re-subscribe its effect on every render.
   const gatedHandlers = new WeakMap<AnyFunction, AnyFunction>();
 
-  /** Reads Facebook's internal module entry from `require('__debug').modulesMap`, if available. */
-  const moduleEntry = (name: string): Loose | undefined => {
+  /** Reads Facebook's internal module registry from `require('__debug').modulesMap`, if available. */
+  const modulesMap = (): Loose | undefined => {
     if (typeof loader.require !== 'function') {
       return undefined;
     }
     try {
       const debug = (loader.require as RequireModule)('__debug');
       const map = isObject(debug) ? debug.modulesMap : undefined;
-      const entry = isObject(map) ? map[name] : undefined;
-      return isObject(entry) ? entry : undefined;
+      return isObject(map) ? map : undefined;
     } catch {
       return undefined;
     }
+  };
+
+  /** Reads one module entry from `require('__debug').modulesMap`, if available. */
+  const moduleEntry = (name: string): Loose | undefined => {
+    const map = modulesMap();
+    const entry = map ? map[name] : undefined;
+    return isObject(entry) ? entry : undefined;
   };
 
   const gateHandler = (handler: AnyFunction): AnyFunction => {
@@ -222,18 +235,159 @@ export function createStopFeedRefreshToggle(
     if (pollTimer !== undefined) {
       clearInterval(pollTimer);
       pollTimer = undefined;
+      pollIntervalMs = 0;
     }
   };
 
-  const subscribeOnce = (): void => {
-    if (subscribed || typeof loader.requireLazy !== 'function') {
-      return;
+  const allCaptured = (): boolean =>
+    Boolean(
+      stalenessMod && returnToFeedMod && (groupsRefreshMod !== undefined || groupsRefreshEntry),
+    );
+
+  const captureStaleness = (loaded: unknown): void => {
+    if (!stalenessMod && isObject(loaded)) {
+      stalenessMod = loaded;
+      if (enabled) {
+        applyStaleness();
+      }
     }
-    subscribed = true;
+  };
+
+  const captureReturnToFeed = (loaded: unknown): void => {
+    if (!returnToFeedMod && isObject(loaded)) {
+      returnToFeedMod = loaded;
+      if (enabled) {
+        applyReturnToFeed();
+      }
+    }
+  };
+
+  const captureGroups = (loaded: unknown, entry?: Loose): void => {
+    if (entry && !groupsRefreshEntry) {
+      groupsRefreshEntry = entry;
+      if (isObject(entry.exports)) {
+        groupsRefreshMod = entry.exports;
+      }
+    } else if (isObject(loaded)) {
+      groupsRefreshMod = loaded;
+    } else if (typeof loaded === 'function') {
+      const found = moduleEntry(GROUPS_REFRESH_MODULE);
+      if (found) {
+        groupsRefreshEntry = found;
+        if (isObject(found.exports)) {
+          groupsRefreshMod = found.exports;
+        }
+      }
+    }
+    if (enabled && (groupsRefreshMod || groupsRefreshEntry)) {
+      applyGroupsRefresh();
+    }
+  };
+
+  const captureEntryExports = (name: string, entry: Loose, exportsObj?: unknown): void => {
+    const resolved = exportsObj ?? entry.exports;
+    if (name === STALENESS_MODULE) {
+      captureStaleness(resolved);
+    } else if (name === RETURN_TO_FEED_MODULE) {
+      captureReturnToFeed(resolved);
+    } else if (name === GROUPS_REFRESH_MODULE) {
+      captureGroups(resolved, entry);
+    }
+  };
+
+  const isCaptured = (name: string): boolean => {
+    if (name === STALENESS_MODULE) {
+      return Boolean(stalenessMod);
+    }
+    if (name === RETURN_TO_FEED_MODULE) {
+      return Boolean(returnToFeedMod);
+    }
+    return Boolean(groupsRefreshMod || groupsRefreshEntry);
+  };
+
+  /**
+   * Passively inspects Facebook's `__debug.modulesMap` without ever calling
+   * `requireLazy`, which would force-execute a module's factory before
+   * Facebook's inline `ServerJS` bootstrap has populated `qex` (crashing
+   * `CometFeedStalenessConstantsEntryPointVariables` with invariant #11799).
+   *
+   * Already-finished modules are patched immediately; defined-but-uninitialized
+   * modules have their `factory` wrapped so they are patched the instant
+   * Facebook itself requires them.
+   */
+  const scanModulesMap = (): boolean => {
+    const map = modulesMap();
+    if (!map) {
+      return false;
+    }
+    usingModulesMap = true;
+    for (const name of [STALENESS_MODULE, RETURN_TO_FEED_MODULE, GROUPS_REFRESH_MODULE]) {
+      if (isCaptured(name)) {
+        continue;
+      }
+      const entry = map[name];
+      if (!isObject(entry) || entry.hasError === true) {
+        continue;
+      }
+      const ready =
+        entry.factoryFinished === true ||
+        (entry.factoryFinished === undefined &&
+          (isObject(entry.exports) || typeof entry.defaultExport === 'function'));
+      if (ready) {
+        captureEntryExports(name, entry);
+        continue;
+      }
+      if (
+        entry.factoryFinished === false &&
+        typeof entry.factory === 'function' &&
+        !wrappedFactories.has(entry)
+      ) {
+        const origFactory = entry.factory as AnyFunction;
+        const wrappedFactory: AnyFunction = function (this: unknown, ...args: unknown[]) {
+          const result = origFactory.apply(this, args);
+          // Facebook's factory signature passes `exports` as the 7th argument.
+          // Patch named exports synchronously and re-sync on a microtask once
+          // the loader finishes populating `entry.defaultExport`.
+          const exportsArg = args[6];
+          if (isObject(exportsArg)) {
+            captureEntryExports(name, entry, exportsArg);
+          }
+          queueMicrotask(() => {
+            scanModulesMap();
+          });
+          return result;
+        };
+        if (writeProp(entry, 'factory', wrappedFactory)) {
+          wrappedFactories.add(entry);
+        }
+      }
+    }
+    if (allCaptured()) {
+      stopPolling();
+    }
+    return true;
+  };
+
+  /**
+   * Fallback for loaders that expose only `requireLazy` without
+   * `require('__debug').modulesMap`. Never runs while the document is still
+   * loading or when `require` is present, so a real Facebook page's early
+   * `requireLazy` stub never force-evaluates modules before `ServerJS`
+   * populates `qex`.
+   */
+  const subscribeRequireLazy = (): boolean => {
+    if (
+      subscribedLazy ||
+      usingModulesMap ||
+      typeof loader.require === 'function' ||
+      typeof loader.requireLazy !== 'function' ||
+      (typeof document !== 'undefined' && document.readyState !== 'complete')
+    ) {
+      return subscribedLazy;
+    }
+    subscribedLazy = true;
     stopPolling();
     const requireLazy = loader.requireLazy as RequireLazy;
-    // Each module is requested on its own so a module that only loads on
-    // another route (such as Groups) never holds back the Home or site-wide ones.
     const watchModule = (name: string, onLoad: (mod: unknown) => void): void => {
       try {
         requireLazy([name], (loaded) => {
@@ -243,63 +397,61 @@ export function createStopFeedRefreshToggle(
         // Ignore bootloader rejections; diagnostics and tests see what was patched.
       }
     };
-    watchModule(STALENESS_MODULE, (loaded) => {
-      if (isObject(loaded)) {
-        stalenessMod = loaded;
-        if (enabled) {
-          applyStaleness();
-        }
-      }
-    });
-    watchModule(RETURN_TO_FEED_MODULE, (loaded) => {
-      if (isObject(loaded)) {
-        returnToFeedMod = loaded;
-        if (enabled) {
-          applyReturnToFeed();
-        }
-      }
-    });
-    watchModule(GROUPS_REFRESH_MODULE, (loaded) => {
-      if (isObject(loaded)) {
-        groupsRefreshMod = loaded;
-      } else if (typeof loaded === 'function') {
-        const entry = moduleEntry(GROUPS_REFRESH_MODULE);
-        if (entry) {
-          groupsRefreshEntry = entry;
-          if (isObject(entry.exports)) {
-            groupsRefreshMod = entry.exports;
-          }
-        }
-      }
-      if (enabled) {
-        applyGroupsRefresh();
-      }
-    });
+    watchModule(STALENESS_MODULE, captureStaleness);
+    watchModule(RETURN_TO_FEED_MODULE, captureReturnToFeed);
+    watchModule(GROUPS_REFRESH_MODULE, (loaded) => captureGroups(loaded));
+    return true;
   };
 
-  const waitForLoader = (): void => {
-    if (subscribed || pollTimer !== undefined) {
+  const setPoll = (intervalMs: number): void => {
+    if (pollTimer !== undefined && pollIntervalMs === intervalMs) {
       return;
     }
-    const deadline = Date.now() + MAX_WAIT_MS;
+    stopPolling();
+    pollIntervalMs = intervalMs;
     pollTimer = setInterval(() => {
-      if (!enabled || subscribed || Date.now() >= deadline) {
+      if (!enabled || allCaptured()) {
         stopPolling();
         return;
       }
-      if (typeof loader.requireLazy === 'function') {
-        subscribeOnce();
+      if (scanModulesMap()) {
+        // After the initial boot window, slow down to a lightweight check for
+        // route-lazy modules such as Groups that may load on later navigation.
+        if (Date.now() >= loaderDeadline) {
+          setPoll(LAZY_POLL_MS);
+        }
+        return;
       }
-    }, POLL_MS);
+      if (subscribeRequireLazy()) {
+        return;
+      }
+      if (Date.now() >= loaderDeadline) {
+        stopPolling();
+      }
+    }, intervalMs);
+  };
+
+  const startWatching = (): void => {
+    if (allCaptured() || subscribedLazy) {
+      return;
+    }
+    loaderDeadline = Date.now() + MAX_LOADER_WAIT_MS;
+    if (scanModulesMap()) {
+      if (!allCaptured()) {
+        setPoll(BOOT_POLL_MS);
+      }
+      return;
+    }
+    if (subscribeRequireLazy()) {
+      return;
+    }
+    setPoll(BOOT_POLL_MS);
   };
 
   return (next: boolean): StopFeedRefreshAnswer => {
     enabled = next;
     if (enabled) {
-      subscribeOnce();
-      if (!subscribed) {
-        waitForLoader();
-      }
+      startWatching();
     } else {
       stopPolling();
     }

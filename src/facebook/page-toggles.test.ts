@@ -146,7 +146,7 @@ describe('createStopFeedRefreshToggle', () => {
     expect(refreshHandler).toHaveBeenCalledTimes(1);
   });
 
-  it('patches unwrapped default exports via __debug.modulesMap as Facebook requireLazy delivers them', () => {
+  it('patches unwrapped default exports via __debug.modulesMap as Facebook delivers them', () => {
     const seen: ((...args: unknown[]) => unknown)[] = [];
     const originalHook = (props: { refreshHandler: () => void }) => {
       seen.push(props.refreshHandler);
@@ -154,22 +154,22 @@ describe('createStopFeedRefreshToggle', () => {
     const entry = {
       exports: { default: originalHook },
       defaultExport: originalHook,
+      factoryFinished: true,
+      hasError: false,
     };
     const modulesMap: Record<string, unknown> = {
       [GROUPS_REFRESH_MODULE]: entry,
     };
+    const requireLazy = vi.fn();
     const loader = {
       require: (name: string) => (name === '__debug' ? { modulesMap } : undefined),
-      requireLazy: (deps: readonly string[], cb: (...loaded: unknown[]) => void) => {
-        if (deps[0] === GROUPS_REFRESH_MODULE) {
-          // Real Facebook unwraps `.default` and hands the hook function directly to requireLazy.
-          cb(entry.defaultExport);
-        }
-      },
+      requireLazy,
     };
     const toggle = createStopFeedRefreshToggle(loader);
 
     expect(toggle(true)).toEqual({ enabled: true, patched: [GROUPS_REFRESH_MODULE] });
+    // Passive modulesMap mode must never call requireLazy.
+    expect(requireLazy).not.toHaveBeenCalled();
     expect(entry.defaultExport).not.toBe(originalHook);
     expect(entry.exports.default).not.toBe(originalHook);
 
@@ -185,6 +185,62 @@ describe('createStopFeedRefreshToggle', () => {
     expect(refreshHandler).toHaveBeenCalledTimes(1);
   });
 
+  it('never executes an uninitialized module factory early and patches it when Facebook initializes it', async () => {
+    let qexReady = false;
+    const exportsObj: Record<string, unknown> = {};
+    const entry: {
+      exports: Record<string, unknown>;
+      factoryFinished: boolean;
+      hasError: boolean;
+      factory: (...args: unknown[]) => void;
+    } = {
+      exports: exportsObj,
+      factoryFinished: false,
+      hasError: false,
+      factory: (_g, _d, _r, _rd, _rl, _m, exportsArg) => {
+        if (!qexReady) {
+          throw new Error('Invariant Violation: qex 2712 not loaded yet');
+        }
+        const out = exportsArg as Record<string, unknown>;
+        out.FEED_STALE_TIMEOUT = 600_000;
+        out.FEED_VISIBILITY_TIMEOUT = 120_000;
+        out.FEED_STALE_PUSH_VIEW_TIMEOUT = 1_800_000;
+      },
+    };
+    const modulesMap: Record<string, unknown> = {
+      [STALENESS_MODULE]: entry,
+    };
+    const requireLazy = vi.fn(() => {
+      throw new Error('requireLazy must not be called when modulesMap exists');
+    });
+    const loader = {
+      require: (name: string) => (name === '__debug' ? { modulesMap } : undefined),
+      requireLazy,
+    };
+    const toggle = createStopFeedRefreshToggle(loader);
+
+    // Turning on while qex is not ready yet must NOT invoke the factory or throw.
+    expect(toggle(true)).toEqual({ enabled: true, patched: [] });
+    expect(requireLazy).not.toHaveBeenCalled();
+    expect(entry.factoryFinished).toBe(false);
+
+    // Later, Facebook finishes loading qex and invokes the module factory itself.
+    qexReady = true;
+    entry.factory(null, null, null, null, null, null, exportsObj);
+    entry.factoryFinished = true;
+    await Promise.resolve();
+
+    expect(exportsObj.FEED_STALE_TIMEOUT).toBe(Number.POSITIVE_INFINITY);
+    expect(exportsObj.FEED_VISIBILITY_TIMEOUT).toBe(Number.POSITIVE_INFINITY);
+    expect(exportsObj.FEED_STALE_PUSH_VIEW_TIMEOUT).toBeNull();
+
+    // Turning off restores the exact originals.
+    expect(toggle(false)).toEqual({ enabled: false, patched: [] });
+    expect(exportsObj.FEED_STALE_TIMEOUT).toBe(600_000);
+    expect(exportsObj.FEED_VISIBILITY_TIMEOUT).toBe(120_000);
+    expect(exportsObj.FEED_STALE_PUSH_VIEW_TIMEOUT).toBe(1_800_000);
+  });
+
   it('waits for requireLazy when started at document_start, and applies to modules loaded later', () => {
     vi.useFakeTimers();
     const loader: FakeLoader = makeLoader();
@@ -196,7 +252,7 @@ describe('createStopFeedRefreshToggle', () => {
 
     // Facebook's bootloader defines `requireLazy` shortly after document_start.
     loader.requireLazy = realRequireLazy;
-    vi.advanceTimersByTime(30);
+    vi.advanceTimersByTime(60);
 
     const staleness = {
       FEED_STALE_TIMEOUT: 600_000,
