@@ -9,6 +9,7 @@ import { dataPanel } from './data/data-panel';
 import { collectDiagnostics } from './diagnostics/collect';
 import { diagnosticsPanel } from './diagnostics/diagnostics-panel';
 import { createPage, LOCATOR_OVERRIDES } from './facebook/feature';
+import { savedPostData } from './facebook/post-read';
 import { currentUserId } from './facebook/user';
 import { features, optionsPanels } from './features';
 import { savedFilters } from './features/post-filters/types';
@@ -24,7 +25,12 @@ export function start(platform: Platform): Promise<string[]> {
   const overrides = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
   const panels = [
     ...optionsPanels(data),
-    dataPanel({ options, filters: savedFilters(data), locators: overrides }),
+    dataPanel({
+      options,
+      filters: savedFilters(data),
+      locators: overrides,
+      read_history: savedPostData(data),
+    }),
     diagnosticsPanel({
       collect: () =>
         collectDiagnostics({ version, build: platform.build, page: page.stats, runner }),

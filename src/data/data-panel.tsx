@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, useSyncExternalStore } from 'react';
 import type { OptionsPanel } from '../ui/options-dialog/panel';
 import type { DataStores } from './transfer';
 import { NAME } from '../../project';
@@ -35,6 +35,25 @@ export function DataPanel({ stores }: { stores: DataStores }) {
   const [exportedText, setExportedText] = useState<string | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [busy, setBusy] = useState(false);
+  const readCount = useSyncExternalStore(
+    (onChange) => stores.read_history?.onChange(onChange) ?? (() => undefined),
+    () => (stores.read_history ? Object.keys(stores.read_history.get()).length : 0),
+  );
+
+  const onClearReadHistory = async () => {
+    if (!stores.read_history) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await stores.read_history.set({});
+      setStatus({ text: 'Read post history cleared.' });
+    } catch {
+      setStatus({ text: 'Could not clear read post history.', error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const onCopyExport = async () => {
     const json = exportBackup(stores);
@@ -179,6 +198,27 @@ export function DataPanel({ stores }: { stores: DataStores }) {
         </button>
       </div>
 
+      {stores.read_history && (
+        <>
+          <h4 className="data-subheading">Read post history</h4>
+          <p className="description">
+            {readCount === 0
+              ? 'No posts are currently marked as read.'
+              : `${readCount} ${readCount === 1 ? 'post is' : 'posts are'} remembered as read.`}
+          </p>
+          <div className="data-actions">
+            <button
+              className="button"
+              type="button"
+              disabled={busy || readCount === 0}
+              onClick={() => void onClearReadHistory()}
+            >
+              Clear read history
+            </button>
+          </div>
+        </>
+      )}
+
       <h4 className="data-subheading">Reset</h4>
       <p className="description">
         Restore every option to its default and remove all saved filters and custom selectors.
@@ -223,9 +263,12 @@ export function dataPanel(stores: DataStores): OptionsPanel {
   return definePanel<null>({
     section: 'Data',
     css,
-    ready: Promise.all([stores.options.loaded, stores.filters.ready, stores.locators.ready]).then(
-      () => undefined,
-    ),
+    ready: Promise.all([
+      stores.options.loaded,
+      stores.filters.ready,
+      stores.locators.ready,
+      stores.read_history?.ready ?? Promise.resolve(),
+    ]).then(() => undefined),
     read: () => null,
     save: () => Promise.resolve(),
     Panel: () => <DataPanel stores={stores} />,

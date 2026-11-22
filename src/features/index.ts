@@ -4,6 +4,7 @@ import type { FacebookPage } from '../facebook/feature';
 import type { OptionsPanel } from '../ui/options-dialog/panel';
 import externalCss from './external-css';
 import homeFeed from './home-feed';
+import markRead from './mark-read';
 import postFilters from './post-filters';
 import { filtersPanel } from './post-filters/filters-panel';
 import stopFeedRefresh from './stop-feed-refresh';
@@ -17,6 +18,7 @@ export const features: readonly Feature<FacebookPage>[] = [
   homeFeed,
   stopFeedRefresh,
   postFilters,
+  markRead,
   storiesKeepPlaying,
   videoScrubber,
   videoClickPauses,

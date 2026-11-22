@@ -1,6 +1,7 @@
 import type { LocatorOverrides } from '../core/locator';
 import type { OptionSpec, Options, OptionValue } from '../core/options';
 import type { SavedValue } from '../core/saved';
+import type { PostReadData } from '../facebook/post-read';
 import type { Filter } from '../features/post-filters/types';
 import { readLocatorOverrides } from '../core/locator';
 import { isRecord } from '../core/storage';
@@ -11,6 +12,7 @@ export interface DataStores {
   options: Options;
   filters: SavedValue<Filter[]>;
   locators: SavedValue<LocatorOverrides>;
+  read_history?: SavedValue<PostReadData> | undefined;
 }
 
 /** Portable JSON snapshot of Feed Sanity's settings. */
@@ -166,11 +168,19 @@ export async function applyBackup(
     : `Nothing matched to import${skipped}.`;
 }
 
-/** Resets every registered option to its default and clears saved filters and locator overrides. */
-export async function resetAllData({ options, filters, locators }: DataStores): Promise<void> {
+/** Resets every registered option to its default and clears saved filters, locator overrides and read history. */
+export async function resetAllData({
+  options,
+  filters,
+  locators,
+  read_history,
+}: DataStores): Promise<void> {
   for (const [key, spec] of options.list()) {
     await options.set(key, spec.default);
   }
   await filters.set([]);
   await locators.set({});
+  if (read_history) {
+    await read_history.set({});
+  }
 }

@@ -291,8 +291,8 @@ test('says under Diagnostics when post detection has not started', async ({
   store,
   pressToolbarButton,
 }) => {
-  // Hiding suggested posts is on by default, and starts post detection.
-  await store({ [OPTIONS_KEY]: { hide_suggested_posts: false } });
+  // Both suggested-post hiding and mark-read are on by default and start post detection.
+  await store({ [OPTIONS_KEY]: { hide_suggested_posts: false, read_posts: false } });
   await page.goto(FEED);
   await pressToolbarButton();
 
@@ -454,4 +454,32 @@ test('hides newly inserted ads and suggested posts immediately before first pain
     sugHiddenOnFirstFrame: true,
     normalCheckedOnFirstFrame: true,
   });
+});
+
+test('marks posts as read, persists across reloads, and clears read history from Data', async ({
+  page,
+  pressToolbarButton,
+}) => {
+  await page.goto(FEED);
+
+  const avery = slot(page, 'Avery Quill');
+  const markBtn = avery.getByRole('button', { name: 'Mark post as read' });
+  await expect(markBtn).toBeVisible();
+  await markBtn.click();
+
+  await expect(avery).toHaveClass(/\bfs_post_read\b/);
+  await expect(avery.locator('.fs_read_note')).toContainText('Read post by Avery Quill');
+
+  // Persists after reload.
+  await page.reload();
+  const averyReloaded = slot(page, 'Avery Quill');
+  await expect(averyReloaded).toHaveClass(/\bfs_post_read\b/);
+
+  // Clear read history from the Data section in Options and verify live unhide.
+  await pressToolbarButton();
+  await dialog(page).getByRole('button', { name: 'Data', exact: true }).click();
+  await expect(dialog(page).getByText('1 post is remembered as read.')).toBeVisible();
+  await dialog(page).getByRole('button', { name: 'Clear read history' }).click();
+  await expect(dialog(page).getByText('Read post history cleared.')).toBeVisible();
+  await expect(averyReloaded).not.toHaveClass(/\bfs_post_read\b/);
 });
