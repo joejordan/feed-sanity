@@ -42,8 +42,8 @@ export interface FacebookPage {
    * `onChange` ends with the feature's scope.
    */
   locate: Locate;
-  /** The posts on the page. Subscribing with `onAdd` starts post detection. */
-  posts: Pick<Posts, 'onAdd' | 'onRemove' | 'onReset' | 'onUpdate'>;
+  /** The posts on the page. Subscribing with `onAdd` or `onTrack` starts post detection. */
+  posts: Pick<Posts, 'onAdd' | 'onRemove' | 'onReset' | 'onTrack' | 'onUntrack' | 'onUpdate'>;
   /** The videos on the page. Subscribing with `onAdd` starts looking for them. */
   videos: Pick<Videos, 'around' | 'onAdd' | 'onControls' | 'onRemove'>;
   /**
@@ -197,6 +197,8 @@ export function bindPage(page: PageServices): PageFactory<FacebookPage> {
         return locator;
       },
       posts: {
+        onTrack: (listener) => listen((guarded) => page.posts.onTrack(guarded), listener),
+        onUntrack: (listener) => listen((guarded) => page.posts.onUntrack(guarded), listener),
         onAdd: (listener) => listen((guarded) => page.posts.onAdd(guarded), listener),
         onRemove: (listener) => listen((guarded) => page.posts.onRemove(guarded), listener),
         onReset: (listener) => listen((guarded) => page.posts.onReset(guarded), listener),

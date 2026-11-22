@@ -39,6 +39,8 @@ describe('bindPage', () => {
       atoms: { ...fakeAtoms, onChange: (listener) => atomsChanged.add(listener) },
       locate,
       posts: {
+        onTrack: () => () => undefined,
+        onUntrack: () => () => undefined,
         onAdd: (listener) => added.add(listener),
         onRemove: () => () => undefined,
         onReset: () => () => undefined,

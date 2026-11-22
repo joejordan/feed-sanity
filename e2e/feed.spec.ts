@@ -332,3 +332,79 @@ test('leaves ads alone by default', async ({ page, store }) => {
 
   await expectShown(page, 'Sourdough School');
 });
+
+test('hides newly inserted ads and suggested posts immediately before first paint without waiting for ID lookup', async ({
+  page,
+  store,
+}) => {
+  await store({ [OPTIONS_KEY]: { hide_sponsored_posts: true, hide_suggested_posts: true } });
+
+  await page.goto(SUGGESTED_FEED);
+  await expectHidden(page, 'Sourdough School');
+  await expect(page.locator('html')).toHaveAttribute('data-feed-sanity-filtering', '');
+
+  // Insert a fresh sponsored post (with no time link) and a fresh suggested post,
+  // and check on the very first animation frame that neither flashes visible.
+  const result = await page.evaluate(
+    () =>
+      new Promise<{
+        adHiddenOnFirstFrame: boolean;
+        adHasIdYet: boolean;
+        sugHiddenOnFirstFrame: boolean;
+        normalCheckedOnFirstFrame: boolean;
+      }>((resolve) => {
+        const feed = document.querySelector('#feed') as HTMLElement;
+        const makeSlot = (pos: string, html: string, sponsored: boolean) => {
+          const el = document.createElement('div');
+          el.setAttribute('aria-posinset', pos);
+          el.setAttribute('aria-setsize', '-1');
+          el.setAttribute('role', 'article');
+          el.innerHTML = html;
+          const feedUnit = {
+            __typename: 'Story',
+            id: `e2e-${pos}`,
+            sponsored_data: sponsored ? { ad_id: '6000000000009' } : null,
+          };
+          let fiber: Record<string, unknown> = { memoizedProps: { feedUnit }, return: null };
+          for (let step = 0; step < 14; step++) {
+            fiber = { memoizedProps: { className: `level-${step}` }, return: fiber };
+          }
+          Object.assign(el, { '__reactFiber$e2e': fiber });
+          feed.append(el);
+          return el;
+        };
+
+        const ad = makeSlot(
+          '91',
+          '<div><div data-ad-rendering-role="profile_name"><h4><a href="/ad.co"><strong>Instant Ad</strong></a></h4></div><div data-ad-rendering-role="story_message">Buy fast</div></div>',
+          true,
+        );
+        const sug = makeSlot(
+          '92',
+          '<div><div data-ad-rendering-role="profile_name"><h4><span><a href="/sug.co"><strong>Instant Sug</strong></a></span><span><span><span><div role="button" tabindex="0">Follow</div></span></span></span></h4></div><div data-ad-rendering-role="story_message">Follow us</div></div>',
+          false,
+        );
+        const normal = makeSlot(
+          '93',
+          '<div><div data-ad-rendering-role="profile_name"><h4><a href="/friend.co"><strong>Instant Friend</strong></a></h4></div><div data-ad-rendering-role="story_message">Hello world</div></div>',
+          false,
+        );
+
+        requestAnimationFrame(() => {
+          resolve({
+            adHiddenOnFirstFrame: ad.classList.contains('fs_filter_hidden'),
+            adHasIdYet: ad.hasAttribute('fs_id'),
+            sugHiddenOnFirstFrame: sug.classList.contains('fs_filter_hidden'),
+            normalCheckedOnFirstFrame: normal.hasAttribute('data-feed-sanity-checked'),
+          });
+        });
+      }),
+  );
+
+  expect(result).toEqual({
+    adHiddenOnFirstFrame: true,
+    adHasIdYet: false,
+    sugHiddenOnFirstFrame: true,
+    normalCheckedOnFirstFrame: true,
+  });
+});

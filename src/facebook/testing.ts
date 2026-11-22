@@ -159,7 +159,14 @@ export function videoPage(bridge: PageWorld = testBridge()): PageServices {
   return {
     atoms: fakeAtoms,
     locate: fakeLocate,
-    posts: { onAdd: none, onRemove: none, onReset: none, onUpdate: none },
+    posts: {
+      onTrack: none,
+      onUntrack: none,
+      onAdd: none,
+      onRemove: none,
+      onReset: none,
+      onUpdate: none,
+    },
     videos: new Videos(fakeLocate),
     bridge,
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
