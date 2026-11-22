@@ -31,7 +31,7 @@ export const scrubCommonPii = (message: string): string =>
  * `src/sites/gmail/`). Keeps `src/core/`, `src/ui/`, and `src/platform/`
  * free of site-specific assumptions.
  */
-export interface SiteAdapter<P = unknown> {
+export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory<P>> {
   readonly id: string;
   readonly displayName: string;
   /** Hostname matcher for runtime dispatch in multi-site builds and tests. */
@@ -45,14 +45,14 @@ export interface SiteAdapter<P = unknown> {
   /** Strips site-specific personal identifiers (handles, slugs, post IDs) from diagnostics. */
   readonly scrubPii: (message: string) => string;
   /** Creates the site's page factory bound to saved data and page-world installer. */
-  readonly createPage: (data: SavedData, installPageWorld: () => Promise<void>) => PageFactory<P>;
+  readonly createPage: (data: SavedData, installPageWorld: () => Promise<void>) => F;
   /** Features enabled on this site, in start order. */
   readonly features: readonly Feature<P>[];
   /** Custom panels added to the Options dialog (Filters, Data, Diagnostics, etc.). */
   readonly createPanels: (args: {
     options: Options;
     data: SavedData;
-    page: PageFactory<P>;
+    page: F;
     runner: FeatureRunner<P>;
     platform: Platform;
   }) => OptionsPanel[];
@@ -70,7 +70,7 @@ export interface RegisteredSite {
 export class SiteRegistry {
   readonly #sites = new Map<string, RegisteredSite>();
 
-  register<P>(site: SiteAdapter<P>): this {
+  register<P, F extends PageFactory<P>>(site: SiteAdapter<P, F>): this {
     this.#sites.set(site.id, {
       id: site.id,
       displayName: site.displayName,
@@ -103,7 +103,10 @@ export class SiteRegistry {
  * DOM theme, namespaces storage, starts features with fault isolation, syncs
  * the toolbar badge, and wires the Options dialog.
  */
-export function startSite<P>(site: SiteAdapter<P>, platform: Platform): Promise<string[]> {
+export function startSite<P, F extends PageFactory<P>>(
+  site: SiteAdapter<P, F>,
+  platform: Platform,
+): Promise<string[]> {
   setSiteThemeCss(site.themeCss);
   const account = site.accountId();
   const prefix = site.storagePrefix(account);

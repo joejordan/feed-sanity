@@ -1,6 +1,10 @@
 import { defineContentScript } from 'wxt/utils/define-content-script';
+import { servePageWorld } from '../core/page-world';
+import { PAGE_ACTIONS } from '../facebook/page-actions';
+import { PAGE_MOUNTS } from '../facebook/page-mounts';
+import { PAGE_TOGGLES } from '../facebook/page-toggles';
+import { PAGE_READERS } from '../facebook/react-readers';
 import { EXCLUDE_GLOBS, EXCLUDE_MATCHES, MATCHES } from '../facebook/urls';
-import { startPageWorld } from '../page-world';
 
 // The page-world side of the bridge, run by the browser in the page's own
 // world beside Facebook's scripts. Chrome runs `world: 'MAIN'` content
@@ -15,6 +19,6 @@ export default defineContentScript({
   runAt: 'document_start',
   world: 'MAIN',
   main() {
-    startPageWorld();
+    servePageWorld(PAGE_READERS, PAGE_TOGGLES, PAGE_ACTIONS, PAGE_MOUNTS);
   },
 });

@@ -30,6 +30,9 @@ interface Hold {
  * starting it, so the two never fight in a loop. Every hold ends with
  * `scope`.
  */
+/** Minimal video shape required by `PauseHolds`. */
+export type HoldableVideo = Pick<Video, 'element' | 'container'>;
+
 export class PauseHolds {
   readonly #scope: Scope;
   readonly #log: Logger;
@@ -42,7 +45,7 @@ export class PauseHolds {
   }
 
   /** Keeps `video` paused until the person starts it. */
-  hold(video: Video): void {
+  hold(video: HoldableVideo): void {
     const { element } = video;
     if (this.#held.has(element)) {
       return;
@@ -69,7 +72,7 @@ export class PauseHolds {
     this.#gesture = { time: event.timeStamp, target: event.target };
   }
 
-  #played(video: Video, hold: Hold, event: Event): void {
+  #played(video: HoldableVideo, hold: Hold, event: Event): void {
     const { element } = video;
     const gesture = this.#gesture;
     if (

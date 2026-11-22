@@ -1,7 +1,8 @@
 import { defineContentScript } from 'wxt/utils/define-content-script';
+import { startSite } from '../core/site';
 import { EXCLUDE_GLOBS, EXCLUDE_MATCHES, MATCHES } from '../facebook/urls';
 import { extensionPlatform } from '../platform/extension';
-import { start } from '../start';
+import { facebookSite } from '../sites/facebook';
 
 export default defineContentScript({
   matches: MATCHES,
@@ -9,6 +10,6 @@ export default defineContentScript({
   excludeGlobs: EXCLUDE_GLOBS,
   runAt: 'document_start',
   async main() {
-    await start(extensionPlatform);
+    await startSite(facebookSite, extensionPlatform);
   },
 });

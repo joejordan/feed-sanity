@@ -8,6 +8,23 @@ export interface Badge {
   readonly failed: boolean;
 }
 
+/** Permission state of one supported site, shown in the Options dialog's Sites section. */
+export interface SitePermissionStatus {
+  readonly id: string;
+  readonly displayName: string;
+  readonly description: string;
+  readonly required: boolean;
+  readonly enabled: boolean;
+}
+
+/** Platform client used by `SitesPanel` to inspect or revoke optional host permissions. */
+export interface SitePermissionsClient {
+  readonly managedByExtension: boolean;
+  readonly initial: () => SitePermissionStatus[];
+  readonly list: () => Promise<SitePermissionStatus[]>;
+  readonly revoke: (siteId: string) => Promise<SitePermissionStatus[]>;
+}
+
 /**
  * What the extension and the userscript each provide, in `src/platform/`.
  */
@@ -34,4 +51,6 @@ export interface Platform {
    * `src/core/bridge.ts`. Called at most once per page load.
    */
   installPageWorld: () => Promise<void>;
+  /** Optional site-permission client backing the Options dialog's Sites section. */
+  sitePermissions?: SitePermissionsClient;
 }

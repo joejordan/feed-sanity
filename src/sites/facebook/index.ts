@@ -1,5 +1,5 @@
 import type { SiteAdapter } from '../../core/site';
-import type { FacebookPage, PageStats } from '../../facebook/feature';
+import type { FacebookPage } from '../../facebook/feature';
 import { version } from '../../../package.json';
 import { readLocatorOverrides } from '../../core/locator';
 import { dataPanel } from '../../data/data-panel';
@@ -12,15 +12,14 @@ import facebookTheme from '../../facebook/theme.css?inline';
 import { currentUserId } from '../../facebook/user';
 import { features, optionsPanels } from '../../features';
 import { savedFilters } from '../../features/post-filters/types';
-
-type FacebookPageFactory = ReturnType<typeof createPage>;
+import { sitesPanel } from '../../ui/sites-panel';
 
 /**
  * Facebook `SiteAdapter` wiring Feed Sanity's Facebook features, Meta Comet
  * page-world bridge, storage prefix, theme tokens,
  * data backup panel, and diagnostics panel into the multi-site kernel.
  */
-export const facebookSite: SiteAdapter<FacebookPage> = {
+export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPage>> = {
   id: 'facebook',
   displayName: 'Facebook',
   matchesHost: (hostname) => /(?:^|\.)facebook\.com$/i.test(hostname),
@@ -33,7 +32,7 @@ export const facebookSite: SiteAdapter<FacebookPage> = {
   createPage,
   features,
   createPanels({ options, data, page, runner, platform }) {
-    const stats: PageStats = (page as FacebookPageFactory).stats;
+    const { stats } = page;
     const overrides = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       ...optionsPanels(data),
@@ -43,6 +42,7 @@ export const facebookSite: SiteAdapter<FacebookPage> = {
         locators: overrides,
         read_history: savedPostData(data),
       }),
+      ...(platform.sitePermissions ? [sitesPanel(platform.sitePermissions)] : []),
       diagnosticsPanel({
         collect: () => collectDiagnostics({ version, build: platform.build, page: stats, runner }),
         overrides,

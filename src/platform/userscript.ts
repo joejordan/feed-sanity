@@ -3,6 +3,7 @@ import type { Platform } from '../core/platform';
 import { OPTIONS_TITLE } from '../../project';
 import { createLogger } from '../core/log';
 import { runInPage } from './page-script';
+import { manifestSiteStatuses } from './site-permissions';
 import { addMenuCommand, userscriptStore } from './userscript-gm';
 
 const log = createLogger('userscript');
@@ -22,4 +23,10 @@ export const userscriptPlatform: Platform = {
   // Whichever world the manager runs the userscript in, a script element
   // runs in the page's.
   installPageWorld: () => runInPage(pageWorldScript),
+  sitePermissions: {
+    managedByExtension: false,
+    initial: () => manifestSiteStatuses(true),
+    list: () => Promise.resolve(manifestSiteStatuses(true)),
+    revoke: () => Promise.resolve(manifestSiteStatuses(true)),
+  },
 };

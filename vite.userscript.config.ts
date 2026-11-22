@@ -10,8 +10,8 @@ import pkg from './package.json' with { type: 'json' };
 import { pageWorldScript } from './page-world-plugin.ts';
 import { PREACT_ALIAS } from './preact-alias.ts';
 import { DESCRIPTION, NAME } from './project.ts';
-import { EXCLUDE_GLOBS, EXCLUDE_MATCHES, MATCHES } from './src/facebook/urls.ts';
 import { GRANTS } from './src/platform/userscript-gm.ts';
+import { ALL_USERSCRIPT_EXCLUDES, ALL_USERSCRIPT_MATCHES } from './src/sites/manifest.ts';
 
 const line = (key: string, value = '') => `// @${key.padEnd(12)} ${value}`.trimEnd();
 
@@ -21,8 +21,8 @@ const header = [
   line('namespace', pkg.name),
   line('version', pkg.version),
   line('description', DESCRIPTION),
-  ...MATCHES.map((pattern) => line('match', pattern)),
-  ...[...EXCLUDE_MATCHES, ...EXCLUDE_GLOBS].map((pattern) => line('exclude', pattern)),
+  ...ALL_USERSCRIPT_MATCHES.map((pattern) => line('match', pattern)),
+  ...ALL_USERSCRIPT_EXCLUDES.map((pattern) => line('exclude', pattern)),
   line('run-at', 'document-start'),
   // Violentmonkey: run outside the page's own script context, as the
   // extension does, so Facebook's content security policy does not apply.

@@ -232,6 +232,7 @@ type Copied = { copied: true } | { failed: string };
 interface DiagnosticsPanelProps extends PanelProps<string> {
   collect: () => Diagnostics;
   check: Check;
+  scrubMessage?: (message: string) => string;
 }
 
 /**
@@ -240,7 +241,13 @@ interface DiagnosticsPanelProps extends PanelProps<string> {
  * selectors. The numbers are read when it opens and again every few
  * seconds while it is shown.
  */
-export function DiagnosticsPanel({ value, onChange, collect, check }: DiagnosticsPanelProps) {
+export function DiagnosticsPanel({
+  value,
+  onChange,
+  collect,
+  check,
+  scrubMessage,
+}: DiagnosticsPanelProps) {
   const [diagnostics, setDiagnostics] = useState(collect);
   const [copy, setCopy] = useState<Copied>();
 
@@ -250,7 +257,7 @@ export function DiagnosticsPanel({ value, onChange, collect, check }: Diagnostic
   }, [collect]);
 
   const copyReport = async () => {
-    const report = diagnosticsReport(diagnostics);
+    const report = diagnosticsReport(diagnostics, scrubMessage);
     try {
       await navigator.clipboard.writeText(report);
       setCopy({ copied: true });
@@ -292,6 +299,14 @@ export function DiagnosticsPanel({ value, onChange, collect, check }: Diagnostic
       <Features diagnostics={diagnostics} />
       <h4 className="diag-subheading">Posts</h4>
       <Posts diagnostics={diagnostics} />
+      {diagnostics.extraSections?.map((section) => (
+        <div key={section.title}>
+          <h4 className="diag-subheading">{section.title}</h4>
+          {section.lines.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
+      ))}
       <h4 className="diag-subheading">Locators</h4>
       <Locators diagnostics={diagnostics} />
       <h4 className="diag-subheading">Your selectors</h4>
@@ -307,6 +322,8 @@ export interface DiagnosticsPanelSource {
   overrides: SavedValue<LocatorOverrides>;
   /** The name of every locator. A locator can become known after startup, when it is first used. */
   locatorNames: () => readonly string[];
+  /** Optional site-specific PII scrubber for the text report. */
+  scrubMessage?: (message: string) => string;
 }
 
 /** The Diagnostics part of the options dialog. Its value is the overrides as the user typed them. */
@@ -314,6 +331,7 @@ export function diagnosticsPanel({
   collect,
   overrides,
   locatorNames,
+  scrubMessage,
 }: DiagnosticsPanelSource): OptionsPanel {
   // The dialog asks on every render, and the editor asks again, mostly about the same text.
   let last: { text: string; checked: CheckedOverrides } | undefined;
@@ -339,6 +357,13 @@ export function diagnosticsPanel({
       check(text).problems.length > 0
         ? 'Your selectors in Diagnostics have a mistake, so nothing is saved until it is fixed.'
         : null,
-    Panel: (props) => <DiagnosticsPanel {...props} collect={collect} check={check} />,
+    Panel: (props) => (
+      <DiagnosticsPanel
+        {...props}
+        collect={collect}
+        check={check}
+        {...(scrubMessage ? { scrubMessage } : {})}
+      />
+    ),
   });
 }

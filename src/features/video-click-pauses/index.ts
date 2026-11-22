@@ -1,9 +1,9 @@
 import type { Video } from '../../facebook/videos';
 import { intercept } from '../../core/intercept';
 import { defineFeature } from '../../facebook/feature';
-import { OWN_ELEMENT, STORY_ID, VIDEO_CONTROL, VIDEO_POST } from '../../facebook/selectors';
+import { STORY_ID, VIDEO_CONTROL, VIDEO_POST } from '../../facebook/selectors';
 import { storyCardOf, storyMenuOpen, storyPauseButton } from '../../facebook/stories';
-import { pointIn } from '../video-layout';
+import { hasControlAt, pointIn } from '../video-layout';
 import { PauseHolds } from './hold';
 
 /**
@@ -110,30 +110,9 @@ export default defineFeature({
     /** Stories with no pause button found, which have been reported once. */
     const noPauseButton = new WeakSet<Element>();
 
-    /**
-     * True for something over the picture that a click is meant for. A
-     * control that covers most of the picture is the layer Facebook takes
-     * the click with, which is the picture as far as the user can tell.
-     */
-    const isControlOver = (element: Element, picture: DOMRect): boolean => {
-      if (element.matches(OWN_ELEMENT)) {
-        return true;
-      }
-      if (!controls.matches(element)) {
-        return false;
-      }
-      const control = element.getBoundingClientRect();
-      return control.width * control.height < (picture.width * picture.height) / 2;
-    };
-
     /** True when something meant for clicking lies over `below` at the pointer, which is on `picture`. */
-    const controlAt = (x: number, y: number, below: Element, picture: DOMRect): boolean => {
-      // What is under the pointer, top first. The picture's ancestors come after it.
-      const stack = document.elementsFromPoint(x, y);
-      const index = stack.findIndex((item) => item === below || item.contains(below));
-      const over = index === -1 ? stack : stack.slice(0, index);
-      return over.some((item) => isControlOver(item, picture));
-    };
+    const controlAt = (x: number, y: number, below: Element, picture: DOMRect): boolean =>
+      hasControlAt(x, y, below, picture, controls);
 
     /**
      * True when a press on the story is meant to close something first: its

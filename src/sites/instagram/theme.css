@@ -1,0 +1,26 @@
+/*
+ * Instagram palette mapping onto Feed Sanity's shadow-DOM `--fs-*` tokens.
+ * Instagram exposes RGB and RGBA comma-separated triplets on `:root` (`--ig-*`),
+ * so wrapping them in `rgb()` / `rgba()` tracks Instagram's light and dark
+ * themes automatically.
+ */
+:host {
+  --fs-background: rgb(var(--ig-elevated-background, 255, 255, 255));
+  --fs-surface: rgb(var(--ig-secondary-background, 245, 245, 245));
+  --fs-hover: rgba(var(--ig-hover-overlay, 0, 0, 0, 0.05));
+  --fs-press: rgba(var(--ig-hover-overlay, 0, 0, 0, 0.1));
+  --fs-icon: rgb(var(--ig-primary-icon, 38, 38, 38));
+  --fs-icon-secondary: rgb(var(--ig-secondary-icon, 142, 142, 142));
+  --fs-text: rgb(var(--ig-primary-text, 38, 38, 38));
+  --fs-text-secondary: rgb(var(--ig-secondary-text, 115, 115, 115));
+  --fs-divider: rgb(var(--ig-elevated-separator, 219, 219, 219));
+  --fs-accent: rgb(var(--ig-colors-button-primary-background, 0, 149, 246));
+  --fs-accent-surface: rgb(var(--ig-colors-button-primary-background, 0, 149, 246) / 14%);
+  --fs-accent-text: rgb(var(--ig-colors-button-primary-text, 255, 255, 255));
+  --fs-button-secondary: rgb(var(--ig-colors-button-secondary-background, 239, 239, 239));
+  --fs-comment: rgb(var(--ig-secondary-background, 245, 245, 245));
+  --fs-shadow-2: rgb(0 0 0 / 28%);
+  --fs-input: rgb(var(--ig-primary-background, 255, 255, 255));
+  --fs-error: rgb(var(--ig-error-or-destructive, 237, 73, 86));
+  --fs-font: var(--font-family-system-prism, var(--font-family-system, system-ui, sans-serif));
+}

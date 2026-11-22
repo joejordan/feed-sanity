@@ -1,7 +1,13 @@
 import { browser } from 'wxt/browser';
-import type { Badge, Platform } from '../core/platform';
+import type { Badge, Platform, SitePermissionStatus } from '../core/platform';
 import { extensionStore } from './extension-store';
-import { badgeMessage, OPEN_OPTIONS } from './messages';
+import {
+  badgeMessage,
+  OPEN_OPTIONS,
+  SITE_PERMISSIONS_GET,
+  sitePermissionRevokeMessage,
+} from './messages';
+import { manifestSiteStatuses } from './site-permissions';
 
 const BUILDS: Record<string, string> = { firefox: 'Firefox extension', chrome: 'Chrome extension' };
 
@@ -58,4 +64,22 @@ export const extensionPlatform: Platform = {
   // page's own world. The browser puts it there, so the page's content
   // security policy does not apply to it.
   installPageWorld: () => Promise.resolve(),
+  sitePermissions: {
+    managedByExtension: true,
+    initial: () => manifestSiteStatuses(false),
+    list: () =>
+      Promise.resolve()
+        .then(() => browser.runtime.sendMessage(SITE_PERMISSIONS_GET))
+        .then((res) =>
+          Array.isArray(res) ? (res as SitePermissionStatus[]) : manifestSiteStatuses(false),
+        )
+        .catch(() => manifestSiteStatuses(false)),
+    revoke: (siteId) =>
+      Promise.resolve()
+        .then(() => browser.runtime.sendMessage(sitePermissionRevokeMessage(siteId)))
+        .then((res) =>
+          Array.isArray(res) ? (res as SitePermissionStatus[]) : manifestSiteStatuses(false),
+        )
+        .catch(() => manifestSiteStatuses(false)),
+  },
 };
