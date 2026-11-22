@@ -87,11 +87,15 @@ export interface ThreadRow {
   readonly element: HTMLElement;
   readonly id: string | null;
   readonly unread: boolean;
+  readonly isAd?: boolean;
+  readonly readLowerText?: () => string;
 }
 
 export interface ThreadListCapability {
   onAdd: (listener: (row: ThreadRow) => void) => () => void;
+  onUpdate?: (listener: (row: ThreadRow) => void) => () => void;
   onRemove: (listener: (row: ThreadRow) => void) => () => void;
+  onReset?: (listener: () => void) => () => void;
 }
 
 /** Complete map of optional domain capabilities a site may expose. */

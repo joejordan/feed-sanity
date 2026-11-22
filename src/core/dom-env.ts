@@ -110,7 +110,7 @@ export function createDomEnvironment({
     }
   };
 
-  const mountIframeEnv = (frame: HTMLIFrameElement): void => {
+  const mountIframeEnv = (frame: HTMLIFrameElement, reloaded = false): void => {
     if (!includeIframes || envScope.disposed) {
       return;
     }
@@ -118,8 +118,8 @@ export function createDomEnvironment({
     try {
       childDoc = frame.contentDocument;
     } catch {
-      // Cross-origin iframe; leave untouched.
-      return;
+      // Cross-origin navigation: keep `childDoc = null` so any prior `existing`
+      // same-origin child environment is disposed below.
     }
     const existing = iframeEnvs.get(frame);
     if (!childDoc || childDoc === doc) {
@@ -129,7 +129,7 @@ export function createDomEnvironment({
       }
       return;
     }
-    if (existing?.doc === childDoc) {
+    if (!reloaded && existing?.doc === childDoc) {
       return;
     }
     if (existing) {
@@ -153,13 +153,13 @@ export function createDomEnvironment({
     if (!iframeLoadRemovers.has(frame)) {
       const onLoad = (): void => {
         if (frame.isConnected && !envScope.disposed) {
-          mountIframeEnv(frame);
+          mountIframeEnv(frame, true);
         }
       };
       frame.addEventListener('load', onLoad);
       iframeLoadRemovers.set(frame, () => frame.removeEventListener('load', onLoad));
     }
-    mountIframeEnv(frame);
+    mountIframeEnv(frame, false);
   };
 
   const pruneDisconnected = (): void => {
@@ -203,8 +203,8 @@ export function createDomEnvironment({
             scanShadowSubtree(el);
           }
           if (includeIframes) {
-            if (el instanceof HTMLIFrameElement) {
-              attachIframe(el);
+            if (el.localName === 'iframe') {
+              attachIframe(el as HTMLIFrameElement);
             } else if (el.childElementCount > 0) {
               for (const frame of el.querySelectorAll('iframe')) {
                 attachIframe(frame);

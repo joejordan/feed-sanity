@@ -31,6 +31,9 @@ describe('site permissions and runtime script registration', () => {
     expect(optionalSiteForUrl('https://twitter.com/explore')?.id).toBe('x');
     expect(optionalSiteForUrl('https://x.com/i/flow/login')).toBeUndefined();
     expect(optionalSiteForUrl('https://x.com/i/api/graphql/foo/HomeTimeline')).toBeUndefined();
+    expect(optionalSiteForUrl('https://mail.google.com/mail/u/0/#inbox')?.id).toBe('gmail');
+    expect(optionalSiteForUrl('https://mail.google.com/sync/u/0/i/s')).toBeUndefined();
+    expect(optionalSiteForUrl('https://mail.google.com/mail/u/0/data')).toBeUndefined();
     // Wildcard subdomain, mid-host glob, and invalid URL edge cases.
     expect(matchesOriginPattern('https://sub.x.com/home', 'https://*.x.com/*')).toBe(true);
     expect(matchesOriginPattern('https://x.com/home', 'https://*.x.com/*')).toBe(true);
@@ -96,11 +99,20 @@ describe('site permissions and runtime script registration', () => {
     granted = true;
     await syncOptionalSiteScripts(host);
     expect([...registered.keys()].sort()).toEqual([
+      'feed-sanity-gmail-content',
       'feed-sanity-instagram-content',
       'feed-sanity-instagram-page-world',
       'feed-sanity-x-content',
       'feed-sanity-x-page-world',
     ]);
+    expect(registered.get('feed-sanity-gmail-content')).toMatchObject({
+      matches: ['https://mail.google.com/*'],
+      excludeMatches: ['https://mail.google.com/mail/u/*/data*', 'https://mail.google.com/sync/*'],
+      js: ['gmail.js'],
+      runAt: 'document_start',
+      world: 'ISOLATED',
+    });
+    expect(registered.has('feed-sanity-gmail-page-world')).toBe(false);
     expect(registered.get('feed-sanity-instagram-page-world')).toMatchObject({
       matches: ['https://www.instagram.com/*'],
       excludeMatches: [
@@ -212,6 +224,7 @@ describe('site permissions and runtime script registration', () => {
       'https://www.instagram.com/*',
       'https://x.com/*',
       'https://twitter.com/*',
+      'https://mail.google.com/*',
     ]);
     const unregister = vi.fn(async () => undefined);
     const register = vi.fn(async () => ({ unregister }));
@@ -233,7 +246,7 @@ describe('site permissions and runtime script registration', () => {
 
     await syncOptionalSiteScripts(host);
     await syncOptionalSiteScripts(host);
-    expect(register).toHaveBeenCalledTimes(2);
+    expect(register).toHaveBeenCalledTimes(3);
 
     // Required and unknown sites cannot be revoked.
     expect(await revokeSitePermission(host, 'facebook')).toBe(false);

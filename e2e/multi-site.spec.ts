@@ -16,6 +16,7 @@ const CLIP_WEBM = path.join(PAGES, 'videos', 'clip.webm');
 
 const X_ORIGIN = 'https://x.com';
 const IG_ORIGIN = 'https://www.instagram.com';
+const GMAIL_ORIGIN = 'https://mail.google.com';
 
 async function installUserscriptHarness(
   page: Page,
@@ -28,8 +29,12 @@ async function installUserscriptHarness(
   const bundle = readFileSync(USERSCRIPT, 'utf8');
 
   // Install GM.* storage + menu command shim backed by sessionStorage so saves survive page.reload().
+  // Guard top-frame only so child iframes respect the userscript's `@noframes` directive.
   await page.addInitScript(
     ({ initial, cookieStr }) => {
+      if (globalThis.self !== globalThis.top) {
+        return;
+      }
       const STORAGE_KEY = '__fs_e2e_gm_store__';
       if (!sessionStorage.getItem(STORAGE_KEY)) {
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
@@ -86,8 +91,10 @@ async function installUserscriptHarness(
     { initial: initialStore, cookieStr: cookies },
   );
 
-  // Execute the built production userscript at document_start before page scripts run.
-  await page.addInitScript({ content: bundle });
+  // Execute the built production userscript in the top frame at document_start (`@noframes`).
+  await page.addInitScript({
+    content: `if (globalThis.self === globalThis.top) {\n${bundle}\n}`,
+  });
 }
 
 async function routeMultiSite(route: Route): Promise<void> {
@@ -161,6 +168,26 @@ async function routeMultiSite(route: Route): Promise<void> {
             { media_or_ad: { code: 'ORG12345', product_type: 'feed' } },
           ],
         }),
+      });
+      return;
+    }
+  }
+  if (url.origin === GMAIL_ORIGIN) {
+    // Serve Gmail with REAL browser-enforced strict Trusted Types CSP!
+    const headers = { 'content-security-policy': "require-trusted-types-for 'script'" };
+    if (url.pathname.startsWith('/mail/u/')) {
+      await route.fulfill({
+        path: path.join(PAGES, 'gmail', 'index.html'),
+        contentType: 'text/html',
+        headers,
+      });
+      return;
+    }
+    if (url.pathname === '/compose-frame.html') {
+      await route.fulfill({
+        path: path.join(PAGES, 'gmail', 'compose-frame.html'),
+        contentType: 'text/html',
+        headers,
       });
       return;
     }
@@ -367,6 +394,77 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
         await res.json();
       });
       await expect(page.locator('#ig-net-ad')).toBeHidden();
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('Gmail: runs under real Chromium Trusted Types CSP, filters inbox ads/keywords, hides workspace clutter, and propagates live themes into same-origin iframes', async () => {
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
+    try {
+      await installUserscriptHarness(
+        page,
+        {
+          'v2/gmail/u0/options': {
+            gmail_hide_ads: true,
+            gmail_keywords: 'crypto\n',
+            gmail_hide_side_panel: true,
+            gmail_hide_chat_meet: true,
+            gmail_hide_gemini: true,
+          },
+        },
+        '',
+      );
+
+      await page.goto(`${GMAIL_ORIGIN}/mail/u/0/#inbox`);
+
+      // Organic email + email whose subject says "Ad" stay visible; promo ad + keyword rows are hidden.
+      await expect(page.locator('#row-organic')).toBeVisible();
+      await expect(page.locator('#row-subject-ad')).toBeVisible();
+      await expect(page.locator('#row-promo-ad')).toBeHidden();
+      await expect(page.locator('#row-newsletter')).toBeHidden();
+
+      // Workspace clutter hidden while Category tabs stay visible when toggled off.
+      await expect(page.locator('#side-panel')).toBeHidden();
+      await expect(page.locator('#nav-chat')).toBeHidden();
+      await expect(page.locator('#btn-gemini')).toBeHidden();
+      await expect(page.locator('#category-tabs')).toBeVisible();
+
+      // Open Shadow-DOM Options dialog under strict Trusted Types CSP and preview + save Catppuccin Mocha.
+      await page.evaluate(() =>
+        (
+          globalThis as unknown as { __openFeedSanityOptions: () => void }
+        ).__openFeedSanityOptions(),
+      );
+      const dialog = page.getByRole('dialog', { name: OPTIONS_TITLE });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: 'Appearance' }).click();
+      await dialog.getByRole('button', { name: /Catppuccin Mocha/i }).click();
+
+      // Both Gmail's main document AND the same-origin `#compose-frame` iframe receive the live theme!
+      await expect
+        .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
+        .toBe('rgb(30, 30, 46)');
+      const frame = page.frameLocator('#compose-frame');
+      await expect
+        .poll(() => frame.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor))
+        .toBe('rgb(30, 30, 46)');
+
+      await dialog.getByRole('button', { name: 'Save' }).click();
+      await expect(dialog).toBeHidden();
+
+      // Full reload under real Trusted Types CSP persists the theme across main doc + iframe with zero errors.
+      await page.reload();
+      await expect
+        .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
+        .toBe('rgb(30, 30, 46)');
+      await expect
+        .poll(() => frame.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor))
+        .toBe('rgb(30, 30, 46)');
+      expect(pageErrors).toEqual([]);
     } finally {
       await page.close();
     }

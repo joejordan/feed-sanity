@@ -516,6 +516,22 @@ export function createThemeController(
     env.onIframe((childEnv) => {
       iframeDocs.add(childEnv.doc);
       syncRoot(childEnv.doc, hostCss);
+      if (!childEnv.doc.head) {
+        const stopChildHead = childEnv.watcher.watch('head', {
+          added: (head) => {
+            stopChildHead();
+            const existing = styles.get(childEnv.doc);
+            if (existing) {
+              if (existing.parentElement !== head) {
+                head.append(existing);
+              }
+            } else if (hostCss) {
+              syncRoot(childEnv.doc, hostCss);
+            }
+          },
+        });
+        childEnv.scope.add(stopChildHead);
+      }
       childEnv.scope.add(() => {
         iframeDocs.delete(childEnv.doc);
         styles.get(childEnv.doc)?.remove();

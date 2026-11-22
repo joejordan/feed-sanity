@@ -42,6 +42,7 @@ test('previews Appearance themes live across Options tabs, rolls back on Cancel,
   await expect(dialog.getByText('Facebook', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Instagram', { exact: true })).toBeVisible();
   await expect(dialog.getByText('X (Twitter)', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Gmail', { exact: true })).toBeVisible();
   expect(
     await page.evaluate(() =>
       getComputedStyle(document.documentElement).getPropertyValue('--web-wash').trim(),

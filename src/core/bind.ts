@@ -3,7 +3,14 @@
 // feature counts toward `FeatureRunner`'s error guard and cleans up with its
 // feature scope.
 
-import type { FeedCapability, FeedItem, MediaCapability, MediaItem } from '../capabilities';
+import type {
+  FeedCapability,
+  FeedItem,
+  MediaCapability,
+  MediaItem,
+  ThreadListCapability,
+  ThreadRow,
+} from '../capabilities';
 import type { Binder } from './feature';
 import type { Locator } from './locator';
 import type { PageWatcher, WatchHandlers } from './page-watcher';
@@ -114,5 +121,31 @@ export function bindVideos<V extends MediaItem>(
       const found = videos.around(element, within);
       return found ? wrapVideo(found) : undefined;
     },
+  };
+}
+
+export function bindThreads<R extends ThreadRow>(
+  threads: {
+    onAdd: (listener: (row: R) => void) => () => void;
+    onUpdate?: (listener: (row: R) => void) => () => void;
+    onRemove: (listener: (row: R) => void) => () => void;
+    onReset?: (listener: () => void) => () => void;
+  },
+  { listen }: Binder,
+): ThreadListCapability & {
+  onAdd: (listener: (row: R) => void) => () => void;
+  onUpdate?: (listener: (row: R) => void) => () => void;
+  onRemove: (listener: (row: R) => void) => () => void;
+  onReset?: (listener: () => void) => () => void;
+} {
+  return {
+    onAdd: (listener) => listen((guarded) => threads.onAdd(guarded), listener),
+    ...(threads.onUpdate
+      ? { onUpdate: (listener) => listen((guarded) => threads.onUpdate!(guarded), listener) }
+      : {}),
+    onRemove: (listener) => listen((guarded) => threads.onRemove(guarded), listener),
+    ...(threads.onReset
+      ? { onReset: (listener) => listen((guarded) => threads.onReset!(guarded), listener) }
+      : {}),
   };
 }

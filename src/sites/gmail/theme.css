@@ -1,0 +1,24 @@
+/*
+ * Default Gmail palette mapping onto Feed Sanity's shadow-DOM `--fs-*` tokens
+ * (matches Gmail's clean Material 3 light workspace when Site Default is active).
+ */
+:host {
+  --fs-background: #ffffff;
+  --fs-surface: #f6f8fc;
+  --fs-hover: rgb(32 33 36 / 6%);
+  --fs-press: rgb(32 33 36 / 12%);
+  --fs-icon: #444746;
+  --fs-icon-secondary: #5f6368;
+  --fs-text: #1f1f1f;
+  --fs-text-secondary: #5f6368;
+  --fs-divider: #e0e3eb;
+  --fs-accent: #0b57d0;
+  --fs-accent-surface: rgb(11 87 208 / 14%);
+  --fs-accent-text: #ffffff;
+  --fs-button-secondary: #eaf1fb;
+  --fs-comment: #f2f6fc;
+  --fs-shadow-2: rgb(0 0 0 / 22%);
+  --fs-input: #eaf1fb;
+  --fs-error: #b3261e;
+  --fs-font: "Google Sans", Roboto, Arial, sans-serif;
+}

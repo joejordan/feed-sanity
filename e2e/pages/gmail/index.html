@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Inbox - Gmail</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f8fc;
+        color: #1f1f1f;
+        font-family: Roboto, Arial, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <header role="banner">
+      <form role="search"><input type="search" aria-label="Search mail" /></form>
+      <button id="btn-gemini" type="button" aria-label="Ask Gemini">Gemini</button>
+    </header>
+    <div role="navigation">
+      <div role="button" gh="cm">Compose</div>
+      <div id="nav-chat" data-tooltip="Chat">Chat</div>
+    </div>
+    <div role="main">
+      <div id="category-tabs" role="tablist">
+        <div role="tab" aria-selected="true">Primary</div>
+        <div role="tab" aria-selected="false">Promotions</div>
+      </div>
+      <table role="grid">
+        <tbody>
+          <tr id="row-organic" role="row" data-legacy-thread-id="t-1" data-unread="true">
+            <td><span>Alice</span></td>
+            <td><span data-thread-subject="1">Architecture Sync Notes</span></td>
+          </tr>
+          <tr id="row-subject-ad" role="row" data-legacy-thread-id="t-2">
+            <td><span>Bob</span></td>
+            <td><span data-thread-subject="1">Ad</span></td>
+          </tr>
+          <tr id="row-promo-ad" role="row" data-legacy-thread-id="t-3">
+            <td><span data-tooltip="Ad">Ad</span></td>
+            <td><span>Limited Time Cloud Offer</span></td>
+          </tr>
+          <tr id="row-newsletter" role="row" data-legacy-thread-id="t-4">
+            <td><span>Digest</span></td>
+            <td><span>Weekly Crypto Digest</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <iframe id="compose-frame" title="Compose pane" src="/compose-frame.html"></iframe>
+    </div>
+    <div id="side-panel" role="complementary" aria-label="Side panel">Calendar / Keep</div>
+  </body>
+</html>
