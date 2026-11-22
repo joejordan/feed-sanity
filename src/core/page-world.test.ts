@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  actionEvent,
   answerEvent,
   askEvent,
   CONNECT_EVENT,
@@ -193,5 +194,43 @@ describe('servePageWorld', () => {
     ]);
     expect(toggle).toHaveBeenNthCalledWith(1, true);
     expect(toggle).toHaveBeenNthCalledWith(2, false);
+  });
+
+  it('lists and runs named actions on document, and rejects unknown or malformed ones', () => {
+    const channel = newChannel();
+    const connected = vi.fn();
+    document.addEventListener(connectedEvent(channel), (event) =>
+      connected(JSON.parse((event as CustomEvent<string>).detail)),
+    );
+    const run = vi.fn((payload: Record<string, unknown>) => ({ got: payload.mode }));
+    servePageWorld({}, {}, { open: run });
+    connect(channel);
+
+    expect(connected).toHaveBeenCalledExactlyOnceWith({ readers: [], actions: ['open'] });
+
+    const answers: unknown[] = [];
+    const onAnswer = (event: Event): void => {
+      answers.push(JSON.parse((event as CustomEvent<string>).detail));
+    };
+    document.addEventListener(answerEvent(channel), onAnswer);
+
+    document.dispatchEvent(
+      messageEvent(actionEvent(channel), { id: 1, action: 'open', payload: { mode: 'media' } }),
+    );
+    document.dispatchEvent(
+      messageEvent(actionEvent(channel), { id: 2, action: 'toString', payload: {} }),
+    );
+    document.dispatchEvent(
+      messageEvent(actionEvent(channel), { id: 3, action: 'open', payload: ['bad'] }),
+    );
+
+    document.removeEventListener(answerEvent(channel), onAnswer);
+
+    expect(answers).toEqual([
+      { id: 1, value: { got: 'media' } },
+      { id: 2, error: 'there is no such action' },
+      { id: 3, error: 'payload must be an object' },
+    ]);
+    expect(run).toHaveBeenCalledExactlyOnceWith({ mode: 'media' });
   });
 });

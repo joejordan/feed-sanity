@@ -4,6 +4,7 @@
 // written in this repo. Read `src/core/bridge.ts` for the content side.
 
 import {
+  actionEvent,
   answerEvent,
   askEvent,
   CHANNEL,
@@ -36,6 +37,15 @@ export type PageToggle = (enabled: boolean) => unknown;
 /** The toggles the page-world side offers, by name. Nothing else can be toggled. */
 export type PageToggles = Readonly<Record<string, PageToggle>>;
 
+/**
+ * Runs one named page-world action with a plain JSON object payload and
+ * returns plain data that survives `JSON.stringify`, or null.
+ */
+export type PageAction = (payload: Record<string, unknown>) => unknown;
+
+/** The actions the page-world side offers, by name. Nothing else can be run. */
+export type PageActions = Readonly<Record<string, PageAction>>;
+
 /** The answer to one reader question, as the JSON text sent back. */
 function answerReader(readers: PageReaders, element: Element, id: number, reader: unknown): string {
   const read = typeof reader === 'string' && Object.hasOwn(readers, reader) && readers[reader];
@@ -66,19 +76,39 @@ function answerToggle(toggles: PageToggles, id: number, toggle: unknown, enabled
   }
 }
 
+/** The answer to one action request, as the JSON text sent back. */
+function answerAction(actions: PageActions, id: number, action: unknown, payload: unknown): string {
+  const run = typeof action === 'string' && Object.hasOwn(actions, action) && actions[action];
+  if (!run) {
+    return JSON.stringify({ id, error: 'there is no such action' });
+  }
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return JSON.stringify({ id, error: 'payload must be an object' });
+  }
+  try {
+    return JSON.stringify({ id, value: run(payload as Record<string, unknown>) ?? null });
+  } catch {
+    return JSON.stringify({ id, error: 'the action failed' });
+  }
+}
+
 /**
- * Serves `readers` and `toggles` to the content side. It announces itself
- * with `READY_EVENT`, takes the first channel it is sent with `CONNECT_EVENT`,
- * and from then on answers each question asked on that channel by running the
- * named reader on the element it was sent on, and each toggle sent on
- * `document` by running the named toggle.
+ * Serves `readers`, `toggles` and `actions` to the content side. It announces
+ * itself with `READY_EVENT`, takes the first channel it is sent with
+ * `CONNECT_EVENT`, and from then on answers each question asked on that
+ * channel by running the named reader on the element it was sent on, and each
+ * toggle or action sent on `document` by running the named handler.
  *
  * It never runs code or looks up names it is sent, apart from choosing one of
- * `readers` or `toggles`, and it defines no global. Questions and toggles are
+ * `readers`, `toggles` or `actions`, and it defines no global. Requests are
  * answered at once, while the content side's `dispatchEvent` call is still
  * running.
  */
-export function servePageWorld(readers: PageReaders, toggles: PageToggles = {}): void {
+export function servePageWorld(
+  readers: PageReaders,
+  toggles: PageToggles = {},
+  actions: PageActions = {},
+): void {
   const connect = (event: Event): void => {
     const channel = readMessage(event)?.channel;
     if (typeof channel !== 'string' || !CHANNEL.test(channel)) {
@@ -110,11 +140,25 @@ export function servePageWorld(readers: PageReaders, toggles: PageToggles = {}):
       },
       true,
     );
+    document.addEventListener(
+      actionEvent(channel),
+      (request) => {
+        const message = readMessage(request);
+        if (request.target !== document || typeof message?.id !== 'number') {
+          return;
+        }
+        const detail = answerAction(actions, message.id, message.action, message.payload ?? {});
+        document.dispatchEvent(new CustomEvent(answerEvent(channel), { detail }));
+      },
+      true,
+    );
     const toggleNames = Object.keys(toggles);
+    const actionNames = Object.keys(actions);
     document.dispatchEvent(
       messageEvent(connectedEvent(channel), {
         readers: Object.keys(readers),
         ...(toggleNames.length > 0 ? { toggles: toggleNames } : {}),
+        ...(actionNames.length > 0 ? { actions: actionNames } : {}),
       }),
     );
   };

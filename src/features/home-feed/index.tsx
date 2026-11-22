@@ -1,19 +1,35 @@
 import type { OptionSpecs } from '../../core/options';
 import type { Scope } from '../../core/scope';
 import type { FacebookPage } from '../../facebook/feature';
+import type { ComposerMode } from '../../facebook/post-composer';
 import type { Watched } from '../../ui/watched';
+import type { ComposerState } from './feed-composer';
 import type { FeedEntry } from './feeds';
+import { BridgeError } from '../../core/bridge';
 import { intercept, isPlainPress, PRESS_EVENTS } from '../../core/intercept';
 import { onUrlChange } from '../../core/navigation';
 import { defineFeature } from '../../facebook/feature';
 import { shows, siteAddressOf } from '../../facebook/home-feed';
-import { TOP_BAR_ACTIONS, TOP_BAR_HOME } from '../../facebook/selectors';
+import {
+  FEED_COMPOSER,
+  FEED_CONTAINER,
+  OWN,
+  TOP_BAR_ACTIONS,
+  TOP_BAR_AVATAR,
+  TOP_BAR_HOME,
+} from '../../facebook/selectors';
+import { isFacebookAddress } from '../../facebook/urls';
+import { HOST_TAG, renderInShadow } from '../../ui/mount';
 import { mountOverlay } from '../../ui/overlay';
 import { watchedValue } from '../../ui/watched';
+import { FeedComposer } from './feed-composer';
+import composerCss from './feed-composer.css?inline';
 import { FeedMenu } from './feed-menu';
 import css from './feed-menu.css?inline';
 import { FACEBOOK_FEED, FEEDS } from './feeds';
-import { destination, feedShown, movedRecently, moveTo } from './rules';
+import { destination, feedShown, isAlternateHomeFeed, movedRecently, moveTo } from './rules';
+
+const COMPOSER_HOST_ID = 'feed_sanity_home_composer';
 
 const OPTIONS = {
   home_feed: {
@@ -32,6 +48,13 @@ const OPTIONS = {
     title: 'Feed menu on the Home button',
     description:
       'Show a small arrow beside the Home button in the top bar that opens a list of feeds to switch to.',
+    default: true,
+  },
+  home_feed_composer: {
+    section: 'Home Feed',
+    title: 'Post box on other feeds',
+    description:
+      'Show the "What\'s on your mind?" post box at the top of the Friends, Favorites, Groups, Pages and Most recent feeds.',
     default: true,
   },
 } satisfies OptionSpecs;
@@ -252,6 +275,141 @@ export default defineFeature({
       if (on) {
         menu = child();
         showMenu(menu.page, menu.scope);
+      }
+    });
+
+    const readAvatarSrc = (page: FacebookPage): string | null => {
+      const element = page.locate(TOP_BAR_AVATAR).first(document);
+      if (!element) {
+        return null;
+      }
+      const raw =
+        element.getAttribute('xlink:href') ??
+        element.getAttribute('href') ??
+        element.getAttribute('src');
+      return raw && isFacebookAddress(raw) ? raw : null;
+    };
+
+    const showComposer = (page: FacebookPage, composerScope: Scope): void => {
+      const state = watchedValue<ComposerState>(
+        { shortName: null, userId: null, avatarSrc: readAvatarSrc(page) },
+        log,
+      );
+      const feeds = new Set<Element>();
+      const mounts = new Map<Element, () => void>();
+      let infoLoaded = false;
+
+      const updateState = (changes: Partial<ComposerState>): void => {
+        const current = state.get();
+        const next: ComposerState = { ...current, ...changes };
+        if (
+          next.shortName !== current.shortName ||
+          next.userId !== current.userId ||
+          next.avatarSrc !== current.avatarSrc
+        ) {
+          state.set(next);
+        }
+      };
+
+      const loadUserInfo = (anchor: Element): void => {
+        if (infoLoaded) {
+          return;
+        }
+        infoLoaded = true;
+        void page.bridge
+          .composerInfo(anchor)
+          .then((info) => {
+            if (info) {
+              updateState({ shortName: info.shortName, userId: info.userId });
+            }
+          })
+          .catch((error: unknown) => {
+            const failure = error instanceof BridgeError ? error.failure : undefined;
+            if (failure !== 'cancelled' && failure !== 'unavailable') {
+              log.debug('could not read user info for post composer', error);
+            }
+          });
+      };
+
+      const openComposer = (mode: ComposerMode): void => {
+        void page.bridge.openPostComposer(mode).catch((error: unknown) => {
+          const failure = error instanceof BridgeError ? error.failure : undefined;
+          if (failure !== 'cancelled' && failure !== 'unavailable') {
+            log.error('could not open post composer', error);
+          }
+        });
+      };
+
+      const unmountFeed = (feed: Element): void => {
+        mounts.get(feed)?.();
+        mounts.delete(feed);
+      };
+
+      const unmountAll = (): void => {
+        for (const unmount of mounts.values()) {
+          unmount();
+        }
+        mounts.clear();
+      };
+
+      const syncFeeds = (): void => {
+        if (!isAlternateHomeFeed(location) || page.locate(FEED_COMPOSER).first(document) !== null) {
+          unmountAll();
+          return;
+        }
+        updateState({ avatarSrc: readAvatarSrc(page) });
+        for (const feed of feeds) {
+          if (!feed.isConnected || mounts.has(feed)) {
+            continue;
+          }
+          loadUserInfo(feed);
+          const host = document.createElement(HOST_TAG);
+          host.id = COMPOSER_HOST_ID;
+          host.setAttribute(OWN, '');
+          host.style.display = 'block';
+          host.style.width = '100%';
+          feed.before(host);
+          const unmountUi = renderInShadow(
+            host,
+            <FeedComposer state={state} onOpen={openComposer} />,
+            composerCss,
+          );
+          mounts.set(feed, () => {
+            unmountUi();
+            host.remove();
+          });
+        }
+      };
+
+      page.watch(page.locate(FEED_CONTAINER), {
+        added: (feed) => {
+          feeds.add(feed);
+          syncFeeds();
+        },
+        removed: (feed) => {
+          feeds.delete(feed);
+          unmountFeed(feed);
+        },
+      });
+
+      page.watch(page.locate(TOP_BAR_AVATAR), {
+        added: () => updateState({ avatarSrc: readAvatarSrc(page) }),
+      });
+
+      composerScope.add(onUrlChange(syncFeeds));
+      composerScope.add(() => {
+        unmountAll();
+        feeds.clear();
+      });
+    };
+
+    let composer: ReturnType<typeof child> | undefined;
+    options.watch('home_feed_composer', (on) => {
+      composer?.scope.dispose();
+      composer = undefined;
+      if (on) {
+        composer = child();
+        showComposer(composer.page, composer.scope);
       }
     });
   },

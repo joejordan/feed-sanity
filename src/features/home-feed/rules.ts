@@ -1,7 +1,7 @@
 import type { PageUrl } from '../../facebook/home-feed';
 import type { FeedEntry } from './feeds';
 import { isPlainHome, linkTo, shows, siteAddress } from '../../facebook/home-feed';
-import { FEEDS, feedById } from './feeds';
+import { FACEBOOK_FEED, FEEDS, feedById } from './feeds';
 
 /**
  * Where a person arriving at `url` is taken, with the feed `choice` saved,
@@ -20,6 +20,20 @@ export function destination(url: PageUrl, choice: string): string | null {
 /** The entry for the feed `url` shows, or null when it shows none of them. */
 export const feedShown = (url: PageUrl): FeedEntry | null =>
   FEEDS.find((feed) => shows(url, feed.address)) ?? null;
+
+/**
+ * True on the Feeds pages (`Friends`, `Favorites`, `Groups`, `Pages`,
+ * `Most recent`, or `/?sk=h_chr`), where Facebook omits its inline post
+ * composer box. False on the plain Home feed (`/`, `/?sk=h_nor`) and on
+ * non-home pages.
+ */
+export function isAlternateHomeFeed(url: PageUrl): boolean {
+  const shown = feedShown(url);
+  if (shown !== null) {
+    return shown.id !== FACEBOOK_FEED;
+  }
+  return shows(url, '/?sk=h_chr');
+}
 
 /** Where the time of the last move to another feed is kept, for this tab only. */
 const SENT_KEY = 'feed_sanity_home_feed_sent';

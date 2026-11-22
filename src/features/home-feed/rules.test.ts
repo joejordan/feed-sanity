@@ -3,6 +3,7 @@ import {
   BOUNCE_MS,
   destination,
   feedShown,
+  isAlternateHomeFeed,
   loader,
   movedRecently,
   moveTo,
@@ -59,6 +60,24 @@ describe('feedShown', () => {
   it('names none for any other page', () => {
     expect(feedShown(url('/?sk=h_chr'))).toBeNull();
     expect(feedShown(url('/groups/'))).toBeNull();
+  });
+});
+
+describe('isAlternateHomeFeed', () => {
+  it('is true on Friends, Favorites, Groups, Pages, Most recent and ?sk=h_chr, and false on Home and other pages', () => {
+    for (const address of [
+      '/?filter=friends&sk=h_chr',
+      '/?filter=favorites&sk=h_chr',
+      '/?filter=groups&sk=h_chr',
+      '/?filter=pages&sk=h_chr',
+      '/?filter=all&sk=h_chr',
+      '/?sk=h_chr',
+    ]) {
+      expect(isAlternateHomeFeed(url(address)), address).toBe(true);
+    }
+    for (const address of ['/', '/home.php', '/?sk=h_nor', '/groups/feed/', '/some.user']) {
+      expect(isAlternateHomeFeed(url(address)), address).toBe(false);
+    }
   });
 });
 

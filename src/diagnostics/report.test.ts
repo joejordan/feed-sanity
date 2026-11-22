@@ -37,11 +37,12 @@ describe('diagnosticsReport', () => {
             problem: null,
             readers: ['video-sources'],
             toggles: ['stop-feed-refresh'],
+            actions: ['open-post-composer'],
           },
         }),
       ),
     ).toContain(
-      'Page bridge: connected, with 1 reader: video-sources; 1 toggle: stop-feed-refresh',
+      'Page bridge: connected, with 1 reader: video-sources; 1 toggle: stop-feed-refresh; 1 action: open-post-composer',
     );
     const unavailable = diagnosticsReport(
       diagnostics({
@@ -50,6 +51,7 @@ describe('diagnosticsReport', () => {
           problem: 'the page script could not be added: refused blob:https://www.facebook.com/x',
           readers: [],
           toggles: [],
+          actions: [],
         },
       }),
     );
@@ -58,7 +60,9 @@ describe('diagnosticsReport', () => {
     );
     expect(
       diagnosticsReport(
-        diagnostics({ bridge: { state: 'not started', problem: null, readers: [], toggles: [] } }),
+        diagnostics({
+          bridge: { state: 'not started', problem: null, readers: [], toggles: [], actions: [] },
+        }),
       ),
     ).toContain('Page bridge: not started, because no feature that is on needs it');
   });

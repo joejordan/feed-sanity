@@ -4,6 +4,7 @@ import type { OptionSpecs } from '../core/options';
 import type { PageWatcher, WatchHandlers } from '../core/page-watcher';
 import type { FeatureData } from '../core/saved';
 import type { AtomTranslator } from './atoms';
+import type { ComposerInfo, ComposerMode } from './post-composer';
 import type { StopFeedRefreshAnswer } from './stop-feed-refresh';
 import type { VideoSources } from './video-sources';
 import { PageBridge } from '../core/bridge';
@@ -13,6 +14,7 @@ import { createLogger } from '../core/log';
 import { pageWatcher } from '../core/page-watcher';
 import { Atoms } from './atoms';
 import { STOP_FEED_REFRESH } from './page-toggles';
+import { composerInfo, openPostComposer } from './post-composer';
 import { Posts } from './posts';
 import * as selectors from './selectors';
 import { postSponsored } from './sponsored';
@@ -84,10 +86,20 @@ export interface FacebookBridge {
    * disposed. Rejects with a `BridgeError` when the toggle could not be sent.
    */
   stopFeedRefresh: (signal?: AbortSignal) => Promise<StopFeedRefreshAnswer | null>;
+  /**
+   * The signed-in user's short name and ID for the inline post composer,
+   * checked; see `composerInfo` in `src/facebook/post-composer.ts`.
+   */
+  composerInfo: (element: Element, signal?: AbortSignal) => Promise<ComposerInfo | null>;
+  /**
+   * Opens Facebook's native "Create post" composer dialog on the current page.
+   * Resolves true when Facebook's dialog launcher accepted the request.
+   */
+  openPostComposer: (mode?: ComposerMode, signal?: AbortSignal) => Promise<boolean>;
 }
 
 /** The page-world bridge as `bindPage` takes it, before it is tied to a feature. */
-export type PageWorld = Pick<PageBridge, 'ask' | 'onStatus' | 'set' | 'status'>;
+export type PageWorld = Pick<PageBridge, 'ask' | 'onStatus' | 'run' | 'set' | 'status'>;
 
 /**
  * `bridge` with `onStatus` tied to the binder's scope, and each question
@@ -118,11 +130,15 @@ function bindBridge(bridge: PageWorld, { scope, listen }: Binder): FacebookBridg
     withScope((scoped) => bridge.ask(element, reader, scoped), signal);
   const set: PageWorld['set'] = (toggle, enabled, signal) =>
     withScope((scoped) => bridge.set(toggle, enabled, scoped), signal);
+  const run: PageWorld['run'] = (action, payload, signal) =>
+    withScope((scoped) => bridge.run(action, payload, scoped), signal);
   return {
     status: () => bridge.status(),
     onStatus: (listener) => listen((guarded) => bridge.onStatus(guarded), listener),
     videoSources: (element, signal) => videoSources({ ask }, element, signal),
     postSponsored: (element, signal) => postSponsored({ ask }, element, signal),
+    composerInfo: (element, signal) => composerInfo({ ask }, element, signal),
+    openPostComposer: (mode, signal) => openPostComposer({ run }, mode, signal),
     stopFeedRefresh: (signal) => {
       let active = false;
       let disposed = false;

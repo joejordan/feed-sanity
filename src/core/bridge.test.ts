@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import type { PageReaders, PageToggles } from './page-world';
+import type { PageActions, PageReaders, PageToggles } from './page-world';
 import { BridgeError, PageBridge } from './bridge';
 import {
   answerEvent,
@@ -15,9 +15,13 @@ import { createLogger } from './log';
 import { servePageWorld } from './page-world';
 
 const serve =
-  (readers: PageReaders, toggles: PageToggles = {}): (() => Promise<void>) =>
+  (
+    readers: PageReaders,
+    toggles: PageToggles = {},
+    actions: PageActions = {},
+  ): (() => Promise<void>) =>
   () => {
-    servePageWorld(readers, toggles);
+    servePageWorld(readers, toggles, actions);
     return Promise.resolve();
   };
 
@@ -71,6 +75,7 @@ describe('PageBridge', () => {
       problem: null,
       readers: [],
       toggles: [],
+      actions: [],
     });
     expect(install).not.toHaveBeenCalled();
   });
@@ -86,6 +91,7 @@ describe('PageBridge', () => {
       problem: null,
       readers: ['tag'],
       toggles: [],
+      actions: [],
     });
     expect(states).toEqual(['connecting', 'connected']);
     expect(errors).not.toHaveBeenCalled();
@@ -144,6 +150,7 @@ describe('PageBridge', () => {
       problem: 'the page script could not be added: blocked by CSP',
       readers: [],
       toggles: [],
+      actions: [],
     });
     expect(errors).toHaveBeenCalledTimes(1);
   });
@@ -256,6 +263,7 @@ describe('PageBridge', () => {
       problem: null,
       readers: ['tag'],
       toggles: [],
+      actions: [],
     });
   });
 
@@ -279,6 +287,28 @@ describe('PageBridge', () => {
     expect(seen).toEqual([true, false]);
     expect(bridge.status().toggles).toEqual(['flag']);
     await expect(bridge.set('missing', true)).rejects.toMatchObject({ failure: 'failed' });
+  });
+
+  it('runs a named action with payload, and refuses an unknown one', async () => {
+    const received: Record<string, unknown>[] = [];
+    const bridge = make(
+      serve(
+        {},
+        {},
+        {
+          open: (payload) => {
+            received.push(payload);
+            return { opened: true };
+          },
+        },
+      ),
+      { log },
+    );
+
+    expect(await bridge.run('open', { mode: 'feeling' })).toEqual({ opened: true });
+    expect(received).toEqual([{ mode: 'feeling' }]);
+    expect(bridge.status().actions).toEqual(['open']);
+    await expect(bridge.run('missing')).rejects.toMatchObject({ failure: 'failed' });
   });
 
   it('listens for a late page-world side only while it connects', async () => {

@@ -128,8 +128,41 @@ export function readPostSponsored(element: Element): PostSponsoredAnswer | null 
   return null;
 }
 
+/** The reader that returns the signed-in user's short name and ID for the inline post composer. */
+export const COMPOSER_INFO = 'composer-info';
+
+/** What the composer-info reader sends back. The content side checks every field. */
+export interface ComposerInfoAnswer {
+  shortName: string | null;
+  userId: string | null;
+}
+
+/**
+ * Reads `SHORT_NAME` and `USER_ID` from Facebook's `CurrentUserInitialData`
+ * module, if loaded. Null when Facebook's module loader or user data is not
+ * present.
+ */
+export function readComposerInfo(): ComposerInfoAnswer | null {
+  const loader = globalThis as { require?: unknown };
+  if (typeof loader.require !== 'function') {
+    return null;
+  }
+  try {
+    const data = (loader.require as (name: string) => unknown)('CurrentUserInitialData');
+    if (!isObject(data)) {
+      return null;
+    }
+    const shortName = text(data.SHORT_NAME);
+    const userId = text(data.USER_ID);
+    return shortName || userId ? { shortName, userId } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Every reader the page-world side offers. */
 export const PAGE_READERS: PageReaders = {
   [VIDEO_SOURCES]: readVideoSources,
   [POST_SPONSORED]: readPostSponsored,
+  [COMPOSER_INFO]: readComposerInfo,
 };

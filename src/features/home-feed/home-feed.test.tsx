@@ -89,6 +89,7 @@ describe('home_feed', () => {
     for (const each of started.splice(0)) {
       await each.set('home_feed', 'home');
       await each.set('home_feed_menu', false);
+      await each.set('home_feed_composer', false);
     }
     vi.unstubAllGlobals();
   });

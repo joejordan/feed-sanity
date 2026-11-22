@@ -74,7 +74,7 @@ export const classNamesSummary = ({ started, known, total }: ClassNameStats): st
   started ? `${known} of ${total} known` : 'not looked for yet';
 
 /** Whether the page-world bridge is connected, in words. */
-export function bridgeSummary({ state, problem, readers, toggles }: BridgeStatus): string {
+export function bridgeSummary({ state, problem, readers, toggles, actions }: BridgeStatus): string {
   switch (state) {
     case 'not started':
       return 'not started, because no feature that is on needs it';
@@ -89,7 +89,11 @@ export function bridgeSummary({ state, problem, readers, toggles }: BridgeStatus
         toggles.length > 0
           ? `; ${plural(toggles.length, 'toggle', 'toggles')}: ${toggles.join(', ')}`
           : '';
-      return `connected, with ${readerPart}${togglePart}`;
+      const actionPart =
+        actions.length > 0
+          ? `; ${plural(actions.length, 'action', 'actions')}: ${actions.join(', ')}`
+          : '';
+      return `connected, with ${readerPart}${togglePart}${actionPart}`;
     }
     default:
       return `unavailable: ${problem ?? 'no reason given'}. Features that need it say so.`;

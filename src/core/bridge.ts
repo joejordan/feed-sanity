@@ -1,5 +1,6 @@
 import type { Logger } from './log';
 import {
+  actionEvent,
   answerEvent,
   askEvent,
   CONNECT_EVENT,
@@ -28,6 +29,8 @@ export interface BridgeStatus {
   readonly readers: readonly string[];
   /** The toggles the page-world side offers, once connected. */
   readonly toggles: readonly string[];
+  /** The actions the page-world side offers, once connected. */
+  readonly actions: readonly string[];
 }
 
 /** Why a question got no answer. */
@@ -64,6 +67,7 @@ const NOT_STARTED: BridgeStatus = {
   problem: null,
   readers: [],
   toggles: [],
+  actions: [],
 };
 
 const cancelled = (): BridgeError => new BridgeError('cancelled', 'the question was withdrawn');
@@ -190,6 +194,36 @@ export class PageBridge {
     );
   }
 
+  /**
+   * Runs the named page-world action `action` with `payload`. Resolves with
+   * the action's value as the page sent it, which the caller must check, or
+   * rejects with a `BridgeError`.
+   */
+  async run(
+    action: string,
+    payload: Record<string, unknown> = {},
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    await this.#settledOrAborted(signal);
+    if (signal?.aborted) {
+      throw cancelled();
+    }
+    const { state, actions } = this.#status;
+    if (state !== 'connected') {
+      throw new BridgeError('unavailable', 'the page-world bridge is unavailable');
+    }
+    if (!actions.includes(action)) {
+      throw new BridgeError('failed', `the page-world side has no action called ${action}`);
+    }
+    return this.#send(
+      document,
+      actionEvent(this.#channel),
+      (id) => ({ id, action, payload }),
+      `the ${action} action`,
+      signal,
+    );
+  }
+
   /** Waits for the bridge to connect or fail, and rejects as soon as `signal` aborts. */
   #settledOrAborted(signal: AbortSignal | undefined): Promise<void> {
     const settled = this.#start();
@@ -263,7 +297,7 @@ export class PageBridge {
 
   #connect(): Promise<void> {
     this.#channel = `feed-sanity-${crypto.randomUUID()}`;
-    this.#update({ state: 'connecting', problem: null, readers: [], toggles: [] });
+    this.#update({ state: 'connecting', problem: null, readers: [], toggles: [], actions: [] });
     const connected = connectedEvent(this.#channel);
     const hello = (): void => {
       document.dispatchEvent(messageEvent(CONNECT_EVENT, { channel: this.#channel }));
@@ -283,13 +317,24 @@ export class PageBridge {
         resolve();
       };
       const unavailable = (problem: string): void =>
-        end({ state: 'unavailable', problem, readers: [], toggles: [] });
+        end({ state: 'unavailable', problem, readers: [], toggles: [], actions: [] });
       const heard = (event: Event): void => {
         const message = readMessage(event);
         const readers = message?.readers;
         const toggles = message?.toggles;
-        if (isStringList(readers) && (toggles === undefined || isStringList(toggles))) {
-          end({ state: 'connected', problem: null, readers, toggles: toggles ?? [] });
+        const actions = message?.actions;
+        if (
+          isStringList(readers) &&
+          (toggles === undefined || isStringList(toggles)) &&
+          (actions === undefined || isStringList(actions))
+        ) {
+          end({
+            state: 'connected',
+            problem: null,
+            readers,
+            toggles: toggles ?? [],
+            actions: actions ?? [],
+          });
         }
       };
       const timer = setTimeout(

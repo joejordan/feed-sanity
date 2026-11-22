@@ -1,0 +1,142 @@
+/*
+ * Inline post composer box matching Facebook's Home "Create a post" card
+ * (680 x 62 px on desktop, 12 px radius, 40 px avatar, 40 px pill input,
+ * and three 40 x 40 action buttons). Lives in a shadow root using `--fs-*`
+ * theme variables so it follows light and dark mode automatically.
+ */
+
+.card {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 12px 16px 10px;
+  border-radius: 12px;
+  background: var(--fs-background);
+  box-shadow: 0 1px 2px 0 var(--fs-shadow-2);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+}
+
+.avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-right: 8px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--fs-comment);
+  color: var(--fs-icon-secondary);
+  text-decoration: none;
+}
+
+.avatar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.avatar:hover::after {
+  background: var(--fs-hover);
+}
+
+.avatar:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.prompt {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  height: 40px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 20px;
+  background: var(--fs-comment);
+  color: var(--fs-text-secondary);
+  font: inherit;
+  font-size: 17px;
+  line-height: 22.78px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prompt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  pointer-events: none;
+}
+
+.prompt:hover::after {
+  background: var(--fs-hover);
+}
+
+.prompt:active::after {
+  background: var(--fs-press);
+}
+
+.prompt:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
+.prompt-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sprouts {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.sprout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sprout:hover {
+  background: var(--fs-hover);
+}
+
+.sprout:active {
+  background: var(--fs-press);
+}
+
+.sprout:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: -2px;
+}

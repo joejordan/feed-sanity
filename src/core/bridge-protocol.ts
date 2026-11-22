@@ -22,7 +22,7 @@ export const CONNECT_EVENT = 'feed-sanity-page-world-connect';
 /** A channel name: this project's prefix and a random UUID, made fresh on each page load. */
 export const CHANNEL = /^feed-sanity-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** Sent on `document` by the page-world side once connected, with `{ "readers": [...], "toggles": [...] }`. */
+/** Sent on `document` by the page-world side once connected, with `{ "readers": [...], "toggles": [...], "actions": [...] }`. */
 export const connectedEvent = (channel: string): string => `${channel}-connected`;
 
 /** Sent on the element asked about, with `{ "id": 1, "reader": "..." }`. */
@@ -31,9 +31,12 @@ export const askEvent = (channel: string): string => `${channel}-ask`;
 /** Sent on `document` with `{ "id": 1, "toggle": "...", "enabled": true }`. */
 export const toggleEvent = (channel: string): string => `${channel}-toggle`;
 
+/** Sent on `document` with `{ "id": 1, "action": "...", "payload": { ... } }`. */
+export const actionEvent = (channel: string): string => `${channel}-action`;
+
 /**
  * Sent on the same target in reply, with `{ "id": 1, "value": ... }`, or
- * `{ "id": 1, "error": "..." }` when the reader or toggle is not known or failed.
+ * `{ "id": 1, "error": "..." }` when the reader, toggle or action is not known or failed.
  */
 export const answerEvent = (channel: string): string => `${channel}-answer`;
 

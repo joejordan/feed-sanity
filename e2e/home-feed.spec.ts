@@ -230,3 +230,27 @@ test('keeps the feed menu reachable on narrow windows and falls back to the righ
   await expect(caret(page)).toBeVisible();
   await expect(caret(page)).toHaveClass(/\bchosen\b/);
 });
+
+test('shows the inline post composer on alternate Home feeds and opens the native Create post dialog', async ({
+  page,
+  store,
+}) => {
+  // Plain Home feed already has Facebook's own composer, so Feed Sanity does not add one.
+  await page.goto(HOME);
+  await expect(page.locator('#feed_sanity_home_composer')).toHaveCount(0);
+
+  // Switching to Friends mounts the composer above [role=feed] with the user's short name.
+  await page.goto(FRIENDS);
+  const composerHost = page.locator('#feed_sanity_home_composer');
+  await expect(composerHost).toBeVisible();
+  const prompt = composerHost.getByRole('button', { name: "What's on your mind, Alex?" });
+  await expect(prompt).toBeVisible();
+
+  // Clicking the prompt launches Facebook's native Create post dialog through the page-world action.
+  await prompt.click();
+  await expect(page.getByRole('dialog', { name: 'Create post' })).toBeVisible();
+
+  // Turning the option off removes the composer without a reload.
+  await store({ [OPTIONS_KEY]: { home_feed_composer: false } });
+  await expect(composerHost).toHaveCount(0);
+});

@@ -80,6 +80,7 @@ describe('DiagnosticsPanel', () => {
           problem: 'the page script did not answer',
           readers: [],
           toggles: [],
+          actions: [],
         },
       }),
     );

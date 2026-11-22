@@ -406,6 +406,49 @@
         }
         post.__reactFiber$e2e = fiber;
       }
+
+      // Stand-in for Facebook's CurrentUserInitialData and CometDialogContext so
+      // the inline post composer on alternate feeds can read the short name and
+      // launch a mock "Create post" dialog.
+      const dialogContext = { Provider: Symbol('CometDialogContext.Provider') };
+      const mainEl = document.querySelector('[role=main]');
+      mainEl.__reactFiber$e2e = {
+        type: 'div',
+        memoizedProps: {},
+        return: {
+          type: dialogContext.Provider,
+          memoizedProps: {
+            value(Component) {
+              Component({ onClose: () => undefined });
+            },
+          },
+          return: null,
+        },
+      };
+      const loadComposerModule = (name) => {
+        switch (name) {
+          case 'react':
+            return { useEffect: (effect) => effect() };
+          case 'CometDialogContext':
+            return dialogContext;
+          case 'CurrentUserInitialData':
+            return { USER_ID: '100000000000099', SHORT_NAME: 'Alex' };
+          case 'useFeedComposerCometDialog':
+            return () => [
+              (args) => {
+                globalThis.__e2eComposerOpened = args ?? {};
+                const dlg = document.createElement('div');
+                dlg.setAttribute('role', 'dialog');
+                dlg.setAttribute('aria-label', 'Create post');
+                dlg.textContent = 'Create post';
+                document.body.append(dlg);
+              },
+            ];
+          default:
+            return ;
+        }
+      };
+      globalThis.require = loadComposerModule;
     </script>
   </body>
 </html>
