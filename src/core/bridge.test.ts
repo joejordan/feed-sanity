@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import type { PageReaders } from './page-world';
+import type { PageReaders, PageToggles } from './page-world';
 import { BridgeError, PageBridge } from './bridge';
 import {
   answerEvent,
@@ -15,9 +15,9 @@ import { createLogger } from './log';
 import { servePageWorld } from './page-world';
 
 const serve =
-  (readers: PageReaders): (() => Promise<void>) =>
+  (readers: PageReaders, toggles: PageToggles = {}): (() => Promise<void>) =>
   () => {
-    servePageWorld(readers);
+    servePageWorld(readers, toggles);
     return Promise.resolve();
   };
 
@@ -66,7 +66,12 @@ describe('PageBridge', () => {
     const install = vi.fn(() => Promise.resolve());
     const bridge = make(install, { log });
 
-    expect(bridge.status()).toEqual({ state: 'not started', problem: null, readers: [] });
+    expect(bridge.status()).toEqual({
+      state: 'not started',
+      problem: null,
+      readers: [],
+      toggles: [],
+    });
     expect(install).not.toHaveBeenCalled();
   });
 
@@ -76,7 +81,12 @@ describe('PageBridge', () => {
     bridge.onStatus((status) => states.push(status.state));
 
     expect(await bridge.ask(video, 'tag')).toBe('VIDEO');
-    expect(bridge.status()).toEqual({ state: 'connected', problem: null, readers: ['tag'] });
+    expect(bridge.status()).toEqual({
+      state: 'connected',
+      problem: null,
+      readers: ['tag'],
+      toggles: [],
+    });
     expect(states).toEqual(['connecting', 'connected']);
     expect(errors).not.toHaveBeenCalled();
   });
@@ -133,6 +143,7 @@ describe('PageBridge', () => {
       state: 'unavailable',
       problem: 'the page script could not be added: blocked by CSP',
       readers: [],
+      toggles: [],
     });
     expect(errors).toHaveBeenCalledTimes(1);
   });
@@ -227,7 +238,7 @@ describe('PageBridge', () => {
     expect(await bridge.ask(video, 'real')).toBe('spoofed');
   });
 
-  it('takes only a well-formed list of readers', async () => {
+  it('takes only a well-formed list of readers and toggles', async () => {
     vi.useFakeTimers();
     const bridge = make(() => Promise.resolve(), { log, connectMs: 1000 });
     const channel = nextChannel();
@@ -236,10 +247,38 @@ describe('PageBridge', () => {
 
     document.dispatchEvent(messageEvent(name, { readers: 'video-sources' }));
     document.dispatchEvent(messageEvent(name, { readers: [1, 2] }));
+    document.dispatchEvent(messageEvent(name, { readers: ['tag'], toggles: 'stop' }));
     expect(bridge.status().state).toBe('connecting');
     document.dispatchEvent(messageEvent(name, { readers: ['tag'] }));
 
-    expect(bridge.status()).toEqual({ state: 'connected', problem: null, readers: ['tag'] });
+    expect(bridge.status()).toEqual({
+      state: 'connected',
+      problem: null,
+      readers: ['tag'],
+      toggles: [],
+    });
+  });
+
+  it('switches a named toggle on and off, and refuses an unknown one', async () => {
+    const seen: boolean[] = [];
+    const bridge = make(
+      serve(
+        {},
+        {
+          flag: (enabled) => {
+            seen.push(enabled);
+            return { enabled };
+          },
+        },
+      ),
+      { log },
+    );
+
+    expect(await bridge.set('flag', true)).toEqual({ enabled: true });
+    expect(await bridge.set('flag', false)).toEqual({ enabled: false });
+    expect(seen).toEqual([true, false]);
+    expect(bridge.status().toggles).toEqual(['flag']);
+    await expect(bridge.set('missing', true)).rejects.toMatchObject({ failure: 'failed' });
   });
 
   it('listens for a late page-world side only while it connects', async () => {

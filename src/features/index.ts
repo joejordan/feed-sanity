@@ -6,6 +6,7 @@ import externalCss from './external-css';
 import homeFeed from './home-feed';
 import postFilters from './post-filters';
 import { filtersPanel } from './post-filters/filters-panel';
+import stopFeedRefresh from './stop-feed-refresh';
 import storiesKeepPlaying from './stories-keep-playing';
 import videoClickPauses from './video-click-pauses';
 import videoDownload from './video-download';
@@ -15,6 +16,7 @@ import videoScrubber from './video-scrubber';
 export const features: readonly Feature<FacebookPage>[] = [
   externalCss,
   homeFeed,
+  stopFeedRefresh,
   postFilters,
   storiesKeepPlaying,
   videoScrubber,

@@ -2,7 +2,7 @@
 
 import { vi } from 'vitest';
 import type { BridgeOptions } from '../core/bridge';
-import type { PageReaders } from '../core/page-world';
+import type { PageReaders, PageToggles } from '../core/page-world';
 import type { AtomTranslator } from './atoms';
 import type { PageServices, PageWorld } from './feature';
 import type { Post } from './posts';
@@ -124,24 +124,28 @@ export function placeAt(element: Element, x: number, y: number, width: number, h
 }
 
 /**
- * A bridge whose page-world side serves `readers` in the test's own world,
- * as the harness in `.claude/skills/live-facebook-check` runs it. With no
- * readers, the page-world side cannot be installed.
+ * A bridge whose page-world side serves `readers` and `toggles` in the test's
+ * own world, as the harness in `.claude/skills/live-facebook-check` runs it.
+ * With neither readers nor toggles, the page-world side cannot be installed.
  */
-export function testBridge(readers?: PageReaders, options?: BridgeOptions): PageWorld {
-  return new PageBridge(installReaders(readers), options);
+export function testBridge(
+  readers?: PageReaders,
+  options?: BridgeOptions,
+  toggles?: PageToggles,
+): PageWorld {
+  return new PageBridge(installReaders(readers, toggles), options);
 }
 
 /**
- * An installer for `createPage` that serves `readers` in the test's own
- * world. With no readers, it fails as a page that refuses the script would.
+ * An installer for `createPage` that serves `readers` and `toggles` in the
+ * test's own world. With neither, it fails as a page that refuses the script would.
  */
-export function installReaders(readers?: PageReaders): () => Promise<void> {
+export function installReaders(readers?: PageReaders, toggles?: PageToggles): () => Promise<void> {
   return () => {
-    if (!readers) {
+    if (!readers && !toggles) {
       return Promise.reject(new Error('there is no page world in this test'));
     }
-    servePageWorld(readers);
+    servePageWorld(readers ?? {}, toggles ?? {});
     return Promise.resolve();
   };
 }

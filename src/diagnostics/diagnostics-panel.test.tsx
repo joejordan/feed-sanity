@@ -75,7 +75,12 @@ describe('DiagnosticsPanel', () => {
   it("shows the page-world bridge's state, and makes an unavailable one stand out", () => {
     renderPanel(() =>
       diagnostics({
-        bridge: { state: 'unavailable', problem: 'the page script did not answer', readers: [] },
+        bridge: {
+          state: 'unavailable',
+          problem: 'the page script did not answer',
+          readers: [],
+          toggles: [],
+        },
       }),
     );
 

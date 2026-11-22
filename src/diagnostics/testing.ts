@@ -58,7 +58,7 @@ export const diagnostics = (changes: Partial<Diagnostics> = {}): Diagnostics => 
       strategies: [strategy({ selector: 'form', found: 0, lastFound: null })],
     }),
   ],
-  bridge: { state: 'connected', problem: null, readers: ['video-sources'] },
+  bridge: { state: 'connected', problem: null, readers: ['video-sources'], toggles: [] },
   at: NOW,
   ...changes,
 });

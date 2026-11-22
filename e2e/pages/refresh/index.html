@@ -1,0 +1,101 @@
+<!doctype html>
+<!--
+  A stand-in for Facebook's `requireLazy` module loader and its automatic
+  feed-refresh modules, as recorded on 2026-11-21. Served at
+  https://www.facebook.com/refresh/ by e2e/extension.ts.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Facebook</title>
+  </head>
+  <body>
+    <div id="mount_0_0_e2e">
+      <div role="main">
+        <div role="feed" id="feed"></div>
+      </div>
+    </div>
+    <script>
+      const modules = new Map();
+      const waiting = new Map();
+
+      function defineModule(name, exports) {
+        modules.set(name, exports);
+        const callbacks = waiting.get(name);
+        if (callbacks) {
+          waiting.delete(name);
+          for (const cb of callbacks) {
+            cb(exports);
+          }
+        }
+      }
+
+      globalThis.requireLazy = (deps, callback) => {
+        const [name] = deps;
+        if (modules.has(name)) {
+          callback(modules.get(name));
+        } else {
+          const list = waiting.get(name) ?? [];
+          list.push(callback);
+          waiting.set(name, list);
+        }
+      };
+
+      const staleness = {
+        FEED_STALE_TIMEOUT: 600_000,
+        FEED_VISIBILITY_TIMEOUT: 120_000,
+        FEED_STALE_PUSH_VIEW_TIMEOUT: 1_800_000,
+        BADGE_STALE_TIMEOUT: 600_000,
+        STALE_REFRESH_MODE: 'WARM',
+      };
+      const returnToFeed = {
+        isRouteEligible(route) {
+          return route === 'comet.group' || route === 'comet.profile.timeline.list';
+        },
+      };
+      defineModule('CometFeedStalenessConstantsEntryPointVariables', staleness);
+      defineModule('CometReturnToFeedRouteUtils', returnToFeed);
+
+      const modulesMap = {};
+      const loadModule = (name) => {
+        if (name === '__debug') {
+          return { modulesMap };
+        }
+        const entry = modulesMap[name];
+        return entry ? (entry.defaultExport ?? entry.exports) : undefined;
+      };
+      globalThis.require = loadModule;
+
+      let groupsRefreshCount = 0;
+      let capturedGroupsHandler = null;
+      function originalGroupsHook(props) {
+        capturedGroupsHandler = props.refreshHandler;
+      }
+      const groupsEntry = {
+        exports: { default: originalGroupsHook },
+        defaultExport: originalGroupsHook,
+      };
+
+      globalThis.__e2eRefresh = {
+        staleness,
+        returnToFeed,
+        loadGroupsModule() {
+          modulesMap.useGroupsCometCrossFeedRefresh = groupsEntry;
+          // Mirror Facebook's real loader, which hands the unwrapped default function to requireLazy.
+          defineModule('useGroupsCometCrossFeedRefresh', groupsEntry.defaultExport);
+        },
+        mountGroupsHook() {
+          loadModule('useGroupsCometCrossFeedRefresh')({
+            refreshHandler() {
+              groupsRefreshCount += 1;
+            },
+          });
+        },
+        triggerGroupsRefresh() {
+          capturedGroupsHandler?.();
+          return groupsRefreshCount;
+        },
+      };
+    </script>
+  </body>
+</html>

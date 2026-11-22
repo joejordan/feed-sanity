@@ -2,7 +2,7 @@
 
 ## Status
 
-Several features are new in this project. Post filters hide the posts Facebook suggests from pages, people and groups you do not follow, and can hide ads, which they tell apart by Facebook's React data. A menu on the Home button in Facebook's top bar picks the feed the home page shows, such as Friends only. Every video gets a scrubber along its bottom edge and a button that saves its file, and a click on a video in a post pauses it where Facebook would open a viewer. All three work in stories too, and a story keeps playing while the pointer is on the list of stories.
+Several features are new in this project. Post filters hide the posts Facebook suggests from pages, people and groups you do not follow, and can hide ads, which they tell apart by Facebook's React data. A menu on the Home button in Facebook's top bar picks the feed the home page shows, such as Friends only, and automatic feed refreshes and stale-session redirects back to Home can be stopped so returning to the tab does not wipe your place. Every video gets a scrubber along its bottom edge and a button that saves its file, and a click on a video in a post pauses it where Facebook would open a viewer. All three work in stories too, and a story keeps playing while the pointer is on the list of stories.
 
 ## Layout
 

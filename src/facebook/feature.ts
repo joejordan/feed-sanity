@@ -4,6 +4,7 @@ import type { OptionSpecs } from '../core/options';
 import type { PageWatcher, WatchHandlers } from '../core/page-watcher';
 import type { FeatureData } from '../core/saved';
 import type { AtomTranslator } from './atoms';
+import type { StopFeedRefreshAnswer } from './stop-feed-refresh';
 import type { VideoSources } from './video-sources';
 import { PageBridge } from '../core/bridge';
 import { defineFeature as defineCoreFeature } from '../core/feature';
@@ -11,9 +12,11 @@ import { isLocatorSpec, Locators, readLocatorOverrides } from '../core/locator';
 import { createLogger } from '../core/log';
 import { pageWatcher } from '../core/page-watcher';
 import { Atoms } from './atoms';
+import { STOP_FEED_REFRESH } from './page-toggles';
 import { Posts } from './posts';
 import * as selectors from './selectors';
 import { postSponsored } from './sponsored';
+import { setStopFeedRefresh } from './stop-feed-refresh';
 import { videoSources } from './video-sources';
 import { Videos } from './videos';
 
@@ -75,18 +78,27 @@ export interface FacebookBridge {
    * it. Rejects with a `BridgeError` when the question could not be asked.
    */
   postSponsored: (element: Element, signal?: AbortSignal) => Promise<boolean | null>;
+  /**
+   * Disables Facebook's automatic feed refreshes and return-to-feed redirects
+   * while this feature's scope is alive, and restores them when the scope is
+   * disposed. Rejects with a `BridgeError` when the toggle could not be sent.
+   */
+  stopFeedRefresh: (signal?: AbortSignal) => Promise<StopFeedRefreshAnswer | null>;
 }
 
 /** The page-world bridge as `bindPage` takes it, before it is tied to a feature. */
-export type PageWorld = Pick<PageBridge, 'ask' | 'onStatus' | 'status'>;
+export type PageWorld = Pick<PageBridge, 'ask' | 'onStatus' | 'set' | 'status'>;
 
 /**
  * `bridge` with `onStatus` tied to the binder's scope, and each question
- * withdrawn when the scope is disposed, with Facebook's readers on top. A
- * new reader needs only its typed question here.
+ * withdrawn when the scope is disposed, with Facebook's readers and toggles
+ * on top. A new reader or toggle needs only its typed call here.
  */
 function bindBridge(bridge: PageWorld, { scope, listen }: Binder): FacebookBridge {
-  const ask: PageWorld['ask'] = (element, reader, signal) => {
+  const withScope = <T>(
+    run: (signal: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> => {
     // Joined by hand: AbortSignal.any needs Chrome 116, and the page-world
     // script runs from Chrome 111.
     const controller = new AbortController();
@@ -97,16 +109,47 @@ function bindBridge(bridge: PageWorld, { scope, listen }: Binder): FacebookBridg
       abort();
     }
     signal?.addEventListener('abort', abort, { once: true });
-    return bridge.ask(element, reader, controller.signal).finally(() => {
+    return run(controller.signal).finally(() => {
       signal?.removeEventListener('abort', abort);
       settled();
     });
   };
+  const ask: PageWorld['ask'] = (element, reader, signal) =>
+    withScope((scoped) => bridge.ask(element, reader, scoped), signal);
+  const set: PageWorld['set'] = (toggle, enabled, signal) =>
+    withScope((scoped) => bridge.set(toggle, enabled, scoped), signal);
   return {
     status: () => bridge.status(),
     onStatus: (listener) => listen((guarded) => bridge.onStatus(guarded), listener),
     videoSources: (element, signal) => videoSources({ ask }, element, signal),
     postSponsored: (element, signal) => postSponsored({ ask }, element, signal),
+    stopFeedRefresh: (signal) => {
+      let active = false;
+      let disposed = false;
+      // Restores the page-world toggle through the raw bridge so the already-
+      // disposed feature scope does not abort the turn-off call.
+      const release = scope.add(() => {
+        disposed = true;
+        if (active) {
+          active = false;
+          void bridge.set(STOP_FEED_REFRESH, false).catch(() => undefined);
+        }
+      });
+      return setStopFeedRefresh({ set }, true, signal).then(
+        (answer) => {
+          if (disposed) {
+            void bridge.set(STOP_FEED_REFRESH, false).catch(() => undefined);
+          } else {
+            active = true;
+          }
+          return answer;
+        },
+        (error: unknown) => {
+          release();
+          throw error;
+        },
+      );
+    },
   };
 }
 

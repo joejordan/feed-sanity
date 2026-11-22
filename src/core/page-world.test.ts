@@ -6,6 +6,7 @@ import {
   connectedEvent,
   messageEvent,
   READY_EVENT,
+  toggleEvent,
 } from './bridge-protocol';
 import { servePageWorld } from './page-world';
 
@@ -30,6 +31,10 @@ const connect = (channel: string): void => {
 
 const ask = (element: Element, message: Record<string, unknown>, channel: string): void => {
   element.dispatchEvent(messageEvent(askEvent(channel), message));
+};
+
+const sendToggle = (message: Record<string, unknown>, channel: string): void => {
+  document.dispatchEvent(messageEvent(toggleEvent(channel), message));
 };
 
 describe('servePageWorld', () => {
@@ -145,5 +150,48 @@ describe('servePageWorld', () => {
     connect(newChannel());
 
     expect(Object.getOwnPropertyNames(globalThis)).toEqual(before);
+  });
+
+  it('lists and runs named toggles on document, and rejects unknown or malformed ones', () => {
+    const channel = newChannel();
+    const connected = vi.fn();
+    document.addEventListener(connectedEvent(channel), (event) =>
+      connected(JSON.parse((event as CustomEvent<string>).detail)),
+    );
+    const toggle = vi.fn((enabled: boolean) => ({ enabled }));
+    const broken = vi.fn(() => {
+      throw new Error('boom');
+    });
+    servePageWorld({ only: () => 1 }, { switch: toggle, broken });
+    connect(channel);
+
+    expect(connected).toHaveBeenCalledExactlyOnceWith({
+      readers: ['only'],
+      toggles: ['switch', 'broken'],
+    });
+
+    const answers: unknown[] = [];
+    const onAnswer = (event: Event): void => {
+      answers.push(JSON.parse((event as CustomEvent<string>).detail));
+    };
+    document.addEventListener(answerEvent(channel), onAnswer);
+
+    sendToggle({ id: 1, toggle: 'switch', enabled: true }, channel);
+    sendToggle({ id: 2, toggle: 'switch', enabled: false }, channel);
+    sendToggle({ id: 3, toggle: 'toString', enabled: true }, channel);
+    sendToggle({ id: 4, toggle: 'switch', enabled: 'yes' }, channel);
+    sendToggle({ id: 5, toggle: 'broken', enabled: true }, channel);
+
+    document.removeEventListener(answerEvent(channel), onAnswer);
+
+    expect(answers).toEqual([
+      { id: 1, value: { enabled: true } },
+      { id: 2, value: { enabled: false } },
+      { id: 3, error: 'there is no such toggle' },
+      { id: 4, error: 'enabled must be a boolean' },
+      { id: 5, error: 'the toggle failed' },
+    ]);
+    expect(toggle).toHaveBeenNthCalledWith(1, true);
+    expect(toggle).toHaveBeenNthCalledWith(2, false);
   });
 });

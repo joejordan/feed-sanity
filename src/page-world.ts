@@ -4,8 +4,9 @@
 // puts it in the page its own way: see `installPageWorld` in
 // `src/core/platform.ts`.
 import { servePageWorld } from './core/page-world';
+import { PAGE_TOGGLES } from './facebook/page-toggles';
 import { PAGE_READERS } from './facebook/react-readers';
 
 export function startPageWorld(): void {
-  servePageWorld(PAGE_READERS);
+  servePageWorld(PAGE_READERS, PAGE_TOGGLES);
 }
