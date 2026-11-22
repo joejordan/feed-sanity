@@ -14,6 +14,7 @@ import { isObject } from '../../engines/react';
 export interface SiteFeedItem extends FeedItem {
   readonly isAd: boolean;
   readonly isSuggested: boolean;
+  readonly pending: boolean;
   readonly readLowerText: () => string;
 }
 
@@ -128,14 +129,23 @@ export class SiteFeed implements FeedCapability {
     };
   }
 
-  /** Re-runs bridge enrichment for items not yet flagged as ad/suggested (e.g. after Network Tap capture). */
+  /** Re-runs DOM + bridge classification for items not yet flagged as ad/suggested (e.g. after Network Tap capture). */
   recheck(): void {
-    if (!this.#started || this.#bridge.status().state === 'unavailable') {
+    if (!this.#started) {
       return;
     }
     for (const [element, item] of this.#tracked) {
-      if (!item.isAd && !item.isSuggested && !this.#identifying.has(element)) {
-        void this.#enrich(element, item);
+      if (item.isAd || item.isSuggested) {
+        continue;
+      }
+      const current = this.#mergeSignals(element, item, false, undefined, true);
+      if (
+        !current.isAd &&
+        !current.isSuggested &&
+        this.#bridge.status().state !== 'unavailable' &&
+        !this.#identifying.has(element)
+      ) {
+        void this.#enrich(element, false);
       }
     }
   }
@@ -226,6 +236,8 @@ export class SiteFeed implements FeedCapability {
       cachedLower = (element.textContent ?? '').toLowerCase();
       return cachedLower;
     };
+    const willEnrich = this.#bridge.status().state !== 'unavailable';
+    const pending = willEnrich && !dom.isAd && !dom.isSuggested;
     const item: SiteFeedItem = {
       element,
       content: element,
@@ -233,49 +245,84 @@ export class SiteFeed implements FeedCapability {
       permalink: false,
       isAd: dom.isAd,
       isSuggested: dom.isSuggested,
+      pending,
       readLowerText,
     };
     this.#tracked.set(element, item);
     this.#trackListeners.emit(item);
     this.#addListeners.emit(item);
-    void this.#enrich(element, item);
+    if (willEnrich && (pending || dom.id === null)) {
+      void this.#enrich(element, true);
+    }
   }
 
-  async #enrich(element: HTMLElement, initial: SiteFeedItem): Promise<void> {
+  #mergeSignals(
+    element: HTMLElement,
+    item: SiteFeedItem,
+    settlePending: boolean,
+    answer: unknown,
+    readDom: boolean,
+  ): SiteFeedItem {
+    const answerObj = isObject(answer) ? answer : undefined;
+    const answerAd = answerObj?.isAd === true;
+    const answerSuggested = answerObj?.isSuggested === true;
+    const answerId =
+      typeof answerObj?.id === 'string' && answerObj.id.length > 0 ? answerObj.id : null;
+    const skipDom =
+      !readDom || ((item.id !== null || answerId !== null) && (answerAd || answerSuggested));
+    const dom = skipDom ? undefined : this.#config.readDomSignals(element);
+
+    const nextId = answerId ?? dom?.id ?? item.id;
+    const nextAd = item.isAd || answerAd || dom?.isAd === true;
+    const nextSuggested = item.isSuggested || answerSuggested || dom?.isSuggested === true;
+    const nextPending = settlePending || nextAd || nextSuggested ? false : item.pending;
+    if (
+      nextPending === item.pending &&
+      nextId === item.id &&
+      nextAd === item.isAd &&
+      nextSuggested === item.isSuggested
+    ) {
+      return item;
+    }
+    const updated: SiteFeedItem = {
+      ...item,
+      id: nextId,
+      isAd: nextAd,
+      isSuggested: nextSuggested,
+      pending: nextPending,
+    };
+    this.#tracked.set(element, updated);
+    this.#updateListeners.emit(updated);
+    return updated;
+  }
+
+  async #enrich(element: HTMLElement, readDomAfter: boolean): Promise<void> {
     if (this.#bridge.status().state === 'unavailable') {
+      const current = this.#tracked.get(element);
+      if (current?.pending) {
+        this.#mergeSignals(element, current, true, undefined, false);
+      }
       return;
     }
     this.#onBridgeActive?.();
     const controller = new AbortController();
     this.#identifying.set(element, controller);
+    let answer: unknown;
     try {
-      const answer = await this.#bridge.ask(element, this.#config.readerName, controller.signal);
-      if (controller.signal.aborted || !this.#tracked.has(element) || !isObject(answer)) {
-        return;
-      }
-      const nextId = typeof answer.id === 'string' && answer.id.length > 0 ? answer.id : initial.id;
-      const nextAd = initial.isAd || answer.isAd === true;
-      const nextSuggested = initial.isSuggested || answer.isSuggested === true;
-      if (
-        nextId !== initial.id ||
-        nextAd !== initial.isAd ||
-        nextSuggested !== initial.isSuggested
-      ) {
-        const updated: SiteFeedItem = {
-          ...initial,
-          id: nextId,
-          isAd: nextAd,
-          isSuggested: nextSuggested,
-        };
-        this.#tracked.set(element, updated);
-        this.#updateListeners.emit(updated);
-      }
+      answer = await this.#bridge.ask(element, this.#config.readerName, controller.signal);
     } catch {
       // Bridge unavailable, aborted, or detached; DOM signals remain authoritative.
     } finally {
       if (this.#identifying.get(element) === controller) {
         this.#identifying.delete(element);
       }
+    }
+    if (controller.signal.aborted) {
+      return;
+    }
+    const latest = this.#tracked.get(element);
+    if (latest) {
+      this.#mergeSignals(element, latest, true, answer, readDomAfter);
     }
   }
 

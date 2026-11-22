@@ -1,6 +1,7 @@
 import type { Scope } from '../../../core/scope';
 import type { InstagramVideo } from '../videos';
 import { intercept, isPlainPress, PRESS_EVENTS } from '../../../core/intercept';
+import { OWN_ATTR } from '../../../core/surface';
 import { PauseHolds } from '../../../features/video-click-pauses/hold';
 import { hasControlAt, measureControls, pointIn } from '../../../features/video-layout';
 import { overlayEachVideo } from '../../../features/video-overlay';
@@ -12,6 +13,7 @@ import { IG_VIDEO_CONTROL } from '../selectors';
 
 const noopHide = () => () => undefined;
 const DRAG_DISTANCE = 5;
+const OWN_SELECTOR = `[${OWN_ATTR}]`;
 
 interface Press {
   readonly pointerId: number;
@@ -59,7 +61,7 @@ export default defineInstagramFeature({
       subScope.add(page.videos.onAdd(() => undefined));
 
       const videoAt = (event: MouseEvent): InstagramVideo | undefined => {
-        if (!(event.target instanceof Element)) {
+        if (!(event.target instanceof Element) || event.target.closest(OWN_SELECTOR)) {
           return undefined;
         }
         const article = event.target.closest('article');

@@ -12,7 +12,7 @@ import { isPlainInstagramHome } from './features/default-following';
 import { InstagramFeed } from './feed';
 import { startInstagramPageWorld } from './page-world';
 import { IG_FEED_POST, IG_VIDEO, IG_VIDEO_CONTROL } from './selectors';
-import { InstagramVideos } from './videos';
+import { InstagramVideos, resolveInstagramVideoContainer } from './videos';
 
 function fakePlatform(
   initial: Record<string, unknown> = {},
@@ -36,7 +36,7 @@ function fakePlatform(
 }
 
 describe('instagramSite adapter and features', () => {
-  const cleanups: Array<() => void> = [];
+  const cleanups: Array<() => void | Promise<void>> = [];
 
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -46,12 +46,62 @@ describe('instagramSite adapter and features', () => {
     history.replaceState({}, '', '/');
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     for (const stop of cleanups.splice(0)) {
-      stop();
+      await stop();
     }
     vi.restoreAllMocks();
   });
+
+  const stubElementsFromPoint = (elements: () => Element[]): void => {
+    const orig = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint');
+    Object.defineProperty(document, 'elementsFromPoint', { value: elements, configurable: true });
+    cleanups.push(() => {
+      if (orig) {
+        Object.defineProperty(document, 'elementsFromPoint', orig);
+      } else {
+        Reflect.deleteProperty(document, 'elementsFromPoint');
+      }
+    });
+  };
+
+  const dispatchPointerClick = (
+    target: EventTarget,
+    { pointerId, clientX, clientY }: { pointerId: number; clientX: number; clientY: number },
+  ): void => {
+    target.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        isPrimary: true,
+        pointerId,
+        button: 0,
+        clientX,
+        clientY,
+      }),
+    );
+    target.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        cancelable: true,
+        isPrimary: true,
+        pointerId,
+        button: 0,
+        clientX,
+        clientY,
+      }),
+    );
+    target.dispatchEvent(
+      new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        detail: 1,
+        button: 0,
+        clientX,
+        clientY,
+      }),
+    );
+  };
 
   it('delivers initial posts exactly once in InstagramFeed and resets stats().started on unsubscribe', () => {
     document.body.innerHTML = '<article id="p1"><a href="/p/First1/">1h</a></article>';
@@ -111,6 +161,8 @@ describe('instagramSite adapter and features', () => {
           ig_keywords: 'crypto\n',
           ig_hide_reels_nav: true,
           ig_hide_threads_nav: true,
+          ig_video_scrubber: false,
+          ig_video_click_pauses: false,
           custom_stylesheet_url: 'https://example.com/ig.css',
         },
       },
@@ -155,6 +207,8 @@ describe('instagramSite adapter and features', () => {
       ig_keywords: '',
       ig_hide_reels_nav: false,
       ig_hide_threads_nav: false,
+      ig_video_scrubber: false,
+      ig_video_click_pauses: false,
       custom_stylesheet_url: 'https://example.com/ig.css',
     });
     await vi.waitFor(() => expect(badges.at(-1)).toEqual({ count: 0, failed: false }));
@@ -184,6 +238,8 @@ describe('instagramSite adapter and features', () => {
         ig_default_following: true,
         ig_hide_sponsored: false,
         ig_hide_suggested: false,
+        ig_video_scrubber: false,
+        ig_video_click_pauses: false,
       },
     });
     await startSite(instagramSite, platform);
@@ -223,18 +279,7 @@ describe('instagramSite adapter and features', () => {
     const video = document.querySelector('#vid') as HTMLVideoElement;
     const rect = new DOMRect(0, 0, 300, 300);
     vi.spyOn(video, 'getBoundingClientRect').mockReturnValue(rect);
-    const origElementsFromPoint = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint');
-    Object.defineProperty(document, 'elementsFromPoint', {
-      value: () => [video],
-      configurable: true,
-    });
-    cleanups.push(() => {
-      if (origElementsFromPoint) {
-        Object.defineProperty(document, 'elementsFromPoint', origElementsFromPoint);
-      } else {
-        Reflect.deleteProperty(document, 'elementsFromPoint');
-      }
-    });
+    stubElementsFromPoint(() => [video]);
 
     let paused = false;
     Object.defineProperty(video, 'paused', { get: () => paused, configurable: true });
@@ -245,7 +290,7 @@ describe('instagramSite adapter and features', () => {
       paused = false;
     });
 
-    const { platform } = fakePlatform({
+    const { platform, store } = fakePlatform({
       'v2/instagram/555123/options': {
         ig_hide_sponsored: false,
         ig_hide_suggested: false,
@@ -253,79 +298,25 @@ describe('instagramSite adapter and features', () => {
         ig_video_click_pauses: true,
       },
     });
+    cleanups.push(() =>
+      store.set('v2/instagram/555123/options', {
+        ig_hide_sponsored: false,
+        ig_hide_suggested: false,
+        ig_video_scrubber: false,
+        ig_video_click_pauses: false,
+      }),
+    );
     await startSite(instagramSite, platform);
 
     const wrap = document.querySelector('#video-wrap') as HTMLElement;
     await vi.waitFor(() => expect(wrap.querySelector('[data-feed-sanity]')).not.toBeNull());
 
     // Full pointer press toggles playing -> paused.
-    video.dispatchEvent(
-      new PointerEvent('pointerdown', {
-        bubbles: true,
-        cancelable: true,
-        isPrimary: true,
-        pointerId: 1,
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-      }),
-    );
-    video.dispatchEvent(
-      new PointerEvent('pointerup', {
-        bubbles: true,
-        cancelable: true,
-        isPrimary: true,
-        pointerId: 1,
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-      }),
-    );
-    video.dispatchEvent(
-      new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        detail: 1,
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-      }),
-    );
+    dispatchPointerClick(video, { pointerId: 1, clientX: 100, clientY: 100 });
     expect(pauseSpy).toHaveBeenCalledTimes(1);
 
     // Second click resumes playback.
-    video.dispatchEvent(
-      new PointerEvent('pointerdown', {
-        bubbles: true,
-        cancelable: true,
-        isPrimary: true,
-        pointerId: 2,
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-      }),
-    );
-    video.dispatchEvent(
-      new PointerEvent('pointerup', {
-        bubbles: true,
-        cancelable: true,
-        isPrimary: true,
-        pointerId: 2,
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-      }),
-    );
-    video.dispatchEvent(
-      new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        detail: 1,
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-      }),
-    );
+    dispatchPointerClick(video, { pointerId: 2, clientX: 100, clientY: 100 });
     expect(playSpy).toHaveBeenCalledTimes(1);
 
     // TrackedInstagramVideo.onControls notifies on first `playing` event.
@@ -349,5 +340,217 @@ describe('instagramSite adapter and features', () => {
     video.dispatchEvent(new Event('emptied'));
     video.dispatchEvent(new Event('playing'));
     expect(controlEvents).toBe(3);
+  });
+
+  it('resolves Instagram video containers above single-child wrappers, ignores scrubber clicks in click-to-pause, and pauses media on hide', async () => {
+    document.body.innerHTML = `
+      <main>
+        <article id="nested-post">
+          <div id="player">
+            <div style="position:relative;z-index:0">
+              <div id="inner"><video id="nested-vid"></video></div>
+            </div>
+            <div role="presentation"></div>
+            <button type="button">Mute</button>
+          </div>
+        </article>
+        <article id="carousel-post">
+          <div id="carousel">
+            <div id="slide-1"><video id="c-vid-1"></video></div>
+            <div id="slide-2"><video id="c-vid-2"></video></div>
+          </div>
+        </article>
+        <article id="pending-ad">
+          <a href="/reel/PENDING1/">1m</a>
+          <video id="ad-vid"></video>
+        </article>
+      </main>
+    `;
+
+    const nestedVid = document.querySelector('#nested-vid') as HTMLVideoElement;
+    const player = document.querySelector('#player') as HTMLElement;
+    const slide1 = document.querySelector('#slide-1') as HTMLElement;
+    const cVid1 = document.querySelector('#c-vid-1') as HTMLVideoElement;
+    expect(resolveInstagramVideoContainer(nestedVid)).toBe(player);
+    // Never climbs into a multi-video carousel container.
+    expect(resolveInstagramVideoContainer(cVid1)).toBe(slide1);
+
+    const adArticle = document.querySelector('#pending-ad') as HTMLElement;
+    const adVid = document.querySelector('#ad-vid') as HTMLVideoElement;
+    let adPaused = false;
+    Object.defineProperty(adVid, 'paused', { get: () => adPaused, configurable: true });
+    const adPauseSpy = vi.spyOn(adVid, 'pause').mockImplementation(() => {
+      adPaused = true;
+    });
+
+    // Attach React fiber ad metadata to `#pending-ad` so `#enrich()` catches it asynchronously.
+    Object.defineProperty(adArticle, '__reactFiber$test', {
+      value: { memoizedProps: { isSponsored: true }, return: null },
+      enumerable: true,
+      configurable: true,
+    });
+
+    const nestedPauseSpy = vi.spyOn(nestedVid, 'pause').mockImplementation(() => undefined);
+    Object.defineProperty(nestedVid, 'paused', { get: () => false, configurable: true });
+    vi.spyOn(nestedVid, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 300, 300));
+    stubElementsFromPoint(() => [nestedVid]);
+
+    const { platform, store } = fakePlatform(
+      {
+        'v2/instagram/555123/options': {
+          ig_hide_sponsored: true,
+          ig_hide_suggested: true,
+          ig_video_scrubber: true,
+          ig_video_click_pauses: true,
+        },
+      },
+      async () => {
+        const handle = startInstagramPageWorld({});
+        cleanups.push(handle.dispose);
+      },
+    );
+    cleanups.push(() =>
+      store.set('v2/instagram/555123/options', {
+        ig_hide_sponsored: false,
+        ig_hide_suggested: false,
+        ig_video_scrubber: false,
+        ig_video_click_pauses: false,
+      }),
+    );
+
+    await startSite(instagramSite, platform);
+
+    // Scrubber mounts as a direct child of `#player` (above `#inner` and `role="presentation"`).
+    await vi.waitFor(() =>
+      expect(player.querySelector(':scope > [data-feed-sanity]')).not.toBeNull(),
+    );
+    const overlayHost = player.querySelector(':scope > [data-feed-sanity]') as HTMLElement;
+    expect(player.lastElementChild).toBe(overlayHost);
+
+    // Clicking our own `[data-feed-sanity]` overlay must NOT trigger click-to-pause.
+    dispatchPointerClick(overlayHost, { pointerId: 7, clientX: 150, clientY: 295 });
+    expect(nestedPauseSpy).not.toHaveBeenCalled();
+
+    // Fiber-detected Sponsored video post is hidden AND its playing video is paused.
+    await vi.waitFor(() => expect(adArticle.getAttribute(HIDDEN_ATTR)).toBe('none'));
+    expect(adPauseSpy).toHaveBeenCalledTimes(1);
+    expect(adArticle.getAttribute('data-feed-sanity-ig-checked')).toBe('1');
+  });
+
+  it('keeps pending articles concealed until bridge enrichment settles, catches late DOM signals, settles on bridge failure, and promotes late-mounted video overlays', async () => {
+    document.body.innerHTML = `
+      <main>
+        <article id="delayed-organic"><a href="/p/ORG77/">1m</a><span>Organic caption</span></article>
+        <article id="late-suggested"><a href="/p/LATE88/">2m</a><span>Hydrating...</span></article>
+        <article id="late-video-post">
+          <div id="late-player">
+            <div style="position:relative;z-index:0">
+              <div id="late-inner"><video id="late-vid"></video></div>
+            </div>
+          </div>
+        </article>
+      </main>
+    `;
+
+    let resolveBridge!: () => void;
+    const bridgeReady = new Promise<void>((resolve) => {
+      resolveBridge = resolve;
+    });
+
+    const { platform, store } = fakePlatform(
+      {
+        'v2/instagram/555123/options': {
+          ig_hide_sponsored: true,
+          ig_hide_suggested: true,
+          ig_video_scrubber: true,
+          ig_video_click_pauses: false,
+        },
+      },
+      async () => {
+        await bridgeReady;
+        const handle = startInstagramPageWorld({});
+        cleanups.push(handle.dispose);
+      },
+    );
+    cleanups.push(() =>
+      store.set('v2/instagram/555123/options', {
+        ig_hide_sponsored: false,
+        ig_hide_suggested: false,
+        ig_video_scrubber: false,
+        ig_video_click_pauses: false,
+      }),
+    );
+
+    await startSite(instagramSite, platform);
+
+    const delayedOrganic = document.querySelector('#delayed-organic') as HTMLElement;
+    const lateSuggested = document.querySelector('#late-suggested') as HTMLElement;
+    const latePlayer = document.querySelector('#late-player') as HTMLElement;
+    const lateInner = document.querySelector('#late-inner') as HTMLElement;
+
+    // While bridge enrichment is still in flight, neither article is prematurely stamped checked.
+    expect(delayedOrganic.hasAttribute('data-feed-sanity-ig-checked')).toBe(false);
+    expect(lateSuggested.hasAttribute('data-feed-sanity-ig-checked')).toBe(false);
+
+    // Late-hydrated "Suggested for you" label arrives before `#enrich` settles.
+    const sugSpan = document.createElement('span');
+    sugSpan.textContent = 'Suggested for you';
+    lateSuggested.append(sugSpan);
+
+    // Video starts inside single-child wrappers -> overlay mounts in `#late-inner` first.
+    await vi.waitFor(() =>
+      expect(lateInner.querySelector(':scope > [data-feed-sanity]')).not.toBeNull(),
+    );
+
+    // Host later appends a sibling overlay inside `#late-player` -> overlay promotes to `#late-player`.
+    const lateOverlay = document.createElement('div');
+    lateOverlay.setAttribute('role', 'presentation');
+    latePlayer.append(lateOverlay);
+    await vi.waitFor(() =>
+      expect(latePlayer.querySelector(':scope > [data-feed-sanity]')).not.toBeNull(),
+    );
+    expect(latePlayer.lastElementChild?.hasAttribute('data-feed-sanity')).toBe(true);
+
+    // Once the bridge resolves, organic reveals (`checked="1"`) and late-hydrated suggested hides.
+    resolveBridge();
+    await vi.waitFor(() =>
+      expect(delayedOrganic.getAttribute('data-feed-sanity-ig-checked')).toBe('1'),
+    );
+    expect(delayedOrganic.hasAttribute(HIDDEN_ATTR)).toBe(false);
+    await vi.waitFor(() => expect(lateSuggested.getAttribute(HIDDEN_ATTR)).toBe('none'));
+
+    // Also verify bridge failure settles pending items to `checked="1"` rather than stalling.
+    await store.set('v2/instagram/555123/options', {
+      ig_hide_sponsored: false,
+      ig_hide_suggested: false,
+      ig_video_scrubber: false,
+      ig_video_click_pauses: false,
+    });
+    document.body.innerHTML = '<main><article id="offline-org"><span>Hello</span></article></main>';
+    const offline = fakePlatform(
+      {
+        'v2/instagram/555123/options': {
+          ig_hide_sponsored: true,
+          ig_hide_suggested: true,
+          ig_video_scrubber: false,
+          ig_video_click_pauses: false,
+        },
+      },
+      () => Promise.reject(new Error('bridge failed')),
+    );
+    cleanups.push(() =>
+      offline.store.set('v2/instagram/555123/options', {
+        ig_hide_sponsored: false,
+        ig_hide_suggested: false,
+        ig_video_scrubber: false,
+        ig_video_click_pauses: false,
+      }),
+    );
+    await startSite(instagramSite, offline.platform);
+    const offlineOrg = document.querySelector('#offline-org') as HTMLElement;
+    await vi.waitFor(() =>
+      expect(offlineOrg.getAttribute('data-feed-sanity-ig-checked')).toBe('1'),
+    );
+    expect(offlineOrg.hasAttribute(HIDDEN_ATTR)).toBe(false);
   });
 });

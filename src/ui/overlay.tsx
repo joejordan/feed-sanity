@@ -65,9 +65,13 @@ interface Overlay {
   reshaped: boolean;
 }
 
+const BOX_KEYS = ['left', 'top', 'width', 'height'] as const;
+
 const overlays = new Set<Overlay>();
 /** The overlays placed by each element whose size is watched. */
 const sizing = new Map<Element, Set<Overlay>>();
+/** Parents of recently added non-Feed-Sanity nodes, used to avoid re-resolving unaffected overlays. */
+const mutatedParents = new Set<Element>();
 let resizes: ResizeObserver | undefined;
 let stopWatching: (() => void) | undefined;
 let checkQueued = false;
@@ -95,7 +99,7 @@ function measure(list: Iterable<Overlay>): void {
   }
   for (const [overlay, next, anchor] of moves) {
     const { host, box } = overlay;
-    for (const key of ['left', 'top', 'width', 'height'] as const) {
+    for (const key of BOX_KEYS) {
       if (Math.abs(box[key] - next[key]) >= 0.5) {
         host.style[key] = `${next[key]}px`;
         box[key] = next[key];
@@ -168,8 +172,7 @@ function forgetAnchor(overlay: Overlay): void {
 }
 
 /** Puts the host in its container, unless it is there already. */
-function place(overlay: Overlay): void {
-  const container = overlay.container();
+function place(overlay: Overlay, container: Element | null = overlay.container()): void {
   if (!container || container === overlay.host.parentNode || !overlay.target.isConnected) {
     return;
   }
@@ -186,19 +189,61 @@ function place(overlay: Overlay): void {
   reobserve(overlay.target);
 }
 
-/** Puts back each host that was removed, or left behind, while its target stays in the page. */
+function hasNonOwnAfter(host: Element): boolean {
+  for (let sibling = host.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
+    if (!sibling.hasAttribute(OWN_ATTR)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function enclosingParentMutated(parent: Element): boolean {
+  for (const mutated of mutatedParents) {
+    if (mutated !== parent && mutated.contains(parent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Puts back each host that was removed, left behind, or covered by later host siblings while its target stays in the page. */
 function check(): void {
   checkQueued = false;
   for (const overlay of overlays) {
-    const { host, target } = overlay;
-    if (target.isConnected && !(host.isConnected && host.parentNode?.contains(target))) {
-      place(overlay);
+    const { host, target, parent } = overlay;
+    if (!target.isConnected) {
+      continue;
+    }
+    const intact =
+      host.isConnected && parent !== null && host.parentNode === parent && parent.contains(target);
+    if (intact && !enclosingParentMutated(parent)) {
+      if (hasNonOwnAfter(host) && !host.shadowRoot?.activeElement) {
+        parent.append(host);
+      }
+      continue;
+    }
+    const wanted = overlay.container();
+    if (!wanted || !wanted.contains(target)) {
+      continue;
+    }
+    if (!host.isConnected || host.parentNode !== wanted) {
+      place(overlay, wanted);
+    } else if (hasNonOwnAfter(host) && !host.shadowRoot?.activeElement) {
+      wanted.append(host);
     }
   }
+  mutatedParents.clear();
 }
 
 /** Called for each change to the page. The check runs once, after the whole batch. */
-function queueCheck(): void {
+function queueCheck(node: Element, added: boolean): void {
+  if (added && node.hasAttribute(OWN_ATTR)) {
+    return;
+  }
+  if (added && node.parentElement) {
+    mutatedParents.add(node.parentElement);
+  }
   if (!checkQueued) {
     checkQueued = true;
     queueMicrotask(check);
@@ -269,8 +314,11 @@ export function mountOverlay(
     reshaped: true,
   };
   overlays.add(overlay);
-  stopWatching ??= pageWatcher.watchTree({ added: queueCheck, removed: queueCheck });
   place(overlay);
+  stopWatching ??= pageWatcher.watchTree({
+    added: (node) => queueCheck(node, true),
+    removed: (node) => queueCheck(node, false),
+  });
 
   let removed = false;
   const remove = (): void => {
@@ -289,6 +337,7 @@ export function mountOverlay(
     if (overlays.size === 0) {
       stopWatching?.();
       stopWatching = undefined;
+      mutatedParents.clear();
       resizes?.disconnect();
       resizes = undefined;
     }

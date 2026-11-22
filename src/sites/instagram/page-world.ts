@@ -57,25 +57,31 @@ function stringId(value: unknown): string | null {
   return null;
 }
 
-function hasAdMeta(obj: Loose): boolean {
+function hasOwnAdSignal(obj: Loose): boolean {
   return Boolean(
-    obj.ad ||
-      obj.ad_id ||
+    obj.ad_id ||
+      obj.adId ||
       obj.is_ad === true ||
       obj.isSponsored === true ||
       obj.is_sponsored === true ||
-      obj.product_type === 'ad' ||
-      obj.injected,
+      obj.product_type === 'ad',
+  );
+}
+
+function hasAdMeta(obj: Loose): boolean {
+  return Boolean(hasOwnAdSignal(obj) || obj.ad || obj.injected);
+}
+
+function hasOwnSuggestedSignal(obj: Loose): boolean {
+  return Boolean(
+    obj.isSuggested === true ||
+      obj.is_suggested === true ||
+      obj.is_unified_video_suggestion === true,
   );
 }
 
 function hasSuggestedMeta(obj: Loose): boolean {
-  return Boolean(
-    obj.explore_story ||
-      obj.isSuggested === true ||
-      obj.is_suggested === true ||
-      obj.is_unified_video_suggestion === true,
-  );
+  return Boolean(hasOwnSuggestedSignal(obj) || obj.explore_story);
 }
 
 function bestVideoVersionUrl(versions: unknown): string | undefined {
@@ -99,6 +105,15 @@ function bestVideoVersionUrl(versions: unknown): string | undefined {
   }
   return bestUrl;
 }
+
+const STRUCTURAL_CHILD_KEYS = new Set([
+  'media',
+  'media_or_ad',
+  'item',
+  'items',
+  'node',
+  'carousel_media',
+]);
 
 /**
  * Extracts ad/suggested flags and progressive video URLs from a parsed
@@ -140,7 +155,12 @@ export function indexInstagramPayload(
     changed++;
   };
 
-  const walk = (node: unknown, depth: number): void => {
+  const walk = (
+    node: unknown,
+    depth: number,
+    inheritedAd: boolean,
+    inheritedSuggested: boolean,
+  ): void => {
     if (visitedCount >= MAX_WALK_NODES || !isObject(node) || seen.has(node)) {
       return;
     }
@@ -155,7 +175,7 @@ export function indexInstagramPayload(
         if (visitedCount >= MAX_WALK_NODES) {
           break;
         }
-        walk(item, depth + 1);
+        walk(item, depth + 1, inheritedAd, inheritedSuggested);
       }
       return;
     }
@@ -164,8 +184,10 @@ export function indexInstagramPayload(
     const fullId = stringId(node.id);
     const primaryId = pk ?? fullId;
     const code = stringId(node.code);
-    const isAd = hasAdMeta(node);
-    const isSuggested = hasSuggestedMeta(node);
+    const selfAd = inheritedAd || hasOwnAdSignal(node);
+    const selfSuggested = inheritedSuggested || hasOwnSuggestedSignal(node);
+    const isAd = selfAd || Boolean(node.ad || node.injected);
+    const isSuggested = selfSuggested || Boolean(node.explore_story);
     const videoUrl = bestVideoVersionUrl(node.video_versions);
 
     if ((isAd || isSuggested || videoUrl) && (primaryId || code)) {
@@ -196,13 +218,22 @@ export function indexInstagramPayload(
         continue;
       }
       const value = node[key];
-      if (isObject(value)) {
-        walk(value, depth + 1);
+      if (!isObject(value)) {
+        continue;
+      }
+      if (key === 'ad' || key === 'injected') {
+        walk(value, depth + 1, true, false);
+      } else if (key === 'explore_story') {
+        walk(value, depth + 1, false, true);
+      } else if (STRUCTURAL_CHILD_KEYS.has(key)) {
+        walk(value, depth + 1, selfAd, selfSuggested);
+      } else {
+        walk(value, depth + 1, false, false);
       }
     }
   };
 
-  walk(payload, 0);
+  walk(payload, 0, false, false);
   return changed;
 }
 
@@ -240,6 +271,8 @@ function readPostMetaFromFiber(
       if (hasSuggestedMeta(props)) {
         isSuggested = true;
       }
+      inspectCandidate(props.adFragmentKey);
+      inspectCandidate(props.adProps);
       inspectCandidate(props.mediaFragmentKey);
       inspectCandidate(props.media);
       inspectCandidate(props.post);

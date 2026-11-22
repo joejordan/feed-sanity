@@ -38,6 +38,14 @@ function readItemLowerText(item: FeedItem): string {
   return (item.content.textContent ?? '').toLowerCase();
 }
 
+function pauseMediaIn(element: Element): void {
+  for (const media of element.querySelectorAll('video, audio')) {
+    if (media instanceof HTMLMediaElement && !media.paused) {
+      media.pause();
+    }
+  }
+}
+
 function shouldHide(
   item: FeedItem,
   hideSponsored: boolean,
@@ -125,7 +133,7 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
           id: concealStyleId,
           activeAttr,
           pendingSelector: `${config.itemSelector}:not([${checkedAttr}])`,
-          maxMs: 250,
+          maxMs: 300,
         });
         subScope.add(() => {
           page.doc.documentElement?.removeAttribute(activeAttr);
@@ -137,15 +145,16 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
         });
 
         const evaluateOne = (item: FeedItem): void => {
-          if (!checkedRemovers.has(item.element)) {
+          const hide = shouldHide(item, hideSponsored, hideSuggested, keywords);
+          if ((hide || item.pending !== true) && !checkedRemovers.has(item.element)) {
             checkedRemovers.set(
               item.element,
               markElement(subScope, item.element, checkedAttr, '1'),
             );
           }
-          const hide = shouldHide(item, hideSponsored, hideSuggested, keywords);
           const existingHide = hideRemovers.get(item.element);
           if (hide && !existingHide) {
+            pauseMediaIn(item.element);
             hideRemovers.set(item.element, hideElement(subScope, item.element));
           } else if (!hide && existingHide) {
             existingHide();
@@ -167,20 +176,14 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
           }
         };
 
-        subScope.add(
-          feed.onAdd((item) => {
-            tracked.set(item.element, item);
-            evaluateOne(item);
-            updateBadge();
-          }),
-        );
-        subScope.add(
-          feed.onUpdate((item) => {
-            tracked.set(item.element, item);
-            evaluateOne(item);
-            updateBadge();
-          }),
-        );
+        const onItem = (item: FeedItem): void => {
+          tracked.set(item.element, item);
+          evaluateOne(item);
+          updateBadge();
+        };
+
+        subScope.add(feed.onAdd(onItem));
+        subScope.add(feed.onUpdate(onItem));
         subScope.add(
           feed.onRemove((item) => {
             forgetOne(item);

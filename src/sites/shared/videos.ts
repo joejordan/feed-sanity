@@ -54,8 +54,13 @@ class TrackedSiteVideo implements SiteVideo {
     const resolved = this.#config.resolveContainer
       ? this.#config.resolveContainer(this.element)
       : (this.element.parentElement ?? this.element);
-    this.#cachedContainer =
-      resolved !== this.element && resolved.isConnected ? resolved : undefined;
+    // Keep custom resolvers uncached when they fall back to the direct parent
+    // so late-mounted sibling overlay wrappers can still be promoted cleanly.
+    const cacheable =
+      resolved !== this.element &&
+      resolved.isConnected &&
+      (!this.#config.resolveContainer || resolved !== this.element.parentElement);
+    this.#cachedContainer = cacheable ? resolved : undefined;
     return resolved;
   }
 
@@ -151,7 +156,7 @@ export class SiteVideos implements MediaCapability {
       return inScope[0];
     }
     let node: Element | null = element;
-    while (node && within.contains(node)) {
+    while (node) {
       let match: TrackedSiteVideo | undefined;
       let count = 0;
       for (const candidate of inScope) {

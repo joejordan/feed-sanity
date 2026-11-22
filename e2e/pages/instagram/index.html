@@ -20,10 +20,27 @@
         width: 400px;
         height: 240px;
       }
+      .ig-video-inner {
+        position: relative;
+        z-index: 0;
+        width: 400px;
+        height: 240px;
+      }
       .ig-video-wrap video {
         width: 400px;
         height: 240px;
         display: block;
+      }
+      .ig-video-overlay {
+        position: absolute;
+        inset: 0;
+      }
+      .ig-mute-btn {
+        position: absolute;
+        right: 12px;
+        bottom: 18px;
+        width: 28px;
+        height: 28px;
       }
     </style>
   </head>
@@ -59,9 +76,24 @@
       <article id="ig-video-post">
         <a href="/reel/VID11111/">6h</a>
         <div id="ig-player" class="ig-video-wrap">
-          <video src="/clip.webm" muted></video>
+          <div id="ig-inner-z0" class="ig-video-inner">
+            <div><video playsinline muted preload="auto"></video></div>
+          </div>
+          <div id="ig-click-layer" role="presentation" class="ig-video-overlay"></div>
+          <button type="button" class="ig-mute-btn" aria-label="Toggle audio">M</button>
         </div>
       </article>
     </main>
+    <script>
+      fetch('/clip.webm')
+        .then((res) => res.blob())
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          const video = document.querySelector('#ig-player video');
+          if (video) {
+            video.src = url;
+          }
+        });
+    </script>
   </body>
 </html>

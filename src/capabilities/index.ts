@@ -42,6 +42,8 @@ export interface FeedItem {
   readonly permalink: boolean;
   readonly isAd?: boolean;
   readonly isSuggested?: boolean;
+  /** True while asynchronous metadata classification (e.g. PageBridge fiber lookup) is in flight. */
+  readonly pending?: boolean;
   readonly readLowerText?: () => string;
 }
 

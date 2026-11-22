@@ -359,8 +359,43 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await expect(page.locator('#nav-threads')).toBeHidden();
       await expect(page.locator('#nav-explore')).toBeVisible();
 
-      // Shared VideoScrubber mounts inside the Instagram video wrapper.
-      await expect(page.locator('#ig-player feed-sanity-ui')).toHaveCount(1);
+      // Shared VideoScrubber mounts directly inside `#ig-player` above the z-index:0 inner wrapper
+      // and sibling `role="presentation"` click-capture layer, so clicking the scrubber seeks!
+      await expect(page.locator('#ig-player > feed-sanity-ui')).toHaveCount(1);
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const v = document.querySelector('#ig-player video') as HTMLVideoElement | null;
+            return Boolean(v && Number.isFinite(v.duration) && v.duration > 0);
+          }),
+        )
+        .toBe(true);
+      await expect(page.locator('#ig-player > feed-sanity-ui .zone')).toBeVisible();
+
+      const scrubberBox = await page.locator('#ig-player > feed-sanity-ui .zone').boundingBox();
+      expect(scrubberBox).not.toBeNull();
+      if (scrubberBox) {
+        const clickPoint = {
+          x: scrubberBox.x + scrubberBox.width * 0.6,
+          y: scrubberBox.y + scrubberBox.height / 2,
+        };
+        const hitTag = await page.evaluate(
+          ({ x, y }) => document.elementsFromPoint(x, y)[0]?.tagName,
+          clickPoint,
+        );
+        expect(hitTag).toBe('FEED-SANITY-UI');
+
+        await page.mouse.click(clickPoint.x, clickPoint.y);
+        await expect
+          .poll(() =>
+            page.evaluate(
+              () =>
+                (document.querySelector('#ig-player video') as HTMLVideoElement | null)
+                  ?.currentTime ?? 0,
+            ),
+          )
+          .toBeGreaterThan(0.5);
+      }
 
       // Instagram `--ig-primary-background` RGB triplet theme compiles onto `.__fb-dark-mode` and paints body background!
       await expect

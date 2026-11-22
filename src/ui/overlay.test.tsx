@@ -171,6 +171,46 @@ describe('mountOverlay', () => {
     expect(heard).toEqual(['pointermove']);
   });
 
+  it('promotes the host when a non-Feed-Sanity sibling is appended after it without ping-ponging two overlays', async () => {
+    const first = show();
+    act(() => {
+      removes.push(mountOverlay(target, <span>Badge</span>, { container: () => container }));
+    });
+    const hosts = [...container.querySelectorAll<HTMLElement>(HOST_TAG)];
+    const second = hosts.find((el) => el !== first) as HTMLElement;
+
+    const lateOverlay = document.createElement('div');
+    container.append(lateOverlay);
+    await settle();
+
+    expect(container.lastElementChild?.hasAttribute('data-feed-sanity')).toBe(true);
+    expect(lateOverlay.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+      0,
+    );
+    expect(lateOverlay.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+      0,
+    );
+  });
+
+  it('promotes the host when an enclosing ancestor gains sibling layers and container() upgrades', async () => {
+    const frame = document.querySelector('#frame') as HTMLElement;
+    document.querySelector('#layer')?.remove();
+    let current: HTMLElement = frame;
+    const host = show({ container: () => current });
+    expect(host.parentElement).toBe(frame);
+
+    // Host later mounts an overlay sibling in `#player` (which encloses `#frame`).
+    current = container;
+    const siblingLayer = document.createElement('div');
+    container.append(siblingLayer);
+    await settle();
+
+    expect(host.parentElement).toBe(container);
+    expect(container.lastElementChild).toBe(host);
+    expect(FakeResizeObserver.latest?.observed.has(frame)).toBe(false);
+    expect(FakeResizeObserver.latest?.observed.has(container)).toBe(true);
+  });
+
   it('removes the host and stops watching sizes when removed', () => {
     const host = show();
     const observer = FakeResizeObserver.latest;

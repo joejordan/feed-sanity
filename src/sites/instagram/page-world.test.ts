@@ -144,4 +144,113 @@ describe('instagram page-world engine (React fiber + Network Tap)', () => {
     expect(cache.has('10')).toBe(false);
     expect(cache.has('item_204')).toBe(true);
   });
+
+  it('scopes wrapper explore_story and ad flags to their own branches without tainting siblings or users, and validates adProps/adFragmentKey', async () => {
+    const cache = new Map<string, { isAd?: boolean; isSuggested?: boolean; videoUrl?: string }>();
+    indexInstagramPayload(
+      {
+        feed_items: [
+          {
+            explore_story: {
+              media: { pk: 'sug_1', code: 'SUGCODE', user: { pk: 'user_99' } },
+            },
+          },
+          {
+            ad: {
+              ad_id: 'ad_42',
+              items: [{ pk: 'ad_media_1', code: 'ADCODE', user: { pk: 'user_88' } }],
+            },
+            items: [{ pk: 'org_sibling', code: 'ORGSIB' }],
+            explore_story: {
+              media: { pk: 'sug_sibling', code: 'SUGSIB' },
+            },
+          },
+        ],
+      },
+      cache,
+    );
+
+    expect(cache.get('sug_1')).toEqual({ isSuggested: true });
+    expect(cache.get('SUGCODE')).toEqual({ isSuggested: true });
+    expect(cache.get('ad_media_1')).toEqual({ isAd: true });
+    expect(cache.get('ADCODE')).toEqual({ isAd: true });
+    // Sibling organic items and explore_story branches must not be cross-contaminated by `ad`.
+    expect(cache.has('org_sibling')).toBe(false);
+    expect(cache.has('ORGSIB')).toBe(false);
+    expect(cache.get('sug_sibling')).toEqual({ isSuggested: true });
+    expect(cache.get('SUGSIB')).toEqual({ isSuggested: true });
+    expect(cache.has('user_99')).toBe(false);
+    expect(cache.has('user_88')).toBe(false);
+
+    const handle = startInstagramPageWorld({});
+    disposers.push(handle.dispose);
+    const bridge = new PageBridge(async () => undefined);
+
+    const attachFiber = (el: Element, fiber: Record<string, unknown>): void => {
+      Object.defineProperty(el, '__reactFiber$test', {
+        value: fiber,
+        enumerable: true,
+        configurable: true,
+      });
+    };
+
+    const fragmentAdArt = document.createElement('article');
+    attachFiber(fragmentAdArt, {
+      memoizedProps: { adFragmentKey: { ad_id: '777', pk: 'p777' } },
+      return: null,
+    });
+    const adPropsAdArt = document.createElement('article');
+    attachFiber(adPropsAdArt, {
+      memoizedProps: { media: { pk: 'p778' } },
+      return: { memoizedProps: { adProps: { adId: '888' } }, return: null },
+    });
+    const emptyAdPropsArt = document.createElement('article');
+    attachFiber(emptyAdPropsArt, {
+      memoizedProps: { media: { pk: 'org_empty' } },
+      return: { memoizedProps: { adProps: {} }, return: null },
+    });
+    const falsyAdPropsArt = document.createElement('article');
+    attachFiber(falsyAdPropsArt, {
+      memoizedProps: { media: { pk: 'org_falsy' } },
+      return: { memoizedProps: { adProps: { is_ad: false, ad_id: null } }, return: null },
+    });
+    const nullAdPropsArt = document.createElement('article');
+    attachFiber(nullAdPropsArt, {
+      memoizedProps: { media: { pk: 'org_null' }, adProps: null },
+      return: null,
+    });
+    document.body.append(
+      fragmentAdArt,
+      adPropsAdArt,
+      emptyAdPropsArt,
+      falsyAdPropsArt,
+      nullAdPropsArt,
+    );
+
+    expect(await bridge.ask(fragmentAdArt, 'ig-post-meta')).toEqual({
+      id: 'p777',
+      isAd: true,
+      isSuggested: false,
+    });
+    expect(await bridge.ask(adPropsAdArt, 'ig-post-meta')).toEqual({
+      id: 'p778',
+      isAd: true,
+      isSuggested: false,
+    });
+    expect(await bridge.ask(emptyAdPropsArt, 'ig-post-meta')).toEqual({
+      id: 'org_empty',
+      isAd: false,
+      isSuggested: false,
+    });
+    expect(await bridge.ask(falsyAdPropsArt, 'ig-post-meta')).toEqual({
+      id: 'org_falsy',
+      isAd: false,
+      isSuggested: false,
+    });
+    expect(await bridge.ask(nullAdPropsArt, 'ig-post-meta')).toEqual({
+      id: 'org_null',
+      isAd: false,
+      isSuggested: false,
+    });
+  });
 });
