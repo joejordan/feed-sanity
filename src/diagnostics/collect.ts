@@ -2,6 +2,7 @@ import type { FeatureRunner, FeatureStatus } from '../core/app';
 import type { BridgeStatus } from '../core/bridge';
 import type { LocatorStats } from '../core/locator';
 import type { Badge } from '../core/platform';
+import type { DiagnosticSection } from '../core/site';
 import type { ClassNameStats } from '../facebook/atoms';
 import type { PageStats } from '../facebook/feature';
 import type { PostStats } from '../facebook/posts';
@@ -12,6 +13,8 @@ export interface Diagnostics {
   readonly version: string;
   /** Which build this is, such as `Chrome extension`. */
   readonly build: string;
+  /** Optional site identifier (defaults to Facebook when omitted). */
+  readonly site?: string;
   /** The page type from `pageContext`. On some pages it is a profile's name. */
   readonly pageType: string;
   readonly badge: Badge;
@@ -21,6 +24,8 @@ export interface Diagnostics {
   readonly locators: readonly LocatorStats[];
   /** Whether the page-world bridge is connected. */
   readonly bridge: BridgeStatus;
+  /** Optional additional site-contributed diagnostic sections. */
+  readonly extraSections?: readonly DiagnosticSection[];
   /** When it was read, in milliseconds since 1970. */
   readonly at: number;
 }

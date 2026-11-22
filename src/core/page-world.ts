@@ -14,6 +14,7 @@ import {
   isPlainObject,
   messageEvent,
   mountEvent,
+  pushEvent,
   READY_EVENT,
   readMessage,
   toggleEvent,
@@ -22,9 +23,8 @@ import {
 
 /**
  * Reads something about `element` that only the page's own world can see,
- * such as the data React keeps on it. It returns plain data that survives
- * `JSON.stringify`, and null when there is nothing to read. It must change
- * nothing.
+ * such as the data React keeps on it. May return plain data synchronously or
+ * resolve asynchronously via a Promise. It must change nothing.
  */
 export type PageReader = (element: Element) => unknown;
 
@@ -33,7 +33,7 @@ export type PageReaders = Readonly<Record<string, PageReader>>;
 
 /**
  * Switches one named page-world behaviour on or off, returning plain data
- * that survives `JSON.stringify`, or null. Turning it off must undo what
+ * (synchronously or via Promise), or null. Turning it off must undo what
  * turning it on did, with no page reload.
  */
 export type PageToggle = (enabled: boolean) => unknown;
@@ -43,7 +43,7 @@ export type PageToggles = Readonly<Record<string, PageToggle>>;
 
 /**
  * Runs one named page-world action with a plain JSON object payload and
- * returns plain data that survives `JSON.stringify`, or null.
+ * returns plain data (synchronously or via Promise), or null.
  */
 export type PageAction = (payload: Record<string, unknown>) => unknown;
 
@@ -51,109 +51,115 @@ export type PageAction = (payload: Record<string, unknown>) => unknown;
 export type PageActions = Readonly<Record<string, PageAction>>;
 
 /**
- * Mounts a named page-world UI (such as a native Facebook React/Relay
- * component) into `target`, returning an unmount function or null if the mount
- * could not start.
+ * Mounts a named page-world UI (such as a native React/Relay component) into
+ * `target`, returning an unmount function or null (synchronously or via
+ * Promise) if the mount could not start.
  */
-export type PageMount = (target: Element, payload: Record<string, unknown>) => (() => void) | null;
+export type PageMount = (
+  target: Element,
+  payload: Record<string, unknown>,
+) => (() => void) | null | Promise<(() => void) | null>;
 
 /** The mounts the page-world side offers, by name. Nothing else can be mounted. */
 export type PageMounts = Readonly<Record<string, PageMount>>;
+
+/** Handle returned by `servePageWorld` for pushing unsolicited events to the content script. */
+export interface PageWorldEmitter {
+  /**
+   * Emits a named event to the content script. Events emitted at
+   * `document_start` before the bridge handshake finishes are buffered in a
+   * bounded ring buffer and delivered in order as soon as the channel connects.
+   */
+  emit: (topic: string, payload: unknown) => void;
+}
+
+const MAX_BUFFERED_EVENTS = 64;
 
 function lookup<T>(map: Readonly<Record<string, T>>, name: unknown): T | undefined {
   return typeof name === 'string' && Object.hasOwn(map, name) ? map[name] : undefined;
 }
 
-/** The answer to one reader question, as the JSON text sent back. */
-function answerReader(readers: PageReaders, element: Element, id: number, reader: unknown): string {
-  const read = lookup(readers, reader);
-  if (!read) {
-    return JSON.stringify({ id, error: 'there is no such reader' });
-  }
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === 'object' || typeof value === 'function') &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === 'function'
+  );
+}
+
+function serializeValue(id: number, value: unknown, errorMessage: string): string {
   try {
-    // A value that cannot be sent counts as a failed read.
-    return JSON.stringify({ id, value: read(element) ?? null });
+    return JSON.stringify({ id, value: value ?? null });
   } catch {
-    return JSON.stringify({ id, error: 'the reader failed' });
+    return JSON.stringify({ id, error: errorMessage });
   }
 }
 
-/** The answer to one toggle request, as the JSON text sent back. */
-function answerToggle(toggles: PageToggles, id: number, toggle: unknown, enabled: unknown): string {
-  const run = lookup(toggles, toggle);
-  if (!run) {
-    return JSON.stringify({ id, error: 'there is no such toggle' });
-  }
-  if (typeof enabled !== 'boolean') {
-    return JSON.stringify({ id, error: 'enabled must be a boolean' });
-  }
-  try {
-    return JSON.stringify({ id, value: run(enabled) ?? null });
-  } catch {
-    return JSON.stringify({ id, error: 'the toggle failed' });
-  }
-}
-
-/** The answer to one action request, as the JSON text sent back. */
-function answerAction(actions: PageActions, id: number, action: unknown, payload: unknown): string {
-  const run = lookup(actions, action);
-  if (!run) {
-    return JSON.stringify({ id, error: 'there is no such action' });
-  }
-  if (!isPlainObject(payload)) {
-    return JSON.stringify({ id, error: 'payload must be an object' });
-  }
-  try {
-    return JSON.stringify({ id, value: run(payload) ?? null });
-  } catch {
-    return JSON.stringify({ id, error: 'the action failed' });
-  }
-}
-
-/** The answer to one mount request, registering any live unmount callback via `register`. */
-function answerMount(
-  mounts: PageMounts,
-  element: Element,
+/** Sends a synchronous or async handler result back on `target` via `answerType`. */
+function settleResult(
+  target: EventTarget,
+  answerType: string,
   id: number,
-  mount: unknown,
-  payload: unknown,
-  register: (target: Element, unmount: () => void) => number,
-): string {
-  const fn = lookup(mounts, mount);
-  if (!fn) {
-    return JSON.stringify({ id, error: 'there is no such mount' });
-  }
-  if (!isPlainObject(payload)) {
-    return JSON.stringify({ id, error: 'payload must be an object' });
-  }
+  run: () => unknown,
+  errorMessage: string,
+  format: (value: unknown) => string = (val) => serializeValue(id, val, errorMessage),
+): void {
+  const send = (detail: string): void => {
+    target.dispatchEvent(new CustomEvent(answerType, { detail, composed: true }));
+  };
+  let result: unknown;
   try {
-    const unmount = fn(element, payload);
-    if (typeof unmount !== 'function') {
-      return JSON.stringify({ id, value: null });
-    }
-    return JSON.stringify({ id, value: { mountId: register(element, unmount) } });
+    result = run();
   } catch {
-    return JSON.stringify({ id, error: 'the mount failed' });
+    send(JSON.stringify({ id, error: errorMessage }));
+    return;
   }
+  if (isPromiseLike(result)) {
+    void Promise.resolve(result).then(
+      (resolved) => send(format(resolved)),
+      () => send(JSON.stringify({ id, error: errorMessage })),
+    );
+    return;
+  }
+  send(format(result));
 }
 
 /**
- * Serves `readers`, `toggles`, `actions` and `mounts` to the content side. It
- * announces itself with `READY_EVENT`, takes the first channel it is sent with
- * `CONNECT_EVENT`, and from then on answers each request on that channel by
- * running the matching named handler.
- *
- * It never runs code or looks up names it is sent, apart from choosing one of
- * `readers`, `toggles`, `actions` or `mounts`, and it defines no global.
- * Requests are answered at once, while the content side's `dispatchEvent` call
- * is still running.
+ * Serves `readers`, `toggles`, `actions` and `mounts` to the content side,
+ * supporting both fast synchronous replies and Promise-returning async
+ * handlers. Returns a `PageWorldEmitter` for pushing unsolicited events
+ * (such as `document_start` network tap captures) back to the content script.
  */
 export function servePageWorld(
   readers: PageReaders,
   toggles: PageToggles = {},
   actions: PageActions = {},
   mounts: PageMounts = {},
-): void {
+): PageWorldEmitter {
+  let pushType: string | undefined;
+  const bufferedEvents: Array<{ topic: string; payload: unknown }> = [];
+
+  const dispatchPush = (type: string, topic: string, payload: unknown): void => {
+    try {
+      document.dispatchEvent(messageEvent(type, { topic, payload: payload ?? null }));
+    } catch {
+      // Ignore unserializable payloads.
+    }
+  };
+
+  const emitter: PageWorldEmitter = {
+    emit(topic, payload) {
+      if (pushType) {
+        dispatchPush(pushType, topic, payload);
+        return;
+      }
+      if (bufferedEvents.length >= MAX_BUFFERED_EVENTS) {
+        bufferedEvents.shift();
+      }
+      bufferedEvents.push({ topic, payload });
+    },
+  };
+
   const connect = (event: Event): void => {
     const channel = readMessage(event)?.channel;
     if (typeof channel !== 'string' || !CHANNEL.test(channel)) {
@@ -162,10 +168,39 @@ export function servePageWorld(
     document.removeEventListener(CONNECT_EVENT, connect, true);
 
     const answer = answerEvent(channel);
+    const resolvedPushType = pushEvent(channel);
     let nextMountId = 1;
-    const activeMounts = new Map<number, { target: Element; unmount: () => void }>();
-    let disconnectObserver: MutationObserver | undefined;
+    const activeMounts = new Map<
+      number,
+      { target: Element; roots: readonly Node[]; unmount: () => void }
+    >();
+    const rootRefCounts = new Map<Node, number>();
+    const disconnectObservers = new Map<Node, MutationObserver>();
     let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const rootChain = (target: Element): Node[] => {
+      const roots: Node[] = [];
+      let current: Node = target;
+      while (true) {
+        const root = current.getRootNode();
+        if (root.nodeType === Node.DOCUMENT_NODE) {
+          const docRoot = (root as Document).documentElement ?? root;
+          if (!roots.includes(docRoot)) {
+            roots.push(docRoot);
+          }
+          break;
+        }
+        if (root.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in root) {
+          if (!roots.includes(root)) {
+            roots.push(root);
+          }
+          current = (root as ShadowRoot).host;
+          continue;
+        }
+        break;
+      }
+      return roots;
+    };
 
     const releaseMount = (mountId: number): boolean => {
       const entry = activeMounts.get(mountId);
@@ -173,13 +208,19 @@ export function servePageWorld(
         return false;
       }
       activeMounts.delete(mountId);
-      if (activeMounts.size === 0) {
-        disconnectObserver?.disconnect();
-        disconnectObserver = undefined;
-        if (disconnectTimer !== undefined) {
-          clearTimeout(disconnectTimer);
-          disconnectTimer = undefined;
+      for (const root of entry.roots) {
+        const nextCount = (rootRefCounts.get(root) ?? 1) - 1;
+        if (nextCount <= 0) {
+          rootRefCounts.delete(root);
+          disconnectObservers.get(root)?.disconnect();
+          disconnectObservers.delete(root);
+        } else {
+          rootRefCounts.set(root, nextCount);
         }
+      }
+      if (activeMounts.size === 0 && disconnectTimer !== undefined) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = undefined;
       }
       try {
         entry.unmount();
@@ -189,50 +230,69 @@ export function servePageWorld(
       return true;
     };
 
-    const watchDisconnects = (): void => {
-      if (disconnectObserver || !document.documentElement) {
+    const scheduleDisconnectCheck = (records: readonly MutationRecord[]): void => {
+      if (!records.some((record) => record.removedNodes.length > 0)) {
         return;
       }
-      disconnectObserver = new MutationObserver(() => {
-        // Defer past microtasks so content-script `mountSlot` re-attachment
-        // completes before deciding a slot was truly removed.
-        if (disconnectTimer !== undefined) {
-          return;
-        }
-        disconnectTimer = setTimeout(() => {
-          disconnectTimer = undefined;
-          for (const [id, { target }] of activeMounts) {
-            if (!target.isConnected) {
-              releaseMount(id);
-            }
+      // Defer past microtasks so content-script `mountSlot` re-attachment
+      // completes before deciding a slot was truly removed.
+      if (disconnectTimer !== undefined) {
+        return;
+      }
+      disconnectTimer = setTimeout(() => {
+        disconnectTimer = undefined;
+        for (const [id, { target }] of activeMounts) {
+          if (!target.isConnected) {
+            releaseMount(id);
           }
-        }, 0);
-      });
-      disconnectObserver.observe(document.documentElement, { childList: true, subtree: true });
+        }
+      }, 0);
+    };
+
+    const watchDisconnects = (roots: readonly Node[]): void => {
+      for (const root of roots) {
+        const prev = rootRefCounts.get(root) ?? 0;
+        rootRefCounts.set(root, prev + 1);
+        if (prev === 0) {
+          const observer = new MutationObserver(scheduleDisconnectCheck);
+          observer.observe(root, { childList: true, subtree: true });
+          disconnectObservers.set(root, observer);
+        }
+      }
     };
 
     const registerMount = (target: Element, unmount: () => void): number => {
       const mountId = nextMountId++;
-      activeMounts.set(mountId, { target, unmount });
-      watchDisconnects();
+      const roots = rootChain(target);
+      activeMounts.set(mountId, { target, roots, unmount });
+      watchDisconnects(roots);
       return mountId;
+    };
+
+    const sendError = (target: EventTarget, id: number, error: string): void => {
+      target.dispatchEvent(messageEvent(answer, { id, error }));
     };
 
     const onElement = (
       type: string,
-      handle: (target: Element, id: number, message: Record<string, unknown>) => string,
+      handle: (target: Element, id: number, message: Record<string, unknown>) => void,
     ): void => {
       document.addEventListener(
         type,
         (request) => {
-          const { target } = request;
+          let target = request.target;
+          // Only allocate `composedPath()` when the event may have crossed an open Shadow Root.
+          if (!(target instanceof Element) || target.shadowRoot !== null) {
+            const first = request.composedPath()[0];
+            if (first instanceof Element) {
+              target = first;
+            }
+          }
           const message = readMessage(request);
           if (!(target instanceof Element) || typeof message?.id !== 'number') {
             return;
           }
-          target.dispatchEvent(
-            new CustomEvent(answer, { detail: handle(target, message.id, message) }),
-          );
+          handle(target, message.id, message);
         },
         true,
       );
@@ -240,7 +300,7 @@ export function servePageWorld(
 
     const onDocument = (
       type: string,
-      handle: (id: number, message: Record<string, unknown>) => string,
+      handle: (id: number, message: Record<string, unknown>) => void,
     ): void => {
       document.addEventListener(
         type,
@@ -249,28 +309,91 @@ export function servePageWorld(
           if (request.target !== document || typeof message?.id !== 'number') {
             return;
           }
-          document.dispatchEvent(new CustomEvent(answer, { detail: handle(message.id, message) }));
+          handle(message.id, message);
         },
         true,
       );
     };
 
-    onElement(askEvent(channel), (target, id, message) =>
-      answerReader(readers, target, id, message.reader),
-    );
-    onDocument(toggleEvent(channel), (id, message) =>
-      answerToggle(toggles, id, message.toggle, message.enabled),
-    );
-    onDocument(actionEvent(channel), (id, message) =>
-      answerAction(actions, id, message.action, message.payload ?? {}),
-    );
-    onElement(mountEvent(channel), (target, id, message) =>
-      answerMount(mounts, target, id, message.mount, message.payload ?? {}, registerMount),
-    );
+    onElement(askEvent(channel), (target, id, message) => {
+      const read = lookup(readers, message.reader);
+      if (!read) {
+        sendError(target, id, 'there is no such reader');
+        return;
+      }
+      settleResult(target, answer, id, () => read(target), 'the reader failed');
+    });
+
+    onDocument(toggleEvent(channel), (id, message) => {
+      const run = lookup(toggles, message.toggle);
+      if (!run) {
+        sendError(document, id, 'there is no such toggle');
+        return;
+      }
+      if (typeof message.enabled !== 'boolean') {
+        sendError(document, id, 'enabled must be a boolean');
+        return;
+      }
+      const enabled = message.enabled;
+      settleResult(document, answer, id, () => run(enabled), 'the toggle failed');
+    });
+
+    onDocument(actionEvent(channel), (id, message) => {
+      const run = lookup(actions, message.action);
+      if (!run) {
+        sendError(document, id, 'there is no such action');
+        return;
+      }
+      const payload = message.payload ?? {};
+      if (!isPlainObject(payload)) {
+        sendError(document, id, 'payload must be an object');
+        return;
+      }
+      settleResult(document, answer, id, () => run(payload), 'the action failed');
+    });
+
+    onElement(mountEvent(channel), (target, id, message) => {
+      const fn = lookup(mounts, message.mount);
+      if (!fn) {
+        sendError(target, id, 'there is no such mount');
+        return;
+      }
+      const payload = message.payload ?? {};
+      if (!isPlainObject(payload)) {
+        sendError(target, id, 'payload must be an object');
+        return;
+      }
+      settleResult(
+        target,
+        answer,
+        id,
+        () => fn(target, payload),
+        'the mount failed',
+        (unmount) => {
+          if (typeof unmount !== 'function') {
+            return JSON.stringify({ id, value: null });
+          }
+          if (!target.isConnected) {
+            try {
+              (unmount as () => void)();
+            } catch {
+              // Ignore teardown errors from page code.
+            }
+            return JSON.stringify({ id, value: null });
+          }
+          return JSON.stringify({
+            id,
+            value: { mountId: registerMount(target, unmount as () => void) },
+          });
+        },
+      );
+    });
+
     onDocument(unmountEvent(channel), (id, message) => {
       const removed = typeof message.mountId === 'number' ? releaseMount(message.mountId) : false;
-      return JSON.stringify({ id, value: removed });
+      document.dispatchEvent(messageEvent(answer, { id, value: removed }));
     });
+
     const toggleNames = Object.keys(toggles);
     const actionNames = Object.keys(actions);
     const mountNames = Object.keys(mounts);
@@ -282,7 +405,24 @@ export function servePageWorld(
         ...(mountNames.length > 0 ? { mounts: mountNames } : {}),
       }),
     );
+
+    // Flush any `document_start` boot events buffered before the handshake,
+    // keeping `pushType` unset until drained so strict FIFO order is preserved.
+    if (bufferedEvents.length > 0) {
+      queueMicrotask(() => {
+        while (bufferedEvents.length > 0) {
+          const item = bufferedEvents.shift();
+          if (item) {
+            dispatchPush(resolvedPushType, item.topic, item.payload);
+          }
+        }
+        pushType = resolvedPushType;
+      });
+    } else {
+      pushType = resolvedPushType;
+    }
   };
   document.addEventListener(CONNECT_EVENT, connect, true);
   document.dispatchEvent(new CustomEvent(READY_EVENT));
+  return emitter;
 }

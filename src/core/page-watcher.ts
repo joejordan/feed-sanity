@@ -171,6 +171,7 @@ class SelectorSubscriber implements Subscriber {
   readonly #source: Locator | SelectorSource;
   readonly #handlers: WatchHandlers;
   readonly #log: Logger;
+  readonly #root: () => Document | ShadowRoot;
   readonly #tracked = new Set<Element>();
   #query: Query;
 
@@ -179,21 +180,23 @@ class SelectorSubscriber implements Subscriber {
     handlers: WatchHandlers,
     options: WatchOptions,
     log: Logger,
+    root: () => Document | ShadowRoot,
   ) {
     this.#source = source;
     this.#handlers = handlers;
     this.#log = log;
+    this.#root = root;
     this.attributes = new Set(options.attributes);
     this.#query = this.#read();
   }
 
   /** The elements in the page that match now. Throws if the selector is not valid. */
   matching(): Element[] {
-    return this.#query.all(document);
+    return this.#query.all(this.#root());
   }
 
   enter(element: Element): void {
-    if (!this.active || this.#tracked.has(element) || !element.isConnected) {
+    if (!this.active || this.#tracked.has(element) || !this.#inRoot(element)) {
       return;
     }
     this.#tracked.add(element);
@@ -210,7 +213,7 @@ class SelectorSubscriber implements Subscriber {
     }
     if (this.#tracked.size > 0 && batch.removesElements) {
       for (const element of this.#tracked) {
-        if (!element.isConnected) {
+        if (!this.#inRoot(element)) {
           this.#leave(element);
         }
       }
@@ -265,9 +268,13 @@ class SelectorSubscriber implements Subscriber {
     }
   }
 
+  #inRoot(element: Element): boolean {
+    return element.isConnected && element.getRootNode() === this.#root();
+  }
+
   #attributesChanged(element: Element, names: Set<string>): void {
     // An element that left the page is dealt with as a removal.
-    if (!element.isConnected || !this.#watchesAny(names)) {
+    if (!this.#inRoot(element) || !this.#watchesAny(names)) {
       return;
     }
     const tracked = this.#tracked.has(element);
@@ -299,6 +306,7 @@ class SelectorSubscriber implements Subscriber {
  */
 export class PageWatcher {
   readonly #log: Logger;
+  readonly #customRoot: Document | ShadowRoot | undefined;
   /** Replaced, not changed, so a batch being handed out keeps the list it started with. */
   #subscribers: readonly Subscriber[] = [];
   readonly #urlListeners: Listeners;
@@ -306,12 +314,24 @@ export class PageWatcher {
   /** The attributes the observer watches, joined, or undefined while it is stopped. */
   #observed: string | undefined;
   #lastHref = '';
+  #urlWindow: (Window & typeof globalThis) | undefined;
   /** Changes that arrived while a batch was being handed out, or undefined when none is. */
   #deferred: MutationRecord[] | undefined;
 
-  constructor(log: Logger = createLogger('page-watcher')) {
+  constructor(log: Logger = createLogger('page-watcher'), root?: Document | ShadowRoot) {
     this.#log = log;
+    this.#customRoot = root;
     this.#urlListeners = new Listeners(log);
+  }
+
+  get #root(): Document | ShadowRoot {
+    return this.#customRoot ?? document;
+  }
+
+  get #window(): Window & typeof globalThis {
+    const root = this.#root;
+    const doc = root.nodeType === Node.DOCUMENT_NODE ? (root as Document) : root.ownerDocument;
+    return (doc?.defaultView ?? globalThis) as Window & typeof globalThis;
   }
 
   /**
@@ -345,7 +365,13 @@ export class PageWatcher {
     handlers: WatchHandlers,
     options: WatchOptions = {},
   ): Watch {
-    const subscriber = new SelectorSubscriber(selector, handlers, options, this.#log);
+    const subscriber = new SelectorSubscriber(
+      selector,
+      handlers,
+      options,
+      this.#log,
+      () => this.#root,
+    );
     const present = subscriber.matching();
     this.#subscribe(subscriber);
     for (const element of present) {
@@ -376,10 +402,12 @@ export class PageWatcher {
    */
   onUrlChange(listener: () => void): () => void {
     if (this.#urlListeners.size === 0) {
-      this.#lastHref = location.href;
-      addEventListener('popstate', this.#checkUrl);
-      addEventListener('hashchange', this.#checkUrl);
-      globalThis.navigation?.addEventListener('currententrychange', this.#checkUrl);
+      const win = this.#window;
+      this.#urlWindow = win;
+      this.#lastHref = win.location.href;
+      win.addEventListener('popstate', this.#checkUrl);
+      win.addEventListener('hashchange', this.#checkUrl);
+      win.navigation?.addEventListener('currententrychange', this.#checkUrl);
     }
     const remove = this.#urlListeners.add(listener);
     this.#sync();
@@ -391,9 +419,11 @@ export class PageWatcher {
       removed = true;
       remove();
       if (this.#urlListeners.size === 0) {
-        removeEventListener('popstate', this.#checkUrl);
-        removeEventListener('hashchange', this.#checkUrl);
-        globalThis.navigation?.removeEventListener('currententrychange', this.#checkUrl);
+        const win = this.#urlWindow ?? this.#window;
+        this.#urlWindow = undefined;
+        win.removeEventListener('popstate', this.#checkUrl);
+        win.removeEventListener('hashchange', this.#checkUrl);
+        win.navigation?.removeEventListener('currententrychange', this.#checkUrl);
       }
       this.#sync();
     };
@@ -407,7 +437,7 @@ export class PageWatcher {
    * It never gives up. Only wait for elements that are sure to appear.
    */
   waitForElement(selector: string): Promise<Element> {
-    const existing = document.querySelector(selector);
+    const existing = this.#root.querySelector(selector);
     if (existing) {
       return Promise.resolve(existing);
     }
@@ -442,8 +472,9 @@ export class PageWatcher {
   }
 
   readonly #checkUrl = (): void => {
-    if (location.href !== this.#lastHref) {
-      this.#lastHref = location.href;
+    const href = (this.#urlWindow ?? this.#window).location.href;
+    if (href !== this.#lastHref) {
+      this.#lastHref = href;
       this.#urlListeners.emit();
     }
   };
@@ -508,7 +539,7 @@ export class PageWatcher {
     const pending = this.#observed === undefined ? [] : this.#observer.takeRecords();
     this.#observer.disconnect();
     this.#observer.observe(
-      document,
+      this.#root,
       attributes.length > 0
         ? { childList: true, subtree: true, attributes: true, attributeFilter: attributes }
         : { childList: true, subtree: true },

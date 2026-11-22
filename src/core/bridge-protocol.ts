@@ -40,6 +40,9 @@ export const mountEvent = (channel: string): string => `${channel}-mount`;
 /** Sent on `document` with `{ "id": 1, "mountId": 1 }` to tear down a live page-world mount. */
 export const unmountEvent = (channel: string): string => `${channel}-unmount`;
 
+/** Sent on `document` by the page-world side to push unsolicited events (`{ "topic": "...", "payload": ... }`). */
+export const pushEvent = (channel: string): string => `${channel}-push`;
+
 /**
  * Sent on the same target in reply, with `{ "id": 1, "value": ... }`, or
  * `{ "id": 1, "error": "..." }` when the reader, toggle, action or mount is not known or failed.
@@ -70,7 +73,8 @@ export function readMessage(event: Event): Message | undefined {
 /**
  * An event that carries `message` as JSON. It does not bubble, so listeners
  * on the page's elements above it hear it only if they listen in the
- * capture phase.
+ * capture phase, and sets `composed: true` so element-targeted events inside
+ * open Shadow Roots still reach `document`'s capture listener.
  */
 export const messageEvent = (type: string, message: Message): CustomEvent<string> =>
-  new CustomEvent(type, { detail: JSON.stringify(message) });
+  new CustomEvent(type, { detail: JSON.stringify(message), composed: true });

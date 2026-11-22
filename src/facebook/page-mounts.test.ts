@@ -109,7 +109,7 @@ describe('page-mounts', () => {
       loader,
     );
 
-    const unmount = mount(target, {});
+    const unmount = await mount(target, {});
     expect(unmount).toBeTypeOf('function');
 
     await vi.waitFor(() => expect(renderRoot).toHaveBeenCalledTimes(1));

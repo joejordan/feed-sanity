@@ -394,6 +394,153 @@ describe('PageBridge', () => {
     });
   });
 
+  it('supports async handlers, document_start buffered push events, and open Shadow DOM targets', async () => {
+    const bridge = make(
+      () => {
+        const emitter = servePageWorld(
+          {
+            asyncRead: (el) => Promise.resolve({ tag: el.tagName }),
+          },
+          {},
+          {
+            asyncAct: (payload) => Promise.resolve({ echoed: payload.n }),
+          },
+          {
+            asyncMount: async () => {
+              await Promise.resolve();
+              return () => undefined;
+            },
+          },
+        );
+        // Buffered before handshake completes, flushed automatically on connect.
+        emitter.emit('network:feed', { count: 3 });
+        return Promise.resolve();
+      },
+      { log },
+    );
+
+    const pushed: unknown[] = [];
+    bridge.on('network:feed', (payload) => pushed.push(payload));
+
+    const host = document.createElement('div');
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const inner = document.createElement('section');
+    shadow.append(inner);
+
+    expect(await bridge.ask(inner, 'asyncRead')).toEqual({ tag: 'SECTION' });
+    expect(await bridge.run('asyncAct', { n: 7 })).toEqual({ echoed: 7 });
+    const unmount = await bridge.mount(inner, 'asyncMount');
+    expect(unmount).toBeTypeOf('function');
+    unmount?.();
+
+    await vi.waitFor(() => expect(pushed).toEqual([{ count: 3 }]));
+  });
+
+  it('auto-unmounts Shadow DOM targets on inner removal and host removal, and handles async rejections/races', async () => {
+    const unmounts: string[] = [];
+    let resolveDelayed!: (fn: () => void) => void;
+    let resolveCancelled!: (fn: () => void) => void;
+    const bridge = make(
+      () => {
+        servePageWorld(
+          {
+            rejectRead: () => Promise.reject(new Error('async boom')),
+          },
+          {},
+          {},
+          {
+            shadowMount: (target) => () => unmounts.push(target.id),
+            delayedDisconnect: (target) =>
+              new Promise((resolve) => {
+                resolveDelayed = resolve;
+                void target;
+              }),
+            delayedCancel: () =>
+              new Promise((resolve) => {
+                resolveCancelled = resolve;
+              }),
+          },
+        );
+        return Promise.resolve();
+      },
+      { log },
+    );
+
+    const host = document.createElement('div');
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const innerA = document.createElement('div');
+    innerA.id = 'innerA';
+    const innerB = document.createElement('div');
+    innerB.id = 'innerB';
+    shadow.append(innerA, innerB);
+
+    await expect(bridge.ask(innerA, 'rejectRead')).rejects.toMatchObject({ failure: 'failed' });
+
+    await bridge.mount(innerA, 'shadowMount');
+    await bridge.mount(innerB, 'shadowMount');
+
+    // Removing an element inside the ShadowRoot triggers auto-unmount.
+    innerA.remove();
+    await vi.waitFor(() => expect(unmounts).toEqual(['innerA']));
+
+    // Removing the ShadowRoot host from light DOM also triggers auto-unmount.
+    host.remove();
+    await vi.waitFor(() => expect(unmounts).toEqual(['innerA', 'innerB']));
+
+    // Async mount whose target disconnects before resolution auto-unmounts immediately.
+    const transient = document.createElement('div');
+    document.body.append(transient);
+    const pendingDisconnect = bridge.mount(transient, 'delayedDisconnect');
+    await vi.waitFor(() => expect(resolveDelayed).toBeTypeOf('function'));
+    transient.remove();
+    const cleanedOnDisconnect = vi.fn();
+    resolveDelayed(cleanedOnDisconnect);
+    expect(await pendingDisconnect).toBeNull();
+    expect(cleanedOnDisconnect).toHaveBeenCalledTimes(1);
+
+    // Aborted async mount that resolves later is automatically unmounted via late-answer cleanup.
+    const kept = document.createElement('div');
+    document.body.append(kept);
+    const controller = new AbortController();
+    const pendingCancel = bridge.mount(kept, 'delayedCancel', {}, controller.signal);
+    await vi.waitFor(() => expect(resolveCancelled).toBeTypeOf('function'));
+    controller.abort();
+    await expect(pendingCancel).rejects.toMatchObject({ failure: 'cancelled' });
+    const cleanedOnCancel = vi.fn();
+    resolveCancelled(cleanedOnCancel);
+    await vi.waitFor(() => expect(cleanedOnCancel).toHaveBeenCalledTimes(1));
+  });
+
+  it('delivers document_start buffered push events in FIFO order even when subscribed after connect', async () => {
+    let emitter!: ReturnType<typeof servePageWorld>;
+    const bridge = make(
+      () => {
+        emitter = servePageWorld({ ping: () => 'ok' });
+        emitter.emit('net', { seq: 1 });
+        emitter.emit('net', { seq: 2 });
+        return Promise.resolve();
+      },
+      { log },
+    );
+
+    // Connect before any `bridge.on('net', ...)` listener exists.
+    expect(await bridge.ask(video, 'ping')).toBe('ok');
+    // Emit a third event right after connect before the microtask drain runs.
+    emitter.emit('net', { seq: 3 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const received: unknown[] = [];
+    const stop = bridge.on('net', (payload) => received.push(payload));
+    expect(received).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
+
+    emitter.emit('net', { seq: 4 });
+    expect(received).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }, { seq: 4 }]);
+    stop();
+  });
+
   it('listens for a late page-world side only while it connects', async () => {
     const bridge = make(serve({ tag: () => 1 }), { log });
     await bridge.ask(video, 'tag');

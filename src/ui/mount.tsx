@@ -1,10 +1,17 @@
 import { createRoot } from 'react-dom/client';
 import type { ReactNode } from 'react';
-import facebookTheme from '../facebook/theme.css?inline';
 import theme from './theme.css?inline';
 
 /** The tag of every host element, so they are easy to find in the page. */
 export const HOST_TAG = 'feed-sanity-ui';
+
+/** Optional site-specific theme overrides (mapping host CSS vars onto `--fs-*`). */
+let siteThemeCss = '';
+
+/** Registers the active site's CSS token layer injected into every shadow root. */
+export function setSiteThemeCss(css: string): void {
+  siteThemeCss = css;
+}
 
 /**
  * Keys typed into this project's inputs stop at the host element. Otherwise
@@ -38,7 +45,7 @@ export function renderInShadow(host: HTMLElement, ui: ReactNode, css = ''): () =
   stopAtHost(host, KEY_EVENTS);
   const shadow = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');
-  style.textContent = `${theme}\n${facebookTheme}\n${css}`;
+  style.textContent = [theme, siteThemeCss, css].filter(Boolean).join('\n');
   const container = document.createElement('div');
   shadow.append(style, container);
   const root = createRoot(container);

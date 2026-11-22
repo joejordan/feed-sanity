@@ -1,6 +1,6 @@
+import type { PageWatcher } from './page-watcher';
 import type { Scope } from './scope';
 import { addStyle } from './dom';
-import { onUrlChange } from './navigation';
 import { pageWatcher } from './page-watcher';
 
 /** Attribute marking one of Facebook's elements that a feature is temporarily hiding. */
@@ -13,13 +13,28 @@ const SURFACE_HIDE_CSS = `[${HIDDEN_ATTR}="none"] { display: none !important; }`
 
 /**
  * Ref-counts for attributes managed by `markElement` and `hideElement`, so
- * multiple features or scopes can mark the same Facebook node without
- * clobbering each other when one of them tears down.
+ * multiple features or scopes can mark the same host node without clobbering
+ * each other when one of them tears down.
  */
 const attrCounts = new WeakMap<Element, Map<string, number>>();
 
-let hiddenCount = 0;
-let removeHideStyle: (() => void) | undefined;
+/**
+ * Adds a `<style id="...">` sheet to either a `Document` or a `ShadowRoot`,
+ * returning a remover.
+ */
+export function addRootStyle(root: Document | ShadowRoot, id: string, css: string): () => void {
+  return addStyle(id, css, root);
+}
+
+const rootHideState = new WeakMap<Document | ShadowRoot, { count: number; remove: () => void }>();
+
+function styleRootFor(element: Element): Document | ShadowRoot {
+  const root = element.getRootNode();
+  if (root.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in root) {
+    return root as ShadowRoot;
+  }
+  return element.ownerDocument ?? document;
+}
 
 /**
  * Sets `attribute` on `element` while `scope` is alive, ref-counted so
@@ -51,6 +66,9 @@ export function markElement(
     const next = (map?.get(attribute) ?? 1) - 1;
     if (next <= 0) {
       map?.delete(attribute);
+      if (map && map.size === 0) {
+        attrCounts.delete(element);
+      }
       element.removeAttribute(attribute);
     } else {
       map?.set(attribute, next);
@@ -59,29 +77,61 @@ export function markElement(
 }
 
 /**
- * Hides a Facebook element via `data-feed-sanity-hidden="none"` while `scope`
- * is alive, restoring it automatically when the last scope hiding it disposes.
- * Leaves the node in the DOM so Facebook's React reconciliation and hidden
- * SPA navigation links keep working, and keeps a shared `display: none` rule
- * distinct from `video_scrubber`'s layout-preserving `visibility: hidden` mark.
+ * Hides a host element via `data-feed-sanity-hidden="none"` while `scope` is
+ * alive, restoring it automatically when the last scope hiding it disposes.
+ * Works in both light DOM and open Shadow Roots (injecting the shared rule
+ * per root) and stays distinct from `video_scrubber`'s layout-preserving mark.
  */
 export function hideElement(scope: Scope, element: Element): () => void {
   if (scope.disposed) {
     return () => undefined;
   }
-  if (hiddenCount === 0) {
-    removeHideStyle = addStyle(SURFACE_STYLE_ID, SURFACE_HIDE_CSS);
+  const root = styleRootFor(element);
+  let state = rootHideState.get(root);
+  if (!state) {
+    state = { count: 0, remove: addRootStyle(root, SURFACE_STYLE_ID, SURFACE_HIDE_CSS) };
+    rootHideState.set(root, state);
   }
-  hiddenCount++;
+  state.count++;
   const releaseMark = markElement(scope, element, HIDDEN_ATTR, 'none');
   return scope.add(() => {
     releaseMark();
-    hiddenCount--;
-    if (hiddenCount === 0) {
-      removeHideStyle?.();
-      removeHideStyle = undefined;
+    const cur = rootHideState.get(root);
+    if (!cur) {
+      return;
+    }
+    cur.count--;
+    if (cur.count <= 0) {
+      cur.remove();
+      rootHideState.delete(root);
     }
   });
+}
+
+export interface ConcealRule {
+  /** Style element ID. */
+  readonly id: string;
+  /** Attribute on `<html>` that enables concealment while present. */
+  readonly activeAttr: string;
+  /** CSS selector matching items that should stay hidden until checked. */
+  readonly pendingSelector: string;
+  /** Maximum milliseconds before the CSS `step-end` fail-safe reveals unchecked items. */
+  readonly maxMs?: number;
+}
+
+/**
+ * Installs a pre-paint CSS concealment rule with a `step-end` fail-safe
+ * animation so newly inserted feed items or rows never flash before async
+ * checks finish, yet automatically reveal after `maxMs` if untracked.
+ */
+export function concealPending(scope: Scope, rule: ConcealRule): () => void {
+  if (scope.disposed) {
+    return () => undefined;
+  }
+  const maxMs = rule.maxMs ?? 300;
+  const keyframe = `${rule.id}_reveal`;
+  const css = `html[${rule.activeAttr}] ${rule.pendingSelector} { animation: ${keyframe} ${maxMs}ms step-end 1; } @keyframes ${keyframe} { 0% { opacity: 0; } 100% { opacity: 1; } }`;
+  return scope.add(addStyle(rule.id, css));
 }
 
 export type SlotPlacement = 'before' | 'after' | 'prepend' | 'append';
@@ -126,18 +176,22 @@ interface MountedSlot {
   readonly element: Element;
 }
 
-const activeSlots = new Set<MountedSlot>();
-let stopSlotWatch: (() => void) | undefined;
-let slotCheckQueued = false;
+interface SlotWatcherState {
+  readonly slots: Set<MountedSlot>;
+  stop: (() => void) | undefined;
+  queued: boolean;
+}
 
-function scheduleSlotCheck(): void {
-  if (slotCheckQueued) {
+const slotWatchers = new WeakMap<PageWatcher, SlotWatcherState>();
+
+function scheduleSlotCheck(state: SlotWatcherState): void {
+  if (state.queued) {
     return;
   }
-  slotCheckQueued = true;
+  state.queued = true;
   queueMicrotask(() => {
-    slotCheckQueued = false;
-    for (const slot of activeSlots) {
+    state.queued = false;
+    for (const slot of state.slots) {
       if (!slot.element.isConnected && slot.anchor.isConnected) {
         placeSlot(slot.anchor, slot.placement, slot.element);
       }
@@ -145,31 +199,44 @@ function scheduleSlotCheck(): void {
   });
 }
 
-function registerSlot(slot: MountedSlot): void {
-  activeSlots.add(slot);
-  stopSlotWatch ??= pageWatcher.watchTree({
-    removed: scheduleSlotCheck,
+function registerSlot(watcher: PageWatcher, slot: MountedSlot): void {
+  let state = slotWatchers.get(watcher);
+  if (!state) {
+    state = { slots: new Set(), stop: undefined, queued: false };
+    slotWatchers.set(watcher, state);
+  }
+  const targetState = state;
+  targetState.slots.add(slot);
+  targetState.stop ??= watcher.watchTree({
+    removed: () => scheduleSlotCheck(targetState),
   });
 }
 
-function unregisterSlot(slot: MountedSlot): void {
-  activeSlots.delete(slot);
-  if (activeSlots.size === 0) {
-    stopSlotWatch?.();
-    stopSlotWatch = undefined;
+function unregisterSlot(watcher: PageWatcher, slot: MountedSlot): void {
+  const state = slotWatchers.get(watcher);
+  if (!state) {
+    return;
+  }
+  state.slots.delete(slot);
+  if (state.slots.size === 0) {
+    state.stop?.();
+    state.stop = undefined;
+    slotWatchers.delete(watcher);
   }
 }
 
 /**
  * Mounts an `OWN` (`data-feed-sanity`) slot element relative to `anchor`,
- * re-attaching it via the shared `PageWatcher` if Facebook refills or mutates
- * the parent while `anchor` remains connected, and removing it on dispose.
+ * re-attaching it via `watcher` (defaults to the shared `pageWatcher`) if the
+ * host refills or mutates the parent while `anchor` remains connected, and
+ * removing it on dispose.
  */
 export function mountSlot<E extends Element>(
   scope: Scope,
   anchor: Element,
   placement: SlotPlacement,
   element: E,
+  watcher: PageWatcher = pageWatcher,
 ): () => void {
   if (scope.disposed) {
     return () => undefined;
@@ -177,12 +244,17 @@ export function mountSlot<E extends Element>(
   element.setAttribute(OWN_ATTR, '');
   placeSlot(anchor, placement, element);
   const entry: MountedSlot = { anchor, placement, element };
-  registerSlot(entry);
+  registerSlot(watcher, entry);
 
   return scope.add(() => {
-    unregisterSlot(entry);
+    unregisterSlot(watcher, entry);
     element.remove();
   });
+}
+
+export interface RouteWatchOptions {
+  readonly watcher?: PageWatcher;
+  readonly getLocation?: () => Location;
 }
 
 /**
@@ -194,6 +266,7 @@ export function whileOnRoute(
   scope: Scope,
   matches: (url: Location) => boolean,
   setup: (routeScope: Scope) => void,
+  { watcher = pageWatcher, getLocation = () => location }: RouteWatchOptions = {},
 ): () => void {
   if (scope.disposed) {
     return () => undefined;
@@ -205,7 +278,7 @@ export function whileOnRoute(
     if (stopped) {
       return;
     }
-    const want = matches(location);
+    const want = matches(getLocation());
     if (want && !active) {
       active = scope.child();
       setup(active);
@@ -216,7 +289,7 @@ export function whileOnRoute(
   };
 
   sync();
-  const stopUrl = onUrlChange(sync);
+  const stopUrl = watcher.onUrlChange(sync);
 
   return scope.add(() => {
     stopped = true;

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Scope } from './scope';
-import { hideElement, markElement, mountSlot, whileOnRoute } from './surface';
+import { concealPending, hideElement, markElement, mountSlot, whileOnRoute } from './surface';
 
 describe('surface primitives', () => {
   beforeEach(() => {
@@ -88,5 +88,32 @@ describe('surface primitives', () => {
     expect(leave).toHaveBeenCalledTimes(1);
 
     scope.dispose();
+  });
+
+  it('hides elements inside an open ShadowRoot using a root-scoped style sheet and supports concealPending', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const card = document.createElement('article');
+    shadow.append(card);
+
+    const scope = new Scope();
+    hideElement(scope, card);
+    expect(card.getAttribute('data-feed-sanity-hidden')).toBe('none');
+    expect(shadow.querySelector('#feed_sanity_surface')).not.toBeNull();
+    expect(document.querySelector('#feed_sanity_surface')).toBeNull();
+
+    concealPending(scope, {
+      id: 'feed_sanity_conceal_test',
+      activeAttr: 'data-feed-sanity-filtering',
+      pendingSelector: 'article:not([data-checked])',
+      maxMs: 250,
+    });
+    expect(document.querySelector('#feed_sanity_conceal_test')?.textContent).toContain('250ms');
+
+    scope.dispose();
+    expect(card.hasAttribute('data-feed-sanity-hidden')).toBe(false);
+    expect(shadow.querySelector('#feed_sanity_surface')).toBeNull();
+    expect(document.querySelector('#feed_sanity_conceal_test')).toBeNull();
   });
 });

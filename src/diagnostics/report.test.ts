@@ -132,6 +132,24 @@ describe('diagnosticsReport', () => {
     expect(report).toContain('Last error: could not read <address> for <number>');
     expect(report).not.toMatch(/jane|doe|facebook\.com|\d{6,}/i);
   });
+
+  it('renders extraSections through the active scrubMessage function', () => {
+    const report = diagnosticsReport(
+      diagnostics({
+        extraSections: [
+          {
+            title: 'Network tap',
+            lines: ['Captured https://www.instagram.com/graphql for 123456789'],
+          },
+        ],
+      }),
+      (msg) => msg.replaceAll(/\d{6,}/g, '<custom-num>'),
+    );
+
+    expect(report).toContain(
+      'Network tap\n  Captured https://www.instagram.com/graphql for <custom-num>',
+    );
+  });
 });
 
 describe('reportedPageType', () => {
@@ -148,6 +166,7 @@ describe('scrub', () => {
     expect(scrub('see blob:https://x.test/abc and 1234567')).toBe('see <address> and <number>');
     expect(scrub('no post at www.facebook.com/jane.doe')).toBe('no post at <address>');
     expect(scrub('no ID for pfbid02AbCdE9xYz')).toBe('no ID for <id>');
+    expect(scrub('no ID for pfbid023456789xYz')).toBe('no ID for <id>');
   });
 });
 

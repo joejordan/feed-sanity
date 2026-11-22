@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { callSafely } from '../core/listeners';
 import { createLogger } from '../core/log';
 import { pageWatcher } from '../core/page-watcher';
-import { OWN } from '../facebook/selectors';
+import { OWN_ATTR } from '../core/surface';
 import { HOST_TAG, renderInShadow, stopAtHost } from './mount';
 
 const log = createLogger('overlay');
@@ -254,7 +254,7 @@ export function mountOverlay(
   { container = () => target.parentElement, css = '', onMeasure }: OverlayOptions = {},
 ): MountedOverlay {
   const host = document.createElement(HOST_TAG);
-  host.setAttribute(OWN, '');
+  host.setAttribute(OWN_ATTR, '');
   host.style.cssText = HOST_STYLE;
   stopAtHost(host, PRESS_EVENTS);
   const unmount = renderInShadow(host, ui, css);

@@ -46,4 +46,69 @@ describe('runInPage', () => {
 
     await expect(ran).rejects.toThrow('the page refused a script from a blob: address');
   });
+
+  it('routes script URLs through Trusted Types, reuses the policy, and rejects foreign URLs', async () => {
+    let registeredRule: ((input: string) => string) | undefined;
+    const createScriptURL = vi.fn((u: string) => registeredRule?.(u) ?? u);
+    const createPolicy = vi.fn(
+      (_name: string, rules: { createScriptURL: (input: string) => string }) => {
+        registeredRule = rules.createScriptURL;
+        return { createScriptURL };
+      },
+    );
+    Object.defineProperty(globalThis, 'trustedTypes', {
+      value: { createPolicy },
+      configurable: true,
+    });
+    try {
+      const script = catchScript();
+      const first = runInPage('void 1;');
+      script()?.dispatchEvent(new Event('load'));
+      await first;
+
+      const second = runInPage('void 2;');
+      script()?.dispatchEvent(new Event('load'));
+      await second;
+
+      expect(createPolicy).toHaveBeenCalledTimes(1);
+      expect(createPolicy).toHaveBeenCalledWith('feed-sanity', expect.any(Object));
+      expect(createScriptURL).toHaveBeenCalledTimes(2);
+      // Outside an active runInPage call, arbitrary or unminted URLs are rejected.
+      expect(() => registeredRule?.('https://evil.example/x.js')).toThrow(TypeError);
+      expect(() => registeredRule?.('blob:https://example.com/unminted')).toThrow(TypeError);
+    } finally {
+      Reflect.deleteProperty(globalThis, 'trustedTypes');
+    }
+  });
+
+  it('revokes the blob URL and rejects cleanly when policy creation and src assignment fail', async () => {
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    const createPolicy = vi.fn(() => {
+      throw new TypeError('policy disallowed by CSP');
+    });
+    Object.defineProperty(globalThis, 'trustedTypes', {
+      value: { createPolicy },
+      configurable: true,
+    });
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
+      const el = origCreate(tag);
+      if (tag === 'script') {
+        Object.defineProperty(el, 'src', {
+          set() {
+            throw new TypeError('TrustedScriptURL required');
+          },
+        });
+      }
+      return el;
+    }) as typeof document.createElement);
+    try {
+      await expect(runInPage('void 0;')).rejects.toThrow(
+        'the page refused a script from a blob: address',
+      );
+      expect(revoke).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(globalThis, 'trustedTypes');
+    }
+  });
 });

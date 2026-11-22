@@ -74,4 +74,38 @@ describe('observeModules', () => {
     expect(seen[0]?.exports.fromArg).toBe(42);
     stop();
   });
+
+  it('skips errored entries, suppresses delivery after stop, and captures route-lazy modules after boot deadline', () => {
+    vi.useFakeTimers();
+    const stoppableEntry: Record<string, unknown> = {
+      factoryFinished: false,
+      exports: {},
+      factory() {
+        (stoppableEntry.exports as Record<string, unknown>).late = true;
+        stoppableEntry.factoryFinished = true;
+      },
+    };
+    const modulesMap: Record<string, unknown> = {
+      BrokenMod: { hasError: true, factoryFinished: true, exports: { bad: true } },
+      StoppableMod: stoppableEntry,
+    };
+    const require = (name: string) => (name === '__debug' ? { modulesMap } : undefined);
+
+    const seen: string[] = [];
+    const stop = observeModules({ require }, ['BrokenMod', 'StoppableMod', 'RouteLazyMod'], (rec) =>
+      seen.push(rec.name),
+    );
+    expect(seen).toEqual([]);
+
+    // Advance past MAX_LOADER_WAIT_MS (15s); RouteLazyMod arriving on a later SPA route is still caught.
+    vi.advanceTimersByTime(20_000);
+    modulesMap.RouteLazyMod = { factoryFinished: true, exports: { route: true } };
+    vi.advanceTimersByTime(500);
+    expect(seen).toEqual(['RouteLazyMod']);
+
+    // Once stopped, even an already-wrapped factory running later does not deliver.
+    stop();
+    (stoppableEntry.factory as () => void)();
+    expect(seen).toEqual(['RouteLazyMod']);
+  });
 });

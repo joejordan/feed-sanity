@@ -5,6 +5,7 @@ import type { ClassNameStats } from '../facebook/atoms';
 import type { PostStats } from '../facebook/posts';
 import type { Diagnostics } from './collect';
 import { NAME } from '../../project';
+import { scrubCommonPii } from '../core/site';
 import { mayBeName } from '../facebook/page';
 
 /** A locator looked up this many times without finding anything is worth a look. */
@@ -25,13 +26,11 @@ export const reportedPageType = (type: string): string => (mayBeName(type) ? 'ot
  * feature code, and a user ID or a post's address could end up in one.
  */
 export const scrub = (message: string): string =>
-  message
-    .replaceAll(
-      /\b(?:[a-z][a-z0-9+.-]*:)+\/\/\S+|\S*\b(?:facebook|messenger)\.com\S*/gi,
-      '<address>',
-    )
-    .replaceAll(/\bpfbid\w+/g, '<id>')
-    .replaceAll(/\d{6,}/g, '<number>');
+  scrubCommonPii(
+    message
+      .replaceAll(/\S*\b(?:facebook|messenger)\.com\S*/gi, '<address>')
+      .replaceAll(/\bpfbid\w+/g, '<id>'),
+  );
 
 /** True for a locator that has been looked up many times and never found anything. */
 export const neverFound = (locator: LocatorStats): boolean =>
@@ -132,24 +131,41 @@ function locatorLines(locator: LocatorStats, now: number): string[] {
  * type is left out when it may be a name, and error messages lose their
  * addresses and long numbers.
  */
-export function diagnosticsReport(diagnostics: Diagnostics): string {
-  const { version, build, pageType, badge, features, posts, classNames, locators, bridge, at } =
-    diagnostics;
+export function diagnosticsReport(diagnostics: Diagnostics, scrubMessage = scrub): string {
+  const {
+    version,
+    build,
+    pageType,
+    badge,
+    features,
+    posts,
+    classNames,
+    locators,
+    bridge,
+    extraSections,
+    at,
+  } = diagnostics;
   const missing =
     classNames.started && classNames.missing.length > 0
       ? ` Missing: ${classNames.missing.join(', ')}.`
       : '';
+  const extraLines =
+    extraSections?.flatMap((section) => [
+      '',
+      section.title,
+      ...section.lines.map((line) => `  ${scrubMessage(line)}`),
+    ]) ?? [];
   return [
     `${NAME} diagnostics`,
     `Version ${version}, ${build}`,
     `Page type: ${reportedPageType(pageType)}`,
     `Toolbar badge: ${badgeSummary(badge)}`,
-    `Page bridge: ${bridgeSummary({ ...bridge, problem: bridge.problem && scrub(bridge.problem) })}`,
+    `Page bridge: ${bridgeSummary({ ...bridge, problem: bridge.problem && scrubMessage(bridge.problem) })}`,
     '',
     'Features',
     ...features.map(
       ({ id, state, errors, lastError }) =>
-        `  ${id}: ${state}, ${plural(errors, 'error', 'errors')}${lastError === null ? '' : `. Last error: ${scrub(lastError)}`}`,
+        `  ${id}: ${state}, ${plural(errors, 'error', 'errors')}${lastError === null ? '' : `. Last error: ${scrubMessage(lastError)}`}`,
     ),
     '',
     'Posts',
@@ -158,6 +174,7 @@ export function diagnosticsReport(diagnostics: Diagnostics): string {
       : [`  ${NOT_STARTED}`]),
     '',
     `Class names: ${classNamesSummary(classNames)}.${missing}`,
+    ...extraLines,
     '',
     'Locators',
     ...locators.flatMap((locator) => locatorLines(locator, at)),

@@ -8,6 +8,7 @@ import {
   isPlainObject,
   messageEvent,
   mountEvent,
+  pushEvent,
   READY_EVENT,
   readMessage,
   toggleEvent,
@@ -76,6 +77,10 @@ const NOT_STARTED: BridgeStatus = {
   mounts: [],
 };
 
+const MAX_BUFFERED_TOPICS = 32;
+const MAX_BUFFERED_PER_TOPIC = 64;
+const LATE_MOUNT_CLEANUP_MS = 10_000;
+
 const cancelled = (): BridgeError => new BridgeError('cancelled', 'the question was withdrawn');
 
 const isStringList = (value: unknown): value is string[] =>
@@ -108,6 +113,8 @@ export class PageBridge {
   readonly #answerMs: number;
   readonly #log: Logger;
   readonly #listeners: Listeners<[BridgeStatus]>;
+  readonly #topicListeners = new Map<string, Listeners<[unknown]>>();
+  readonly #bufferedTopics = new Map<string, unknown[]>();
   #status: BridgeStatus = NOT_STARTED;
   #channel = '';
   #nextId = 1;
@@ -141,6 +148,35 @@ export class PageBridge {
     const remove = this.#listeners.add(listener);
     this.#start();
     return remove;
+  }
+
+  /**
+   * Subscribes to unsolicited events pushed by the page-world side under
+   * `topic` (such as `document_start` network tap metadata), starting the
+   * bridge if needed. Callers must validate `payload` as untrusted data.
+   */
+  on(topic: string, listener: (payload: unknown) => void): () => void {
+    let listeners = this.#topicListeners.get(topic);
+    if (!listeners) {
+      listeners = new Listeners(this.#log);
+      this.#topicListeners.set(topic, listeners);
+    }
+    const bucket = listeners;
+    const remove = bucket.add(listener);
+    const buffered = this.#bufferedTopics.get(topic);
+    if (buffered && buffered.length > 0) {
+      this.#bufferedTopics.delete(topic);
+      for (const payload of buffered) {
+        bucket.emit(payload);
+      }
+    }
+    this.#start();
+    return () => {
+      remove();
+      if (bucket.size === 0 && this.#topicListeners.get(topic) === bucket) {
+        this.#topicListeners.delete(topic);
+      }
+    };
   }
 
   /**
@@ -208,13 +244,26 @@ export class PageBridge {
     signal?: AbortSignal,
   ): Promise<(() => void) | null> {
     await this.#ensureReady('mounts', 'mount', mount, signal, element);
-    const answer = await this.#send(
-      element,
-      mountEvent(this.#channel),
-      (id) => ({ id, mount, payload }),
-      `the ${mount} mount`,
-      signal,
-    );
+    const requestId = this.#nextId++;
+    let answer: unknown;
+    try {
+      answer = await this.#send(
+        element,
+        mountEvent(this.#channel),
+        (id) => ({ id, mount, payload }),
+        `the ${mount} mount`,
+        signal,
+        requestId,
+      );
+    } catch (error) {
+      if (
+        error instanceof BridgeError &&
+        (error.failure === 'cancelled' || error.failure === 'timeout')
+      ) {
+        this.#watchLateMount(element, requestId, mount);
+      }
+      throw error;
+    }
     if (!isPlainObject(answer) || typeof answer.mountId !== 'number') {
       return null;
     }
@@ -233,6 +282,34 @@ export class PageBridge {
         undefined,
       ).catch(() => undefined);
     };
+  }
+
+  #watchLateMount(element: Element, requestId: number, mount: string): void {
+    const type = answerEvent(this.#channel);
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      element.removeEventListener(type, heard);
+    };
+    const heard = (event: Event): void => {
+      const message = readMessage(event);
+      if (message?.id !== requestId) {
+        return;
+      }
+      cleanup();
+      const value = message.value;
+      if (isPlainObject(value) && typeof value.mountId === 'number') {
+        const { mountId } = value;
+        void this.#send(
+          document,
+          unmountEvent(this.#channel),
+          (id) => ({ id, mountId }),
+          `unmounting ${mount}`,
+          undefined,
+        ).catch(() => undefined);
+      }
+    };
+    const timer = setTimeout(cleanup, LATE_MOUNT_CLEANUP_MS);
+    element.addEventListener(type, heard);
   }
 
   async #ensureReady(
@@ -285,8 +362,9 @@ export class PageBridge {
     payload: (id: number) => Record<string, unknown>,
     label: string,
     signal: AbortSignal | undefined,
+    explicitId?: number,
   ): Promise<unknown> {
-    const id = this.#nextId++;
+    const id = explicitId ?? this.#nextId++;
     const type = answerEvent(this.#channel);
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -375,6 +453,39 @@ export class PageBridge {
           (actions === undefined || isStringList(actions)) &&
           (mounts === undefined || isStringList(mounts))
         ) {
+          document.addEventListener(
+            pushEvent(this.#channel),
+            (pushed) => {
+              if (pushed.target !== document) {
+                return;
+              }
+              const payloadMsg = readMessage(pushed);
+              if (typeof payloadMsg?.topic !== 'string') {
+                return;
+              }
+              const bucket = this.#topicListeners.get(payloadMsg.topic);
+              if (bucket && bucket.size > 0) {
+                bucket.emit(payloadMsg.payload);
+                return;
+              }
+              let queue = this.#bufferedTopics.get(payloadMsg.topic);
+              if (!queue) {
+                if (this.#bufferedTopics.size >= MAX_BUFFERED_TOPICS) {
+                  const oldest = this.#bufferedTopics.keys().next().value;
+                  if (oldest !== undefined) {
+                    this.#bufferedTopics.delete(oldest);
+                  }
+                }
+                queue = [];
+                this.#bufferedTopics.set(payloadMsg.topic, queue);
+              }
+              if (queue.length >= MAX_BUFFERED_PER_TOPIC) {
+                queue.shift();
+              }
+              queue.push(payloadMsg.payload);
+            },
+            true,
+          );
           end({
             state: 'connected',
             problem: null,
