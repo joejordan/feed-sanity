@@ -7,7 +7,7 @@ import { startFeatures } from '../../core/app';
 import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { bindPage } from '../../facebook/feature';
-import { FakeResizeObserver, videoPage } from '../../facebook/testing';
+import { FakeResizeObserver, placeAt, videoPage } from '../../facebook/testing';
 import { extensionStore } from '../../platform/extension-store';
 import { HOST_TAG } from '../../ui/mount';
 import homeFeed from '.';
@@ -282,6 +282,70 @@ describe('home_feed', () => {
 
       await caretShown();
       expect(document.querySelectorAll(HOST_TAG)).toHaveLength(1);
+    });
+
+    it('shows a fallback button beside the right top-bar actions only when Home collapses', async () => {
+      document.body.innerHTML = `
+        <div role="banner">
+          ${PAGE}
+          <div style="position: fixed; right: 0">
+            <div role="navigation" aria-label="Account Controls and Settings" id="actions">
+              <div><div role="button" aria-label="Facebook menu"></div></div>
+              <div><div role="button" aria-label="Messenger"></div></div>
+            </div>
+          </div>
+        </div>`;
+      const home = homeLink();
+      const actions = document.querySelector('#actions') as HTMLElement;
+      placeAt(home, 352, 0, 130, 56);
+      placeAt(actions, 1185, 0, 184, 56);
+
+      await start();
+      await caretShown();
+      const actionShadow = () =>
+        actions.parentElement?.querySelector(`:scope > ${HOST_TAG}`)?.shadowRoot;
+      const fallbackButton = () =>
+        actionShadow()?.querySelector<HTMLButtonElement>(`[aria-label="${CARET_NAME}"]`);
+
+      // Wide: inline caret is visible, fallback is hidden.
+      expect(fallbackButton()).toBeNull();
+
+      // Mid-narrow (50 px): still enough for the compact inline caret, no fallback yet.
+      placeAt(home, 206, 0, 50, 56);
+      FakeResizeObserver.latest?.report([home]);
+      expect(fallbackButton()).toBeNull();
+
+      // Narrow (<= 700 px): Facebook hides the middle cells (width 0), fallback appears.
+      placeAt(home, 0, 0, 0, 0);
+      FakeResizeObserver.latest?.report([home]);
+      await vi.waitFor(() => expect(fallbackButton()).not.toBeNull());
+
+      await userEvent.click(fallbackButton() as HTMLElement);
+      const friendsEntry = [
+        ...(actionShadow()?.querySelectorAll<HTMLElement>('[role=menuitemradio]') ?? []),
+      ].find((item) => item.textContent === 'Friends');
+      await userEvent.click(friendsEntry as HTMLElement);
+      expect(options.get('home_feed')).toBe('friends');
+
+      // Widening back restores the Home cell and hides the fallback button.
+      placeAt(home, 352, 0, 130, 56);
+      FakeResizeObserver.latest?.report([home]);
+      await vi.waitFor(() => expect(fallbackButton()).toBeNull());
+    });
+
+    it('does not show the fallback button on pages that have no Home button at all', async () => {
+      document.body.innerHTML = `
+        <div role="banner">
+          <div role="navigation" aria-label="Account" id="actions">
+            <div role="button" aria-label="Menu"></div>
+          </div>
+        </div>`;
+      const actions = document.querySelector('#actions') as HTMLElement;
+      placeAt(actions, 1185, 0, 184, 56);
+
+      await start();
+      const actionShadow = actions.parentElement?.querySelector(`:scope > ${HOST_TAG}`)?.shadowRoot;
+      expect(actionShadow?.querySelector(`[aria-label="${CARET_NAME}"]`)).toBeNull();
     });
   });
 });

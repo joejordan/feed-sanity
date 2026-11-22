@@ -11,7 +11,7 @@ import type { Watched } from '../../ui/watched';
 import type { FeedEntry } from './feeds';
 import { stopAtHost } from '../../ui/mount';
 import { focusedByKeyboard, TIP_DELAY_MS, useTip } from '../../ui/tooltip';
-import { FACEBOOK_FEED } from './feeds';
+import { FACEBOOK_FEED, feedById } from './feeds';
 
 /** The caret's name, read out and shown in its tooltip. */
 export const CARET_NAME = 'Choose feed';
@@ -109,18 +109,19 @@ function tellPointer(
   }, 0);
 }
 
-/** The caret's tooltip, under it, in the top layer. */
+/** The button's tooltip, under it, in the top layer. */
 function Tip({ caret }: { caret: HTMLElement }) {
   const tip = useRef<HTMLDivElement>(null);
   useTopLayer(tip);
   const box = caret.getBoundingClientRect();
+  const center = Math.max(48, Math.min(box.left + box.width / 2, innerWidth - 48));
   return (
     <div
       ref={tip}
       className="tip"
       role="tooltip"
       popover="manual"
-      style={{ left: `${box.left + box.width / 2}px`, top: `${box.bottom + 8}px` }}
+      style={{ left: `${center}px`, top: `${box.bottom + 8}px` }}
     >
       {CARET_NAME}
     </div>
@@ -322,38 +323,71 @@ export interface FeedMenuProps {
   choice: Watched<string>;
   /** The id of the feed the page shows, or null when it shows none of them. */
   shown: Watched<string | null>;
-  /** The element the menu opens under: Facebook's Home link. */
+  /** The element the menu opens under: Facebook's Home link in `caret` mode. */
   anchor: Element;
   /** Called with the entry the person picked. */
   onPick: (feed: FeedEntry) => void;
+  /**
+   * `caret` puts a small chevron inside Facebook's Home cell (default);
+   * `toolbar` draws a 40 x 40 circular button beside Facebook's right-side
+   * top-bar buttons for narrow windows where the middle bar disappears.
+   */
+  mode?: 'caret' | 'toolbar';
+  /** When given, the button is rendered only while its value is true. */
+  visible?: Watched<boolean>;
 }
 
+const ALWAYS_VISIBLE: Watched<boolean> = {
+  get: () => true,
+  subscribe: () => () => undefined,
+};
+
 /**
- * A small round button with a chevron in Facebook's Home cell, which opens
- * a menu of feeds. The chevron takes Facebook's accent colour while a feed
- * other than Facebook's own is saved. The menu marks the saved feed with a
- * check and the one the page shows in the accent colour. It is a menu for
- * assistive technology, and works from the keyboard: the arrow keys, Home
- * and End move, Enter and Space pick, and Escape closes it.
+ * Opens a menu of feeds from either a small round chevron in Facebook's Home
+ * cell (`mode="caret"`) or a 40 x 40 circular button beside Facebook's
+ * right-side top-bar buttons (`mode="toolbar"`). The button takes Facebook's
+ * accent colour while a feed other than Facebook's own is saved. The menu
+ * marks the saved feed with a check and the one the page shows in the accent
+ * colour. It is a menu for assistive technology, and works from the keyboard:
+ * the arrow keys, Home and End move, Enter and Space pick, and Escape closes it.
  */
-export function FeedMenu({ feeds, choice, shown, anchor, onPick }: FeedMenuProps) {
+export function FeedMenu({
+  feeds,
+  choice,
+  shown,
+  anchor,
+  onPick,
+  mode = 'caret',
+  visible = ALWAYS_VISIBLE,
+}: FeedMenuProps) {
   const id = useId();
   const chosen = useSyncExternalStore(choice.subscribe, choice.get);
   const showing = useSyncExternalStore(shown.subscribe, shown.get);
+  const isVisible = useSyncExternalStore(visible.subscribe, visible.get);
   const [opened, setOpened] = useState<{ start: Start; byKeyboard: boolean } | null>(null);
   const [tip, setTip] = useTip();
   const cell = useRef<HTMLDivElement>(null);
   const caret = useRef<HTMLButtonElement>(null);
   const open = opened !== null;
+  const isToolbar = mode === 'toolbar';
 
-  // Facebook does not hear the pointer over the caret or the menu, so it
+  // Facebook does not hear the pointer over the button or the menu, so it
   // does not show its own Home tooltip there.
   // The listeners go with the element.
   useEffect(() => {
-    if (cell.current) {
+    if (isVisible && cell.current) {
       stopAtHost(cell.current, POINTER_MOVES);
     }
-  }, []);
+  }, [isVisible]);
+
+  // Close the menu and tooltip if the button hides (for example, when the
+  // window widens again and the Home button returns).
+  useEffect(() => {
+    if (!isVisible) {
+      setOpened(null);
+      setTip(false);
+    }
+  }, [isVisible, setTip]);
 
   const close = useCallback((focusCaret: boolean) => {
     setOpened(null);
@@ -366,12 +400,20 @@ export function FeedMenu({ feeds, choice, shown, anchor, onPick }: FeedMenuProps
     setOpened({ start, byKeyboard });
   };
 
+  if (!isVisible) {
+    return null;
+  }
+
+  const baseClass = isToolbar ? 'toolbar-btn' : 'caret';
+  const buttonClass = chosen === FACEBOOK_FEED ? baseClass : `${baseClass} chosen`;
+  const menuAnchor = isToolbar && caret.current ? caret.current : anchor;
+
   return (
-    <div className="cell" ref={cell}>
+    <div className={isToolbar ? 'toolbar-slot' : 'cell'} ref={cell}>
       <button
         ref={caret}
         type="button"
-        className={chosen === FACEBOOK_FEED ? 'caret' : 'caret chosen'}
+        className={buttonClass}
         aria-label={CARET_NAME}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -388,10 +430,15 @@ export function FeedMenu({ feeds, choice, shown, anchor, onPick }: FeedMenuProps
         }}
         onPointerEnter={(event) => {
           setTip(true, TIP_DELAY_MS);
-          tellPointer(anchor, 'left', event);
+          if (!isToolbar) {
+            tellPointer(anchor, 'left', event);
+          }
         }}
         onPointerLeave={(event) => {
           setTip(false);
+          if (isToolbar) {
+            return;
+          }
           // Back onto the house icon: Facebook may show its tooltip again.
           const { relatedTarget } = event;
           if (!open && relatedTarget instanceof Element && anchor.contains(relatedTarget)) {
@@ -402,7 +449,14 @@ export function FeedMenu({ feeds, choice, shown, anchor, onPick }: FeedMenuProps
         onFocus={(event) => setTip(!open && focusedByKeyboard(event.currentTarget))}
         onBlur={() => setTip(false)}
       >
-        <Icon path={CHEVRON} className="chevron" />
+        {isToolbar ? (
+          <>
+            <Icon path={feedById(chosen).icon} className="toolbar-icon" />
+            <Icon path={CHEVRON} className="toolbar-chevron" />
+          </>
+        ) : (
+          <Icon path={CHEVRON} className="chevron" />
+        )}
       </button>
       {tip && !open && caret.current && <Tip caret={caret.current} />}
       {opened && caret.current && (
@@ -413,7 +467,7 @@ export function FeedMenu({ feeds, choice, shown, anchor, onPick }: FeedMenuProps
           showing={showing}
           start={opened.start}
           byKeyboard={opened.byKeyboard}
-          anchor={anchor}
+          anchor={menuAnchor}
           caret={caret.current}
           onPick={onPick}
           onClose={close}

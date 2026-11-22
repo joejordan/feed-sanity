@@ -15,7 +15,9 @@
   --fs-text-secondary: var(--secondary-text, #65686c);
   --fs-divider: var(--divider, #ced0d4);
   --fs-accent: var(--accent, #0866ff);
+  --fs-accent-surface: var(--primary-deemphasized-button-background, rgb(8 102 255 / 12%));
   --fs-accent-text: var(--primary-button-text, #fff);
+  --fs-button-secondary: var(--secondary-button-background, rgb(0 0 0 / 5%));
   --fs-input: var(--input-background, #fff);
   --fs-error: var(--negative, #e41e3f);
   --fs-font: var(--font-family-default, system-ui, sans-serif);

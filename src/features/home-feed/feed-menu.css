@@ -45,11 +45,99 @@
   color: var(--fs-accent);
 }
 
-/* Narrow windows fold the top bar up, and the cell with it. */
-@container (width < 64px) {
+/*
+ * Between 701 px and 1099 px, Facebook shrinks each middle tab cell with
+ * `calc(-55px + 15vw)` down to 50 px. Tighten the caret beside the 24 px
+ * house icon so it stays reachable until Facebook hides the middle bar at
+ * <= 700 px (width 0).
+ */
+@container (width < 88px) {
+  .caret {
+    top: calc(50% - 8px);
+    left: calc(50% + 12px);
+    width: 16px;
+    height: 16px;
+  }
+
+  .caret .chevron {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+@container (width < 40px) {
   .caret {
     display: none;
   }
+}
+
+/*
+ * Fallback button mounted over Facebook's right-side top-bar actions when the
+ * middle tabs collapse on narrow windows (<= 700 px). Matches Facebook's
+ * 40 x 40 circular buttons with an 8 px gap to the left of the first one.
+ */
+.toolbar-slot {
+  position: absolute;
+  inset: 0;
+}
+
+.toolbar-btn {
+  position: absolute;
+  top: calc(50% - 20px);
+  right: calc(100% + 8px);
+  display: flex;
+  gap: 1px;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fs-button-secondary);
+  color: var(--fs-icon);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.toolbar-btn::before {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--fs-hover);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toolbar-btn:hover::before {
+  opacity: 1;
+}
+
+.toolbar-btn:active::before {
+  background: var(--fs-press);
+  opacity: 1;
+}
+
+.toolbar-btn:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 1px;
+}
+
+.toolbar-btn.chosen {
+  background: var(--fs-accent-surface);
+  color: var(--fs-accent);
+}
+
+.toolbar-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.toolbar-chevron {
+  width: 12px;
+  height: 12px;
+  margin-left: -2px;
 }
 
 .chevron {
@@ -59,6 +147,8 @@
 
 .icon,
 .chevron,
+.toolbar-icon,
+.toolbar-chevron,
 .check {
   flex: none;
   fill: none;

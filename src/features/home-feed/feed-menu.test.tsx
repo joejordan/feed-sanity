@@ -307,6 +307,54 @@ describe('FeedMenu', () => {
   });
 });
 
+describe('FeedMenu in toolbar mode', () => {
+  it('renders only while visible, closes when hidden, and opens the feed menu without poking the anchor', async () => {
+    const choice = value('friends');
+    const shown = value<string | null>('friends');
+    const visible = value(false);
+    const onPick = vi.fn();
+    const anchor = document.createElement('div');
+    document.body.append(anchor);
+    const anchorMoves = vi.fn();
+    anchor.addEventListener('pointerout', anchorMoves);
+
+    render(
+      <FeedMenu
+        feeds={FEEDS}
+        choice={choice}
+        shown={shown}
+        anchor={anchor}
+        onPick={onPick}
+        mode="toolbar"
+        visible={visible}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: CARET_NAME })).toBeNull();
+
+    act(() => visible.set(true));
+    const button = caret();
+    expect(button.classList.contains('toolbar-btn')).toBe(true);
+    expect(button.classList.contains('chosen')).toBe(true);
+
+    fireEvent.pointerEnter(button, { clientX: 450, clientY: 28 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(anchorMoves).not.toHaveBeenCalled();
+
+    await userEvent.click(button);
+    expect(menu()).not.toBeNull();
+
+    act(() => visible.set(false));
+    expect(screen.queryByRole('button', { name: CARET_NAME })).toBeNull();
+    expect(menu()).toBeNull();
+
+    act(() => visible.set(true));
+    await userEvent.click(caret());
+    await userEvent.click(entry('Groups'));
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'groups' }));
+  });
+});
+
 describe('placeMenu', () => {
   it('centres the menu under the Home cell, 5 pixels below it', () => {
     expect(placeMenu({ left: 506, width: 130, bottom: 56 }, 1707)).toEqual({

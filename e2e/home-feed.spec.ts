@@ -185,3 +185,48 @@ test('keeps the caret off the top bar with its switch off, and the choice still 
   await expect(page.locator('#feeds')).toBeVisible();
   await expect(caret(page)).toHaveCount(0);
 });
+
+test('keeps the feed menu reachable on narrow windows and falls back to the right top bar when middle tabs vanish', async ({
+  page,
+  stored,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto(GROUPS);
+
+  // Wide: one button, the inline caret on Home.
+  await expect(caret(page)).toHaveCount(1);
+  await expect(caret(page)).toBeVisible();
+  await expect(caret(page)).toHaveClass(/\bcaret\b/);
+
+  // Mid-narrow (750 px -> Home cell ~57 px): compact inline caret stays visible.
+  await page.setViewportSize({ width: 750, height: 720 });
+  await expect(caret(page)).toHaveCount(1);
+  await expect(caret(page)).toBeVisible();
+  await expect(caret(page)).toHaveClass(/\bcaret\b/);
+
+  // Narrow (600 px -> <= 700 px): Facebook hides all middle tabs; fallback button appears on the right.
+  await page.setViewportSize({ width: 600, height: 720 });
+  await expect(homeLink(page)).toBeHidden();
+  const toolbarButton = page.locator('#top-bar-actions-wrap').getByRole('button', {
+    name: 'Choose feed',
+  });
+  await expect(toolbarButton).toBeVisible();
+  await expect(toolbarButton).toHaveClass(/\btoolbar-btn\b/);
+
+  await toolbarButton.click();
+  await expect(menu(page)).toBeVisible();
+  await feedEntry(page, 'Friends').click();
+
+  await expect(page).toHaveURL(FRIENDS);
+  await expect
+    .poll(() => stored(OPTIONS_KEY))
+    .toEqual(expect.objectContaining({ home_feed: 'friends' }));
+  await expect(toolbarButton).toHaveClass(/\bchosen\b/);
+
+  // Widening back hides the fallback button and shows the inline caret again.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(toolbarButton).toHaveCount(0);
+  await expect(caret(page)).toHaveCount(1);
+  await expect(caret(page)).toBeVisible();
+  await expect(caret(page)).toHaveClass(/\bchosen\b/);
+});

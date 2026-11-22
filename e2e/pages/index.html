@@ -34,16 +34,47 @@
         list-style: none;
       }
       #top-bar li {
-        width: 130px;
+        flex: 1 1 0;
+        max-width: 130px;
         height: 56px;
+        margin: 0 4px;
       }
       #top-bar a {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 126px;
+        width: 100%;
         height: 56px;
-        margin: 0 2px;
+      }
+      @media (max-width: 1099px) {
+        #top-bar li {
+          max-width: calc(-55px + 15vw);
+        }
+      }
+      @media (max-width: 700px) {
+        #top-bar li {
+          display: none;
+        }
+      }
+      #top-bar-actions-wrap {
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 3;
+        padding-right: 16px;
+      }
+      #top-bar-actions {
+        position: relative;
+        display: flex;
+        align-items: center;
+        height: 56px;
+        gap: 8px;
+      }
+      #top-bar-actions [role='button'] {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: rgb(0 0 0 / 8%);
       }
       #top-bar a[aria-current='page'] {
         box-shadow: inset 0 -3px #0866ff;
@@ -62,6 +93,15 @@
             <li><span><div style="position: relative; display: flex"><a role="link" href="/groups/feed/" aria-label="Groups" tabindex="0"><svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="9"></circle></svg></a></div></span></li>
             <li><span><div style="position: relative; display: flex"><a role="link" href="/gaming/" aria-label="Gaming" tabindex="0"><svg viewBox="0 0 24 24" width="24" height="24"><rect width="20" height="10" x="2" y="7"></rect></svg></a></div></span></li>
           </ul>
+        </div>
+        <!-- Facebook's right-side top-bar buttons, visible at every width including <= 700 px. -->
+        <div id="top-bar-actions-wrap">
+          <div role="navigation" aria-label="Account Controls and Settings" id="top-bar-actions">
+            <div><div role="button" aria-label="Facebook menu" tabindex="0"></div></div>
+            <div><div role="button" aria-label="Messenger" tabindex="0"></div></div>
+            <div><div role="button" aria-label="Notifications" tabindex="0"></div></div>
+            <span><div role="button" aria-label="Account, your profile" tabindex="0"></div></span>
+          </div>
         </div>
         <!-- The left column of the Feeds page: Facebook's own links to its feeds. -->
         <div role="navigation" aria-label="Feeds" id="feeds">

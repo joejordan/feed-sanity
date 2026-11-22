@@ -7,7 +7,7 @@ import { intercept, isPlainPress, PRESS_EVENTS } from '../../core/intercept';
 import { onUrlChange } from '../../core/navigation';
 import { defineFeature } from '../../facebook/feature';
 import { shows, siteAddressOf } from '../../facebook/home-feed';
-import { TOP_BAR_HOME } from '../../facebook/selectors';
+import { TOP_BAR_ACTIONS, TOP_BAR_HOME } from '../../facebook/selectors';
 import { mountOverlay } from '../../ui/overlay';
 import { watchedValue } from '../../ui/watched';
 import { FeedMenu } from './feed-menu';
@@ -149,30 +149,99 @@ export default defineFeature({
       }
     };
 
+    /** Minimum width of the Home cell at which its inline caret is shown. */
+    const MIN_HOME_WIDTH = 40;
+
     const showMenu = (page: FacebookPage, menuScope: Scope): void => {
-      const mounted = new Map<Element, () => void>();
+      const homeOverlays = new Map<Element, () => void>();
+      const actionOverlays = new Map<Element, () => void>();
+      const fallback = watchedValue(false, log);
+
+      const syncFallback = (): void => {
+        let homePresent = false;
+        let homeVisible = false;
+        for (const link of homeOverlays.keys()) {
+          if (!link.isConnected) {
+            continue;
+          }
+          homePresent = true;
+          if (link.getBoundingClientRect().width >= MIN_HOME_WIDTH) {
+            homeVisible = true;
+            break;
+          }
+        }
+        let actionsVisible = false;
+        for (const actions of actionOverlays.keys()) {
+          if (actions.isConnected && actions.getBoundingClientRect().width > 0) {
+            actionsVisible = true;
+            break;
+          }
+        }
+        // Only fall back to the right top bar on pages that have Facebook's
+        // Home button and collapsed it (e.g. <= 700 px), not on full-screen
+        // viewers like Stories that have no Home button at all.
+        fallback.set(homePresent && !homeVisible && actionsVisible);
+      };
+
       page.watch(page.locate(TOP_BAR_HOME), {
         added: (link) => {
-          mounted.get(link)?.();
-          mounted.set(
+          homeOverlays.get(link)?.();
+          homeOverlays.set(
             link,
             mountOverlay(
               link,
               <FeedMenu feeds={FEEDS} choice={choice} shown={shown} anchor={link} onPick={pick} />,
-              { css },
+              { css, onMeasure: syncFallback },
             ),
           );
+          syncFallback();
         },
         removed: (link) => {
-          mounted.get(link)?.();
-          mounted.delete(link);
+          homeOverlays.get(link)?.();
+          homeOverlays.delete(link);
+          syncFallback();
         },
       });
+
+      page.watch(page.locate(TOP_BAR_ACTIONS), {
+        added: (actions) => {
+          actionOverlays.get(actions)?.();
+          actionOverlays.set(
+            actions,
+            mountOverlay(
+              actions,
+              <FeedMenu
+                feeds={FEEDS}
+                choice={choice}
+                shown={shown}
+                anchor={actions}
+                onPick={pick}
+                mode="toolbar"
+                visible={fallback}
+              />,
+              { css, onMeasure: syncFallback },
+            ),
+          );
+          syncFallback();
+        },
+        removed: (actions) => {
+          actionOverlays.get(actions)?.();
+          actionOverlays.delete(actions);
+          syncFallback();
+        },
+      });
+
+      addEventListener('resize', syncFallback);
       menuScope.add(() => {
-        for (const unmount of mounted.values()) {
+        removeEventListener('resize', syncFallback);
+        for (const unmount of homeOverlays.values()) {
           unmount();
         }
-        mounted.clear();
+        homeOverlays.clear();
+        for (const unmount of actionOverlays.values()) {
+          unmount();
+        }
+        actionOverlays.clear();
       });
     };
 
