@@ -524,14 +524,19 @@ export function createThemeController(
     }),
   );
 
-  // Move `<style>` into `<head>` once parsed if attached early to `documentElement`.
+  // Attach or move `<style>` into `<head>` once parsed (handles both early
+  // `documentElement` attachment and `document_start` before `<html>` exists).
   if (!env.doc.head) {
     const stopHead = env.watcher.watch('head', {
       added: (head) => {
         stopHead();
         const existing = styles.get(env.doc);
-        if (existing && existing.parentElement !== head) {
-          head.append(existing);
+        if (existing) {
+          if (existing.parentElement !== head) {
+            head.append(existing);
+          }
+        } else if (hostCss) {
+          syncRoot(env.doc, hostCss);
         }
       },
     });

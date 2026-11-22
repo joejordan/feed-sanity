@@ -200,4 +200,30 @@ describe('first-class multi-site theming engine', () => {
     expect(hostShadow.querySelector('#feed_sanity_user_theme')).toBeNull();
     expect(readUiStyles()).not.toContain('--fs-accent: #3b82f6;');
   });
+
+  it('attaches theme into <head> when apply() runs at document_start before <html>/<head> exist', async () => {
+    const emptyDoc = document.implementation.createHTMLDocument('empty');
+    emptyDoc.documentElement.remove();
+    const env = createDomEnvironment({ doc: emptyDoc });
+    cleanups.push(() => env.dispose());
+
+    const controller = createThemeController(env, instagramThemeMapping, setUserThemeCss);
+    cleanups.push(() => controller.dispose());
+
+    // Apply while documentElement and head are both null.
+    const mocha = BUILTIN_THEMES.find((t) => t.id === 'catppuccin-mocha')!.palette;
+    controller.apply({ palette: mocha });
+    expect(emptyDoc.querySelector('#feed_sanity_user_theme')).toBeNull();
+
+    // Once parser creates <html><head>, theme attaches automatically into <head>.
+    const html = emptyDoc.createElement('html');
+    const head = emptyDoc.createElement('head');
+    html.append(head);
+    emptyDoc.append(html);
+    await vi.waitFor(() =>
+      expect(head.querySelector('#feed_sanity_user_theme')?.textContent).toContain(
+        '--ig-primary-background: 30, 30, 46 !important;',
+      ),
+    );
+  });
 });

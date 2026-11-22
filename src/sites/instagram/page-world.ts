@@ -64,6 +64,7 @@ function hasAdMeta(obj: Loose): boolean {
       obj.is_ad === true ||
       obj.isSponsored === true ||
       obj.is_sponsored === true ||
+      obj.product_type === 'ad' ||
       obj.injected,
   );
 }

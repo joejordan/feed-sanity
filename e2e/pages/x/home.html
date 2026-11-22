@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Home / X</title>
+    <style>
+      body {
+        margin: 0;
+        background: #000;
+        color: #e7e9ea;
+        font-family: system-ui, sans-serif;
+      }
+      [data-testid="videoPlayer"] {
+        position: relative;
+        width: 420px;
+        height: 240px;
+      }
+      [data-testid="videoPlayer"] video {
+        width: 420px;
+        height: 240px;
+        display: block;
+      }
+    </style>
+    <script>
+      // Delegated listener in `<head>` (like React's root listener) so early `document_start`
+      // auto-switches to Following are always observed.
+      document.addEventListener('click', (e) => {
+        const tab = e.target && e.target.closest ? e.target.closest('#following-tab') : null;
+        if (!tab) return;
+        tab.setAttribute('aria-selected', 'true');
+        const forYou = document.querySelector('#for-you-tab');
+        if (forYou) forYou.setAttribute('aria-selected', 'false');
+        globalThis.__followingClicked = (globalThis.__followingClicked || 0) + 1;
+      });
+    </script>
+  </head>
+  <body>
+    <div id="react-root">
+      <header role="banner">
+        <nav>
+          <a href="/i/grok">Grok</a>
+          <a data-testid="premium-hub-tab" href="/i/premium">Premium</a>
+          <a data-testid="AppTabBar_Explore_Link" href="/explore">Explore</a>
+        </nav>
+      </header>
+      <div data-testid="GrokDrawer">Grok Drawer</div>
+      <main>
+        <div data-testid="primaryColumn">
+          <div role="tablist">
+            <a id="for-you-tab" role="tab" aria-selected="true">For you</a>
+            <a id="following-tab" role="tab" aria-selected="false">Following</a>
+          </div>
+          <div id="timeline">
+            <article id="tweet-organic" data-testid="tweet">
+              <a href="/alice/status/1001">1h</a>
+              <div data-testid="tweetText">Great systems engineering writeup</div>
+            </article>
+            <article id="tweet-dom-ad" data-testid="tweet">
+              <div data-testid="placementTracking"><span>Ad</span></div>
+              <div data-testid="tweetText">Buy widgets now</div>
+            </article>
+            <article id="tweet-keyword" data-testid="tweet">
+              <a href="/bob/status/1004">3h</a>
+              <div data-testid="tweetText">Claim your airdrop token today</div>
+            </article>
+            <article id="tweet-video" data-testid="tweet">
+              <a href="/dana/status/1005">4h</a>
+              <div id="x-player" data-testid="videoPlayer">
+                <video src="/clip.webm" muted></video>
+              </div>
+            </article>
+          </div>
+        </div>
+        <div data-testid="sidebarColumn">
+          <aside role="complementary">What's happening</aside>
+        </div>
+      </main>
+    </div>
+    <script>
+      // Mount `#tweet-fiber-suggested` with its React fiber already attached before insertion, matching real React.
+      const suggested = document.createElement('article');
+      suggested.id = 'tweet-fiber-suggested';
+      suggested.setAttribute('data-testid', 'tweet');
+      const link = document.createElement('a');
+      link.href = '/charlie/status/1003';
+      link.textContent = '2h';
+      const body = document.createElement('div');
+      body.setAttribute('data-testid', 'tweetText');
+      body.textContent = 'Recommended topic post';
+      suggested.append(link, body);
+      Object.defineProperty(suggested, '__reactFiber$e2e', {
+        value: {
+          return: {
+            memoizedProps: {
+              tweet: { rest_id: '1003' },
+              socialContext: { type: 'Topic' },
+            },
+            return: null,
+          },
+        },
+        enumerable: true,
+        configurable: true,
+      });
+      document.querySelector('#timeline').append(suggested);
+    </script>
+  </body>
+</html>

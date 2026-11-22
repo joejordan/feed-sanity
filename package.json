@@ -18,7 +18,7 @@
     "lint": "biome check",
     "format": "biome check --write",
     "test": "vitest run",
-    "test:e2e": "wxt build -b chrome && playwright test -c e2e",
+    "test:e2e": "wxt build -b chrome && pnpm build:userscript && playwright test -c e2e",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {

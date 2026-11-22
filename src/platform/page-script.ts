@@ -1,3 +1,5 @@
+import { waitForElement } from '../core/dom';
+
 interface TrustedTypePolicy {
   createScriptURL: (input: string) => unknown;
 }
@@ -70,7 +72,12 @@ export function runInPage(code: string): Promise<void> {
       end();
       reject(new Error(REFUSED_ERROR));
     });
-    // A userscript can start before the page has a <head>.
-    (document.head ?? document.documentElement).append(script);
+    // A userscript can start before the page has a <head> or even <html>.
+    const parent = document.head ?? document.documentElement;
+    if (parent) {
+      parent.append(script);
+    } else {
+      void waitForElement('html').then((html) => html.append(script));
+    }
   });
 }

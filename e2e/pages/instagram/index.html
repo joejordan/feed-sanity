@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en" class="__fb-dark-mode">
+  <head>
+    <meta charset="utf-8" />
+    <title>Instagram</title>
+    <style>
+      :root,
+      .__fb-dark-mode {
+        --ig-primary-background: 0, 0, 0;
+        --ig-primary-text: 245, 245, 245;
+      }
+      body {
+        margin: 0;
+        background: rgb(var(--ig-primary-background));
+        color: rgb(var(--ig-primary-text));
+        font-family: system-ui, sans-serif;
+      }
+      .ig-video-wrap {
+        position: relative;
+        width: 400px;
+        height: 240px;
+      }
+      .ig-video-wrap video {
+        width: 400px;
+        height: 240px;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <div><a id="nav-reels" href="/reels/">Reels</a></div>
+      <div><a id="nav-explore" href="/explore/">Explore</a></div>
+      <div><a id="nav-threads" href="https://www.threads.net/">Threads</a></div>
+    </nav>
+    <main>
+      <article id="ig-organic">
+        <a href="/p/ORG12345/">2h</a>
+        <p>Afternoon coffee and mountain hike</p>
+      </article>
+      <article id="ig-sponsored">
+        <span>Sponsored</span>
+        <a href="/p/AD999999/">1h</a>
+        <p>Shop summer deals</p>
+      </article>
+      <article id="ig-suggested">
+        <span>Suggested for you</span>
+        <a href="/p/SUG77777/">3h</a>
+        <p>Trending viral clip</p>
+      </article>
+      <article id="ig-keyword">
+        <a href="/p/KW555555/">4h</a>
+        <p>Exclusive crypto giveaway</p>
+      </article>
+      <article id="ig-net-ad">
+        <a href="/p/NETAD888/">5h</a>
+        <p>Subtle ad detected only via GraphQL Network Tap</p>
+      </article>
+      <article id="ig-video-post">
+        <a href="/reel/VID11111/">6h</a>
+        <div id="ig-player" class="ig-video-wrap">
+          <video src="/clip.webm" muted></video>
+        </div>
+      </article>
+    </main>
+  </body>
+</html>
