@@ -7,15 +7,18 @@ export const facebookThemeMapping: SiteThemeMapping = {
   colorVars: {
     '--web-wash': (p) => p.background,
     '--wash': (p) => p.background,
+    '--base-wash': (p) => p.background,
     '--surface-background': (p) => p.surface,
     '--card-background': (p) => p.surface,
     '--card-background-flat': (p) => p.surface,
+    '--card-background-wash': (p) => p.background,
     '--nav-bar-background': (p) => p.surface,
     '--nav-bar-background-gradient': (p) =>
       `linear-gradient(to top, ${p.surface}, ${hexWithAlpha(p.surface, 0)})`,
     '--nav-bar-background-gradient-wash': (p) =>
       `linear-gradient(to top, ${p.background}, ${hexWithAlpha(p.background, 0)})`,
     '--messenger-card-background': (p) => p.surface,
+    '--messenger-application-background': (p) => p.background,
     '--popover-background': (p) => p.surface,
     '--comment-background': (p) => p.surfaceAlt,
     '--input-background': (p) => p.surfaceAlt,

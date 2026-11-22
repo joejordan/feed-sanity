@@ -20,7 +20,7 @@ export const gmailThemeMapping: SiteThemeMapping = {
   },
   extraCss: (p) =>
     `
-html, body {
+html, body, div.wl {
   background-color: ${p.background} !important;
   color: ${p.text} !important;
 }
@@ -33,12 +33,14 @@ div[role="navigation"] a,
 div[role="navigation"] span {
   color: ${p.text} !important;
 }
+header[role="banner"] form[role="search"],
 form[role="search"],
 form[role="search"] input {
   background-color: ${p.surfaceAlt} !important;
   color: ${p.text} !important;
   border-color: ${p.border} !important;
 }
+div.nH:has(> div[role="main"]),
 div[role="main"] {
   background-color: ${p.surface} !important;
   color: ${p.text} !important;

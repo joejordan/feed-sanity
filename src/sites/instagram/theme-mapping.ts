@@ -3,12 +3,19 @@ import type { SiteThemeMapping } from '../../core/theming';
 /** Maps Feed Sanity's semantic `ThemePalette` onto Instagram's `--ig-*` RGB-triplet custom properties. */
 export const instagramThemeMapping: SiteThemeMapping = {
   rootSelectors: [':root', '.__fb-dark-mode', '.__fb-light-mode'],
+  colorVars: {
+    '--web-wash': (p) => p.background,
+    '--surface-background': (p) => p.surface,
+    '--card-background': (p) => p.surface,
+  },
   rgbTripletVars: {
     '--ig-primary-background': (p) => p.background,
     '--ig-secondary-background': (p) => p.surfaceAlt,
     '--ig-tertiary-background': (p) => p.surfaceAlt,
     '--ig-elevated-background': (p) => p.surface,
     '--ig-elevated-highlight-background': (p) => p.surfaceAlt,
+    '--ig-elevated-creation-background': (p) => p.surface,
+    '--ig-floating-button-background': (p) => p.surface,
     '--ig-banner-background': (p) => p.surface,
     '--ig-bubble-background': (p) => p.surfaceAlt,
     '--ig-dropdown-background': (p) => p.surface,
