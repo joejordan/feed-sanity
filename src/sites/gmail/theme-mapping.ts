@@ -9,6 +9,10 @@ import { hexWithAlpha } from '../../core/theming';
  */
 export const gmailThemeMapping: SiteThemeMapping = {
   rootSelectors: [':root'],
+  adaptive: {
+    enabled: true,
+    brandColors: ['#0b57d0', '#1a73e8'],
+  },
   colorVars: {
     '--fs-host-bg': (p) => p.background,
     '--fs-host-surface': (p) => p.surface,

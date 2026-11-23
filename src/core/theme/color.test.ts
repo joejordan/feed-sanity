@@ -1,0 +1,104 @@
+import { describe, expect, it } from 'vitest';
+import { findThemePreset } from '../theming';
+import {
+  compositeOver,
+  detectHostColorScheme,
+  isNeutralColor,
+  mapHostNeutralToPalette,
+  matchesBrandHue,
+  parseCssColor,
+  rgbaContrastRatio,
+  rgbToOklch,
+} from './color';
+
+const warmPaper = findThemePreset('warm-paper')!.palette;
+const mocha = findThemePreset('catppuccin-mocha')!.palette;
+
+describe('core/theme/color', () => {
+  it('parses hex, rgb, rgba, modern slash rgb, hsl, and named colors', () => {
+    expect(parseCssColor('#0f1419')).toEqual({ r: 15, g: 20, b: 25, a: 1 });
+    expect(parseCssColor('#fff')).toEqual({ r: 255, g: 255, b: 255, a: 1 });
+    expect(parseCssColor('rgb(21, 32, 43)')).toEqual({ r: 21, g: 32, b: 43, a: 1 });
+    expect(parseCssColor('rgba(0, 0, 0, 0.65)')).toEqual({ r: 0, g: 0, b: 0, a: 0.65 });
+    expect(parseCssColor('rgb(231 233 234 / 50%)')).toEqual({ r: 231, g: 233, b: 234, a: 0.5 });
+    expect(parseCssColor('hsl(204 88% 53%)')).toMatchObject({ a: 1 });
+    expect(parseCssColor('transparent')).toEqual({ r: 0, g: 0, b: 0, a: 0 });
+    expect(parseCssColor('var(--x-bg)')).toBeNull();
+  });
+
+  it('distinguishes neutral UI chrome (including X Dim slate) from chromatic status/brand hues', () => {
+    // Black, white, grey, and X Dim (#15202b) are all UI neutrals.
+    expect(isNeutralColor(parseCssColor('#000000')!)).toBe(true);
+    expect(isNeutralColor(parseCssColor('#15202b')!)).toBe(true);
+    expect(isNeutralColor(parseCssColor('#e7e9ea')!)).toBe(true);
+    expect(isNeutralColor(parseCssColor('#536471')!)).toBe(true);
+
+    // Brand blue, error red, and online green are chromatic.
+    expect(isNeutralColor(parseCssColor('#1d9bf0')!)).toBe(false);
+    expect(isNeutralColor(parseCssColor('#f4212e')!)).toBe(false);
+    expect(isNeutralColor(parseCssColor('#00ba7c')!)).toBe(false);
+
+    const xBlue = [rgbToOklch(parseCssColor('#1d9bf0')!)];
+    expect(matchesBrandHue(parseCssColor('#1a8cd8')!, xBlue)).toBe(true);
+    expect(matchesBrandHue(parseCssColor('#f4212e')!, xBlue)).toBe(false);
+  });
+
+  it('maps host dark and light neutral paint roles without ever painting transparent backgrounds', () => {
+    // Transparent always returns null (never turns invisible wrappers opaque).
+    expect(
+      mapHostNeutralToPalette({ r: 0, g: 0, b: 0, a: 0 }, 'dark', 'background', warmPaper),
+    ).toBeNull();
+
+    // Dark host -> Warm Paper (light)
+    expect(
+      mapHostNeutralToPalette(parseCssColor('#000000')!, 'dark', 'background', warmPaper),
+    ).toBe(warmPaper.background);
+    expect(
+      mapHostNeutralToPalette(parseCssColor('#202327')!, 'dark', 'background', warmPaper),
+    ).toBe(warmPaper.surface);
+    expect(
+      mapHostNeutralToPalette(
+        parseCssColor('rgba(0, 0, 0, 0.65)')!,
+        'dark',
+        'background',
+        warmPaper,
+      ),
+    ).toContain('65%');
+    expect(mapHostNeutralToPalette(parseCssColor('#e7e9ea')!, 'dark', 'text', warmPaper)).toBe(
+      warmPaper.text,
+    );
+    expect(mapHostNeutralToPalette(parseCssColor('#71767b')!, 'dark', 'text', warmPaper)).toBe(
+      warmPaper.textMuted,
+    );
+    expect(mapHostNeutralToPalette(parseCssColor('#2f3336')!, 'dark', 'border', warmPaper)).toBe(
+      warmPaper.border,
+    );
+
+    // Light host -> Catppuccin Mocha (dark)
+    expect(mapHostNeutralToPalette(parseCssColor('#ffffff')!, 'light', 'background', mocha)).toBe(
+      mocha.background,
+    );
+    expect(mapHostNeutralToPalette(parseCssColor('#0f1419')!, 'light', 'text', mocha)).toBe(
+      mocha.text,
+    );
+  });
+
+  it('composites alpha layers and computes WCAG contrast accurately', () => {
+    const halfBlack = compositeOver({ r: 0, g: 0, b: 0, a: 0.5 }, { r: 255, g: 255, b: 255, a: 1 });
+    expect(halfBlack).toEqual({ r: 128, g: 128, b: 128, a: 1 });
+    expect(
+      rgbaContrastRatio({ r: 0, g: 0, b: 0, a: 1 }, { r: 255, g: 255, b: 255, a: 1 }),
+    ).toBeCloseTo(21, 1);
+    expect(rgbaContrastRatio(parseCssColor('#e7e9ea')!, parseCssColor('#f4efe6')!)).toBeLessThan(
+      1.5,
+    );
+  });
+
+  it('detects host color scheme from computed body background', () => {
+    document.body.style.backgroundColor = 'rgb(0, 0, 0)';
+    expect(detectHostColorScheme(document)).toBe('dark');
+    document.body.style.backgroundColor = 'rgb(255, 255, 255)';
+    expect(detectHostColorScheme(document)).toBe('light');
+    document.body.style.backgroundColor = '';
+  });
+});

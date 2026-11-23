@@ -8,6 +8,11 @@ import { hexWithAlpha } from '../../core/theming';
  */
 export const redditThemeMapping: SiteThemeMapping = {
   rootSelectors: [':root', 'html.theme-dark', 'html.theme-light', 'shreddit-app'],
+  adaptive: {
+    enabled: true,
+    brandColors: ['#ff4500', '#d93900'],
+    mediaPreserveSelectors: ['shreddit-player *', 'shreddit-player-2 *'],
+  },
   colorVars: {
     '--fs-host-bg': (p) => p.background,
     '--fs-host-surface': (p) => p.surface,

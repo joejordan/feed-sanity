@@ -4,6 +4,11 @@ import { hexWithAlpha } from '../../core/theming';
 /** Maps Feed Sanity's semantic `ThemePalette` onto Facebook's Meta Comet CSS custom properties. */
 export const facebookThemeMapping: SiteThemeMapping = {
   rootSelectors: [':root', '.__fb-dark-mode', '.__fb-light-mode'],
+  adaptive: {
+    enabled: true,
+    brandColors: ['#0866ff', '#1877f2'],
+    mediaPreserveSelectors: ['[role="dialog"] video', '[data-pagelet="Stories"] *'],
+  },
   colorVars: {
     '--web-wash': (p) => p.background,
     '--wash': (p) => p.background,

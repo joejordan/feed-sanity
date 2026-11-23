@@ -3,6 +3,11 @@ import type { SiteThemeMapping } from '../../core/theming';
 /** Maps Feed Sanity's semantic `ThemePalette` onto Instagram's `--ig-*` RGB-triplet custom properties. */
 export const instagramThemeMapping: SiteThemeMapping = {
   rootSelectors: [':root', '.__fb-dark-mode', '.__fb-light-mode'],
+  adaptive: {
+    enabled: true,
+    brandColors: ['#0095f6'],
+    mediaPreserveSelectors: ['video', 'article img'],
+  },
   colorVars: {
     '--web-wash': (p) => p.background,
     '--surface-background': (p) => p.surface,

@@ -10,7 +10,23 @@
 
 import type { DomEnvironment } from './dom-env';
 import type { Scope } from './scope';
+import type { ThemeAuditReport, ThemeHealer } from './theme';
 import { OWN_ATTR } from './surface';
+import {
+  auditThemeCoverage,
+  captureLayoutSnapshot,
+  compileAdaptiveRootCss,
+  createThemeHealer,
+  detectHostColorScheme,
+  HEALER_STYLE_ID,
+  hexWithAlpha,
+  isOwnUiElement,
+  parseCssColor,
+  rgbaContrastRatio,
+  rgbaLuminance,
+} from './theme';
+
+export { hexWithAlpha } from './theme';
 
 export type ThemeColorScheme = 'dark' | 'light';
 
@@ -173,6 +189,15 @@ export const DEFAULT_THEME_CONFIG: ThemeConfig = {
   customCss: '',
 };
 
+export interface AdaptiveThemeMappingOptions {
+  /** Enables Layer 1 (live stylesheet/token compiler) + Layer 2 (viewport contrast/polarity self-healer). */
+  readonly enabled?: boolean;
+  /** Optional site brand hex colors (e.g. `['#1d9bf0']`) automatically remapped to `palette.accent`. */
+  readonly brandColors?: readonly string[];
+  /** Selectors whose subtrees represent media/photos and must never be recolored. */
+  readonly mediaPreserveSelectors?: readonly string[];
+}
+
 /** Declarative mapping from semantic `ThemePalette` tokens onto a host site's CSS architecture. */
 export interface SiteThemeMapping {
   /** Selectors where CSS variable declarations apply (e.g. `[':root', '.__fb-dark-mode']`). */
@@ -185,6 +210,8 @@ export interface SiteThemeMapping {
   readonly extraCss?: (palette: ThemePalette) => string;
   /** Optional host-specific CSS rules injected into discovered open `ShadowRoot`s. */
   readonly shadowExtraCss?: (palette: ThemePalette) => string;
+  /** Opt-in automatic stylesheet compiler + real-time contrast/polarity self-healer. */
+  readonly adaptive?: AdaptiveThemeMappingOptions;
 }
 
 const HEX6 = /^#([0-9a-f]{6})$/i;
@@ -219,21 +246,10 @@ export function hexToRgbTriplet(hex: string): string {
   return `${r}, ${g}, ${b}`;
 }
 
-/** Converts `#rrggbb` and opacity `0..1` into `rgb(R G B / A%)`. */
-export function hexWithAlpha(hex: string, alpha: number): string {
-  const [r, g, b] = parseHexRgb(hex);
-  const pct = Math.max(0, Math.min(100, Math.round(alpha * 100)));
-  return `rgb(${r} ${g} ${b} / ${pct}%)`;
-}
-
-/** Computes relative luminance (`0..1`) to pick crisp dark/light text on custom colors. */
+/** Computes WCAG 2.1 relative luminance (`0..1`) to pick crisp dark/light text on custom colors. */
 export function relativeLuminance(hex: string): number {
-  const toLinear = (channel: number): number => {
-    const s = channel / 255;
-    return s <= 0.039_28 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  const [r, g, b] = parseHexRgb(hex);
-  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  const parsed = parseCssColor(hex);
+  return parsed ? rgbaLuminance(parsed) : 0;
 }
 
 /** Converts `#rrggbb` into a bare `H S% L%` triplet (e.g. `'220 20% 15%'`). */
@@ -274,13 +290,11 @@ export function mixHex(a: string, b: string, weight: number): string {
   return `#${mix(ra, rb)}${mix(ga, gb)}${mix(ba, bb)}`;
 }
 
-/** Computes the WCAG 2.x contrast ratio (`1..21`) between two `#rrggbb` colors. */
+/** Computes the WCAG 2.1 contrast ratio (`1..21`) between two `#rrggbb` colors. */
 export function contrastRatio(a: string, b: string): number {
-  const la = relativeLuminance(a);
-  const lb = relativeLuminance(b);
-  const lighter = Math.max(la, lb);
-  const darker = Math.min(la, lb);
-  return (lighter + 0.05) / (darker + 0.05);
+  const fg = parseCssColor(a);
+  const bg = parseCssColor(b);
+  return fg && bg ? rgbaContrastRatio(fg, bg) : 1;
 }
 
 /** Picks `#ffffff` or `#111111` for maximum contrast on top of `backgroundHex`. */
@@ -452,8 +466,8 @@ export function compileUiThemeCss(theme: ResolvedTheme): string {
 }
 
 export const THEME_STYLE_ID = 'feed_sanity_user_theme';
+const ADAPTIVE_STYLE_ID = 'feed_sanity_adaptive_theme';
 const EARLY_THEME_CACHE_PREFIX = '__fs_early_theme__:';
-const OWN_UI_TAG = 'feed-sanity-ui';
 
 const earlyThemeKey = (siteId: string): string => `${EARLY_THEME_CACHE_PREFIX}${siteId}`;
 
@@ -523,8 +537,7 @@ export function clearEarlyThemeStyle(doc: Document = document): void {
   }
 }
 
-const isOwnShadowRoot = (shadow: ShadowRoot): boolean =>
-  shadow.host.localName === OWN_UI_TAG || shadow.host.hasAttribute(OWN_ATTR);
+const isOwnShadowRoot = (shadow: ShadowRoot): boolean => isOwnUiElement(shadow.host);
 
 export interface ThemeController {
   /** Applies the persisted user theme (or clears it when `null`). */
@@ -535,6 +548,10 @@ export interface ThemeController {
   clearPreview: () => void;
   /** Currently active effective theme (preview if active, else saved). */
   current: () => ResolvedTheme | null;
+  /** Runs the Theme Coverage & Layout-Integrity Auditor against the live page. */
+  audit?: () => ThemeAuditReport | null;
+  /** Triggers an immediate self-healing pass across visible light DOM + open Shadow Roots. */
+  healNow?: () => number;
   dispose: () => void;
 }
 
@@ -555,12 +572,94 @@ export function createThemeController(
   let shadowCss: string | undefined;
   let disposed = false;
 
+  const adaptiveConfig = mapping.adaptive?.enabled === true ? mapping.adaptive : undefined;
+  const mediaOpt = adaptiveConfig?.mediaPreserveSelectors
+    ? { mediaPreserveSelectors: adaptiveConfig.mediaPreserveSelectors }
+    : {};
+  let detectedHostScheme: ThemeColorScheme | undefined;
+  const dirtyRoots = new Set<Document | ShadowRoot>();
+  let recompileTimer: ReturnType<typeof setTimeout> | undefined;
+  const linkLoadAbort = new AbortController();
+
   const styles = new Map<Document | ShadowRoot, HTMLStyleElement>();
+  const adaptiveStyles = new Map<Document | ShadowRoot, HTMLStyleElement>();
   const iframeDocs = new Set<Document>();
   const cleanups: Array<() => void> = [];
+  const healer: ThemeHealer | undefined = adaptiveConfig
+    ? createThemeHealer(env, env.scope, mediaOpt)
+    : undefined;
+  if (healer) {
+    cleanups.push(() => healer.dispose());
+  }
 
   const effectiveTheme = (): ResolvedTheme | null =>
     previewTheme === undefined ? savedTheme : previewTheme;
+
+  const disableThemeSheetsForMeasure = (includeShadowRoots: boolean): (() => void) => {
+    const toggled: CSSStyleSheet[] = [];
+    const toggleRoot = (root: Document | ShadowRoot): void => {
+      for (const id of [THEME_STYLE_ID, ADAPTIVE_STYLE_ID, HEALER_STYLE_ID]) {
+        const el = root.querySelector(`#${id}`);
+        const sheet = el && el.localName === 'style' ? (el as HTMLStyleElement).sheet : null;
+        if (sheet && !sheet.disabled) {
+          sheet.disabled = true;
+          toggled.push(sheet);
+        }
+      }
+    };
+    toggleRoot(env.doc);
+    if (includeShadowRoots) {
+      for (const shadow of env.shadowRoots) {
+        if (!isOwnShadowRoot(shadow)) {
+          toggleRoot(shadow);
+        }
+      }
+    }
+    return () => {
+      for (const sheet of toggled) {
+        sheet.disabled = false;
+      }
+    };
+  };
+
+  const detectNativeHostScheme = (): ThemeColorScheme => {
+    const restore = disableThemeSheetsForMeasure(false);
+    try {
+      return detectHostColorScheme(env.doc);
+    } finally {
+      restore();
+    }
+  };
+
+  const getHostScheme = (): ThemeColorScheme => {
+    if (detectedHostScheme !== undefined) {
+      return detectedHostScheme;
+    }
+    const scheme = detectNativeHostScheme();
+    // Only lock in the detected scheme once `<body>` exists so an early `document_start`
+    // render before host styles parse never permanently caches a fallback scheme.
+    if (env.doc.body) {
+      detectedHostScheme = scheme;
+    }
+    return scheme;
+  };
+
+  const forEachHostRoot = (
+    fn: (root: Document | ShadowRoot) => void,
+    includeIframes = true,
+  ): void => {
+    fn(env.doc);
+    for (const shadow of env.shadowRoots) {
+      if (!isOwnShadowRoot(shadow)) {
+        fn(shadow);
+      }
+    }
+    if (includeIframes) {
+      for (const iframeDoc of iframeDocs) {
+        fn(iframeDoc);
+      }
+    }
+  };
 
   const getShadowCss = (): string => {
     if (shadowCss === undefined) {
@@ -570,27 +669,37 @@ export function createThemeController(
     return shadowCss;
   };
 
-  const findExistingStyle = (root: Document | ShadowRoot): HTMLStyleElement | undefined => {
-    const tracked = styles.get(root);
+  const findExistingStyle = (
+    root: Document | ShadowRoot,
+    styleId: string,
+    store: Map<Document | ShadowRoot, HTMLStyleElement>,
+  ): HTMLStyleElement | undefined => {
+    const tracked = store.get(root);
     if (tracked?.isConnected) {
       return tracked;
     }
-    const found = root.querySelector(`#${THEME_STYLE_ID}`);
+    const found = root.querySelector(`#${styleId}`);
     // Use `localName` rather than `instanceof HTMLStyleElement` so cross-realm
     // `<style>` elements inside same-origin iframes are matched reliably.
     if (found && found.localName === 'style') {
       const style = found as HTMLStyleElement;
-      styles.set(root, style);
+      store.set(root, style);
       return style;
     }
     return undefined;
   };
 
-  const syncRoot = (root: Document | ShadowRoot, cssText: string): void => {
-    const existing = findExistingStyle(root);
+  const syncNamedRoot = (
+    root: Document | ShadowRoot,
+    styleId: string,
+    store: Map<Document | ShadowRoot, HTMLStyleElement>,
+    cssText: string,
+    beforeStyle?: HTMLStyleElement,
+  ): void => {
+    const existing = findExistingStyle(root, styleId, store);
     if (!cssText) {
       existing?.remove();
-      styles.delete(root);
+      store.delete(root);
       return;
     }
     const isDoc = root.nodeType === Node.DOCUMENT_NODE;
@@ -603,28 +712,101 @@ export function createThemeController(
       if (isDoc) {
         const head = (root as Document).head;
         if (head && existing.parentElement !== head) {
-          head.append(existing);
+          if (beforeStyle && beforeStyle.parentElement === head) {
+            beforeStyle.before(existing);
+          } else {
+            head.append(existing);
+          }
         }
       }
       return;
     }
     const owner = isDoc ? (root as Document) : (root.ownerDocument ?? env.doc);
     const style = owner.createElement('style');
-    style.id = THEME_STYLE_ID;
+    style.id = styleId;
     style.textContent = cssText;
     const target = isDoc ? ((root as Document).head ?? (root as Document).documentElement) : root;
     if (!target) {
       return;
     }
-    target.append(style);
-    styles.set(root, style);
+    if (beforeStyle && beforeStyle.parentNode === target) {
+      beforeStyle.before(style);
+    } else {
+      target.append(style);
+    }
+    store.set(root, style);
+  };
+
+  const syncAdaptiveForRoot = (root: Document | ShadowRoot): void => {
+    if (!adaptiveConfig) {
+      return;
+    }
+    const palette = effectiveTheme()?.palette ?? null;
+    if (!palette) {
+      syncNamedRoot(root, ADAPTIVE_STYLE_ID, adaptiveStyles, '');
+      return;
+    }
+    const css = compileAdaptiveRootCss(root, palette, {
+      hostScheme: getHostScheme(),
+      ...(adaptiveConfig.brandColors ? { brandColors: adaptiveConfig.brandColors } : {}),
+      ...mediaOpt,
+    });
+    const userStyle = findExistingStyle(root, THEME_STYLE_ID, styles);
+    syncNamedRoot(root, ADAPTIVE_STYLE_ID, adaptiveStyles, css, userStyle);
+  };
+
+  const cancelAdaptiveRecompile = (): void => {
+    if (recompileTimer !== undefined) {
+      clearTimeout(recompileTimer);
+      recompileTimer = undefined;
+    }
+    dirtyRoots.clear();
+  };
+
+  const scheduleAdaptiveRecompile = (root: Document | ShadowRoot): void => {
+    if (!adaptiveConfig || disposed || !effectiveTheme()?.palette) {
+      return;
+    }
+    dirtyRoots.add(root);
+    if (recompileTimer !== undefined) {
+      return;
+    }
+    recompileTimer = setTimeout(() => {
+      recompileTimer = undefined;
+      if (disposed || !effectiveTheme()?.palette) {
+        dirtyRoots.clear();
+        return;
+      }
+      const batch = [...dirtyRoots];
+      dirtyRoots.clear();
+      for (const dirty of batch) {
+        if (dirty.nodeType === Node.DOCUMENT_NODE || (dirty as ShadowRoot).host.isConnected) {
+          syncAdaptiveForRoot(dirty);
+        }
+      }
+    }, 0);
+  };
+
+  const syncRoot = (root: Document | ShadowRoot, cssText: string): void => {
+    syncNamedRoot(root, THEME_STYLE_ID, styles, cssText);
+    syncAdaptiveForRoot(root);
   };
 
   const render = (): void => {
     if (disposed) {
       return;
     }
+    cancelAdaptiveRecompile();
     const effective = effectiveTheme();
+    if (adaptiveConfig) {
+      if (effective?.palette) {
+        if (detectedHostScheme === undefined && env.doc.body) {
+          detectedHostScheme = detectNativeHostScheme();
+        }
+      } else {
+        detectedHostScheme = undefined;
+      }
+    }
     hostCss = effective ? compileHostThemeCss(effective, mapping) : '';
     shadowCss = undefined;
     const uiCss = effective ? compileUiThemeCss(effective) : '';
@@ -641,6 +823,7 @@ export function createThemeController(
     for (const iframeDoc of iframeDocs) {
       syncRoot(iframeDoc, hostCss);
     }
+    healer?.setPalette(effective?.palette ?? null);
   };
 
   const watchHead = (targetEnv: DomEnvironment): (() => void) | undefined => {
@@ -650,11 +833,12 @@ export function createThemeController(
     const stopHead = targetEnv.watcher.watch('head', {
       added: (head) => {
         stopHead();
-        const existing = findExistingStyle(targetEnv.doc);
+        const existing = findExistingStyle(targetEnv.doc, THEME_STYLE_ID, styles);
         if (existing) {
           if (existing.parentElement !== head) {
             head.append(existing);
           }
+          syncAdaptiveForRoot(targetEnv.doc);
         } else if (hostCss) {
           syncRoot(targetEnv.doc, hostCss);
         }
@@ -662,6 +846,45 @@ export function createThemeController(
     });
     return stopHead;
   };
+
+  if (adaptiveConfig) {
+    // Re-compile Layer 1 automatically whenever the host lazy-loads a new `<style>` or `<link rel="stylesheet">`
+    // in light DOM or any discovered open Shadow Root.
+    cleanups.push(
+      env.watch('style, link[rel="stylesheet"]', {
+        added: (el) => {
+          if (el.id.startsWith('feed_sanity_') || el.hasAttribute(OWN_ATTR)) {
+            return;
+          }
+          const root = el.getRootNode();
+          if (
+            root.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+            'host' in root &&
+            isOwnShadowRoot(root as ShadowRoot)
+          ) {
+            return;
+          }
+          const targetRoot =
+            root.nodeType === Node.DOCUMENT_NODE ||
+            (root.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in root)
+              ? (root as Document | ShadowRoot)
+              : env.doc;
+          if (el.localName === 'link') {
+            if ((el as HTMLLinkElement).sheet) {
+              scheduleAdaptiveRecompile(targetRoot);
+            } else {
+              el.addEventListener('load', () => scheduleAdaptiveRecompile(targetRoot), {
+                once: true,
+                signal: linkLoadAbort.signal,
+              });
+            }
+            return;
+          }
+          scheduleAdaptiveRecompile(targetRoot);
+        },
+      }),
+    );
+  }
 
   cleanups.push(
     env.onShadowRoot((shadow, rootScope) => {
@@ -672,6 +895,8 @@ export function createThemeController(
       rootScope.add(() => {
         styles.get(shadow)?.remove();
         styles.delete(shadow);
+        adaptiveStyles.get(shadow)?.remove();
+        adaptiveStyles.delete(shadow);
       });
     }),
   );
@@ -688,6 +913,8 @@ export function createThemeController(
         iframeDocs.delete(childEnv.doc);
         styles.get(childEnv.doc)?.remove();
         styles.delete(childEnv.doc);
+        adaptiveStyles.get(childEnv.doc)?.remove();
+        adaptiveStyles.delete(childEnv.doc);
       });
     }),
   );
@@ -718,11 +945,46 @@ export function createThemeController(
       render();
     },
     current: effectiveTheme,
+    audit() {
+      if (disposed) {
+        return null;
+      }
+      const effective = effectiveTheme();
+      if (!effective?.palette) {
+        return null;
+      }
+      // Perform a synchronous zero-flicker A/B snapshot on the exact current DOM:
+      // disable Feed Sanity's theme stylesheets within one JS turn (before any paint),
+      // measure true host geometry & opacity, re-enable them, then run the full audit.
+      const restore = disableThemeSheetsForMeasure(true);
+      let beforeSnapshot: ReturnType<typeof captureLayoutSnapshot>;
+      try {
+        beforeSnapshot = captureLayoutSnapshot(env.doc, mediaOpt);
+      } finally {
+        restore();
+      }
+      return auditThemeCoverage(env.doc, effective.palette, {
+        beforeSnapshot,
+        ignoreLayoutShift: Boolean(effective.fontFamily),
+        ...mediaOpt,
+      });
+    },
+    healNow() {
+      if (disposed) {
+        return 0;
+      }
+      if (adaptiveConfig) {
+        forEachHostRoot((root) => syncAdaptiveForRoot(root));
+      }
+      return healer ? healer.healNow() : 0;
+    },
     dispose() {
       if (disposed) {
         return;
       }
       disposed = true;
+      cancelAdaptiveRecompile();
+      linkLoadAbort.abort();
       for (const stop of cleanups.splice(0)) {
         stop();
       }
@@ -730,6 +992,10 @@ export function createThemeController(
         style.remove();
       }
       styles.clear();
+      for (const style of adaptiveStyles.values()) {
+        style.remove();
+      }
+      adaptiveStyles.clear();
       iframeDocs.clear();
       setUiThemeCss('');
     },

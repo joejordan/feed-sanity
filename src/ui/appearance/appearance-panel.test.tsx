@@ -215,4 +215,65 @@ describe('appearancePanel & initSiteTheme', () => {
       '#111111',
     );
   });
+
+  it('runs theme audit and auto-heal from the Appearance panel and clears stale results on edit', async () => {
+    const store = inMemoryStore({
+      'test/theme': { ...DEFAULT_THEME_CONFIG, preset: 'midnight' },
+    });
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    await saved.ready;
+
+    const auditMock = vi
+      .fn()
+      .mockReturnValueOnce({
+        score: 80,
+        totalChecked: 10,
+        summary: { contrast: 1, polarityLeak: 1, layoutShift: 0, headerOcclusion: 0 },
+        violations: [
+          {
+            kind: 'polarity-leak' as const,
+            selector: 'div.popup',
+            detail: 'Light background on dark theme',
+          },
+          {
+            kind: 'contrast' as const,
+            selector: 'div.popup',
+            detail: 'Contrast 1.9:1 < 4.5:1',
+          },
+        ],
+      })
+      .mockReturnValueOnce({
+        score: 100,
+        totalChecked: 10,
+        summary: { contrast: 0, polarityLeak: 0, layoutShift: 0, headerOcclusion: 0 },
+        violations: [],
+      });
+    const healNowMock = vi.fn().mockReturnValue(2);
+    const controller: ThemeController = {
+      ...makeController(),
+      audit: auditMock,
+      healNow: healNowMock,
+    };
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Audit page' }));
+    expect(auditMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status').textContent).toContain('80% coverage');
+    expect(screen.getByRole('status').textContent).toContain('div.popup');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Auto-heal now' }));
+    expect(healNowMock).toHaveBeenCalledTimes(1);
+    expect(auditMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('status').textContent).toContain('100% coverage');
+
+    // Editing the theme clears stale audit output immediately.
+    await userEvent.click(screen.getByRole('button', { name: /Nord/i }));
+    expect(screen.queryByRole('status')).toBeNull();
+  });
 });

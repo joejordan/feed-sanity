@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { SavedValue } from '../../core/saved';
+import type { ThemeAuditReport } from '../../core/theme';
 import type { THEME_FONT_STACKS, ThemeConfig, ThemeController } from '../../core/theming';
 import type { OptionsPanel, PanelProps } from '../options-dialog/panel';
 import {
@@ -69,12 +71,24 @@ function AppearancePanelView({
   onChange,
   controller,
 }: PanelProps<ThemeConfig> & { controller: ThemeController }) {
+  const [auditReport, setAuditReport] = useState<ThemeAuditReport | null>(null);
   const effective = resolveTheme(value)?.palette ?? null;
   const applyEdit = (next: ThemeConfig): void => {
     controller.preview(resolveTheme(next));
     onChange(next);
+    setAuditReport(null);
   };
   const update = (patch: Partial<ThemeConfig>): void => applyEdit({ ...value, ...patch });
+
+  const runAudit = (): void => {
+    const report = controller.audit?.() ?? null;
+    setAuditReport(report);
+  };
+
+  const runHealAndAudit = (): void => {
+    controller.healNow?.();
+    runAudit();
+  };
 
   const minContrast = effective
     ? Math.min(
@@ -176,6 +190,52 @@ function AppearancePanelView({
           >
             Fix contrast
           </button>
+        </div>
+      )}
+
+      {effective && controller.audit && (
+        <div className="theme-audit">
+          <div className="theme-actions">
+            <span className="theme-audit-title">Theme health &amp; layout check</span>
+            <div className="theme-audit-buttons">
+              <button className="button" type="button" onClick={runAudit}>
+                Audit page
+              </button>
+              {controller.healNow && (
+                <button className="button" type="button" onClick={runHealAndAudit}>
+                  Auto-heal now
+                </button>
+              )}
+            </div>
+          </div>
+          {auditReport && (
+            <div className="theme-audit-result" role="status">
+              <p className="theme-audit-summary">
+                <strong>{auditReport.score}% coverage</strong> ({auditReport.totalChecked} elements
+                checked) — {auditReport.summary.contrast} contrast,{' '}
+                {auditReport.summary.polarityLeak} unthemed surfaces,{' '}
+                {auditReport.summary.layoutShift} layout shifts,{' '}
+                {auditReport.summary.headerOcclusion} header overlaps.
+              </p>
+              {auditReport.violations.length > 0 && (
+                <ul className="theme-audit-list">
+                  {(() => {
+                    const seen = new Map<string, number>();
+                    return auditReport.violations.slice(0, 6).map((v) => {
+                      const base = `${v.kind}:${v.selector}:${v.detail}`;
+                      const count = (seen.get(base) ?? 0) + 1;
+                      seen.set(base, count);
+                      return (
+                        <li key={`${base}#${count}`}>
+                          <code>{v.selector}</code> ({v.kind}): {v.detail}
+                        </li>
+                      );
+                    });
+                  })()}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
 

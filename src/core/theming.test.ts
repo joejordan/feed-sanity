@@ -285,4 +285,81 @@ describe('first-class multi-site theming engine', () => {
       ),
     );
   });
+
+  it('orders adaptive CSS before curated CSS, recompiles lazy styles in light & Shadow DOM, and supports audit()/healNow()/dispose()', async () => {
+    const env = createDomEnvironment({ pierceShadow: true });
+    cleanups.push(() => env.dispose());
+
+    const initialStyle = document.createElement('style');
+    initialStyle.textContent = '.initial-card { background-color: #ffffff; color: #111111; }';
+    document.head.append(initialStyle);
+
+    const controller = createThemeController(
+      env,
+      {
+        rootSelectors: [':root'],
+        colorVars: { '--curated-bg': (p) => p.background },
+        adaptive: { enabled: true },
+      },
+      setUserThemeCss,
+    );
+    cleanups.push(() => controller.dispose());
+
+    const midnight = { palette: BUILTIN_THEMES[0]!.palette };
+    controller.apply(midnight);
+
+    const adaptiveStyle = document.querySelector('#feed_sanity_adaptive_theme');
+    const userStyle = document.querySelector('#feed_sanity_user_theme');
+    expect(adaptiveStyle?.textContent).toContain('.initial-card');
+    expect(userStyle?.textContent).toContain('--curated-bg');
+    // Layer 1 adaptive stylesheet must precede curated user stylesheet in DOM cascade order.
+    expect(
+      Boolean(
+        adaptiveStyle &&
+          userStyle &&
+          adaptiveStyle.compareDocumentPosition(userStyle) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+
+    // Lazy-loaded light-DOM <style> triggers debounced Layer 1 recompile automatically.
+    const lazyStyle = document.createElement('style');
+    lazyStyle.textContent = '.lazy-banner { background-color: #f8f9fa; color: #050505; }';
+    document.head.append(lazyStyle);
+    await vi.waitFor(() =>
+      expect(document.querySelector('#feed_sanity_adaptive_theme')?.textContent).toContain(
+        '.lazy-banner',
+      ),
+    );
+
+    // Lazy-loaded Shadow DOM <style> also triggers Layer 1 recompile for that ShadowRoot.
+    const shadowHost = document.createElement('div');
+    const shadow = shadowHost.attachShadow({ mode: 'open' });
+    document.body.append(shadowHost);
+    await vi.waitFor(() => expect(shadow.querySelector('#feed_sanity_user_theme')).not.toBeNull());
+    const lazyShadowStyle = document.createElement('style');
+    lazyShadowStyle.textContent = '.shadow-card { background-color: #ffffff; color: #101010; }';
+    shadow.append(lazyShadowStyle);
+    await vi.waitFor(() =>
+      expect(shadow.querySelector('#feed_sanity_adaptive_theme')?.textContent).toContain(
+        '.shadow-card',
+      ),
+    );
+
+    // `audit()` runs synchronously without leaving theme stylesheets disabled.
+    const report = controller.audit?.();
+    expect(report).toBeDefined();
+    expect(report?.score).toBeGreaterThanOrEqual(0);
+    expect((userStyle as HTMLStyleElement).sheet?.disabled ?? false).toBe(false);
+    expect((adaptiveStyle as HTMLStyleElement).sheet?.disabled ?? false).toBe(false);
+
+    // `healNow()` returns a finite non-negative count.
+    expect(controller.healNow?.()).toBeGreaterThanOrEqual(0);
+
+    // After `dispose()`, both `audit()` and `healNow()` become safe no-ops and styles are removed.
+    controller.dispose();
+    expect(document.querySelector('#feed_sanity_adaptive_theme')).toBeNull();
+    expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
+    expect(controller.audit?.()).toBeNull();
+    expect(controller.healNow?.()).toBe(0);
+  });
 });

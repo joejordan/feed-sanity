@@ -149,6 +149,15 @@ function buildXDesignSystemVars(): Record<string, (p: ThemePalette) => string> {
  */
 export const xThemeMapping: SiteThemeMapping = {
   rootSelectors: [':root', '[data-theme="dark"]', '[data-theme="light"]', '[data-theme="dim"]'],
+  adaptive: {
+    enabled: true,
+    brandColors: ['#1d9bf0'],
+    mediaPreserveSelectors: [
+      '[data-testid="videoComponent"] *',
+      '[data-testid="videoPlayer"] *',
+      '[data-testid="tweetPhoto"] *',
+    ],
+  },
   colorVars: buildXDesignSystemVars(),
   extraCss: (p) => {
     const frostedBg = hexWithAlpha(p.background, 0.88);
@@ -172,20 +181,18 @@ html, body, #react-root, header[role="banner"], main[role="main"] {
 }
 
 /* === 2. Primary column, sticky frosted bars (Home, Notifications, Status, Settings) === */
+/* Only theme elements that already paint a backdrop (.r-5zmot / .r-6026j / [role="tablist"])
+ * so transparent wrappers around the sticky "Post" header never become opaque curtains
+ * covering the top of the post below. */
 [data-testid="primaryColumn"],
-[data-testid="primaryColumn"] > div > div,
 [data-testid="primaryColumn"] [data-testid="toolBar"],
 [data-testid="cellInnerDiv"] {
   border-color: ${p.border} !important;
 }
 [data-testid="primaryColumn"],
-[data-testid="primaryColumn"] > div > div,
 [data-testid="primaryColumn"] [data-testid="toolBar"] {
   background-color: ${p.background} !important;
 }
-/* Frosted sticky header wrapper AND its inner rgba(0,0,0,0.65) backdrop child (.r-5zmot / .r-6026j) */
-[data-testid="primaryColumn"] > div > div:first-child,
-[data-testid="primaryColumn"] > div > div:first-child > div,
 [data-testid="primaryColumn"] [role="tablist"],
 .r-5zmot${NOT_IN_VIDEO},
 .r-6026j${NOT_IN_VIDEO} {
@@ -350,12 +357,12 @@ button[aria-label="Manage timelines"] svg,
   background-color: ${p.accent} !important;
 }
 /* Category & toolbar scroll arrow buttons (For You / Following strip + composer toolbar) */
+/* Use box-shadow instead of border to avoid changing button box dimensions. */
 [data-testid="ScrollSnap-prevButtonWrapper"] button,
 [data-testid="ScrollSnap-nextButtonWrapper"] button {
   background-color: ${floatingBg} !important;
-  border: 1px solid ${p.border} !important;
   color: ${p.text} !important;
-  box-shadow: ${popupShadow} !important;
+  box-shadow: inset 0 0 0 1px ${p.border}, ${popupShadow} !important;
 }
 [data-testid="ScrollSnap-prevButtonWrapper"] button div,
 [data-testid="ScrollSnap-nextButtonWrapper"] button div,
