@@ -30,6 +30,11 @@ export function formatSpeedNumber(rate: number): string {
   return String(clampVideoSpeed(rate));
 }
 
+/** Formats a numeric speed with an `x` suffix for menu display (e.g. `1.37` -> `'1.37x'`). */
+export function formatSpeedLabel(rate: number): string {
+  return `${formatSpeedNumber(rate)}x`;
+}
+
 function parseBoundedSpeed(numeric: string): number | null {
   const value = Number.parseFloat(numeric);
   if (!Number.isFinite(value) || value < MIN_VIDEO_SPEED || value > MAX_VIDEO_SPEED) {
@@ -50,13 +55,13 @@ export function parseSpeedInput(raw: string): number | null {
   return parseBoundedSpeed(cleaned);
 }
 
-/** Parses an X native speed option label (`'Normal'`, `'0.25x'`, `'1.5x'`, `'2x'`, etc.). */
+/** Parses an X native speed option label (`'Normal'`, `'0.25x'`, `'1x (Normal)'`, `'1.5x'`, `'2x'`, etc.). */
 export function parseNativeSpeedLabel(text: string): number | null {
-  const trimmed = text.trim();
-  if (/^normal$/i.test(trimmed)) {
+  const trimmed = text.replaceAll(/[✓✔•]/g, '').trim();
+  if (/^normal(?:\s*\(\s*1(?:\.0+)?\s*[x×]\s*\))?$/i.test(trimmed)) {
     return 1;
   }
-  const match = /^(\d+(?:\.\d+)?)\s*[x×]$/i.exec(trimmed);
+  const match = /^(\d+(?:\.\d+)?)\s*[x×](?:\s*\(\s*normal\s*\))?$/i.exec(trimmed);
   return match?.[1] ? parseBoundedSpeed(match[1]) : null;
 }
 

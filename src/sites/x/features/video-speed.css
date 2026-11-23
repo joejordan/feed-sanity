@@ -1,6 +1,8 @@
 :host {
   display: block;
   width: 100%;
+  flex-shrink: 0;
+  box-sizing: border-box;
   background: transparent;
 }
 
@@ -14,8 +16,9 @@
 .fs-speed-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 16px 12px;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  box-sizing: border-box;
   user-select: none;
 }
 

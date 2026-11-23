@@ -16,6 +16,19 @@ test('extension toolbar popup controls live Facebook tab (Starter Mode, Quick Th
   await expect(popup.getByRole('heading', { name: 'Facebook' })).toBeVisible();
   await expect(popup.getByText(/Active/)).toBeVisible();
 
+  // Popup must fit cleanly inside Chrome's 600px cap with no unnecessary vertical scrollbar.
+  const popupMetrics = await popup.evaluate(() => {
+    const body = document.querySelector('.qp-body') as HTMLElement | null;
+    const root = document.querySelector('.qp-root') as HTMLElement | null;
+    return {
+      rootHeight: root?.getBoundingClientRect().height ?? 0,
+      bodyScrollHeight: body?.scrollHeight ?? 0,
+      bodyClientHeight: body?.clientHeight ?? 0,
+    };
+  });
+  expect(popupMetrics.rootHeight).toBeLessThanOrEqual(600);
+  expect(popupMetrics.bodyScrollHeight).toBeLessThanOrEqual(popupMetrics.bodyClientHeight + 1);
+
   // Starter Mode: clicking Focus enables Hide ads (hiding Sourdough School live) and switches mode cleanly!
   await popup.getByRole('button', { name: 'Focus', exact: true }).click();
   await expect(popup.getByRole('button', { name: 'Focus', exact: true })).toHaveAttribute(

@@ -69,6 +69,8 @@ describe('x_video_speed feature', () => {
     expect(parseSpeedInput('abc')).toBeNull();
 
     expect(parseNativeSpeedLabel('Normal')).toBe(1);
+    expect(parseNativeSpeedLabel('1x (Normal)')).toBe(1);
+    expect(parseNativeSpeedLabel('Normal (1x)')).toBe(1);
     expect(parseNativeSpeedLabel('0.25x')).toBe(0.25);
     expect(parseNativeSpeedLabel('2x')).toBe(2);
     expect(parseNativeSpeedLabel('Playback speed')).toBeNull();
@@ -224,5 +226,102 @@ describe('x_video_speed feature', () => {
 
     const vBoot = document.querySelector('#v-boot') as HTMLVideoElement;
     await vi.waitFor(() => expect(vBoot.playbackRate).toBeCloseTo(0.78, 2));
+  });
+
+  it('detects videoPlayer popovers without role="menu", syncs parent "Playback speed · 1.37x" row, and hides stale native checkmarks', async () => {
+    document.body.innerHTML = `
+      <div data-testid="primaryColumn">
+        <article data-testid="tweet">
+          <div data-testid="videoPlayer"><video id="v-inline"></video></div>
+        </article>
+      </div>
+    `;
+
+    const { platform, store } = fakePlatform({
+      [`v2/x/777/${X_VIDEO_SPEED_KEY}`]: { rate: 1.37, custom: true },
+    });
+    storesToStop.push(store);
+    const failed = await startSite(xSite, platform);
+    expect(failed).toEqual([]);
+
+    const player = document.querySelector('[data-testid="videoPlayer"]') as HTMLElement;
+    const video = document.querySelector('#v-inline') as HTMLVideoElement;
+    await vi.waitFor(() => expect(video.playbackRate).toBeCloseTo(1.37, 2));
+
+    // 1. Open X's parent video gear popover directly inside videoPlayer (no role="menu" or Dropdown).
+    const popover = document.createElement('div');
+    popover.innerHTML = `
+      <div role="button" tabindex="0" id="gear-speed-row">
+        <div><span>Playback speed</span></div>
+        <div><span id="native-speed-val">Normal</span><svg><path d="M0 0"/></svg></div>
+      </div>
+      <div role="button" tabindex="0"><span>Video quality</span><span>Auto</span></div>
+    `;
+    player.append(popover);
+
+    await vi.waitFor(() => {
+      const badge = popover.querySelector('[data-feed-sanity="x-speed-parent-value"]');
+      expect(badge?.textContent).toBe(' · 1.37x');
+    });
+    expect(
+      popover.querySelector('#native-speed-val')?.getAttribute('data-fs-speed-native-hidden'),
+    ).toBe('true');
+
+    // External speed update (e.g. from toolbar popup) updates parent menu label live.
+    await store.set(`v2/x/777/${X_VIDEO_SPEED_KEY}`, { rate: 1.65, custom: true });
+    await vi.waitFor(() => {
+      expect(popover.querySelector('[data-feed-sanity="x-speed-parent-value"]')?.textContent).toBe(
+        ' · 1.65x',
+      );
+    });
+
+    // 2. Navigate into Playback speed submenu rendered with div[role="button"] rows + stale Normal checkmark.
+    popover.innerHTML = `
+      <div role="button" tabindex="0"><span>Playback speed</span></div>
+      <div class="speed-list">
+        <div role="button" tabindex="0"><span>0.25x</span></div>
+        <div role="button" tabindex="0"><span>0.5x</span></div>
+        <div role="button" tabindex="0"><span>0.75x</span></div>
+        <div role="button" tabindex="0" id="opt-normal"><span>Normal</span><svg id="native-check"><path d="M0 0"/></svg></div>
+        <div role="button" tabindex="0" id="opt-15"><span>1.5x</span></div>
+        <div role="button" tabindex="0"><span>2x</span></div>
+      </div>
+    `;
+
+    await vi.waitFor(() =>
+      expect(
+        popover.querySelectorAll('feed-sanity-ui[data-feed-sanity="x-video-speed"]').length,
+      ).toBe(1),
+    );
+    // Parent badge should not be injected onto the submenu header.
+    expect(popover.querySelector('[data-feed-sanity="x-speed-parent-value"]')).toBeNull();
+    // Stale native checkmark on Normal is hidden while custom speed (1.65x) is active.
+    expect(popover.querySelector('#opt-normal')?.getAttribute('data-fs-speed-hide-check')).toBe(
+      'true',
+    );
+
+    // 3. Clicking native 1.5x activates native checkmark on 1.5x and clears Custom active state.
+    (popover.querySelector('#opt-15') as HTMLElement).click();
+    await vi.waitFor(() => expect(video.playbackRate).toBeCloseTo(1.5, 2));
+    expect(popover.querySelector('#opt-15')?.getAttribute('data-fs-speed-hide-check')).toBeNull();
+    expect(
+      popover.querySelector('#opt-15 [data-feed-sanity="x-speed-native-check"]'),
+    ).not.toBeNull();
+    expect(popover.querySelector('#opt-normal')?.getAttribute('data-fs-speed-hide-check')).toBe(
+      'true',
+    );
+
+    // 4. Returning to parent menu shows "Playback speed · 1.5x".
+    popover.innerHTML = `
+      <div role="button" tabindex="0">
+        <span>Playback speed</span>
+        <span>Normal</span>
+      </div>
+    `;
+    await vi.waitFor(() => {
+      expect(popover.querySelector('[data-feed-sanity="x-speed-parent-value"]')?.textContent).toBe(
+        ' · 1.5x',
+      );
+    });
   });
 });

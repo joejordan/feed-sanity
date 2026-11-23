@@ -383,20 +383,21 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
       await dialog.getByRole('button', { name: 'Close' }).click();
       await expect(dialog).toBeHidden();
 
-      // 2. Open X's native Playback speed menu and set custom speed `1.17x`.
+      // 2. Open X's native Playback speed menu (rendered inside videoPlayer popover) and set custom speed `1.17x`.
       await page.evaluate(() => {
-        const dropdown = document.createElement('div');
-        dropdown.setAttribute('data-testid', 'Dropdown');
-        const menu = document.createElement('div');
-        menu.setAttribute('role', 'menu');
+        const player = document.querySelector('[data-testid="videoPlayer"]') as HTMLElement;
+        const popover = document.createElement('div');
+        popover.id = 'x-video-settings-popover';
+        const list = document.createElement('div');
         for (const label of ['0.25x', '0.5x', '0.75x', 'Normal', '1.25x', '1.5x', '1.75x', '2x']) {
           const item = document.createElement('div');
-          item.setAttribute('role', 'menuitem');
+          item.setAttribute('role', 'button');
+          item.setAttribute('tabindex', '0');
           item.textContent = label;
-          menu.append(item);
+          list.append(item);
         }
-        dropdown.append(menu);
-        document.body.append(dropdown);
+        popover.append(list);
+        player.append(popover);
       });
 
       const speedInput = page.getByRole('textbox', { name: 'Custom playback speed' });
@@ -411,6 +412,16 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
           ),
         )
         .toBeCloseTo(1.17, 2);
+
+      // 2b. Return to the parent gear menu and verify "Playback speed · 1.17x" is shown live.
+      await page.evaluate(() => {
+        const popover = document.querySelector('#x-video-settings-popover') as HTMLElement;
+        popover.innerHTML =
+          '<div role="button" tabindex="0"><span>Playback speed</span><span>Normal</span></div>';
+      });
+      await expect(page.locator('[data-feed-sanity="x-speed-parent-value"]')).toHaveText(
+        ' · 1.17x',
+      );
 
       // 3. Reload the page and mount a fresh video: saved `1.17x` speed must be remembered!
       await page.reload();

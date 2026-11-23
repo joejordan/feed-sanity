@@ -4,6 +4,7 @@ import type { SavedValue } from '../../../core/saved';
 import type { Scope } from '../../../core/scope';
 import type { XPage } from '../feature';
 import type { SavedVideoSpeed } from './video-speed-model';
+import { addStyle } from '../../../core/dom';
 import { PRESS_EVENTS } from '../../../core/intercept';
 import { Listeners } from '../../../core/listeners';
 import { OWN_ATTR } from '../../../core/surface';
@@ -13,6 +14,7 @@ import { defineXFeature } from '../feature';
 import css from './video-speed.css?inline';
 import {
   clampVideoSpeed,
+  formatSpeedLabel,
   formatSpeedNumber,
   parseNativeSpeedLabel,
   parseSpeedInput,
@@ -24,6 +26,7 @@ export type { SavedVideoSpeed } from './video-speed-model';
 export {
   clampVideoSpeed,
   DEFAULT_VIDEO_SPEED,
+  formatSpeedLabel,
   formatSpeedNumber,
   MAX_VIDEO_SPEED,
   MIN_VIDEO_SPEED,
@@ -38,9 +41,50 @@ const SLIDER_MAX = 4;
 const SLIDER_STEP = 0.01;
 const BUTTON_STEP = 0.05;
 const SAVE_DEBOUNCE_MS = 160;
-const SPEED_MENU_SELECTOR = '[role="menu"], [role="listbox"], [data-testid="Dropdown"]';
-const SPEED_ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"], button';
+const SPEED_EPSILON = 0.005;
+const MENU_CONTAINER_SELECTOR = [
+  '[role="menu"]',
+  '[role="listbox"]',
+  '[role="dialog"]',
+  '[data-testid="Dropdown"]',
+  '[data-testid="sheetDialog"]',
+  '[data-testid="videoPlayer"]',
+  '[data-testid="videoComponent"]',
+  '#layers > *',
+].join(', ');
+const SPEED_ITEM_SELECTOR =
+  '[role="menuitem"], [role="menuitemradio"], [role="radio"], [role="option"], [role="button"], button, label, [tabindex="0"]';
 const VIDEO_ENFORCE_EVENTS = ['loadedmetadata', 'play', 'playing', 'ratechange'] as const;
+const PARENT_SPEED_ROW_RE =
+  /^playback\s+speed(?:\s*[·•-]?\s*(?:normal(?:\s*\(\s*1(?:\.0+)?\s*[x×]\s*\))?|\d+(?:\.\d+)?\s*[x×](?:\s*\(\s*normal\s*\))?))?$/i;
+const PARENT_SPEED_LABEL_RE = /^playback\s+speed$/i;
+const NATIVE_HIDDEN_ATTR = 'data-fs-speed-native-hidden';
+const HIDE_CHECK_ATTR = 'data-fs-speed-hide-check';
+const OWN_PARENT_BADGE_VALUE = 'x-speed-parent-value';
+const OWN_NATIVE_CHECK_VALUE = 'x-speed-native-check';
+const PAGE_STYLE_ID = 'feed_sanity_x_video_speed';
+const PAGE_SPEED_CSS = `
+[${NATIVE_HIDDEN_ATTR}="true"] {
+  display: none !important;
+}
+[${HIDE_CHECK_ATTR}="true"] svg:not([data-feed-sanity-icon]) {
+  visibility: hidden !important;
+}
+[${OWN_ATTR}="${OWN_PARENT_BADGE_VALUE}"] {
+  font-weight: 500;
+  opacity: 0.82;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+[${OWN_ATTR}="${OWN_NATIVE_CHECK_VALUE}"] {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--fs-accent, rgb(29, 155, 240));
+  flex-shrink: 0;
+}
+`;
 
 interface SpeedStore {
   get: () => SavedVideoSpeed;
@@ -208,24 +252,163 @@ function CustomSpeedControl({ store }: { readonly store: SpeedStore }) {
   );
 }
 
+interface DetectedSpeedItem {
+  readonly el: Element;
+  readonly rowEl: Element;
+  readonly rate: number;
+}
+
 interface DetectedSpeedMenu {
-  readonly items: ReadonlyArray<{ readonly el: Element; readonly rate: number }>;
+  readonly items: readonly DetectedSpeedItem[];
+  readonly parent: Element;
   readonly anchor: Element;
 }
 
-function detectSpeedMenu(menu: Element): DetectedSpeedMenu | null {
-  const items: Array<{ el: Element; rate: number }> = [];
-  for (const el of menu.querySelectorAll(SPEED_ITEM_SELECTOR)) {
+function extractVisibleText(root: Node): string {
+  let out = '';
+  for (let child = root.firstChild; child; child = child.nextSibling) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      out += child.nodeValue ?? '';
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const el = child as Element;
+      const tag = el.tagName.toUpperCase();
+      if (
+        tag === 'SVG' ||
+        tag === 'STYLE' ||
+        tag === 'SCRIPT' ||
+        el.hasAttribute(OWN_ATTR) ||
+        el.hasAttribute(NATIVE_HIDDEN_ATTR)
+      ) {
+        continue;
+      }
+      out += extractVisibleText(el);
+    }
+  }
+  return out.trim();
+}
+
+function keepInnermost<T extends { readonly el: Element }>(candidates: readonly T[]): T[] {
+  return candidates.filter(
+    (candidate) =>
+      !candidates.some((other) => other !== candidate && candidate.el.contains(other.el)),
+  );
+}
+
+function groupSpeedItems(
+  candidates: ReadonlyArray<{ readonly el: Element; readonly rate: number }>,
+  resolveGroup: (el: Element) => { readonly parent: Element; readonly rowEl: Element } | null,
+): DetectedSpeedMenu | null {
+  const byParent = new Map<Element, DetectedSpeedItem[]>();
+  for (const candidate of candidates) {
+    const resolved = resolveGroup(candidate.el);
+    if (!resolved) {
+      continue;
+    }
+    const list = byParent.get(resolved.parent) ?? [];
+    list.push({ el: candidate.el, rowEl: resolved.rowEl, rate: candidate.rate });
+    byParent.set(resolved.parent, list);
+  }
+  for (const [parent, items] of byParent) {
+    const distinctRates = new Set(items.map((item) => item.rate));
+    if (distinctRates.size >= 3) {
+      const last = items.at(-1);
+      if (last) {
+        return { items, parent, anchor: last.rowEl };
+      }
+    }
+  }
+  return null;
+}
+
+function detectSpeedMenu(container: Element): DetectedSpeedMenu | null {
+  const raw: Array<{ el: Element; rate: number }> = [];
+  for (const el of container.querySelectorAll(SPEED_ITEM_SELECTOR)) {
     if (el.closest(`[${OWN_ATTR}]`)) {
       continue;
     }
-    const rate = parseNativeSpeedLabel(el.textContent ?? '');
+    const rate = parseNativeSpeedLabel(extractVisibleText(el));
     if (rate !== null) {
-      items.push({ el, rate });
+      raw.push({ el, rate });
     }
   }
-  const last = items.length >= 3 ? items.at(-1) : undefined;
-  return last ? { items, anchor: last.el } : null;
+  if (raw.length < 3) {
+    return null;
+  }
+  const candidates = keepInnermost(raw);
+  return (
+    groupSpeedItems(candidates, (el) =>
+      el.parentElement ? { parent: el.parentElement, rowEl: el } : null,
+    ) ??
+    groupSpeedItems(candidates, (el) => {
+      const wrapper = el.parentElement;
+      const list = wrapper?.parentElement;
+      return wrapper && list ? { parent: list, rowEl: wrapper } : null;
+    })
+  );
+}
+
+function detectParentSpeedRows(container: Element): Element[] {
+  const candidates: Array<{ el: Element }> = [];
+  for (const el of container.querySelectorAll(SPEED_ITEM_SELECTOR)) {
+    if (el.closest(`[${OWN_ATTR}]`)) {
+      continue;
+    }
+    if (PARENT_SPEED_ROW_RE.test(extractVisibleText(el))) {
+      candidates.push({ el });
+    }
+  }
+  return keepInnermost(candidates).map((item) => item.el);
+}
+
+function findPlaybackSpeedLabelHost(rowEl: Element): Element {
+  let deepest: Element | null = null;
+  for (const child of rowEl.querySelectorAll('*')) {
+    if (child.closest(`[${OWN_ATTR}]`) || child.tagName.toUpperCase() === 'SVG') {
+      continue;
+    }
+    if (PARENT_SPEED_LABEL_RE.test(extractVisibleText(child))) {
+      deepest = child;
+    }
+  }
+  return deepest ?? rowEl;
+}
+
+function findNativeSpeedValueElements(rowEl: Element): Element[] {
+  const matches: Array<{ el: Element }> = [];
+  for (const child of rowEl.querySelectorAll('*')) {
+    if (
+      child.closest(`[${OWN_ATTR}]`) ||
+      child.hasAttribute(NATIVE_HIDDEN_ATTR) ||
+      child.tagName.toUpperCase() === 'SVG'
+    ) {
+      continue;
+    }
+    if (parseNativeSpeedLabel(extractVisibleText(child)) !== null) {
+      matches.push({ el: child });
+    }
+  }
+  return keepInnermost(matches).map((item) => item.el);
+}
+
+function createNativeCheckBadge(doc: Document): HTMLSpanElement {
+  const span = doc.createElement('span');
+  span.setAttribute(OWN_ATTR, OWN_NATIVE_CHECK_VALUE);
+  span.setAttribute('aria-hidden', 'true');
+  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('data-feed-sanity-icon', 'check');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2.5');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  const poly = doc.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+  poly.setAttribute('points', '20 6 9 17 4 12');
+  svg.append(poly);
+  span.append(svg);
+  return span;
 }
 
 /**
@@ -394,6 +577,8 @@ function attachVideoSpeedEnforcer(
   getSpeed: () => SavedVideoSpeed,
 ): (rate: number) => void {
   const videoCleanups = new Map<HTMLVideoElement, () => void>();
+  const initial = getSpeed();
+  let enforceActive = initial.rate !== 1 || initial.custom;
 
   scope.add(
     page.videos.onAdd((xVideo) => {
@@ -406,7 +591,7 @@ function attachVideoSpeedEnforcer(
           return;
         }
         const speed = getSpeed();
-        if (speed.rate !== 1 || speed.custom) {
+        if (enforceActive || speed.rate !== 1 || speed.custom) {
           applySpeedToVideo(video, speed.rate);
         }
       };
@@ -433,6 +618,7 @@ function attachVideoSpeedEnforcer(
   });
 
   return (rate: number): void => {
+    enforceActive = true;
     for (const [video, cleanup] of [...videoCleanups]) {
       if (!video.isConnected) {
         cleanup();
@@ -463,23 +649,124 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
   interface MountedMenu {
     readonly host: HTMLElement;
     readonly unmount: () => void;
+    items: readonly DetectedSpeedItem[];
   }
+
+  interface EnhancedParentRow {
+    readonly badge: HTMLSpanElement;
+    readonly hiddenNodes: Set<Element>;
+  }
+
+  scope.add(addStyle(PAGE_STYLE_ID, PAGE_SPEED_CSS, page.doc));
 
   const menuCleanups = new Map<Element, () => void>();
   const mountedByParent = new Map<Element, MountedMenu>();
+  const parentRows = new Map<Element, EnhancedParentRow>();
   const nativeBound = new WeakSet<Element>();
   const clickAbort = new AbortController();
   scope.add(() => clickAbort.abort());
 
-  const teardownParent = (parent: Element): void => {
+  const clearNativeItemDecorations = (items: readonly DetectedSpeedItem[]): void => {
+    for (const { rowEl } of items) {
+      rowEl.removeAttribute(HIDE_CHECK_ATTR);
+      rowEl.querySelector(`[${OWN_ATTR}="${OWN_NATIVE_CHECK_VALUE}"]`)?.remove();
+    }
+  };
+
+  const syncNativeSpeedItems = (items: readonly DetectedSpeedItem[]): void => {
+    const speed = store.get();
+    const hasMatchingNative =
+      !speed.custom && items.some((item) => Math.abs(item.rate - speed.rate) < SPEED_EPSILON);
+    for (const { el, rowEl, rate } of items) {
+      const isSelected = hasMatchingNative && Math.abs(rate - speed.rate) < SPEED_EPSILON;
+      if (isSelected) {
+        rowEl.removeAttribute(HIDE_CHECK_ATTR);
+        const hasNativeSvg = rowEl.querySelector('svg:not([data-feed-sanity-icon])') !== null;
+        const ownCheck = rowEl.querySelector(`[${OWN_ATTR}="${OWN_NATIVE_CHECK_VALUE}"]`);
+        if (hasNativeSvg) {
+          ownCheck?.remove();
+        } else if (!ownCheck) {
+          el.append(createNativeCheckBadge(page.doc));
+        }
+      } else {
+        rowEl.setAttribute(HIDE_CHECK_ATTR, 'true');
+        rowEl.querySelector(`[${OWN_ATTR}="${OWN_NATIVE_CHECK_VALUE}"]`)?.remove();
+      }
+    }
+  };
+
+  const teardownParentMenu = (parent: Element): void => {
     const entry = mountedByParent.get(parent);
     if (!entry) {
       return;
     }
     mountedByParent.delete(parent);
+    clearNativeItemDecorations(entry.items);
     entry.unmount();
     entry.host.remove();
   };
+
+  const teardownParentRow = (rowEl: Element): void => {
+    const entry = parentRows.get(rowEl);
+    if (!entry) {
+      return;
+    }
+    parentRows.delete(rowEl);
+    entry.badge.remove();
+    for (const node of entry.hiddenNodes) {
+      node.removeAttribute(NATIVE_HIDDEN_ATTR);
+    }
+    entry.hiddenNodes.clear();
+  };
+
+  const formatParentBadgeText = (rate: number): string => ` · ${formatSpeedLabel(rate)}`;
+
+  const syncParentRow = (rowEl: Element): void => {
+    let entry = parentRows.get(rowEl);
+    if (!entry) {
+      const badge = page.doc.createElement('span');
+      badge.setAttribute(OWN_ATTR, OWN_PARENT_BADGE_VALUE);
+      entry = { badge, hiddenNodes: new Set() };
+      parentRows.set(rowEl, entry);
+    }
+    for (const nativeValueEl of findNativeSpeedValueElements(rowEl)) {
+      nativeValueEl.setAttribute(NATIVE_HIDDEN_ATTR, 'true');
+      entry.hiddenNodes.add(nativeValueEl);
+    }
+    const labelHost = findPlaybackSpeedLabelHost(rowEl);
+    if (entry.badge.parentElement !== labelHost) {
+      labelHost.append(entry.badge);
+    }
+    const nextText = formatParentBadgeText(store.get().rate);
+    if (entry.badge.textContent !== nextText) {
+      entry.badge.textContent = nextText;
+    }
+  };
+
+  scope.add(
+    store.subscribe(() => {
+      if (scope.disposed) {
+        return;
+      }
+      const nextText = formatParentBadgeText(store.get().rate);
+      for (const [rowEl, entry] of [...parentRows]) {
+        if (!rowEl.isConnected) {
+          teardownParentRow(rowEl);
+          continue;
+        }
+        if (entry.badge.textContent !== nextText) {
+          entry.badge.textContent = nextText;
+        }
+      }
+      for (const [parent, entry] of [...mountedByParent]) {
+        if (!parent.isConnected) {
+          teardownParentMenu(parent);
+          continue;
+        }
+        syncNativeSpeedItems(entry.items);
+      }
+    }),
+  );
 
   const hasTrackedAncestor = (el: Element): boolean => {
     let cur = el.parentElement;
@@ -492,74 +779,109 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
     return false;
   };
 
+  const bindNativeSpeedOption = (el: Element): void => {
+    if (nativeBound.has(el)) {
+      return;
+    }
+    nativeBound.add(el);
+    const applyNativeChoice = (): void => {
+      if (scope.disposed) {
+        return;
+      }
+      // Re-parse on interaction so React reusing the DOM node for another submenu item
+      // never applies a stale speed closure.
+      const currentRate = parseNativeSpeedLabel(extractVisibleText(el));
+      if (currentRate !== null) {
+        store.set({ rate: currentRate, custom: false }, true);
+      }
+    };
+    el.addEventListener('click', applyNativeChoice, { capture: true, signal: clickAbort.signal });
+    el.addEventListener(
+      'keydown',
+      (event) => {
+        const key = (event as KeyboardEvent).key;
+        if (key === 'Enter' || key === ' ') {
+          applyNativeChoice();
+        }
+      },
+      { capture: true, signal: clickAbort.signal },
+    );
+  };
+
   const attachMenuWatcher = (menu: Element): void => {
     if (menuCleanups.has(menu) || hasTrackedAncestor(menu)) {
       return;
     }
     let ownedParent: Element | null = null;
+    const ownedRows = new Set<Element>();
 
-    const teardownOwned = (): void => {
+    const teardownOwnedMenu = (): void => {
       if (!ownedParent) {
         return;
       }
-      teardownParent(ownedParent);
+      teardownParentMenu(ownedParent);
       ownedParent = null;
+    };
+
+    const teardownOwnedRows = (keep?: ReadonlySet<Element>): void => {
+      for (const row of [...ownedRows]) {
+        if (keep?.has(row)) {
+          continue;
+        }
+        ownedRows.delete(row);
+        teardownParentRow(row);
+      }
     };
 
     const syncMenu = (): void => {
       if (scope.disposed || !menu.isConnected) {
-        teardownOwned();
+        teardownOwnedMenu();
+        teardownOwnedRows();
         return;
       }
       const detected = detectSpeedMenu(menu);
-      const parent = detected?.anchor.parentElement ?? null;
-      if (!detected || !parent) {
-        teardownOwned();
+      if (!detected) {
+        teardownOwnedMenu();
+        const foundRows = new Set(detectParentSpeedRows(menu));
+        teardownOwnedRows(foundRows);
+        for (const rowEl of foundRows) {
+          ownedRows.add(rowEl);
+          syncParentRow(rowEl);
+        }
         return;
       }
-      for (const { el } of detected.items) {
-        if (!nativeBound.has(el)) {
-          nativeBound.add(el);
-          el.addEventListener(
-            'click',
-            () => {
-              if (scope.disposed) {
-                return;
-              }
-              // Re-parse on click so React reusing the DOM node for another submenu item
-              // never applies a stale speed closure.
-              const currentRate = parseNativeSpeedLabel(el.textContent ?? '');
-              if (currentRate !== null) {
-                store.set({ rate: currentRate, custom: false }, true);
-              }
-            },
-            { capture: true, signal: clickAbort.signal },
-          );
-        }
+
+      teardownOwnedRows();
+      const { parent, anchor, items } = detected;
+      for (const { el } of items) {
+        bindNativeSpeedOption(el);
       }
       const existing = mountedByParent.get(parent);
       if (existing) {
-        if (existing.host.previousElementSibling !== detected.anchor) {
-          detected.anchor.after(existing.host);
+        existing.items = items;
+        syncNativeSpeedItems(items);
+        if (existing.host.previousElementSibling !== anchor) {
+          anchor.after(existing.host);
         }
         return;
       }
       if (ownedParent && ownedParent !== parent) {
-        teardownOwned();
+        teardownOwnedMenu();
       }
       // Read computed polarity from the list parent BEFORE mutating DOM to avoid style thrash.
       const polarityCss = buildMenuPolarityCss(parent, page.doc);
       const host = page.doc.createElement(HOST_TAG);
       host.setAttribute(OWN_ATTR, 'x-video-speed');
       stopAtHost(host, PRESS_EVENTS);
-      detected.anchor.after(host);
+      anchor.after(host);
       const unmount = renderInShadow(
         host,
         <CustomSpeedControl store={store} />,
         polarityCss ? `${polarityCss}\n${css}` : css,
       );
-      mountedByParent.set(parent, { host, unmount });
+      mountedByParent.set(parent, { host, unmount, items });
       ownedParent = parent;
+      syncNativeSpeedItems(items);
     };
 
     const observer = new MutationObserver((records) => {
@@ -572,13 +894,14 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
 
     menuCleanups.set(menu, () => {
       observer.disconnect();
-      teardownOwned();
+      teardownOwnedMenu();
+      teardownOwnedRows();
       menuCleanups.delete(menu);
     });
   };
 
   scope.add(
-    page.watch(SPEED_MENU_SELECTOR, {
+    page.watch(MENU_CONTAINER_SELECTOR, {
       added: (menu) => attachMenuWatcher(menu),
       removed: (menu) => menuCleanups.get(menu)?.(),
     }),
@@ -590,7 +913,10 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
     }
     menuCleanups.clear();
     for (const parent of [...mountedByParent.keys()]) {
-      teardownParent(parent);
+      teardownParentMenu(parent);
+    }
+    for (const rowEl of [...parentRows.keys()]) {
+      teardownParentRow(rowEl);
     }
   });
 }
