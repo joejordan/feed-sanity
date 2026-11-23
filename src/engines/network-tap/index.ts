@@ -37,6 +37,37 @@ export interface NetworkTapHost {
   XMLHttpRequest?: typeof globalThis.XMLHttpRequest;
 }
 
+export type NetworkTapPhase =
+  | 'match'
+  | 'transformRequestBody'
+  | 'onResponse'
+  | 'transformResponseText';
+
+export interface NetworkTapError {
+  readonly ruleId: string;
+  readonly phase: NetworkTapPhase;
+  readonly error: unknown;
+}
+
+export interface NetworkRuleStats {
+  readonly matched: number;
+  readonly transformed: number;
+  readonly errors: number;
+}
+
+export interface NetworkTapStats {
+  readonly active: boolean;
+  readonly totalMatched: number;
+  readonly totalTransformed: number;
+  readonly totalErrors: number;
+  readonly rules: Readonly<Record<string, NetworkRuleStats>>;
+}
+
+export interface NetworkTapOptions {
+  /** Optional error sink invoked when a rule matcher, observer, or transformer throws. */
+  readonly onError?: (info: NetworkTapError) => void;
+}
+
 export interface NetworkTap {
   /** Registers a rule, installing the fetch/XHR hooks if not yet active. Returns an unsubscribe function. */
   addRule: (rule: NetworkRule) => () => void;
@@ -44,6 +75,8 @@ export interface NetworkTap {
   dispose: () => void;
   /** True while the hooks are currently installed on the host. */
   isActive: () => boolean;
+  /** Snapshot of per-rule match, transformation, and error counts for diagnostics. */
+  stats: () => NetworkTapStats;
 }
 
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
@@ -74,11 +107,24 @@ function resolveMethod(input: RequestInfo | URL, init?: RequestInit): string {
   return 'GET';
 }
 
+interface MutableRuleStats {
+  matched: number;
+  transformed: number;
+  errors: number;
+}
+
+interface TapAccounting {
+  recordMatched: (ruleId: string) => void;
+  recordTransformed: (ruleId: string) => void;
+  recordError: (ruleId: string, phase: NetworkTapPhase, error: unknown) => void;
+}
+
 function applyRequestTransforms(
   matched: readonly NetworkRule[],
   url: string,
   method: string,
   initialBody: unknown,
+  accounting: TapAccounting,
 ): { body: unknown; changed: boolean } {
   let body = initialBody;
   let changed = false;
@@ -91,29 +137,68 @@ function applyRequestTransforms(
       if (rewritten !== undefined) {
         body = rewritten;
         changed = true;
+        accounting.recordTransformed(rule.id);
       }
-    } catch {
+    } catch (error) {
       // Never break host requests on transformer failure.
+      accounting.recordError(rule.id, 'transformRequestBody', error);
     }
   }
   return { body, changed };
 }
 
-function notifyObserver(rule: NetworkRule, info: NetworkResponseInfo): void {
+function notifyObserver(
+  rule: NetworkRule,
+  info: NetworkResponseInfo,
+  accounting: TapAccounting,
+): void {
   if (!rule.onResponse) {
     return;
   }
   try {
     rule.onResponse(info);
-  } catch {
-    // Ignore observer failures.
+  } catch (error) {
+    // Ignore observer failures while recording telemetry.
+    accounting.recordError(rule.id, 'onResponse', error);
   }
 }
 
-function notifyObservers(matched: readonly NetworkRule[], info: NetworkResponseInfo): void {
+function notifyObservers(
+  matched: readonly NetworkRule[],
+  info: NetworkResponseInfo,
+  accounting: TapAccounting,
+): void {
   for (const rule of matched) {
-    notifyObserver(rule, info);
+    notifyObserver(rule, info, accounting);
   }
+}
+
+function applyResponseTransforms(
+  matched: readonly NetworkRule[],
+  base: Omit<NetworkResponseInfo, 'text'>,
+  initialText: string,
+  accounting: TapAccounting,
+): { text: string; mutated: boolean } {
+  let text = initialText;
+  let mutated = false;
+  for (const rule of matched) {
+    const info: NetworkResponseInfo = { ...base, text };
+    notifyObserver(rule, info, accounting);
+    if (rule.transformResponseText) {
+      try {
+        const next = rule.transformResponseText(info);
+        if (next !== undefined && next !== text) {
+          text = next;
+          mutated = true;
+          accounting.recordTransformed(rule.id);
+        }
+      } catch (error) {
+        // Keep previous text on transformer failure.
+        accounting.recordError(rule.id, 'transformResponseText', error);
+      }
+    }
+  }
+  return { text, mutated };
 }
 
 /**
@@ -122,10 +207,15 @@ function notifyObservers(matched: readonly NetworkRule[], info: NetworkResponseI
  * `document_start`; touches nothing until `addRule` is called.
  *
  * Supports `transformRequestBody`, `transformResponseText`, and read-only
- * `onResponse` across both `fetch` and `XMLHttpRequest`.
+ * `onResponse` across both `fetch` and `XMLHttpRequest`, with per-rule stats
+ * and optional `onError` observability.
  */
-export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap {
+export function createNetworkTap(
+  host: NetworkTapHost = globalThis,
+  options: NetworkTapOptions = {},
+): NetworkTap {
   const rules = new Set<NetworkRule>();
+  const ruleStats = new Map<string, MutableRuleStats>();
   let origFetch: typeof globalThis.fetch | undefined;
   let installedFetch: typeof globalThis.fetch | undefined;
   let origXhrOpen: typeof XMLHttpRequest.prototype.open | undefined;
@@ -135,18 +225,49 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
   let deactivate: (() => void) | undefined;
   let installed = false;
 
+  const ensureStat = (ruleId: string): MutableRuleStats => {
+    let entry = ruleStats.get(ruleId);
+    if (!entry) {
+      entry = { matched: 0, transformed: 0, errors: 0 };
+      ruleStats.set(ruleId, entry);
+    }
+    return entry;
+  };
+
+  const accounting: TapAccounting = {
+    recordMatched(ruleId) {
+      ensureStat(ruleId).matched++;
+    },
+    recordTransformed(ruleId) {
+      ensureStat(ruleId).transformed++;
+    },
+    recordError(ruleId, phase, error) {
+      ensureStat(ruleId).errors++;
+      if (options.onError) {
+        try {
+          options.onError({ ruleId, phase, error });
+        } catch {
+          // Never break host calls if an error observer throws.
+        }
+      }
+    },
+  };
+
   const xhrMeta = new WeakMap<XMLHttpRequest, { url: string; method: string }>();
+  const shadowedXhrs = new WeakSet<XMLHttpRequest>();
 
   const matchingRules = (url: string, method: string): NetworkRule[] | undefined => {
     let matched: NetworkRule[] | undefined;
     for (const rule of rules) {
       try {
         if (rule.match(url, method)) {
+          accounting.recordMatched(rule.id);
           matched ??= [];
           matched.push(rule);
         }
-      } catch {
+      } catch (error) {
         // Ignore broken matcher so host network calls never fail.
+        accounting.recordError(rule.id, 'match', error);
       }
     }
     return matched;
@@ -172,7 +293,7 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
         // Leave initialBody undefined if the Request body cannot be cloned as text.
       }
     }
-    const { body, changed } = applyRequestTransforms(matched, url, method, initialBody);
+    const { body, changed } = applyRequestTransforms(matched, url, method, initialBody, accounting);
     let nextInput: RequestInfo | URL = input;
     let nextInit: RequestInit | undefined = init;
     if (changed) {
@@ -206,28 +327,18 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
     const hasObserver = matched.some((rule) => rule.onResponse !== undefined);
 
     if (hasTransformer) {
-      let text: string;
+      let initialText: string;
       try {
-        text = await response.clone().text();
+        initialText = await response.clone().text();
       } catch {
         return response;
       }
-      let mutated = false;
-      for (const rule of matched) {
-        const info: NetworkResponseInfo = { url, method, body, status: response.status, text };
-        notifyObserver(rule, info);
-        if (rule.transformResponseText) {
-          try {
-            const next = rule.transformResponseText(info);
-            if (next !== undefined && next !== text) {
-              text = next;
-              mutated = true;
-            }
-          } catch {
-            // Keep previous text on transformer failure.
-          }
-        }
-      }
+      const { text, mutated } = applyResponseTransforms(
+        matched,
+        { url, method, body, status: response.status },
+        initialText,
+        accounting,
+      );
       if (!mutated || response.status === 0 || NULL_BODY_STATUSES.has(response.status)) {
         return response;
       }
@@ -257,7 +368,11 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
         .clone()
         .text()
         .then((text) =>
-          notifyObservers(matched, { url, method, body, status: response.status, text }),
+          notifyObservers(
+            matched,
+            { url, method, body, status: response.status, text },
+            accounting,
+          ),
         )
         .catch(() => undefined);
     }
@@ -305,6 +420,11 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
       origXhrSend = baseSend;
 
       const wrappedOpen = function tappedOpen(this: XMLHttpRequest, ...args: unknown[]): void {
+        if (shadowedXhrs.has(this)) {
+          shadowedXhrs.delete(this);
+          Reflect.deleteProperty(this, 'responseText');
+          Reflect.deleteProperty(this, 'response');
+        }
         if (active) {
           const [method, url] = args;
           xhrMeta.set(this, {
@@ -332,12 +452,17 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
         if (!matched) {
           return baseSend.call(this, body);
         }
-        const { body: nextBody } = applyRequestTransforms(matched, meta.url, meta.method, body);
+        const { body: nextBody } = applyRequestTransforms(
+          matched,
+          meta.url,
+          meta.method,
+          body,
+          accounting,
+        );
         const hasResponseTransformer = matched.some(
           (rule) => rule.transformResponseText !== undefined,
         );
         const hasObserver = matched.some((rule) => rule.onResponse !== undefined);
-        const capturedBody = nextBody;
 
         if (hasResponseTransformer) {
           const proto = Object.getPrototypeOf(this) as XMLHttpRequest;
@@ -380,29 +505,12 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
             } catch {
               return;
             }
-            let text = rawText;
-            let mutated = false;
-            for (const rule of matched) {
-              const info: NetworkResponseInfo = {
-                url: meta.url,
-                method: meta.method,
-                body: capturedBody,
-                status: this.status,
-                text,
-              };
-              notifyObserver(rule, info);
-              if (rule.transformResponseText) {
-                try {
-                  const next = rule.transformResponseText(info);
-                  if (next !== undefined && next !== text) {
-                    text = next;
-                    mutated = true;
-                  }
-                } catch {
-                  // Keep previous text on transformer failure.
-                }
-              }
-            }
+            const { text, mutated } = applyResponseTransforms(
+              matched,
+              { url: meta.url, method: meta.method, body: nextBody, status: this.status },
+              rawText,
+              accounting,
+            );
             if (mutated) {
               transformedText = text;
               if (rType === 'json') {
@@ -416,6 +524,7 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
             }
           };
 
+          shadowedXhrs.add(this);
           Object.defineProperty(this, 'responseText', {
             configurable: true,
             get: () => {
@@ -455,13 +564,17 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
               } catch {
                 return;
               }
-              notifyObservers(matched, {
-                url: meta.url,
-                method: meta.method,
-                body: capturedBody,
-                status: this.status,
-                text,
-              });
+              notifyObservers(
+                matched,
+                {
+                  url: meta.url,
+                  method: meta.method,
+                  body: nextBody,
+                  status: this.status,
+                  text,
+                },
+                accounting,
+              );
             },
             { once: true },
           );
@@ -509,6 +622,7 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
   return {
     addRule(rule) {
       rules.add(rule);
+      ensureStat(rule.id);
       install();
       let removed = false;
       return () => {
@@ -527,5 +641,24 @@ export function createNetworkTap(host: NetworkTapHost = globalThis): NetworkTap 
       uninstall();
     },
     isActive: () => installed,
+    stats() {
+      let totalMatched = 0;
+      let totalTransformed = 0;
+      let totalErrors = 0;
+      const snapshot: Record<string, NetworkRuleStats> = {};
+      for (const [id, entry] of ruleStats) {
+        totalMatched += entry.matched;
+        totalTransformed += entry.transformed;
+        totalErrors += entry.errors;
+        snapshot[id] = { ...entry };
+      }
+      return {
+        active: installed,
+        totalMatched,
+        totalTransformed,
+        totalErrors,
+        rules: snapshot,
+      };
+    },
   };
 }

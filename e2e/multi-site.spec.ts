@@ -357,7 +357,31 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await dialog.getByRole('button', { name: 'Save' }).click();
       await expect(dialog).toBeHidden();
 
+      // Open Filters panel on X.com, create a custom rule from a starter recipe,
+      // test it live, save, and verify the post hides with a revealable note and persists across reload!
+      await page.evaluate(() =>
+        (
+          globalThis as unknown as { __openFeedSanityOptions: () => void }
+        ).__openFeedSanityOptions(),
+      );
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: 'Filters' }).click();
+      await dialog.getByRole('button', { name: /Mute posts by keyword/i }).click();
+      await dialog.getByRole('textbox', { name: 'Text to look for' }).fill('systems engineering');
+      await dialog.getByRole('button', { name: /All filters/ }).click();
+      await expect(dialog.getByText('Mute keyword')).toBeVisible();
+      await dialog.getByRole('button', { name: 'Save' }).click();
+      await expect(dialog).toBeHidden();
+
+      // `#tweet-organic` is now hidden by our custom Filter Rule with a click-to-reveal note!
+      await expect(page.locator('#tweet-organic')).toBeHidden();
+      const note = page.locator('button[data-feed-sanity="filter-note"]');
+      await expect(note).toBeVisible();
+      await note.click();
+      await expect(page.locator('#tweet-organic')).toBeVisible();
+
       await page.reload();
+      await expect(page.locator('#tweet-organic')).toBeHidden();
       await expect
         .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
         .toBe('rgb(244, 239, 230)');
@@ -535,6 +559,11 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: 'Appearance' }).click();
       await dialog.getByRole('button', { name: /Catppuccin Mocha/i }).click();
+
+      // Also verify the redesigned Filters panel renders cleanly under strict Trusted Types CSP!
+      await dialog.getByRole('button', { name: 'Filters' }).click();
+      await expect(dialog.getByText('Start from a recipe')).toBeVisible();
+      await dialog.getByRole('button', { name: 'Appearance' }).click();
 
       // Both Gmail's main document AND the same-origin `#compose-frame` iframe receive the live theme!
       await expect

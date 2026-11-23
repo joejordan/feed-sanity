@@ -7,6 +7,7 @@
 // on that host.
 
 import type { Feature, FeatureContext, FeatureDefinition } from '../core/feature';
+import type { FilterFields } from '../core/filter-engine';
 import type { OptionSpecs } from '../core/options';
 import { defineFeature } from '../core/feature';
 
@@ -45,6 +46,8 @@ export interface FeedItem {
   /** True while asynchronous metadata classification (e.g. PageBridge fiber lookup) is in flight. */
   readonly pending?: boolean;
   readonly readLowerText?: () => string;
+  /** Optional structured field reader powering cross-site Filter Rules. */
+  readonly readFields?: () => FilterFields;
 }
 
 /** Feed stream capability for cross-site post filtering, ad hiding, and mark-as-read features. */
@@ -91,6 +94,8 @@ export interface ThreadRow {
   readonly unread: boolean;
   readonly isAd?: boolean;
   readonly readLowerText?: () => string;
+  /** Optional structured field reader powering cross-site Filter Rules. */
+  readonly readFields?: () => FilterFields;
 }
 
 export interface ThreadListCapability {

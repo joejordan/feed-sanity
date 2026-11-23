@@ -1,11 +1,11 @@
 import type { CapablePage, SiteCapabilities } from '../../capabilities';
 import type { DomEnvironment } from '../../core/dom-env';
 import type { Binder, Feature, FeatureDefinition, PageFactory } from '../../core/feature';
-import type { Locate, Locator, LocatorSpec, LocatorStats } from '../../core/locator';
+import type { Locate, LocatorStats } from '../../core/locator';
 import type { OptionSpecs } from '../../core/options';
 import type { PageWatcher } from '../../core/page-watcher';
 import type { SavedData } from '../../core/saved';
-import { bindLocator, bindThreads, bindWatch } from '../../core/bind';
+import { bindLocate, bindThreads, bindWatch } from '../../core/bind';
 import { createDomEnvironment } from '../../core/dom-env';
 import { defineFeature as defineCoreFeature } from '../../core/feature';
 import {
@@ -30,6 +30,7 @@ export interface GmailStats {
 
 export interface GmailPage extends CapablePage {
   readonly doc: Document;
+  readonly env: DomEnvironment;
   readonly locate: Locate;
   readonly watch: PageWatcher['watch'];
   readonly onUrlChange: (listener: () => void) => () => void;
@@ -40,15 +41,19 @@ export interface GmailPage extends CapablePage {
 
 /**
  * Creates Gmail's `PageFactory`: zero React, zero MAIN-world bridge, and
- * strictly Trusted Types safe. (Same-origin iframe observation is scoped to
- * `gmailSite.themeEnvOptions` so no redundant iframe observer runs here.)
+ * strictly Trusted Types safe. Shares the site's `DomEnvironment` when passed
+ * by `startSite`.
  */
 export function createGmailPage(
   data: SavedData,
+  _installPageWorld?: () => Promise<void>,
+  sharedEnv?: DomEnvironment,
 ): PageFactory<GmailPage> & { readonly stats: GmailStats } {
-  const env: DomEnvironment = createDomEnvironment({
-    log: createLogger('gmail-dom'),
-  });
+  const env: DomEnvironment =
+    sharedEnv ??
+    createDomEnvironment({
+      log: createLogger('gmail-dom'),
+    });
   const locators = new Locators(IDENTITY_RESOLVER, Object.values(selectors).filter(isLocatorSpec));
   const overrides = data.value(GMAIL_LOCATOR_OVERRIDES, readLocatorOverrides);
   locators.override(overrides.get());
@@ -58,19 +63,12 @@ export function createGmailPage(
   const threads = new GmailThreadList(env, locate);
 
   const factory: PageFactory<GmailPage> = (binder: Binder) => {
-    const boundLocators = new Map<LocatorSpec, Locator>();
     const boundThreads = bindThreads(threads, binder);
     return {
       doc: env.doc,
-      locate: (spec) => {
-        let locator = boundLocators.get(spec);
-        if (!locator) {
-          locator = bindLocator(locate(spec), binder);
-          boundLocators.set(spec, locator);
-        }
-        return locator;
-      },
-      watch: bindWatch(env.watcher, binder),
+      env,
+      locate: bindLocate(locate, binder),
+      watch: bindWatch(env, binder),
       onUrlChange: (listener) => binder.listen((guarded) => env.onUrlChange(guarded), listener),
       threads: boundThreads,
       capabilities: {

@@ -6,11 +6,13 @@ import { readLocatorOverrides } from '../../core/locator';
 import { siteStoragePrefix } from '../../core/site-storage';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
+import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createInstagramPage, IG_LOCATOR_OVERRIDES } from './feature';
 import igDefaultFollowing from './features/default-following';
 import igFeedFilters from './features/feed-filters';
 import igHideClutter from './features/hide-clutter';
 import igVideoControls from './features/video-controls';
+import { INSTAGRAM_FILTER_SCHEMA } from './filter-schema';
 import { instagramAccountId, instagramPageType, scrubInstagramPii } from './page';
 import instagramTheme from './theme.css?inline';
 import { instagramThemeMapping } from './theme-mapping';
@@ -44,6 +46,7 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
     const { stats } = page;
     const overrides = data.value(IG_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
+      createFiltersPanel(data, INSTAGRAM_FILTER_SCHEMA),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();
@@ -64,6 +67,7 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
                 lines: [
                   `Matched API responses: ${net.matchedResponses}`,
                   `Cached media entries: ${net.cachedItems}`,
+                  ...(net.errors ? [`Tap errors: ${net.errors}`] : []),
                 ],
               },
             ],

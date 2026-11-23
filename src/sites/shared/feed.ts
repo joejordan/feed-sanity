@@ -6,6 +6,7 @@
 import type { FeedCapability, FeedItem, FeedStats } from '../../capabilities';
 import type { PageBridge } from '../../core/bridge';
 import type { DomEnvironment } from '../../core/dom-env';
+import type { FilterFields } from '../../core/filter-engine';
 import type { Locate, LocatorSpec } from '../../core/locator';
 import { callSafely, Listeners } from '../../core/listeners';
 import { createLogger } from '../../core/log';
@@ -29,6 +30,11 @@ export interface SiteFeedConfig {
   };
   /** Optional text extractor (defaults to `element.textContent`). Return `null` to skip caching until hydrated. */
   readonly readText?: (element: HTMLElement) => string | null;
+  /** Optional structured field extractor for custom cross-site Filter Rules. */
+  readonly readFields?: (
+    element: HTMLElement,
+    signals: { readonly isAd: boolean; readonly isSuggested: boolean },
+  ) => FilterFields;
 }
 
 export class SiteFeed implements FeedCapability {
@@ -175,7 +181,7 @@ export class SiteFeed implements FeedCapability {
       return;
     }
     this.#started = true;
-    this.#stop = this.#env.watcher.watch(this.#locate(this.#config.itemSpec), {
+    this.#stop = this.#env.watch(this.#locate(this.#config.itemSpec), {
       added: (el) => {
         if (el instanceof HTMLElement) {
           this.#enter(el);
@@ -215,6 +221,15 @@ export class SiteFeed implements FeedCapability {
     this.#tracked.clear();
   }
 
+  #makeReadFields(
+    element: HTMLElement,
+    isAd: boolean,
+    isSuggested: boolean,
+  ): (() => FilterFields) | undefined {
+    const reader = this.#config.readFields;
+    return reader ? () => reader(element, { isAd, isSuggested }) : undefined;
+  }
+
   #enter(element: HTMLElement): void {
     if (this.#tracked.has(element)) {
       return;
@@ -236,6 +251,7 @@ export class SiteFeed implements FeedCapability {
       cachedLower = (element.textContent ?? '').toLowerCase();
       return cachedLower;
     };
+    const readFields = this.#makeReadFields(element, dom.isAd, dom.isSuggested);
     const willEnrich = this.#bridge.status().state !== 'unavailable';
     const pending = willEnrich && !dom.isAd && !dom.isSuggested;
     const item: SiteFeedItem = {
@@ -247,6 +263,7 @@ export class SiteFeed implements FeedCapability {
       isSuggested: dom.isSuggested,
       pending,
       readLowerText,
+      ...(readFields ? { readFields } : {}),
     };
     this.#tracked.set(element, item);
     this.#trackListeners.emit(item);
@@ -284,12 +301,14 @@ export class SiteFeed implements FeedCapability {
     ) {
       return item;
     }
+    const updatedReadFields = this.#makeReadFields(element, nextAd, nextSuggested);
     const updated: SiteFeedItem = {
       ...item,
       id: nextId,
       isAd: nextAd,
       isSuggested: nextSuggested,
       pending: nextPending,
+      ...(updatedReadFields ? { readFields: updatedReadFields } : {}),
     };
     this.#tracked.set(element, updated);
     this.#updateListeners.emit(updated);

@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CapablePage } from '../capabilities';
+import type { DomEnvironment } from './dom-env';
 import type { SiteAdapter } from './site';
+import type { Store } from './storage';
 import { defineCapabilityFeature } from '../capabilities';
 import { defineFeature } from './feature';
 import { SiteRegistry, scrubCommonPii, startSite } from './site';
 import { SITES_STORAGE_KEY } from './site-settings';
 import { inMemoryStore } from './testing';
+import { readEarlyThemeCss, writeEarlyThemeCss } from './theming';
 
 describe('SiteRegistry, capabilities, and startSite', () => {
   it('scrubs URLs, emails, and long numbers generically', () => {
@@ -137,5 +140,60 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     await store.set(SITES_STORAGE_KEY, { facebook: true });
     await vi.waitFor(() => expect(events).toEqual(['start', 'stop', 'start']));
     expect(badges.at(-1)).toEqual({ count: 2, failed: false });
+  });
+
+  it('batches startup reads via getMany, shares one DomEnvironment, and clears stale early-theme cache when disabled', async () => {
+    writeEarlyThemeCss('facebook', 'body { background: #111; }');
+    const backing = inMemoryStore({ [SITES_STORAGE_KEY]: { facebook: false } });
+    const getSpy = vi.spyOn(backing, 'get');
+    const getManySpy = vi.fn(async (keys: readonly string[]) =>
+      Object.fromEntries(await Promise.all(keys.map(async (k) => [k, await backing.get(k)]))),
+    );
+    const batchedStore: Store = {
+      get: (key) => backing.get(key),
+      getMany: getManySpy,
+      set: (key, value) => backing.set(key, value),
+      onChange: (key, listener) => backing.onChange(key, listener),
+    };
+
+    const receivedEnvs: Array<DomEnvironment | undefined> = [];
+    const site: SiteAdapter<Record<string, never>> = {
+      id: 'facebook',
+      displayName: 'Facebook',
+      matchesHost: () => true,
+      themeCss: '',
+      themeMapping: { rootSelectors: [':root'] },
+      accountId: () => 'u1',
+      storagePrefix: (account) => `v2/facebook/${account}`,
+      scrubPii: scrubCommonPii,
+      createPage: (_data, _install, env) => {
+        receivedEnvs.push(env);
+        return () => ({});
+      },
+      features: [],
+      createPanels: () => [],
+    };
+
+    await startSite(site, {
+      build: 'test',
+      store: batchedStore,
+      setBadge: () => undefined,
+      onOpenOptions: () => () => undefined,
+      installPageWorld: () => Promise.resolve(),
+    });
+
+    // Batched preload ran once; disabled site cleared early-theme cache and style immediately.
+    expect(getManySpy).toHaveBeenCalledTimes(1);
+    expect(readEarlyThemeCss('facebook')).toBe('');
+    expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
+
+    // Updating options while disabled and then enabling reads live storage (not stale T=0 preload)
+    // and receives a single shared DomEnvironment.
+    getSpy.mockClear();
+    await backing.set('v2/facebook/u1/options', { demo: true });
+    await backing.set(SITES_STORAGE_KEY, { facebook: true });
+    await vi.waitFor(() => expect(receivedEnvs).toHaveLength(1));
+    expect(receivedEnvs[0]).toBeDefined();
+    expect(getSpy).toHaveBeenCalledWith('v2/facebook/u1/options');
   });
 });

@@ -25,6 +25,7 @@ export interface InstagramVideoSources {
 export interface InstagramNetworkStats {
   readonly matchedResponses: number;
   readonly cachedItems: number;
+  readonly errors?: number;
 }
 
 interface CachedMediaMeta {
@@ -431,9 +432,11 @@ export function startInstagramPageWorld(
       matchedResponses++;
       const updated = parseAndIndex(text);
       if (updated > 0) {
+        const totalErrors = tap.stats().totalErrors;
         emitter.emit('ig:network-stats', {
           matchedResponses,
           cachedItems: cache.size,
+          ...(totalErrors > 0 ? { errors: totalErrors } : {}),
         } satisfies InstagramNetworkStats);
       }
     },

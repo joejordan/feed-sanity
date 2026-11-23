@@ -115,9 +115,14 @@ export class PageBridge {
   readonly #listeners: Listeners<[BridgeStatus]>;
   readonly #topicListeners = new Map<string, Listeners<[unknown]>>();
   readonly #bufferedTopics = new Map<string, unknown[]>();
+  readonly #lateMountCleanups = new Set<() => void>();
+  readonly #pendingSends = new Set<() => void>();
   #status: BridgeStatus = NOT_STARTED;
   #channel = '';
   #nextId = 1;
+  #disposed = false;
+  #connectCleanup: (() => void) | undefined;
+  #pushCleanup: (() => void) | undefined;
   /** Settles once the bridge is connected or unavailable. */
   #settled: Promise<void> | undefined;
 
@@ -138,6 +143,38 @@ export class PageBridge {
 
   status(): BridgeStatus {
     return this.#status;
+  }
+
+  /**
+   * Tears down document event listeners, pending connect/late-mount timers, and
+   * buffered topics. Safe to call repeatedly; any subsequent call fails with
+   * `unavailable`.
+   */
+  dispose(): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#disposed = true;
+    this.#connectCleanup?.();
+    this.#connectCleanup = undefined;
+    this.#pushCleanup?.();
+    this.#pushCleanup = undefined;
+    for (const cleanup of [...this.#lateMountCleanups]) {
+      cleanup();
+    }
+    this.#lateMountCleanups.clear();
+    for (const cancelSend of [...this.#pendingSends]) {
+      cancelSend();
+    }
+    this.#pendingSends.clear();
+    this.#listeners.clear();
+    for (const bucket of this.#topicListeners.values()) {
+      bucket.clear();
+    }
+    this.#topicListeners.clear();
+    this.#bufferedTopics.clear();
+    this.#status = { ...NOT_STARTED, state: 'unavailable', problem: 'the bridge was disposed' };
+    this.#settled = Promise.resolve();
   }
 
   /**
@@ -274,21 +311,29 @@ export class PageBridge {
         return;
       }
       released = true;
-      void this.#send(
-        document,
-        unmountEvent(this.#channel),
-        (id) => ({ id, mountId }),
-        `unmounting ${mount}`,
-        undefined,
-      ).catch(() => undefined);
+      this.#unmount(mountId, mount);
     };
   }
 
+  #unmount(mountId: number, mount: string): void {
+    void this.#send(
+      document,
+      unmountEvent(this.#channel),
+      (id) => ({ id, mountId }),
+      `unmounting ${mount}`,
+      undefined,
+    ).catch(() => undefined);
+  }
+
   #watchLateMount(element: Element, requestId: number, mount: string): void {
+    if (this.#disposed) {
+      return;
+    }
     const type = answerEvent(this.#channel);
     const cleanup = (): void => {
       clearTimeout(timer);
       element.removeEventListener(type, heard);
+      this.#lateMountCleanups.delete(cleanup);
     };
     const heard = (event: Event): void => {
       const message = readMessage(event);
@@ -296,19 +341,16 @@ export class PageBridge {
         return;
       }
       cleanup();
+      if (this.#disposed) {
+        return;
+      }
       const value = message.value;
       if (isPlainObject(value) && typeof value.mountId === 'number') {
-        const { mountId } = value;
-        void this.#send(
-          document,
-          unmountEvent(this.#channel),
-          (id) => ({ id, mountId }),
-          `unmounting ${mount}`,
-          undefined,
-        ).catch(() => undefined);
+        this.#unmount(value.mountId, mount);
       }
     };
     const timer = setTimeout(cleanup, LATE_MOUNT_CLEANUP_MS);
+    this.#lateMountCleanups.add(cleanup);
     element.addEventListener(type, heard);
   }
 
@@ -369,12 +411,17 @@ export class PageBridge {
     return new Promise((resolve, reject) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const cancelOnDispose = (): void => {
+        end();
+        reject(new BridgeError('unavailable', 'the bridge was disposed'));
+      };
       const end = (): void => {
         settled = true;
         if (timer !== undefined) {
           clearTimeout(timer);
           timer = undefined;
         }
+        this.#pendingSends.delete(cancelOnDispose);
         target.removeEventListener(type, heard);
         signal?.removeEventListener('abort', aborted);
       };
@@ -399,6 +446,7 @@ export class PageBridge {
       // `servePageWorld` answers synchronously during `dispatchEvent`; skip
       // allocating a timer and abort listener in that common path.
       if (!settled) {
+        this.#pendingSends.add(cancelOnDispose);
         timer = setTimeout(() => {
           end();
           reject(new BridgeError('timeout', `${label} did not answer in time`));
@@ -414,8 +462,41 @@ export class PageBridge {
   }
 
   #start(): Promise<void> {
+    if (this.#disposed) {
+      return Promise.resolve();
+    }
     this.#settled ??= this.#connect();
     return this.#settled;
+  }
+
+  #handlePush(pushed: Event): void {
+    if (this.#disposed || pushed.target !== document) {
+      return;
+    }
+    const payloadMsg = readMessage(pushed);
+    if (typeof payloadMsg?.topic !== 'string') {
+      return;
+    }
+    const bucket = this.#topicListeners.get(payloadMsg.topic);
+    if (bucket && bucket.size > 0) {
+      bucket.emit(payloadMsg.payload);
+      return;
+    }
+    let queue = this.#bufferedTopics.get(payloadMsg.topic);
+    if (!queue) {
+      if (this.#bufferedTopics.size >= MAX_BUFFERED_TOPICS) {
+        const oldest = this.#bufferedTopics.keys().next().value;
+        if (oldest !== undefined) {
+          this.#bufferedTopics.delete(oldest);
+        }
+      }
+      queue = [];
+      this.#bufferedTopics.set(payloadMsg.topic, queue);
+    }
+    if (queue.length >= MAX_BUFFERED_PER_TOPIC) {
+      queue.shift();
+    }
+    queue.push(payloadMsg.payload);
   }
 
   #connect(): Promise<void> {
@@ -426,13 +507,21 @@ export class PageBridge {
       document.dispatchEvent(messageEvent(CONNECT_EVENT, { channel: this.#channel }));
     };
     return new Promise((resolve) => {
+      const cleanupHandshake = (): void => {
+        clearTimeout(timer);
+        document.removeEventListener(READY_EVENT, hello, true);
+        document.removeEventListener(connected, heard, true);
+      };
       const end = (status: BridgeStatus): void => {
         if (this.#status.state !== 'connecting') {
           return;
         }
-        clearTimeout(timer);
-        document.removeEventListener(READY_EVENT, hello, true);
-        document.removeEventListener(connected, heard, true);
+        this.#connectCleanup = undefined;
+        cleanupHandshake();
+        if (this.#disposed) {
+          resolve();
+          return;
+        }
         if (status.problem) {
           this.#log.error(`the page-world bridge is unavailable: ${status.problem}`);
         }
@@ -453,39 +542,10 @@ export class PageBridge {
           (actions === undefined || isStringList(actions)) &&
           (mounts === undefined || isStringList(mounts))
         ) {
-          document.addEventListener(
-            pushEvent(this.#channel),
-            (pushed) => {
-              if (pushed.target !== document) {
-                return;
-              }
-              const payloadMsg = readMessage(pushed);
-              if (typeof payloadMsg?.topic !== 'string') {
-                return;
-              }
-              const bucket = this.#topicListeners.get(payloadMsg.topic);
-              if (bucket && bucket.size > 0) {
-                bucket.emit(payloadMsg.payload);
-                return;
-              }
-              let queue = this.#bufferedTopics.get(payloadMsg.topic);
-              if (!queue) {
-                if (this.#bufferedTopics.size >= MAX_BUFFERED_TOPICS) {
-                  const oldest = this.#bufferedTopics.keys().next().value;
-                  if (oldest !== undefined) {
-                    this.#bufferedTopics.delete(oldest);
-                  }
-                }
-                queue = [];
-                this.#bufferedTopics.set(payloadMsg.topic, queue);
-              }
-              if (queue.length >= MAX_BUFFERED_PER_TOPIC) {
-                queue.shift();
-              }
-              queue.push(payloadMsg.payload);
-            },
-            true,
-          );
+          const pushType = pushEvent(this.#channel);
+          const onPush = (pushed: Event): void => this.#handlePush(pushed);
+          document.addEventListener(pushType, onPush, true);
+          this.#pushCleanup = () => document.removeEventListener(pushType, onPush, true);
           end({
             state: 'connected',
             problem: null,
@@ -500,6 +560,10 @@ export class PageBridge {
         () => unavailable('the page script did not answer'),
         this.#connectMs,
       );
+      this.#connectCleanup = () => {
+        cleanupHandshake();
+        resolve();
+      };
       document.addEventListener(connected, heard, true);
       // A page-world side that starts later says so, and is sent this again.
       document.addEventListener(READY_EVENT, hello, true);

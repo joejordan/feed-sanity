@@ -219,4 +219,39 @@ describe('engines/network-tap', () => {
     expect(xhrSeen).toHaveLength(0);
     xhrTap.dispose();
   });
+
+  it('tracks per-rule stats and reports hook failures through onError', async () => {
+    const baseFetch = vi.fn(() => Promise.resolve(new Response('{"ads":1}', { status: 200 })));
+    const host: NetworkTapHost = { fetch: baseFetch as unknown as typeof globalThis.fetch };
+    const errors: Array<{ ruleId: string; phase: string }> = [];
+    const tap = createNetworkTap(host, {
+      onError: ({ ruleId, phase }) => errors.push({ ruleId, phase }),
+    });
+
+    tap.addRule({
+      id: 'good-transform',
+      match: (url) => url.includes('/feed'),
+      transformResponseText: ({ text }) => text.replace('1', '0'),
+    });
+    tap.addRule({
+      id: 'broken-rule',
+      match: () => true,
+      onResponse: () => {
+        throw new Error('observer crash');
+      },
+    });
+
+    const res = await host.fetch?.('https://example.com/feed');
+    expect(await res?.text()).toBe('{"ads":0}');
+
+    const snapshot = tap.stats();
+    expect(snapshot.active).toBe(true);
+    expect(snapshot.totalMatched).toBe(2);
+    expect(snapshot.totalTransformed).toBe(1);
+    expect(snapshot.totalErrors).toBe(1);
+    expect(snapshot.rules['good-transform']).toEqual({ matched: 1, transformed: 1, errors: 0 });
+    expect(snapshot.rules['broken-rule']).toEqual({ matched: 1, transformed: 0, errors: 1 });
+    expect(errors).toEqual([{ ruleId: 'broken-rule', phase: 'onResponse' }]);
+    tap.dispose();
+  });
 });

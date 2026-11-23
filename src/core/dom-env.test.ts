@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDomEnvironment } from './dom-env';
+import { concealPending } from './surface';
 
 describe('createDomEnvironment', () => {
   beforeEach(() => {
@@ -180,6 +181,92 @@ describe('createDomEnvironment', () => {
     frame.remove();
     await vi.waitFor(() => expect(disposedDocs).toEqual([docA, docB]));
 
+    env.dispose();
+  });
+
+  it('watches selectors across light DOM and open ShadowRoots and notifies removed on host disconnect', async () => {
+    const env = createDomEnvironment({ pierceShadow: true });
+    const lightItem = document.createElement('article');
+    lightItem.dataset.card = '1';
+    document.body.append(lightItem);
+
+    const added: Element[] = [];
+    const removed: Element[] = [];
+    const stop = env.watch('[data-card]', {
+      added: (el) => added.push(el),
+      removed: (el) => removed.push(el),
+    });
+    expect(added).toEqual([lightItem]);
+
+    // Mount a Shadow Root containing a matching element.
+    const host = document.createElement('div');
+    const shadow = host.attachShadow({ mode: 'open' });
+    const shadowItem = document.createElement('article');
+    shadowItem.dataset.card = '2';
+    shadow.append(shadowItem);
+    document.body.append(host);
+
+    await vi.waitFor(() => expect(added).toEqual([lightItem, shadowItem]));
+
+    // Disconnecting the shadow host reports tracked shadow elements as removed.
+    host.remove();
+    await vi.waitFor(() => expect(removed).toEqual([shadowItem]));
+
+    stop();
+    env.dispose();
+  });
+
+  it('injects concealPending styles into both light DOM and open ShadowRoots', async () => {
+    const env = createDomEnvironment({ pierceShadow: true });
+    const host = document.createElement('div');
+    const shadow = host.attachShadow({ mode: 'open' });
+    document.body.append(host);
+
+    const stop = concealPending(
+      env.scope,
+      {
+        id: 'test_conceal',
+        activeAttr: 'data-fs-test-conceal',
+        pendingSelector: 'article:not([data-checked])',
+      },
+      env,
+    );
+
+    expect(document.querySelector('#test_conceal')).not.toBeNull();
+    await vi.waitFor(() => expect(shadow.querySelector('#test_conceal')).not.toBeNull());
+
+    stop();
+    expect(document.querySelector('#test_conceal')).toBeNull();
+    expect(shadow.querySelector('#test_conceal')).toBeNull();
+    env.dispose();
+  });
+
+  it('stops cleanly when a late ShadowRoot watch callback calls stop() re-entrantly', async () => {
+    const env = createDomEnvironment({ pierceShadow: true });
+    const seen: Element[] = [];
+    const stop = env.watch('.hit', {
+      added: (el) => {
+        seen.push(el);
+        stop();
+      },
+    });
+
+    const host = document.createElement('div');
+    const shadow = host.attachShadow({ mode: 'open' });
+    const a = document.createElement('span');
+    a.className = 'hit';
+    const b = document.createElement('span');
+    b.className = 'hit';
+    shadow.append(a, b);
+    document.body.append(host);
+
+    await vi.waitFor(() => expect(seen).toEqual([a]));
+    // Future mutations inside the ShadowRoot must not invoke the stopped callback.
+    const c = document.createElement('span');
+    c.className = 'hit';
+    shadow.append(c);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seen).toEqual([a]);
     env.dispose();
   });
 });

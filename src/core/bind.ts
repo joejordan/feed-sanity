@@ -12,7 +12,7 @@ import type {
   ThreadRow,
 } from '../capabilities';
 import type { Binder } from './feature';
-import type { Locator } from './locator';
+import type { Locate, Locator, LocatorSpec } from './locator';
 import type { PageWatcher, WatchHandlers } from './page-watcher';
 
 export function bindLocator(locator: Locator, { listen }: Binder): Locator {
@@ -28,7 +28,23 @@ export function bindLocator(locator: Locator, { listen }: Binder): Locator {
   };
 }
 
-export function bindWatch(watcher: PageWatcher, { scope, guard }: Binder): PageWatcher['watch'] {
+/** Memoizes `bindLocator` per `LocatorSpec` for a feature's `Binder`. */
+export function bindLocate(locate: Locate, binder: Binder): Locate {
+  const bound = new Map<LocatorSpec, Locator>();
+  return (spec) => {
+    let locator = bound.get(spec);
+    if (!locator) {
+      locator = bindLocator(locate(spec), binder);
+      bound.set(spec, locator);
+    }
+    return locator;
+  };
+}
+
+export function bindWatch(
+  watcher: Pick<PageWatcher, 'watch'>,
+  { scope, guard }: Binder,
+): PageWatcher['watch'] {
   return (selector, { added, removed, changed }, options) => {
     const handlers: WatchHandlers = {};
     if (added) {

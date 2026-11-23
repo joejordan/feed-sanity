@@ -1,3 +1,4 @@
+import type { DomEnvironment } from './dom-env';
 import type { PageWatcher } from './page-watcher';
 import type { Scope } from './scope';
 import { addStyle } from './dom';
@@ -123,15 +124,49 @@ export interface ConcealRule {
  * Installs a pre-paint CSS concealment rule with a `step-end` fail-safe
  * animation so newly inserted feed items or rows never flash before async
  * checks finish, yet automatically reveal after `maxMs` if untracked.
+ * When `env` is supplied, also injects the rule into discovered open Shadow Roots.
  */
-export function concealPending(scope: Scope, rule: ConcealRule): () => void {
+export function concealPending(
+  scope: Scope,
+  rule: ConcealRule,
+  env?: Pick<DomEnvironment, 'doc' | 'onShadowRoot'>,
+): () => void {
   if (scope.disposed) {
     return () => undefined;
   }
   const maxMs = rule.maxMs ?? 300;
   const keyframe = `${rule.id}_reveal`;
-  const css = `html[${rule.activeAttr}] ${rule.pendingSelector} { animation: ${keyframe} ${maxMs}ms step-end 1; } @keyframes ${keyframe} { 0% { opacity: 0; } 100% { opacity: 1; } }`;
-  return scope.add(addStyle(rule.id, css));
+  const keyframes = `@keyframes ${keyframe} { 0% { opacity: 0; } 100% { opacity: 1; } }`;
+  const lightCss = `html[${rule.activeAttr}] ${rule.pendingSelector} { animation: ${keyframe} ${maxMs}ms step-end 1; } ${keyframes}`;
+  const removeLight = scope.add(addStyle(rule.id, lightCss, env?.doc ?? document));
+  if (!env) {
+    return removeLight;
+  }
+  const shadowCss = `${rule.pendingSelector} { animation: ${keyframe} ${maxMs}ms step-end 1; } ${keyframes}`;
+  const shadowRemovers = new Set<() => void>();
+  const stopShadows = env.onShadowRoot((shadow, rootScope) => {
+    if (scope.disposed || rootScope.disposed) {
+      return;
+    }
+    const removeStyle = addStyle(rule.id, shadowCss, shadow);
+    let unbindRoot: (() => void) | undefined;
+    const cleanup = (): void => {
+      shadowRemovers.delete(cleanup);
+      unbindRoot?.();
+      unbindRoot = undefined;
+      removeStyle();
+    };
+    shadowRemovers.add(cleanup);
+    unbindRoot = rootScope.add(cleanup);
+  });
+  return scope.add(() => {
+    stopShadows();
+    removeLight();
+    for (const cleanup of [...shadowRemovers]) {
+      cleanup();
+    }
+    shadowRemovers.clear();
+  });
 }
 
 export type SlotPlacement = 'before' | 'after' | 'prepend' | 'append';

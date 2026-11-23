@@ -6,11 +6,13 @@ import { readLocatorOverrides } from '../../core/locator';
 import { siteStoragePrefix } from '../../core/site-storage';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
+import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createXPage, X_LOCATOR_OVERRIDES } from './feature';
 import xDefaultFollowing from './features/default-following';
 import xFeedFilters from './features/feed-filters';
 import xHideClutter from './features/hide-clutter';
 import xVideoScrubber from './features/video-controls';
+import { X_FILTER_SCHEMA } from './filter-schema';
 import { scrubXPii, xAccountId, xPageType } from './page';
 import xTheme from './theme.css?inline';
 import { xThemeMapping } from './theme-mapping';
@@ -45,6 +47,7 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
     const { stats } = page;
     const overrides = data.value(X_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
+      createFiltersPanel(data, X_FILTER_SCHEMA),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();
@@ -65,6 +68,7 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
                 lines: [
                   `Matched timeline responses: ${net.matchedResponses}`,
                   `Promoted entries stripped before render: ${net.strippedPromoted}`,
+                  ...(net.errors ? [`Tap errors: ${net.errors}`] : []),
                 ],
               },
             ],

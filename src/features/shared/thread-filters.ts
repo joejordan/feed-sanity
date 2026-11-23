@@ -1,13 +1,18 @@
 // Cross-site capability feature for filtering inbox/messaging thread rows
-// (inline Promotions/Social ads and keyword rules) on any site exposing
-// `ThreadListCapability` (Gmail, Proton Mail, Outlook Web, etc.).
+// (inline Promotions/Social ads, quick keywords, and custom Filter Rules) on
+// any site exposing `ThreadListCapability` (Gmail, Proton Mail, Outlook Web).
 
 import type { CapablePage, ThreadRow } from '../../capabilities';
 import type { Feature } from '../../core/feature';
+import type { FilterFields } from '../../core/filter-engine';
+import type { Filter } from '../../core/filter-types';
 import type { OptionSpec } from '../../core/options';
 import type { Scope } from '../../core/scope';
+import type { AppliedFilterState } from './apply-filter-outcome';
 import { defineCapabilityFeature } from '../../capabilities';
-import { hideElement } from '../../core/surface';
+import { runFilterList } from '../../core/filter-engine';
+import { isRunnable, savedFilters } from '../../core/filter-types';
+import { applyFilterOutcome, EMPTY_OUTCOME, parseKeywords } from './apply-filter-outcome';
 
 export interface ThreadFiltersConfig {
   readonly id: string;
@@ -20,17 +25,27 @@ export interface ThreadFiltersConfig {
   readonly keywordsDescription?: string;
 }
 
-function parseKeywords(raw: string): string[] {
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim().toLowerCase())
-    .filter((line) => line.length > 0);
+function fallbackRowFields(row: ThreadRow): FilterFields {
+  let fullText: string | undefined;
+  return {
+    get(name) {
+      if (name === 'all_content' || name === 'any') {
+        fullText ??= row.element.textContent ?? '';
+        return fullText;
+      }
+      if (name === 'sponsored') {
+        return row.isAd ? 'sponsored' : '';
+      }
+      return null;
+    },
+  };
 }
 
 /**
  * Declares a site-agnostic thread-list filtering feature built purely on
- * `ThreadListCapability`. Hides inline ad rows and keyword-matched threads
- * reversibly via `hideElement` and reports the hidden count on the toolbar badge.
+ * `ThreadListCapability`. Evaluates built-in ad/keyword toggles and saved
+ * custom Filter Rules reversibly via `applyFilterOutcome`, reporting hidden
+ * count on the toolbar badge.
  */
 export function createThreadFiltersFeature<P extends CapablePage>(
   config: ThreadFiltersConfig,
@@ -62,52 +77,77 @@ export function createThreadFiltersFeature<P extends CapablePage>(
     id: config.id,
     requires: ['threads'],
     options: optionsSpec,
-    setup({ caps, options, scope, badge }) {
+    setup({ caps, options, data, scope, badge }) {
       const { threads } = caps;
+      const customSaved = savedFilters(data);
+
       let hideAds = options.get(adsKey) === true;
       let keywords = parseKeywords(String(options.get(keywordsKey) ?? ''));
+      let customFilters: readonly Filter[] = customSaved.get().filter(isRunnable);
 
       const tracked = new Map<HTMLElement, ThreadRow>();
-      const hidden = new Map<HTMLElement, () => void>();
+      const applied = new Map<HTMLElement, AppliedFilterState>();
+      let hiddenCount = 0;
       let activeScope: Scope | undefined;
 
-      const updateBadge = (): void => badge(hidden.size);
-      const isActive = (): boolean => hideAds || keywords.length > 0;
+      const updateBadge = (): void => badge(hiddenCount);
+      const isActive = (): boolean => hideAds || keywords.length > 0 || customFilters.length > 0;
 
       const forget = (element: HTMLElement): boolean => {
         tracked.delete(element);
-        const unhide = hidden.get(element);
-        if (unhide) {
-          unhide();
-          hidden.delete(element);
-          return true;
+        const prev = applied.get(element);
+        if (prev) {
+          const wasHidden = prev.hidden;
+          if (wasHidden) {
+            hiddenCount--;
+          }
+          prev.dispose();
+          applied.delete(element);
+          return wasHidden;
         }
         return false;
       };
 
       const evaluate = (row: ThreadRow, currentScope: Scope, deferBadge = false): void => {
-        let shouldHide = false;
+        let builtInHide = false;
         if (hideAds && row.isAd === true) {
-          shouldHide = true;
+          builtInHide = true;
         } else if (keywords.length > 0) {
           const text = row.readLowerText
             ? row.readLowerText()
             : (row.element.textContent ?? '').toLowerCase();
-          shouldHide = keywords.some((word) => text.includes(word));
+          builtInHide = keywords.some((word) => text.includes(word));
         }
 
-        const existing = hidden.get(row.element);
-        if (shouldHide && !existing) {
-          hidden.set(row.element, hideElement(currentScope, row.element));
-          if (!deferBadge) {
-            updateBadge();
+        const outcome =
+          customFilters.length > 0
+            ? runFilterList(customFilters, {
+                fields: row.readFields ? row.readFields() : fallbackRowFields(row),
+                element: row.element,
+                itemLabel: 'Thread',
+              })
+            : EMPTY_OUTCOME;
+
+        const prev = applied.get(row.element);
+        const wasHidden = prev?.hidden === true;
+        if (prev) {
+          if (wasHidden) {
+            hiddenCount--;
           }
-        } else if (!shouldHide && existing) {
-          existing();
-          hidden.delete(row.element);
-          if (!deferBadge) {
-            updateBadge();
+          prev.dispose();
+          applied.delete(row.element);
+        }
+
+        const next = applyFilterOutcome(currentScope, row.element, outcome, builtInHide);
+        const nowHidden = next?.hidden === true;
+        if (next) {
+          if (nowHidden) {
+            hiddenCount++;
           }
+          applied.set(row.element, next);
+        }
+        if (!deferBadge && nowHidden !== wasHidden) {
+          updateBadge();
         }
       };
 
@@ -118,7 +158,8 @@ export function createThreadFiltersFeature<P extends CapablePage>(
             activeScope = undefined;
           }
           tracked.clear();
-          hidden.clear();
+          applied.clear();
+          hiddenCount = 0;
           updateBadge();
           return;
         }
@@ -163,7 +204,8 @@ export function createThreadFiltersFeature<P extends CapablePage>(
           }
           nextScope.add(() => {
             tracked.clear();
-            hidden.clear();
+            applied.clear();
+            hiddenCount = 0;
           });
           return;
         }
@@ -190,6 +232,13 @@ export function createThreadFiltersFeature<P extends CapablePage>(
         keywords = next;
         sync();
       });
+
+      scope.add(
+        customSaved.onChange((next) => {
+          customFilters = next.filter(isRunnable);
+          sync();
+        }),
+      );
 
       sync();
     },

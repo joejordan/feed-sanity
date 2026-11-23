@@ -20,25 +20,36 @@ describe('userscriptStore', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reads and writes through GM.getValue and GM.setValue', async () => {
+  it('reads and writes through GM.getValue and GM.setValue, including batched getMany', async () => {
     const values = stubGM();
     expect(await userscriptStore.get('7/options')).toBeUndefined();
     await userscriptStore.set('7/options', { enabled: true });
+    await userscriptStore.set('7/filters', [{ title: 'Cats' }]);
     expect(values.get('7/options')).toEqual({ enabled: true });
     expect(await userscriptStore.get('7/options')).toEqual({ enabled: true });
+    expect(await userscriptStore.getMany?.(['7/options', '7/filters'])).toEqual({
+      '7/options': { enabled: true },
+      '7/filters': [{ title: 'Cats' }],
+    });
   });
 
-  it('reports changes where the manager has a change listener', () => {
+  it('reports changes and unsubscribes via GM_removeValueChangeListener where supported', () => {
     const registered: [string, ChangeListener][] = [];
+    const removeListener = vi.fn();
     vi.stubGlobal('GM_addValueChangeListener', (name: string, listener: ChangeListener) => {
       registered.push([name, listener]);
+      return 'listener-42';
     });
+    vi.stubGlobal('GM_removeValueChangeListener', removeListener);
     const listener = vi.fn();
-    userscriptStore.onChange('7/options', listener);
+    const stop = userscriptStore.onChange('7/options', listener);
 
     expect(registered.map(([name]) => name)).toEqual(['7/options']);
     registered[0]?.[1]('7/options', { a: 1 }, { a: 2 }, true);
     expect(listener).toHaveBeenCalledWith({ a: 1 }, { a: 2 });
+
+    stop?.();
+    expect(removeListener).toHaveBeenCalledExactlyOnceWith('listener-42');
   });
 
   it('does nothing about changes in Greasemonkey, which has no change listener', () => {

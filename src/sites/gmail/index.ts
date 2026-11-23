@@ -6,9 +6,11 @@ import { readLocatorOverrides } from '../../core/locator';
 import { siteStoragePrefix } from '../../core/site-storage';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
+import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createGmailPage, GMAIL_LOCATOR_OVERRIDES } from './feature';
 import gmailHideClutter from './features/hide-clutter';
 import gmailThreadFilters from './features/thread-filters';
+import { GMAIL_FILTER_SCHEMA } from './filter-schema';
 import { gmailAccountId, gmailPageType, scrubGmailPii } from './page';
 import gmailTheme from './theme.css?inline';
 import { gmailThemeMapping } from './theme-mapping';
@@ -41,6 +43,7 @@ export const gmailSite: SiteAdapter<GmailPage, ReturnType<typeof createGmailPage
     const { stats } = page;
     const overrides = data.value(GMAIL_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
+      createFiltersPanel(data, GMAIL_FILTER_SCHEMA),
       diagnosticsPanel({
         collect: () => ({
           version,

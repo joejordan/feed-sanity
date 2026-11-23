@@ -1,5 +1,6 @@
 import type { PageBridge } from '../../core/bridge';
 import type { DomEnvironment } from '../../core/dom-env';
+import type { FilterFields } from '../../core/filter-engine';
 import type { Locate } from '../../core/locator';
 import type { SiteFeedItem } from '../shared/feed';
 import { SiteFeed } from '../shared/feed';
@@ -42,6 +43,64 @@ function hasDomAdSignal(article: Element): boolean {
   return false;
 }
 
+function readXFields(
+  article: HTMLElement,
+  signals: { readonly isAd: boolean; readonly isSuggested: boolean },
+): FilterFields {
+  let allText: string | undefined;
+  let tweetText: string | undefined;
+  let author: string | undefined;
+  let hashtags: string[] | undefined;
+  let links: string[] | undefined;
+  let images: string[] | undefined;
+
+  return {
+    get(name) {
+      switch (name) {
+        case 'all_content':
+        case 'any':
+          allText ??= article.textContent ?? '';
+          return allText;
+        case 'content':
+          if (tweetText === undefined) {
+            const direct = article.querySelector('[data-testid="tweetText"]')?.textContent;
+            if (direct) {
+              tweetText = direct;
+            } else {
+              allText ??= article.textContent ?? '';
+              tweetText = allText;
+            }
+          }
+          return tweetText;
+        case 'author':
+          author ??= article.querySelector('[data-testid="User-Name"]')?.textContent ?? '';
+          return author;
+        case 'hashtag':
+          hashtags ??= [...article.querySelectorAll('a[href^="/hashtag/"]')]
+            .map((a) => a.textContent?.trim() ?? '')
+            .filter((tag) => tag.length > 0);
+          return hashtags;
+        case 'link_url':
+          links ??= [...article.querySelectorAll('a[href]')]
+            .map((a) => a.getAttribute('href') ?? '')
+            .filter((href) => href.startsWith('http'));
+          return links;
+        case 'image':
+          images ??= [...article.querySelectorAll('img[alt]')]
+            .map((img) => img.getAttribute('alt')?.trim() ?? '')
+            .filter((alt) => alt.length > 0 && alt !== 'Image');
+          return images;
+        case 'sponsored':
+          return signals.isAd ? 'sponsored' : '';
+        case 'suggested':
+          return signals.isSuggested ? 'suggested' : '';
+        default:
+          return null;
+      }
+    },
+  };
+}
+
 /**
  * Tracks `article[data-testid="tweet"]` cards on X.com via shared `SiteFeed`
  * and enriches them with React fiber `promotedContent` / `socialContext`
@@ -72,6 +131,7 @@ export class XFeed extends SiteFeed {
           const text = textEl?.textContent;
           return text && text.length > 0 ? text : null;
         },
+        readFields: readXFields,
       },
       onBridgeActive,
     );

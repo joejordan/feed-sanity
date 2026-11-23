@@ -183,6 +183,8 @@ export interface SiteThemeMapping {
   readonly rgbTripletVars?: Readonly<Record<string, (palette: ThemePalette) => string>>;
   /** Optional host-specific CSS rules (e.g. X.com inline body / column surfaces). */
   readonly extraCss?: (palette: ThemePalette) => string;
+  /** Optional host-specific CSS rules injected into discovered open `ShadowRoot`s. */
+  readonly shadowExtraCss?: (palette: ThemePalette) => string;
 }
 
 const HEX6 = /^#([0-9a-f]{6})$/i;
@@ -202,36 +204,83 @@ export function normalizeHex(input: string): string | null {
   return null;
 }
 
+function parseHexRgb(hex: string, fallback = '#000000'): [number, number, number] {
+  const norm = normalizeHex(hex) ?? fallback;
+  return [
+    Number.parseInt(norm.slice(1, 3), 16),
+    Number.parseInt(norm.slice(3, 5), 16),
+    Number.parseInt(norm.slice(5, 7), 16),
+  ];
+}
+
 /** Converts `#rrggbb` into a bare `R, G, B` triplet (e.g. `'30, 30, 46'`). */
 export function hexToRgbTriplet(hex: string): string {
-  const norm = normalizeHex(hex) ?? '#000000';
-  const r = Number.parseInt(norm.slice(1, 3), 16);
-  const g = Number.parseInt(norm.slice(3, 5), 16);
-  const b = Number.parseInt(norm.slice(5, 7), 16);
+  const [r, g, b] = parseHexRgb(hex);
   return `${r}, ${g}, ${b}`;
 }
 
 /** Converts `#rrggbb` and opacity `0..1` into `rgb(R G B / A%)`. */
 export function hexWithAlpha(hex: string, alpha: number): string {
-  const norm = normalizeHex(hex) ?? '#000000';
-  const r = Number.parseInt(norm.slice(1, 3), 16);
-  const g = Number.parseInt(norm.slice(3, 5), 16);
-  const b = Number.parseInt(norm.slice(5, 7), 16);
+  const [r, g, b] = parseHexRgb(hex);
   const pct = Math.max(0, Math.min(100, Math.round(alpha * 100)));
   return `rgb(${r} ${g} ${b} / ${pct}%)`;
 }
 
 /** Computes relative luminance (`0..1`) to pick crisp dark/light text on custom colors. */
 export function relativeLuminance(hex: string): number {
-  const norm = normalizeHex(hex) ?? '#000000';
   const toLinear = (channel: number): number => {
     const s = channel / 255;
     return s <= 0.039_28 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
   };
-  const r = toLinear(Number.parseInt(norm.slice(1, 3), 16));
-  const g = toLinear(Number.parseInt(norm.slice(3, 5), 16));
-  const b = toLinear(Number.parseInt(norm.slice(5, 7), 16));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const [r, g, b] = parseHexRgb(hex);
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+/** Converts `#rrggbb` into a bare `H S% L%` triplet (e.g. `'220 20% 15%'`). */
+export function hexToHslTriplet(hex: string): string {
+  const [ri, gi, bi] = parseHexRgb(hex);
+  const r = ri / 255;
+  const g = gi / 255;
+  const b = bi / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) {
+      h = (g - b) / d + (g < b ? 6 : 0);
+    } else if (max === g) {
+      h = (b - r) / d + 2;
+    } else {
+      h = (r - g) / d + 4;
+    }
+    h *= 60;
+  }
+  return `${Math.round(h)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
+/** Mixes two `#rrggbb` colors by `weight` (`0` = `a`, `1` = `b`) into `#rrggbb`. */
+export function mixHex(a: string, b: string, weight: number): string {
+  const [ra, ga, ba] = parseHexRgb(a, '#000000');
+  const [rb, gb, bb] = parseHexRgb(b, '#ffffff');
+  const w = Math.max(0, Math.min(1, weight));
+  const mix = (ca: number, cb: number): string =>
+    Math.round(ca + (cb - ca) * w)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${mix(ra, rb)}${mix(ga, gb)}${mix(ba, bb)}`;
+}
+
+/** Computes the WCAG 2.x contrast ratio (`1..21`) between two `#rrggbb` colors. */
+export function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a);
+  const lb = relativeLuminance(b);
+  const lighter = Math.max(la, lb);
+  const darker = Math.min(la, lb);
+  return (lighter + 0.05) / (darker + 0.05);
 }
 
 /** Picks `#ffffff` or `#111111` for maximum contrast on top of `backgroundHex`. */
@@ -355,6 +404,10 @@ export function compileShadowThemeCss(theme: ResolvedTheme, mapping: SiteThemeMa
   if (theme.fontFamily) {
     parts.push(`:host {\n  font-family: ${theme.fontFamily} !important;\n}`);
   }
+  const shadowExtra = theme.palette ? mapping.shadowExtraCss?.(theme.palette).trim() : undefined;
+  if (shadowExtra) {
+    parts.push(shadowExtra);
+  }
   if (theme.customCss) {
     parts.push(theme.customCss);
   }
@@ -398,8 +451,77 @@ export function compileUiThemeCss(theme: ResolvedTheme): string {
   return `:host {\n  ${lines.join('\n  ')}\n}`;
 }
 
-const THEME_STYLE_ID = 'feed_sanity_user_theme';
+export const THEME_STYLE_ID = 'feed_sanity_user_theme';
+const EARLY_THEME_CACHE_PREFIX = '__fs_early_theme__:';
 const OWN_UI_TAG = 'feed-sanity-ui';
+
+const earlyThemeKey = (siteId: string): string => `${EARLY_THEME_CACHE_PREFIX}${siteId}`;
+
+/** Reads the cached host theme CSS for `siteId` from `sessionStorage` (empty string if unavailable). */
+export function readEarlyThemeCss(siteId: string): string {
+  try {
+    return globalThis.sessionStorage?.getItem(earlyThemeKey(siteId)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** Persists or clears the synchronous per-origin early theme CSS cache for `siteId`. */
+export function writeEarlyThemeCss(siteId: string, css: string): void {
+  try {
+    const storage = globalThis.sessionStorage;
+    if (!storage) {
+      return;
+    }
+    const key = earlyThemeKey(siteId);
+    if (css) {
+      storage.setItem(key, css);
+    } else {
+      storage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage quota or sandboxed iframe restrictions.
+  }
+}
+
+/**
+ * Synchronously injects the cached host theme CSS into `doc` before async
+ * storage resolves, preventing first-paint FOUC. `ThemeController` reconciles
+ * or removes `#feed_sanity_user_theme` once persisted settings load.
+ */
+export function applyEarlyThemeCss(
+  siteId: string,
+  doc: Document = document,
+): HTMLStyleElement | null {
+  const css = readEarlyThemeCss(siteId);
+  if (!css) {
+    return null;
+  }
+  const existing = doc.querySelector(`#${THEME_STYLE_ID}`);
+  if (existing && existing.localName === 'style') {
+    if (existing.textContent !== css) {
+      existing.textContent = css;
+    }
+    return existing as HTMLStyleElement;
+  }
+  const target = doc.head ?? doc.documentElement;
+  if (!target) {
+    return null;
+  }
+  const style = doc.createElement('style');
+  style.id = THEME_STYLE_ID;
+  style.textContent = css;
+  target.append(style);
+  return style;
+}
+
+/** Removes any synchronously injected early theme `<style>` from `doc`. */
+export function clearEarlyThemeStyle(doc: Document = document): void {
+  const existing = doc.querySelector(`#${THEME_STYLE_ID}`);
+  if (existing && existing.localName === 'style') {
+    existing.remove();
+  }
+}
 
 const isOwnShadowRoot = (shadow: ShadowRoot): boolean =>
   shadow.host.localName === OWN_UI_TAG || shadow.host.hasAttribute(OWN_ATTR);
@@ -430,12 +552,23 @@ export function createThemeController(
   let savedTheme: ResolvedTheme | null = null;
   let previewTheme: ResolvedTheme | null | undefined;
   let hostCss = '';
-  let shadowCss = '';
+  let shadowCss: string | undefined;
   let disposed = false;
 
   const styles = new Map<Document | ShadowRoot, HTMLStyleElement>();
   const iframeDocs = new Set<Document>();
   const cleanups: Array<() => void> = [];
+
+  const effectiveTheme = (): ResolvedTheme | null =>
+    previewTheme === undefined ? savedTheme : previewTheme;
+
+  const getShadowCss = (): string => {
+    if (shadowCss === undefined) {
+      const effective = effectiveTheme();
+      shadowCss = effective ? compileShadowThemeCss(effective, mapping) : '';
+    }
+    return shadowCss;
+  };
 
   const findExistingStyle = (root: Document | ShadowRoot): HTMLStyleElement | undefined => {
     const tracked = styles.get(root);
@@ -460,13 +593,21 @@ export function createThemeController(
       styles.delete(root);
       return;
     }
+    const isDoc = root.nodeType === Node.DOCUMENT_NODE;
     if (existing) {
       if (existing.textContent !== cssText) {
         existing.textContent = cssText;
       }
+      // Promote an early `document_start` style appended to `<html>` into `<head>`
+      // once parsed so it sits after host stylesheets in CSS cascade order.
+      if (isDoc) {
+        const head = (root as Document).head;
+        if (head && existing.parentElement !== head) {
+          head.append(existing);
+        }
+      }
       return;
     }
-    const isDoc = root.nodeType === Node.DOCUMENT_NODE;
     const owner = isDoc ? (root as Document) : (root.ownerDocument ?? env.doc);
     const style = owner.createElement('style');
     style.id = THEME_STYLE_ID;
@@ -483,15 +624,18 @@ export function createThemeController(
     if (disposed) {
       return;
     }
-    const effective = previewTheme === undefined ? savedTheme : previewTheme;
+    const effective = effectiveTheme();
     hostCss = effective ? compileHostThemeCss(effective, mapping) : '';
-    shadowCss = effective ? compileShadowThemeCss(effective, mapping) : '';
+    shadowCss = undefined;
     const uiCss = effective ? compileUiThemeCss(effective) : '';
     setUiThemeCss(uiCss);
     syncRoot(env.doc, hostCss);
-    for (const shadow of env.shadowRoots) {
-      if (!isOwnShadowRoot(shadow)) {
-        syncRoot(shadow, shadowCss);
+    if (env.shadowRoots.size > 0) {
+      const compiledShadow = getShadowCss();
+      for (const shadow of env.shadowRoots) {
+        if (!isOwnShadowRoot(shadow)) {
+          syncRoot(shadow, compiledShadow);
+        }
       }
     }
     for (const iframeDoc of iframeDocs) {
@@ -499,12 +643,32 @@ export function createThemeController(
     }
   };
 
+  const watchHead = (targetEnv: DomEnvironment): (() => void) | undefined => {
+    if (targetEnv.doc.head) {
+      return undefined;
+    }
+    const stopHead = targetEnv.watcher.watch('head', {
+      added: (head) => {
+        stopHead();
+        const existing = findExistingStyle(targetEnv.doc);
+        if (existing) {
+          if (existing.parentElement !== head) {
+            head.append(existing);
+          }
+        } else if (hostCss) {
+          syncRoot(targetEnv.doc, hostCss);
+        }
+      },
+    });
+    return stopHead;
+  };
+
   cleanups.push(
     env.onShadowRoot((shadow, rootScope) => {
       if (isOwnShadowRoot(shadow)) {
         return;
       }
-      syncRoot(shadow, shadowCss);
+      syncRoot(shadow, getShadowCss());
       rootScope.add(() => {
         styles.get(shadow)?.remove();
         styles.delete(shadow);
@@ -516,20 +680,8 @@ export function createThemeController(
     env.onIframe((childEnv) => {
       iframeDocs.add(childEnv.doc);
       syncRoot(childEnv.doc, hostCss);
-      if (!childEnv.doc.head) {
-        const stopChildHead = childEnv.watcher.watch('head', {
-          added: (head) => {
-            stopChildHead();
-            const existing = styles.get(childEnv.doc);
-            if (existing) {
-              if (existing.parentElement !== head) {
-                head.append(existing);
-              }
-            } else if (hostCss) {
-              syncRoot(childEnv.doc, hostCss);
-            }
-          },
-        });
+      const stopChildHead = watchHead(childEnv);
+      if (stopChildHead) {
         childEnv.scope.add(stopChildHead);
       }
       childEnv.scope.add(() => {
@@ -542,39 +694,30 @@ export function createThemeController(
 
   // Attach or move `<style>` into `<head>` once parsed (handles both early
   // `documentElement` attachment and `document_start` before `<html>` exists).
-  if (!env.doc.head) {
-    const stopHead = env.watcher.watch('head', {
-      added: (head) => {
-        stopHead();
-        const existing = styles.get(env.doc);
-        if (existing) {
-          if (existing.parentElement !== head) {
-            head.append(existing);
-          }
-        } else if (hostCss) {
-          syncRoot(env.doc, hostCss);
-        }
-      },
-    });
-    cleanups.push(stopHead);
+  const stopMainHead = watchHead(env);
+  if (stopMainHead) {
+    cleanups.push(stopMainHead);
   }
 
   return {
     apply(theme) {
       savedTheme = theme;
-      render();
+      if (previewTheme === undefined) {
+        render();
+      }
     },
     preview(theme) {
       previewTheme = theme;
       render();
     },
     clearPreview() {
+      if (previewTheme === undefined) {
+        return;
+      }
       previewTheme = undefined;
       render();
     },
-    current() {
-      return previewTheme === undefined ? savedTheme : previewTheme;
-    },
+    current: effectiveTheme,
     dispose() {
       if (disposed) {
         return;

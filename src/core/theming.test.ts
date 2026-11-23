@@ -5,18 +5,25 @@ import { xThemeMapping } from '../sites/x/theme-mapping';
 import { HOST_TAG, renderInShadow, setUserThemeCss } from '../ui/mount';
 import { createDomEnvironment } from './dom-env';
 import {
+  applyEarlyThemeCss,
   BUILTIN_THEMES,
+  clearEarlyThemeStyle,
   compileHostThemeCss,
   compileShadowThemeCss,
   compileUiThemeCss,
   contrastingText,
+  contrastRatio,
   createThemeController,
   DEFAULT_THEME_CONFIG,
+  hexToHslTriplet,
   hexToRgbTriplet,
   hexWithAlpha,
+  mixHex,
   normalizeHex,
+  readEarlyThemeCss,
   resolveTheme,
   THEME_FONT_STACKS,
+  writeEarlyThemeCss,
 } from './theming';
 
 describe('first-class multi-site theming engine', () => {
@@ -42,9 +49,35 @@ describe('first-class multi-site theming engine', () => {
     expect(normalizeHex('#12345')).toBeNull();
 
     expect(hexToRgbTriplet('#1e1e2e')).toBe('30, 30, 46');
+    expect(hexToHslTriplet('#1e1e2e')).toBe('240 21% 15%');
+    expect(mixHex('#000000', '#ffffff', 0.5)).toBe('#808080');
+    expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 1);
+    expect(contrastRatio('#1e1e2e', '#cdd6f4')).toBeGreaterThan(10);
     expect(hexWithAlpha('#3b82f6', 0.16)).toBe('rgb(59 130 246 / 16%)');
     expect(contrastingText('#0b0f17')).toBe('#ffffff');
     expect(contrastingText('#f4efe6')).toBe('#111111');
+  });
+
+  it('compiles shadowExtraCss and manages the synchronous zero-FOUC early theme cache', () => {
+    const resolved = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'midnight' })!;
+    const shadowCss = compileShadowThemeCss(resolved, {
+      rootSelectors: [':root'],
+      shadowExtraCss: (p) => `.card { background: ${p.surface}; }`,
+    });
+    expect(shadowCss).toContain('.card { background: #131926; }');
+
+    writeEarlyThemeCss('test-site', 'body { background: #0b0f17; }');
+    expect(readEarlyThemeCss('test-site')).toBe('body { background: #0b0f17; }');
+    const style = applyEarlyThemeCss('test-site', document);
+    expect(style?.id).toBe('feed_sanity_user_theme');
+    expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toBe(
+      'body { background: #0b0f17; }',
+    );
+
+    writeEarlyThemeCss('test-site', '');
+    expect(readEarlyThemeCss('test-site')).toBe('');
+    clearEarlyThemeStyle(document);
+    expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
   });
 
   it('resolves presets, keeps font/customCss orthogonal from Site Default colors, and blocks prototype keys', () => {

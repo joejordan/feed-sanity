@@ -552,4 +552,27 @@ describe('PageBridge', () => {
     expect(connects).not.toHaveBeenCalled();
     document.removeEventListener(CONNECT_EVENT, connects);
   });
+
+  it('tears down listeners and stops receiving pushed events after dispose()', async () => {
+    let emitter!: ReturnType<typeof servePageWorld>;
+    const bridge = make(
+      () => {
+        emitter = servePageWorld({ ping: () => 'pong' });
+        return Promise.resolve();
+      },
+      { log },
+    );
+    const received: unknown[] = [];
+    bridge.on('net', (payload) => received.push(payload));
+    expect(await bridge.ask(video, 'ping')).toBe('pong');
+
+    emitter.emit('net', { n: 1 });
+    expect(received).toEqual([{ n: 1 }]);
+
+    bridge.dispose();
+    expect(bridge.status().state).toBe('unavailable');
+    emitter.emit('net', { n: 2 });
+    expect(received).toEqual([{ n: 1 }]);
+    await expect(bridge.ask(video, 'ping')).rejects.toMatchObject({ failure: 'unavailable' });
+  });
 });

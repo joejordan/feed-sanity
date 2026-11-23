@@ -1,12 +1,12 @@
 import type { CapablePage, SiteCapabilities } from '../../capabilities';
 import type { DomEnvironment } from '../../core/dom-env';
 import type { Binder, Feature, FeatureDefinition, PageFactory } from '../../core/feature';
-import type { Locate, Locator, LocatorSpec, LocatorStats } from '../../core/locator';
+import type { Locate, LocatorStats } from '../../core/locator';
 import type { OptionSpecs } from '../../core/options';
 import type { PageWatcher } from '../../core/page-watcher';
 import type { SavedData } from '../../core/saved';
 import type { XNetworkStats } from './page-world';
-import { bindFeed, bindLocator, bindVideos, bindWatch } from '../../core/bind';
+import { bindFeed, bindLocate, bindVideos, bindWatch } from '../../core/bind';
 import { PageBridge } from '../../core/bridge';
 import { createDomEnvironment } from '../../core/dom-env';
 import { defineFeature as defineCoreFeature } from '../../core/feature';
@@ -36,6 +36,7 @@ export interface XStats {
 
 export interface XPage extends CapablePage {
   readonly doc: Document;
+  readonly env: DomEnvironment;
   readonly locate: Locate;
   readonly watch: PageWatcher['watch'];
   readonly onUrlChange: (listener: () => void) => () => void;
@@ -57,8 +58,9 @@ export interface XPage extends CapablePage {
 export function createXPage(
   data: SavedData,
   installPageWorld: () => Promise<void>,
+  sharedEnv?: DomEnvironment,
 ): PageFactory<XPage> & { readonly stats: XStats } {
-  const env: DomEnvironment = createDomEnvironment({ log: createLogger('x-dom') });
+  const env: DomEnvironment = sharedEnv ?? createDomEnvironment({ log: createLogger('x-dom') });
   const locators = new Locators(IDENTITY_RESOLVER, Object.values(selectors).filter(isLocatorSpec));
   const overrides = data.value(X_LOCATOR_OVERRIDES, readLocatorOverrides);
   locators.override(overrides.get());
@@ -83,6 +85,7 @@ export function createXPage(
         latestNetwork = {
           matchedResponses: payload.matchedResponses,
           strippedPromoted: payload.strippedPromoted,
+          ...(typeof payload.errors === 'number' ? { errors: payload.errors } : {}),
         };
       }
     });
@@ -93,20 +96,13 @@ export function createXPage(
   const videos = new XVideos(env, locate);
 
   const factory: PageFactory<XPage> = (binder: Binder) => {
-    const boundLocators = new Map<LocatorSpec, Locator>();
     const boundFeed = bindFeed(feed, binder);
     const boundVideos = bindVideos(videos, binder);
     return {
       doc: env.doc,
-      locate: (spec) => {
-        let locator = boundLocators.get(spec);
-        if (!locator) {
-          locator = bindLocator(locate(spec), binder);
-          boundLocators.set(spec, locator);
-        }
-        return locator;
-      },
-      watch: bindWatch(env.watcher, binder),
+      env,
+      locate: bindLocate(locate, binder),
+      watch: bindWatch(env, binder),
       onUrlChange: (listener) => binder.listen((guarded) => env.onUrlChange(guarded), listener),
       setStripPromoted: (enabled) => {
         if (enabled === stripPromoted) {

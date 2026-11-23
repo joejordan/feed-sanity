@@ -81,6 +81,8 @@ export class Options implements FeatureOptions<OptionSpecs> {
   /** Saves made here that storage has not finished writing. */
   #pendingSaves = 0;
   #followsStorage = false;
+  #disposed = false;
+  #unsubscribeStore: (() => void) | undefined;
   readonly #loaded = Promise.withResolvers<void>();
 
   constructor(store: Store, storageKey: string) {
@@ -117,13 +119,27 @@ export class Options implements FeatureOptions<OptionSpecs> {
   async load(): Promise<void> {
     this.#saved = asSaved(await this.#store.get(this.#storageKey));
     this.#loaded.resolve();
-    if (this.#followsStorage) {
+    if (this.#followsStorage || this.#disposed) {
       return;
     }
     this.#followsStorage = true;
-    this.#store.onChange(this.#storageKey, (oldValue, newValue) => {
+    const stop = this.#store.onChange(this.#storageKey, (oldValue, newValue) => {
       this.#follow(asSaved(oldValue), asSaved(newValue));
     });
+    if (typeof stop === 'function') {
+      this.#unsubscribeStore = stop;
+    }
+  }
+
+  /** Releases the storage change subscription and local listeners. */
+  dispose(): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#disposed = true;
+    this.#unsubscribeStore?.();
+    this.#unsubscribeStore = undefined;
+    this.#listeners.clear();
   }
 
   /**

@@ -23,6 +23,8 @@ declare const GM_addValueChangeListener:
       listener: (name: string, oldValue: unknown, newValue: unknown, remote: boolean) => void,
     ) => unknown);
 
+declare const GM_removeValueChangeListener: undefined | ((listenerId: unknown) => void);
+
 /** The `@grant` lines the userscript header needs, one per call declared above. */
 export const GRANTS = [
   'GM.getValue',
@@ -30,6 +32,7 @@ export const GRANTS = [
   'GM.registerMenuCommand',
   'GM_registerMenuCommand',
   'GM_addValueChangeListener',
+  'GM_removeValueChangeListener',
 ];
 
 /**
@@ -38,13 +41,32 @@ export const GRANTS = [
  */
 export const userscriptStore: Store = {
   get: (key) => GM.getValue(key),
+  async getMany(keys) {
+    const entries = await Promise.all(
+      keys.map(async (key) => [key, await GM.getValue(key)] as const),
+    );
+    return Object.fromEntries(entries);
+  },
   set: (key, value) => GM.setValue(key, value),
   onChange(key, listener) {
     // Greasemonkey has no change listener. There, a setting saved in another
     // tab takes effect on the next page load.
-    if (typeof GM_addValueChangeListener === 'function') {
-      GM_addValueChangeListener(key, (_name, oldValue, newValue) => listener(oldValue, newValue));
+    if (typeof GM_addValueChangeListener !== 'function') {
+      return;
     }
+    const id = GM_addValueChangeListener(key, (_name, oldValue, newValue) =>
+      listener(oldValue, newValue),
+    );
+    let removed = false;
+    return () => {
+      if (removed) {
+        return;
+      }
+      removed = true;
+      if (typeof GM_removeValueChangeListener === 'function' && id !== undefined) {
+        GM_removeValueChangeListener(id);
+      }
+    };
   },
 };
 

@@ -1,46 +1,5 @@
 import type { SiteThemeMapping, ThemePalette } from '../../core/theming';
-import { hexWithAlpha, normalizeHex } from '../../core/theming';
-
-/** Converts `#rrggbb` into a bare `H S% L%` triplet for X's `hsl(var(--color-*))` tokens. */
-function hexToHslTriplet(hex: string): string {
-  const norm = normalizeHex(hex) ?? '#000000';
-  const r = Number.parseInt(norm.slice(1, 3), 16) / 255;
-  const g = Number.parseInt(norm.slice(3, 5), 16) / 255;
-  const b = Number.parseInt(norm.slice(5, 7), 16) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  let h = 0;
-  let s = 0;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    if (max === r) {
-      h = (g - b) / d + (g < b ? 6 : 0);
-    } else if (max === g) {
-      h = (b - r) / d + 2;
-    } else {
-      h = (r - g) / d + 4;
-    }
-    h *= 60;
-  }
-  return `${Math.round(h)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
-}
-
-/** Mixes two `#rrggbb` colors by `weight` (`0` = `a`, `1` = `b`) into `#rrggbb`. */
-function mixHex(a: string, b: string, weight: number): string {
-  const na = normalizeHex(a) ?? '#000000';
-  const nb = normalizeHex(b) ?? '#ffffff';
-  const w = Math.max(0, Math.min(1, weight));
-  const channel = (offset: number): string => {
-    const ca = Number.parseInt(na.slice(offset, offset + 2), 16);
-    const cb = Number.parseInt(nb.slice(offset, offset + 2), 16);
-    return Math.round(ca + (cb - ca) * w)
-      .toString(16)
-      .padStart(2, '0');
-  };
-  return `#${channel(1)}${channel(3)}${channel(5)}`;
-}
+import { hexToHslTriplet, hexWithAlpha, mixHex } from '../../core/theming';
 
 const ALPHA_PERCENTS = [
   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 30, 40, 50, 60, 70, 80, 85, 90, 95, 100,

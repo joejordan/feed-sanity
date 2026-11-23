@@ -1,4 +1,5 @@
 import type { Logger } from './log';
+import type { Watch, WatchHandlers } from './page-watcher';
 import type { SlotPlacement } from './surface';
 import { addStyle } from './dom';
 import { callSafely, Listeners } from './listeners';
@@ -45,6 +46,11 @@ export interface DomEnvironment {
   ) => () => void;
   /** Queries light DOM and, when `pierceShadow` is enabled, every discovered open Shadow Root. */
   queryAll: <E extends Element = Element>(selector: string) => E[];
+  /**
+   * Watches elements matching `selector` across light DOM and, when
+   * `pierceShadow` is enabled, every current and late-arriving open Shadow Root.
+   */
+  watch: PageWatcher['watch'];
   /** Subscribes to open `ShadowRoot`s discovered inside `doc` (when `pierceShadow` is enabled). */
   onShadowRoot: (listener: (root: ShadowRoot, rootScope: Scope) => void) => () => void;
   /** Subscribes to same-origin `<iframe>` child environments (when `includeIframes` is enabled). */
@@ -79,6 +85,7 @@ export function createDomEnvironment({
 
   const shadowRoots = new Set<ShadowRoot>();
   const shadowScopes = new Map<ShadowRoot, Scope>();
+  const shadowWatchers = new Map<ShadowRoot, PageWatcher>();
   const shadowListeners = new Listeners<[ShadowRoot, Scope]>(log);
   // Tracks recently inserted host candidates (`Element -> expiry timestamp`) to catch
   // open ShadowRoots attached asynchronously after mount (e.g. X Chat / Calls), since
@@ -138,6 +145,10 @@ export function createDomEnvironment({
     shadowRoots.add(root);
     shadowScopes.set(root, rootScope);
     const shadowWatcher = new PageWatcher(log, root);
+    shadowWatchers.set(root, shadowWatcher);
+    rootScope.add(() => {
+      shadowWatchers.delete(root);
+    });
     rootScope.add(
       shadowWatcher.watchTree({
         added: (el) => scanShadowSubtree(el, true),
@@ -307,9 +318,122 @@ export function createDomEnvironment({
     iframeEnvs.clear();
     shadowRoots.clear();
     shadowScopes.clear();
+    shadowWatchers.clear();
   });
 
   const getLocation = (): Location => (doc.defaultView ?? globalThis).location;
+
+  const onShadowRoot: DomEnvironment['onShadowRoot'] = (listener) => {
+    const remove = shadowListeners.add(listener);
+    for (const root of shadowRoots) {
+      const rootScope = shadowScopes.get(root);
+      if (rootScope && !rootScope.disposed) {
+        callSafely(log, listener, root, rootScope);
+      }
+    }
+    return envScope.add(remove);
+  };
+
+  const watch: PageWatcher['watch'] = (selector, handlers, options) => {
+    const lightWatch = watcher.watch(selector, handlers, options);
+    if (!pierceShadow) {
+      return lightWatch;
+    }
+
+    let stopped = false;
+    const subWatches = new Map<ShadowRoot, { stop: () => void; refresh: () => void }>();
+
+    const attachRootWatch = (root: ShadowRoot, rootScope: Scope): void => {
+      if (stopped || rootScope.disposed || subWatches.has(root)) {
+        return;
+      }
+      const shadowWatcher = shadowWatchers.get(root);
+      if (!shadowWatcher) {
+        return;
+      }
+      const tracked = new Set<Element>();
+      const wrappedHandlers: WatchHandlers = {
+        added: (el) => {
+          if (stopped) {
+            return;
+          }
+          tracked.add(el);
+          handlers.added?.(el);
+        },
+        removed: (el) => {
+          if (stopped) {
+            return;
+          }
+          tracked.delete(el);
+          handlers.removed?.(el);
+        },
+        ...(handlers.changed
+          ? {
+              changed: (el, attr) => {
+                if (!stopped) {
+                  handlers.changed?.(el, attr);
+                }
+              },
+            }
+          : {}),
+      };
+      const subWatch: Watch = shadowWatcher.watch(selector, wrappedHandlers, options);
+      // A one-shot `handlers.added` callback may have called `stop()` re-entrantly
+      // during `shadowWatcher.watch`'s synchronous initial sweep.
+      if (stopped) {
+        subWatch();
+        tracked.clear();
+        return;
+      }
+      const cleanup = (): void => {
+        subWatches.delete(root);
+        subWatch();
+      };
+      const unbindScope = rootScope.add(() => {
+        cleanup();
+        // When a Shadow Host disconnects from light DOM, notify `removed` for
+        // elements that were still tracked inside its Shadow Tree.
+        if (!stopped && handlers.removed) {
+          for (const el of tracked) {
+            callSafely(log, handlers.removed, el);
+          }
+        }
+        tracked.clear();
+      });
+      subWatches.set(root, {
+        stop: () => {
+          unbindScope();
+          cleanup();
+          tracked.clear();
+        },
+        refresh: () => subWatch.refresh(),
+      });
+    };
+
+    const stopShadows = onShadowRoot(attachRootWatch);
+    return Object.assign(
+      () => {
+        if (stopped) {
+          return;
+        }
+        stopped = true;
+        stopShadows();
+        lightWatch();
+        for (const entry of [...subWatches.values()]) {
+          entry.stop();
+        }
+        subWatches.clear();
+      },
+      {
+        refresh: () => {
+          lightWatch.refresh();
+          for (const entry of subWatches.values()) {
+            entry.refresh();
+          }
+        },
+      },
+    );
+  };
 
   return {
     doc,
@@ -332,16 +456,8 @@ export function createDomEnvironment({
       }
       return results;
     },
-    onShadowRoot(listener) {
-      const remove = shadowListeners.add(listener);
-      for (const root of shadowRoots) {
-        const rootScope = shadowScopes.get(root);
-        if (rootScope && !rootScope.disposed) {
-          callSafely(log, listener, root, rootScope);
-        }
-      }
-      return envScope.add(remove);
-    },
+    watch,
+    onShadowRoot,
     onIframe(listener) {
       const remove = iframeListeners.add(listener);
       for (const [frame, childEnv] of iframeEnvs) {

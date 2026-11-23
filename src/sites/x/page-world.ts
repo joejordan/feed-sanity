@@ -18,6 +18,7 @@ export interface XTweetMeta {
 export interface XNetworkStats {
   readonly matchedResponses: number;
   readonly strippedPromoted: number;
+  readonly errors?: number;
 }
 
 const FIBER_DEPTH = 25;
@@ -227,9 +228,11 @@ export function startXPageWorld(host: NetworkTapHost = globalThis): XPageWorldHa
           if (result) {
             strippedPromoted += result.removed;
           }
+          const totalErrors = tap.stats().totalErrors;
           emitter.emit('x:network-stats', {
             matchedResponses,
             strippedPromoted,
+            ...(totalErrors > 0 ? { errors: totalErrors } : {}),
           } satisfies XNetworkStats);
           return result?.text;
         },

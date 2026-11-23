@@ -1,8 +1,9 @@
 import type { OptionsPanel } from '../ui/options-dialog/panel';
+import type { DomEnvironment } from './dom-env';
 import type { Feature, PageFactory } from './feature';
 import type { Platform } from './platform';
 import type { SiteThemeMapping } from './theming';
-import { initSiteTheme } from '../ui/appearance';
+import { initSiteTheme, THEME_DATA_KEY } from '../ui/appearance';
 import { setSiteThemeCss } from '../ui/mount';
 import { openOptionsDialog } from '../ui/options-dialog';
 import { sitesPanel } from '../ui/sites-panel';
@@ -11,7 +12,9 @@ import { createDomEnvironment } from './dom-env';
 import { createLogger } from './log';
 import { Options } from './options';
 import { SavedData } from './saved';
-import { createSiteSettings } from './site-settings';
+import { createSiteSettings, SITES_STORAGE_KEY } from './site-settings';
+import { createPreloadedStore, readStoreMany } from './storage';
+import { applyEarlyThemeCss, clearEarlyThemeStyle, writeEarlyThemeCss } from './theming';
 
 export { scrubCommonPii } from './pii';
 
@@ -35,7 +38,9 @@ export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory
   readonly themeCss: string;
   /** Optional declarative mapping enabling first-class user theming on this site. */
   readonly themeMapping?: SiteThemeMapping;
-  /** Optional `DomEnvironment` flags for theme propagation (Shadow DOM / same-origin iframes). */
+  /** Optional `DomEnvironment` flags shared by this site's page services and theme propagation. */
+  readonly envOptions?: { readonly pierceShadow?: boolean; readonly includeIframes?: boolean };
+  /** Legacy alias for `envOptions` when only theme propagation options were declared. */
   readonly themeEnvOptions?: { readonly pierceShadow?: boolean; readonly includeIframes?: boolean };
   /** Identifies the signed-in account on this host (or `'anonymous'`). */
   readonly accountId: () => string;
@@ -43,8 +48,12 @@ export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory
   readonly storagePrefix: (accountId: string) => string;
   /** Strips site-specific personal identifiers (handles, slugs, post IDs) from diagnostics. */
   readonly scrubPii: (message: string) => string;
-  /** Creates the site's page factory bound to saved data and page-world installer. */
-  readonly createPage: (data: SavedData, installPageWorld: () => Promise<void>) => F;
+  /** Creates the site's page factory bound to saved data, page-world installer, and shared `DomEnvironment`. */
+  readonly createPage: (
+    data: SavedData,
+    installPageWorld: () => Promise<void>,
+    env?: DomEnvironment,
+  ) => F;
   /** Features enabled on this site, in start order. */
   readonly features: readonly Feature<P>[];
   /** Custom panels added to the Options dialog (Filters, Data, Diagnostics, etc.). */
@@ -108,7 +117,34 @@ export async function startSite<P, F extends PageFactory<P>>(
   platform: Platform,
 ): Promise<string[]> {
   setSiteThemeCss(site.themeCss);
-  const siteSettings = createSiteSettings(platform.store);
+  if (site.themeMapping) {
+    applyEarlyThemeCss(site.id);
+  }
+
+  // The browser may keep the badge of the page this tab showed before, so
+  // the first one is sent synchronously even before storage resolves.
+  platform.setBadge({ count: 0, failed: false });
+
+  // Collapse startup storage reads (`v2/sites`, options, filters, theme) into
+  // one native `getMany` IPC round-trip when the platform supports it. If the
+  // batched read rejects, fall back to `platform.store` directly so individual
+  // consumers observe the real storage failure and refuse to overwrite data.
+  const bootPrefix = site.storagePrefix(site.accountId());
+  const bootKeys = [
+    SITES_STORAGE_KEY,
+    `${bootPrefix}/options`,
+    `${bootPrefix}/filters`,
+    ...(site.themeMapping ? [`${bootPrefix}/${THEME_DATA_KEY}`] : []),
+  ];
+  let preloadedStore: ReturnType<typeof createPreloadedStore> | undefined;
+  const bootStoreReady: Promise<typeof platform.store> = platform.store.getMany
+    ? readStoreMany(platform.store, bootKeys)
+        .then((preloaded) => {
+          preloadedStore = createPreloadedStore(platform.store, preloaded);
+          return preloadedStore;
+        })
+        .catch(() => platform.store)
+    : Promise.resolve(platform.store);
 
   interface SiteRuntime {
     readonly options: Options;
@@ -118,26 +154,33 @@ export async function startSite<P, F extends PageFactory<P>>(
   }
 
   let runtime: SiteRuntime | undefined;
+  let bootStore = platform.store;
+  let siteSettings: ReturnType<typeof createSiteSettings> | undefined;
+
+  const ensureSiteSettings = (): ReturnType<typeof createSiteSettings> => {
+    siteSettings ??= createSiteSettings(bootStore);
+    return siteSettings;
+  };
+
   const ensureRuntime = (): SiteRuntime => {
     if (runtime) {
       return runtime;
     }
-    const account = site.accountId();
-    const prefix = site.storagePrefix(account);
-    const options = new Options(platform.store, `${prefix}/options`);
-    const data = new SavedData(platform.store, prefix);
+    const prefix = bootPrefix;
+    const options = new Options(bootStore, `${prefix}/options`);
+    const data = new SavedData(bootStore, prefix);
+    const env = createDomEnvironment({
+      log: createLogger(`${site.id}-dom`),
+      ...site.themeEnvOptions,
+      ...site.envOptions,
+    });
     const theme = site.themeMapping
-      ? initSiteTheme(
-          createDomEnvironment({
-            log: createLogger('theme'),
-            ...site.themeEnvOptions,
-          }),
-          data,
-          site.themeMapping,
-          { active: false },
-        )
+      ? initSiteTheme(env, data, site.themeMapping, {
+          active: false,
+          earlyCacheSiteId: site.id,
+        })
       : undefined;
-    const page = site.createPage(data, () => platform.installPageWorld());
+    const page = site.createPage(data, () => platform.installPageWorld(), env);
     const runner = new FeatureRunner(site.features, options, page, data);
     const sitePanels = site.createPanels({ options, data, page, runner, platform });
     const diagIndex = sitePanels.findIndex((panel) => panel.section === 'Diagnostics');
@@ -145,7 +188,7 @@ export async function startSite<P, F extends PageFactory<P>>(
     const panels = [
       ...(theme ? [theme.panel] : []),
       ...sitePanels.slice(0, insertAt),
-      sitesPanel(siteSettings),
+      sitesPanel(ensureSiteSettings()),
       ...sitePanels.slice(insertAt),
     ];
 
@@ -154,21 +197,36 @@ export async function startSite<P, F extends PageFactory<P>>(
     return runtime;
   };
 
-  // The browser may keep the badge of the page this tab showed before, so
-  // the first one is sent even when it is empty or the site starts disabled.
-  platform.setBadge({ count: 0, failed: false });
-
+  // Register the Options trigger synchronously before awaiting storage so an
+  // immediate toolbar click right after navigation is never dropped.
+  let bootSettled = false;
   platform.onOpenOptions(() => {
-    const { options, runner, panels } = ensureRuntime();
-    void runner
-      .prepare()
-      .then(() => openOptionsDialog(options, panels))
+    void bootStoreReady
+      .then((resolvedStore) => {
+        if (!bootSettled) {
+          bootStore = resolvedStore;
+        }
+        const { options, runner, panels } = ensureRuntime();
+        return runner.prepare().then(() => openOptionsDialog(options, panels));
+      })
       .catch((error: unknown) => {
         createLogger('options').error('could not open the options dialog', error);
       });
   });
 
-  await siteSettings.ready;
+  bootStore = await bootStoreReady;
+  bootSettled = true;
+  const resolvedSiteSettings = ensureSiteSettings();
+  await resolvedSiteSettings.ready;
+  if (!resolvedSiteSettings.isEnabled(site.id)) {
+    // Discard unconsumed preloaded keys so re-enabling or opening Options later
+    // reads fresh values instead of stale T=0 startup snapshots.
+    preloadedStore?.clear();
+    if (site.themeMapping) {
+      writeEarlyThemeCss(site.id, '');
+      clearEarlyThemeStyle();
+    }
+  }
 
   let active = false;
   let generation = 0;
@@ -182,7 +240,7 @@ export async function startSite<P, F extends PageFactory<P>>(
   };
 
   const syncEnabled = async (): Promise<string[]> => {
-    const want = siteSettings.isEnabled(site.id);
+    const want = resolvedSiteSettings.isEnabled(site.id);
     if (want === active) {
       return [];
     }
@@ -198,7 +256,7 @@ export async function startSite<P, F extends PageFactory<P>>(
     // If the user disabled the site while an async feature setup was in flight,
     // stop immediately. If a newer re-enable superseded this token, leave the
     // newer run active.
-    if (!siteSettings.isEnabled(site.id)) {
+    if (!resolvedSiteSettings.isEnabled(site.id)) {
       deactivate();
       return [];
     }
@@ -208,7 +266,7 @@ export async function startSite<P, F extends PageFactory<P>>(
     return failed;
   };
 
-  siteSettings.onChange(() => {
+  resolvedSiteSettings.onChange(() => {
     void syncEnabled();
   });
 

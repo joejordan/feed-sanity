@@ -1,5 +1,6 @@
 import type { PageBridge } from '../../core/bridge';
 import type { DomEnvironment } from '../../core/dom-env';
+import type { FilterFields } from '../../core/filter-engine';
 import type { Locate } from '../../core/locator';
 import type { SiteFeedItem } from '../shared/feed';
 import { SiteFeed } from '../shared/feed';
@@ -49,6 +50,50 @@ function readInstagramDomSignals(article: HTMLElement): {
   };
 }
 
+function readInstagramFields(
+  article: HTMLElement,
+  signals: { readonly isAd: boolean; readonly isSuggested: boolean },
+): FilterFields {
+  let fullText: string | undefined;
+  let author: string | undefined;
+  let hashtags: string[] | undefined;
+  let images: string[] | undefined;
+
+  return {
+    get(name) {
+      switch (name) {
+        case 'all_content':
+        case 'any':
+        case 'content':
+          fullText ??= article.textContent ?? '';
+          return fullText;
+        case 'author':
+          author ??=
+            article.querySelector('header a[href^="/"]')?.textContent?.trim() ??
+            article.querySelector('a[role="link"]')?.textContent?.trim() ??
+            '';
+          return author;
+        case 'hashtag':
+          hashtags ??= [...article.querySelectorAll('a[href*="/explore/tags/"]')]
+            .map((a) => a.textContent?.trim() ?? '')
+            .filter((tag) => tag.length > 0);
+          return hashtags;
+        case 'image':
+          images ??= [...article.querySelectorAll('img[alt]')]
+            .map((img) => img.getAttribute('alt')?.trim() ?? '')
+            .filter((alt) => alt.length > 0);
+          return images;
+        case 'sponsored':
+          return signals.isAd ? 'sponsored' : '';
+        case 'suggested':
+          return signals.isSuggested ? 'suggested' : '';
+        default:
+          return null;
+      }
+    },
+  };
+}
+
 /**
  * Tracks Instagram `<article>` feed posts via shared `SiteFeed` and enriches
  * each post with React fiber + Network Tap ad/suggested metadata over the
@@ -70,6 +115,7 @@ export class InstagramFeed extends SiteFeed {
         itemSpec: IG_FEED_POST,
         readerName: 'ig-post-meta',
         readDomSignals: readInstagramDomSignals,
+        readFields: readInstagramFields,
       },
       onBridgeActive,
     );

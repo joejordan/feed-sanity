@@ -1,9 +1,16 @@
 import type { CapablePage, FeedItem } from '../../capabilities';
+import type { DomEnvironment } from '../../core/dom-env';
 import type { Feature } from '../../core/feature';
+import type { FilterFields } from '../../core/filter-engine';
+import type { Filter } from '../../core/filter-types';
 import type { OptionSpec } from '../../core/options';
 import type { Scope } from '../../core/scope';
+import type { AppliedFilterState } from './apply-filter-outcome';
 import { defineCapabilityFeature } from '../../capabilities';
-import { concealPending, hideElement, markElement } from '../../core/surface';
+import { runFilterList } from '../../core/filter-engine';
+import { isRunnable, savedFilters } from '../../core/filter-types';
+import { concealPending, markElement } from '../../core/surface';
+import { applyFilterOutcome, EMPTY_OUTCOME, parseKeywords } from './apply-filter-outcome';
 
 export interface SharedFeedFiltersConfig<P extends FeedFilterablePage> {
   readonly id: string;
@@ -22,13 +29,7 @@ export interface SharedFeedFiltersConfig<P extends FeedFilterablePage> {
 
 export interface FeedFilterablePage extends CapablePage {
   readonly doc: Document;
-}
-
-function parseKeywords(raw: string): string[] {
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim().toLowerCase())
-    .filter((line) => line.length > 0);
+  readonly env?: Pick<DomEnvironment, 'doc' | 'onShadowRoot'>;
 }
 
 function readItemLowerText(item: FeedItem): string {
@@ -36,6 +37,25 @@ function readItemLowerText(item: FeedItem): string {
     return item.readLowerText();
   }
   return (item.content.textContent ?? '').toLowerCase();
+}
+
+function fallbackFields(item: FeedItem): FilterFields {
+  let fullText: string | undefined;
+  return {
+    get(name) {
+      if (name === 'all_content' || name === 'any' || name === 'content') {
+        fullText ??= item.content.textContent ?? '';
+        return fullText;
+      }
+      if (name === 'sponsored') {
+        return item.isAd ? 'sponsored' : '';
+      }
+      if (name === 'suggested') {
+        return item.isSuggested ? 'suggested' : '';
+      }
+      return null;
+    },
+  };
 }
 
 function pauseMediaIn(element: Element): void {
@@ -46,7 +66,7 @@ function pauseMediaIn(element: Element): void {
   }
 }
 
-function shouldHide(
+function matchesBuiltInHide(
   item: FeedItem,
   hideSponsored: boolean,
   hideSuggested: boolean,
@@ -64,8 +84,9 @@ function shouldHide(
 
 /**
  * Factory for site-agnostic feed filtering built on `defineCapabilityFeature`
- * (`requires: ['feed']`) + `concealPending` + `hideElement`. Powers Instagram,
- * X.com, and future feed-based adapters with zero duplicated lifecycle logic.
+ * (`requires: ['feed']`) + `concealPending` + shared `runFilterList` +
+ * reversible `applyFilterOutcome`. Powers Instagram, X.com, and future
+ * feed-based adapters with both quick toggles and custom Filter Rules.
  */
 export function createFeedFiltersFeature<P extends FeedFilterablePage>(
   config: SharedFeedFiltersConfig<P>,
@@ -104,70 +125,104 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
     id: config.id,
     requires: ['feed'],
     options: optionsSpec,
-    setup({ page, caps, options, scope, badge }) {
+    setup({ page, caps, options, data, scope, badge }) {
       const { feed } = caps;
+      const customSaved = savedFilters(data);
 
       let hideSponsored = options.get(sponsoredKey) === true;
       let hideSuggested = options.get(suggestedKey) === true;
       let rawKeywords = String(options.get(keywordsKey) ?? '');
       let keywords = parseKeywords(rawKeywords);
+      let customFilters: readonly Filter[] = customSaved.get().filter(isRunnable);
 
       let activeScope: Scope | undefined;
       let reevaluateActive: (() => void) | undefined;
 
       const startFiltering = (subScope: Scope): (() => void) => {
         const tracked = new Map<HTMLElement, FeedItem>();
-        const hideRemovers = new Map<HTMLElement, () => void>();
+        const applied = new Map<HTMLElement, AppliedFilterState>();
         const checkedRemovers = new Map<HTMLElement, () => void>();
+        let hiddenCount = 0;
         let lastBadge = -1;
 
         const updateBadge = (): void => {
-          if (hideRemovers.size !== lastBadge) {
-            lastBadge = hideRemovers.size;
+          if (hiddenCount !== lastBadge) {
+            lastBadge = hiddenCount;
             badge(lastBadge);
           }
         };
 
-        page.doc.documentElement?.setAttribute(activeAttr, '');
-        concealPending(subScope, {
-          id: concealStyleId,
-          activeAttr,
-          pendingSelector: `${config.itemSelector}:not([${checkedAttr}])`,
-          maxMs: 300,
-        });
+        if (page.doc.documentElement) {
+          markElement(subScope, page.doc.documentElement, activeAttr);
+        }
+        concealPending(
+          subScope,
+          {
+            id: concealStyleId,
+            activeAttr,
+            pendingSelector: `${config.itemSelector}:not([${checkedAttr}])`,
+            maxMs: 300,
+          },
+          page.env,
+        );
         subScope.add(() => {
-          page.doc.documentElement?.removeAttribute(activeAttr);
-          hideRemovers.clear();
+          applied.clear();
           checkedRemovers.clear();
           tracked.clear();
+          hiddenCount = 0;
           lastBadge = 0;
           badge(0);
         });
 
         const evaluateOne = (item: FeedItem): void => {
-          const hide = shouldHide(item, hideSponsored, hideSuggested, keywords);
-          if ((hide || item.pending !== true) && !checkedRemovers.has(item.element)) {
+          const builtInHide = matchesBuiltInHide(item, hideSponsored, hideSuggested, keywords);
+          const outcome =
+            customFilters.length > 0
+              ? runFilterList(customFilters, {
+                  fields: item.readFields ? item.readFields() : fallbackFields(item),
+                  element: item.element,
+                  itemLabel: 'Post',
+                })
+              : EMPTY_OUTCOME;
+          const willHide = outcome.hiding !== null || (builtInHide && outcome.unhidden !== true);
+          if ((willHide || item.pending !== true) && !checkedRemovers.has(item.element)) {
             checkedRemovers.set(
               item.element,
               markElement(subScope, item.element, checkedAttr, '1'),
             );
           }
-          const existingHide = hideRemovers.get(item.element);
-          if (hide && !existingHide) {
-            pauseMediaIn(item.element);
-            hideRemovers.set(item.element, hideElement(subScope, item.element));
-          } else if (!hide && existingHide) {
-            existingHide();
-            hideRemovers.delete(item.element);
+          const prev = applied.get(item.element);
+          if (prev) {
+            if (prev.hidden) {
+              hiddenCount--;
+            }
+            prev.dispose();
+            applied.delete(item.element);
+          }
+          const next = applyFilterOutcome(
+            subScope,
+            item.element,
+            outcome,
+            builtInHide,
+            pauseMediaIn,
+          );
+          if (next) {
+            if (next.hidden) {
+              hiddenCount++;
+            }
+            applied.set(item.element, next);
           }
         };
 
         const forgetOne = (item: FeedItem): void => {
           tracked.delete(item.element);
-          const unhide = hideRemovers.get(item.element);
-          if (unhide) {
-            unhide();
-            hideRemovers.delete(item.element);
+          const prev = applied.get(item.element);
+          if (prev) {
+            if (prev.hidden) {
+              hiddenCount--;
+            }
+            prev.dispose();
+            applied.delete(item.element);
           }
           const unmark = checkedRemovers.get(item.element);
           if (unmark) {
@@ -210,7 +265,8 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
       };
 
       const sync = (): void => {
-        const want = hideSponsored || hideSuggested || keywords.length > 0;
+        const want =
+          hideSponsored || hideSuggested || keywords.length > 0 || customFilters.length > 0;
         if (want && !activeScope) {
           activeScope = scope.child();
           reevaluateActive = startFiltering(activeScope);
@@ -252,6 +308,12 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
         keywords = parseKeywords(rawKeywords);
         sync();
       });
+      scope.add(
+        customSaved.onChange((next) => {
+          customFilters = next.filter(isRunnable);
+          sync();
+        }),
+      );
     },
   });
 }

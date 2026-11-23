@@ -26,6 +26,7 @@ export interface SiteSettingsClient {
   readonly isEnabled: (siteId: string) => boolean;
   readonly setEnabled: (siteId: string, enabled: boolean) => Promise<void>;
   readonly onChange: (listener: () => void) => () => void;
+  readonly dispose?: () => void;
 }
 
 const KNOWN_SITE_IDS = new Set(SITE_MANIFEST.map((site) => site.id));
@@ -66,6 +67,8 @@ export function createSiteSettings(store: Store): SiteSettingsClient {
   let state: Record<string, boolean> = {};
   let unread = false;
   let pendingSaves = 0;
+  let disposed = false;
+  let unsubscribeStore: (() => void) | undefined;
   let saveQueue: Promise<void> = Promise.resolve();
   const listeners = new Listeners<[]>(log);
 
@@ -80,14 +83,19 @@ export function createSiteSettings(store: Store): SiteSettingsClient {
   const ready = store
     .get(SITES_STORAGE_KEY)
     .then((raw) => {
-      apply(readEnabledSites(raw));
+      if (!disposed) {
+        apply(readEnabledSites(raw));
+      }
     })
     .catch((error: unknown) => {
       unread = true;
       log.error('could not read site settings', error);
     })
     .finally(() => {
-      store.onChange(SITES_STORAGE_KEY, (_oldValue, newValue) => {
+      if (disposed) {
+        return;
+      }
+      const stop = store.onChange(SITES_STORAGE_KEY, (_oldValue, newValue) => {
         if (pendingSaves === 0) {
           if (newValue === undefined || isRecord(newValue)) {
             unread = false;
@@ -95,6 +103,9 @@ export function createSiteSettings(store: Store): SiteSettingsClient {
           apply(readEnabledSites(newValue));
         }
       });
+      if (typeof stop === 'function') {
+        unsubscribeStore = stop;
+      }
     });
 
   return {
@@ -133,5 +144,14 @@ export function createSiteSettings(store: Store): SiteSettingsClient {
       return run;
     },
     onChange: (listener) => listeners.add(listener),
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      unsubscribeStore?.();
+      unsubscribeStore = undefined;
+      listeners.clear();
+    },
   };
 }

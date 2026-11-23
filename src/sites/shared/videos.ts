@@ -180,7 +180,7 @@ export class SiteVideos implements MediaCapability {
     if (this.#stop) {
       return;
     }
-    this.#stop = this.#env.watcher.watch(this.#locate(this.#config.videoSpec), {
+    this.#stop = this.#env.watch(this.#locate(this.#config.videoSpec), {
       added: (el) => {
         if (!(el instanceof HTMLVideoElement) || this.#videos.has(el)) {
           return;

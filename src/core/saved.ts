@@ -21,6 +21,8 @@ export class Saved<T> {
   #pendingSaves = 0;
   /** True when the stored value could not be read. A save would then replace data nobody has seen. */
   #unread = false;
+  #disposed = false;
+  #unsubscribeStore: (() => void) | undefined;
 
   /**
    * Settles once the saved value has been read. Until then `get` returns
@@ -59,6 +61,17 @@ export class Saved<T> {
     return this.#listeners.add(listener);
   }
 
+  /** Releases the underlying storage change subscription and local listeners. */
+  dispose(): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#disposed = true;
+    this.#unsubscribeStore?.();
+    this.#unsubscribeStore = undefined;
+    this.#listeners.clear();
+  }
+
   async #load(): Promise<void> {
     try {
       this.#value = this.#read(await this.#store.get(this.#key));
@@ -66,16 +79,25 @@ export class Saved<T> {
       this.#unread = true;
       log.error(`could not read '${this.#key}'`, error);
     }
+    if (this.#disposed) {
+      return;
+    }
     this.#listeners.emit(this.#value);
-    this.#store.onChange(this.#key, (_before, after) => {
+    const stop = this.#store.onChange(this.#key, (_before, after) => {
       // While a save from here is on its way, its value is the newer one.
       // The store also reports saves made here, which change nothing.
+      if (this.#pendingSaves > 0) {
+        return;
+      }
       const value = this.#read(after);
-      if (this.#pendingSaves === 0 && JSON.stringify(value) !== JSON.stringify(this.#value)) {
+      if (JSON.stringify(value) !== JSON.stringify(this.#value)) {
         this.#value = value;
         this.#listeners.emit(value);
       }
     });
+    if (typeof stop === 'function') {
+      this.#unsubscribeStore = stop;
+    }
   }
 }
 
@@ -109,5 +131,13 @@ export class SavedData implements FeatureData {
       this.#values.set(name, saved);
     }
     return saved as Saved<T>;
+  }
+
+  /** Disposes every `Saved` handle created under this prefix. */
+  dispose(): void {
+    for (const saved of this.#values.values()) {
+      saved.dispose();
+    }
+    this.#values.clear();
   }
 }

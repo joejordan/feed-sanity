@@ -3,9 +3,11 @@
 
 import type { FeedStats, ThreadListCapability, ThreadRow } from '../../capabilities';
 import type { DomEnvironment } from '../../core/dom-env';
+import type { FilterFields } from '../../core/filter-engine';
 import type { Locate } from '../../core/locator';
 import { callSafely, Listeners } from '../../core/listeners';
 import { createLogger } from '../../core/log';
+import { OWN_ATTR } from '../../core/surface';
 import { GMAIL_THREAD_ROW } from './selectors';
 
 const log = createLogger('gmail-threads');
@@ -144,7 +146,7 @@ export class GmailThreadList implements ThreadListCapability {
       return;
     }
     this.#started = true;
-    this.#stop = this.#env.watcher.watch(this.#locate(GMAIL_THREAD_ROW), {
+    this.#stop = this.#env.watch(this.#locate(GMAIL_THREAD_ROW), {
       added: (el) => {
         if (el instanceof HTMLElement) {
           this.#enter(el);
@@ -175,7 +177,7 @@ export class GmailThreadList implements ThreadListCapability {
   }
 
   #enter(element: HTMLElement): void {
-    if (this.#tracked.has(element)) {
+    if (this.#tracked.has(element) || element.hasAttribute(OWN_ATTR)) {
       return;
     }
     let cachedLower: string | undefined;
@@ -183,12 +185,59 @@ export class GmailThreadList implements ThreadListCapability {
       cachedLower ??= (element.textContent ?? '').toLowerCase();
       return cachedLower;
     };
+    const isAd = isAdRow(element);
+    const readFields = (): FilterFields => {
+      let fullText: string | undefined;
+      let sender: string | undefined;
+      let subject: string | undefined;
+      let snippet: string | undefined;
+      let labels: string[] | undefined;
+
+      return {
+        get(name) {
+          switch (name) {
+            case 'all_content':
+            case 'any':
+              fullText ??= element.textContent ?? '';
+              return fullText;
+            case 'sender':
+              if (sender === undefined) {
+                const senderEl = element.querySelector('span[email], .yW');
+                const emailAttr = senderEl?.getAttribute('email') ?? '';
+                const senderName = senderEl?.textContent?.trim() ?? '';
+                sender =
+                  emailAttr && !senderName.includes(emailAttr)
+                    ? `${senderName} <${emailAttr}>`.trim()
+                    : senderName || emailAttr;
+              }
+              return sender;
+            case 'subject':
+              subject ??=
+                element.querySelector('[data-thread-subject], .bog')?.textContent?.trim() ?? '';
+              return subject;
+            case 'snippet':
+              snippet ??= element.querySelector('[data-snippet], .y2')?.textContent?.trim() ?? '';
+              return snippet;
+            case 'label':
+              labels ??= [...element.querySelectorAll('.av, [data-label-name]')]
+                .map((el) => el.textContent?.trim() ?? '')
+                .filter((val) => val.length > 0);
+              return labels;
+            case 'sponsored':
+              return isAd ? 'sponsored' : '';
+            default:
+              return null;
+          }
+        },
+      };
+    };
     const row: GmailThreadRow = {
       element,
       id: extractThreadId(element),
       unread: isUnreadRow(element),
-      isAd: isAdRow(element),
+      isAd,
       readLowerText,
+      readFields,
     };
     this.#tracked.set(element, row);
     this.#addListeners.emit(row);

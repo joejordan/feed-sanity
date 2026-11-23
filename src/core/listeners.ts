@@ -36,6 +36,11 @@ export class Listeners<T extends unknown[] = []> {
     return () => this.#listeners.delete(listener);
   }
 
+  /** Removes every registered listener. */
+  clear(): void {
+    this.#listeners.clear();
+  }
+
   emit(...args: T): void {
     for (const listener of this.#listeners) {
       callSafely(this.#log, listener, ...args);
