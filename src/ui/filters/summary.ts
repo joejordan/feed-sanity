@@ -5,6 +5,7 @@ import type { Action, Filter, Rule } from '../../core/filter-types';
 import type { FilterActionOption, FilterSchema } from './schema';
 import { normalizeRuleOperator } from '../../core/filter-engine';
 import { DAY_LABELS, findActionOption, findTargetOption } from './schema';
+import { extractSimpleChips } from './simple-model';
 
 function truncate(value: string, max = 28): string {
   const trimmed = value.trim();
@@ -47,11 +48,13 @@ function summarizeRule(rule: Rule, schema: FilterSchema): string {
   return `${targetLabel} ${neg}${verb} ${text ? `"${text}"` : '…'}`;
 }
 
-function summarizeAction(action: Action | undefined, schema: FilterSchema): string {
+function summarizeAction(
+  action: Action | undefined,
+  option: FilterActionOption | undefined,
+): string {
   if (!action?.action) {
     return 'Do nothing';
   }
-  const option = findActionOption(schema, action.action);
   const base = option?.label ?? action.action;
   if (action.action === 'hide' && action.show_note) {
     return `${base} (with note)`;
@@ -65,24 +68,61 @@ function summarizeAction(action: Action | undefined, schema: FilterSchema): stri
   return base;
 }
 
-/**
- * Computes a readable display title for `filter`: uses `filter.title` when set,
- * otherwise derives a smart title from the primary action and first condition
- * (e.g. `Hide "crypto"`), falling back to `'Untitled filter'`.
- */
-export function displayFilterTitle(filter: Filter, schema: FilterSchema): string {
+/** True when every rule in `rules` is a plain positive `contains` check on the same target under OR (`ANY`). */
+function isSharedTargetContainsOr(filter: Filter): boolean {
+  const rules = filter.rules ?? [];
+  if (rules.length < 2 || filter.match === 'ALL') {
+    return false;
+  }
+  const target = rules[0]?.target;
+  if (!target || target === 'day' || target === 'age') {
+    return false;
+  }
+  return rules.every((rule) => {
+    const { operator, not } = normalizeRuleOperator(rule);
+    return rule.target === target && !not && operator === 'contains';
+  });
+}
+
+function buildDisplayTitle(
+  filter: Filter,
+  primaryAction: FilterActionOption | undefined,
+  sharedContainsOr: boolean,
+): string {
   const explicit = filter.title?.trim();
   if (explicit) {
     return explicit;
   }
-  const firstAction = filter.actions?.[0];
+  const actionLabel = primaryAction?.simple?.title ?? primaryAction?.badge ?? 'Filter';
+
+  if (sharedContainsOr) {
+    const words = extractSimpleChips(filter);
+    if (words.length > 0) {
+      const head = words
+        .slice(0, 2)
+        .map((w) => truncate(w, 18))
+        .join(', ');
+      const suffix = words.length > 2 ? ` +${words.length - 2}` : '';
+      return `${actionLabel} "${head}${suffix}"`;
+    }
+  }
+
   const firstRule = filter.rules?.[0];
   const snippet = truncate(firstRule?.condition?.text ?? '', 24);
   if (snippet) {
-    const actionBadge = findActionOption(schema, firstAction?.action)?.badge ?? 'Filter';
-    return `${actionBadge} "${snippet}"`;
+    return `${actionLabel} "${snippet}"`;
   }
   return 'Untitled filter';
+}
+
+/**
+ * Computes a readable display title for `filter`: uses `filter.title` when set,
+ * otherwise derives a smart title from the primary action and conditions
+ * (e.g. `Hide "crypto, giveaway"`), falling back to `'Untitled filter'`.
+ */
+export function displayFilterTitle(filter: Filter, schema: FilterSchema): string {
+  const primaryAction = findActionOption(schema, filter.actions?.[0]?.action);
+  return buildDisplayTitle(filter, primaryAction, isSharedTargetContainsOr(filter));
 }
 
 export interface FilterSummary {
@@ -98,12 +138,25 @@ export function summarizeFilter(filter: Filter, schema: FilterSchema): FilterSum
   const actions = filter.actions ?? [];
   const primary = actions[0];
   const primaryAction = findActionOption(schema, primary?.action);
-  const actionPart = summarizeAction(primary, schema);
+  const sharedContainsOr = isSharedTargetContainsOr(filter);
+  const actionPart = summarizeAction(primary, primaryAction);
   const extraActionCount = Math.max(0, actions.length - 1);
 
   let conditionPart = 'no conditions yet';
   if (rules.length === 1 && rules[0]) {
     conditionPart = summarizeRule(rules[0], schema);
+  } else if (sharedContainsOr) {
+    const target = rules[0]?.target;
+    const targetLabel = findTargetOption(schema, target)?.label ?? target ?? 'Content';
+    const quoted = rules
+      .slice(0, 3)
+      .map((rule) => {
+        const text = truncate(rule.condition?.text ?? '');
+        return text ? `"${text}"` : '…';
+      })
+      .join(' or ');
+    const more = rules.length > 3 ? ` (+${rules.length - 3} more)` : '';
+    conditionPart = `${targetLabel} contains ${quoted}${more}`;
   } else if (rules.length > 1) {
     const joiner = filter.match === 'ALL' ? ' AND ' : ' OR ';
     const preview = rules.slice(0, 2).map((rule) => summarizeRule(rule, schema));
@@ -112,7 +165,7 @@ export function summarizeFilter(filter: Filter, schema: FilterSchema): FilterSum
   }
 
   return {
-    title: displayFilterTitle(filter, schema),
+    title: buildDisplayTitle(filter, primaryAction, sharedContainsOr),
     line: `${actionPart} when ${conditionPart}`,
     primaryAction,
     extraActionCount,
