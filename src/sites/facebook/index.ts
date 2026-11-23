@@ -13,6 +13,7 @@ import { isFacebookHost } from '../../facebook/urls';
 import { currentUserId } from '../../facebook/user';
 import { features, optionsPanels } from '../../features';
 import { savedFilters } from '../../features/post-filters/types';
+import { readThemeConfig, THEME_DATA_KEY } from '../../ui/appearance';
 import { facebookThemeMapping } from './theme-mapping';
 
 /**
@@ -42,6 +43,7 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
         options,
         filters: savedFilters(data),
         locators: overrides,
+        theme: data.value(THEME_DATA_KEY, readThemeConfig),
         read_history: savedPostData(data),
       }),
       diagnosticsPanel({

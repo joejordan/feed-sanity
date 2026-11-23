@@ -6,6 +6,7 @@
 import type { MediaCapability, MediaItem, VideoControl } from '../../capabilities';
 import type { DomEnvironment } from '../../core/dom-env';
 import type { Locate, LocatorSpec } from '../../core/locator';
+import { containsAcrossShadows, parentAcrossShadows } from '../../core/dom';
 import { callSafely, Listeners } from '../../core/listeners';
 import { createLogger } from '../../core/log';
 
@@ -136,7 +137,7 @@ export class SiteVideos implements MediaCapability {
     element: Element,
     within: Element | null = this.#env.doc.body ?? this.#env.doc.documentElement,
   ): SiteVideo | undefined {
-    if (this.#videos.size === 0 || !within || !within.contains(element)) {
+    if (this.#videos.size === 0 || !within || !containsAcrossShadows(within, element)) {
       return undefined;
     }
     const direct = this.#videos.get(element);
@@ -145,7 +146,7 @@ export class SiteVideos implements MediaCapability {
     }
     const inScope: TrackedSiteVideo[] = [];
     for (const [videoEl, tracked] of this.#videos) {
-      if (within.contains(videoEl)) {
+      if (containsAcrossShadows(within, videoEl)) {
         inScope.push(tracked);
       }
     }
@@ -160,7 +161,7 @@ export class SiteVideos implements MediaCapability {
       let match: TrackedSiteVideo | undefined;
       let count = 0;
       for (const candidate of inScope) {
-        if (node.contains(candidate.element)) {
+        if (containsAcrossShadows(node, candidate.element)) {
           match = candidate;
           count++;
         }
@@ -171,7 +172,7 @@ export class SiteVideos implements MediaCapability {
       if (node === within) {
         break;
       }
-      node = node.parentElement;
+      node = parentAcrossShadows(node);
     }
     return undefined;
   }

@@ -44,6 +44,7 @@ function* iterateHydrationScripts(
     maxCharsPerScript = DEFAULT_MAX_CHARS,
     maxScripts = DEFAULT_MAX_SCRIPTS,
   }: HydrationScanOptions = {},
+  skip?: WeakSet<HTMLScriptElement>,
 ): Generator<HydrationPayload> {
   const scripts = root.querySelectorAll<HTMLScriptElement>(selector);
   let inspected = 0;
@@ -53,6 +54,9 @@ function* iterateHydrationScripts(
       break;
     }
     inspected++;
+    if (skip?.has(script)) {
+      continue;
+    }
     const id = script.id || '';
     if (idPattern && !idPattern.test(id)) {
       continue;
@@ -103,4 +107,47 @@ export function findInHydration<T>(
     }
   }
   return undefined;
+}
+
+/**
+ * Scans inline hydration JSON scripts immediately and again once on
+ * `DOMContentLoaded` if `doc.readyState === 'loading'`. Tracks seen `<script>`
+ * elements in a `WeakSet` so scripts already parsed at `document_start` are
+ * never parsed or reported twice. Returns a cleanup function.
+ */
+export function watchHydrationScripts(
+  doc: Document | undefined,
+  options: HydrationScanOptions,
+  onPayloads: (payloads: HydrationPayload[]) => void,
+): () => void {
+  if (!doc) {
+    return () => undefined;
+  }
+  const seen = new WeakSet<HTMLScriptElement>();
+  let disposed = false;
+
+  const scan = (): void => {
+    if (disposed) {
+      return;
+    }
+    const fresh: HydrationPayload[] = [];
+    for (const payload of iterateHydrationScripts(doc, options, seen)) {
+      seen.add(payload.script);
+      fresh.push(payload);
+    }
+    if (fresh.length > 0) {
+      onPayloads(fresh);
+    }
+  };
+
+  scan();
+  const onReady = (): void => scan();
+  if (doc.readyState === 'loading') {
+    doc.addEventListener('DOMContentLoaded', onReady, { once: true });
+  }
+
+  return () => {
+    disposed = true;
+    doc.removeEventListener('DOMContentLoaded', onReady);
+  };
 }

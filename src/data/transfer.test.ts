@@ -6,6 +6,7 @@ import { SavedData } from '../core/saved';
 import { LOCATOR_OVERRIDES } from '../facebook/feature';
 import { savedFilters } from '../features/post-filters/types';
 import { extensionStore } from '../platform/extension-store';
+import { readThemeConfig, THEME_DATA_KEY } from '../ui/appearance';
 import { applyBackup, exportBackup, parseBackup, resetAllData } from './transfer';
 
 const SPECS = {
@@ -133,7 +134,38 @@ describe('data transfer', () => {
     });
     expect(parseBackup('{"other": 1}', specs)).toEqual({
       ok: false,
-      error: 'No options, filters or locator overrides were found in that JSON.',
+      error: 'No options, filters, theme or locator overrides were found in that JSON.',
     });
+  });
+
+  it('exports, imports, and resets saved theme configurations alongside options and filters', async () => {
+    const stores = makeStores();
+    const theme = data.value(THEME_DATA_KEY, readThemeConfig);
+    await Promise.all([stores.filters.ready, stores.locators.ready, theme.ready]);
+    await theme.set({
+      preset: 'nord',
+      accent: '#88c0d0',
+      background: '',
+      surface: '',
+      text: '',
+      font: 'serif',
+      customCss: '',
+    });
+
+    const withTheme = { ...stores, theme };
+    const exported = exportBackup(withTheme);
+    expect(JSON.parse(exported).theme).toMatchObject({ preset: 'nord', font: 'serif' });
+
+    await resetAllData(withTheme);
+    expect(theme.get().preset).toBe('default');
+
+    const parsed = parseBackup(exported, options.list());
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+    const summary = await applyBackup(parsed, withTheme);
+    expect(summary).toContain('theme');
+    expect(theme.get()).toMatchObject({ preset: 'nord', accent: '#88c0d0', font: 'serif' });
   });
 });

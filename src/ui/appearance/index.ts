@@ -11,7 +11,7 @@ import {
 import { setUserThemeCss } from '../mount';
 import { appearancePanel, readThemeConfig, THEME_DATA_KEY } from './appearance-panel';
 
-export { THEME_DATA_KEY } from './appearance-panel';
+export { readThemeConfig, THEME_DATA_KEY } from './appearance-panel';
 
 export interface SiteThemeRuntime {
   readonly controller: ThemeController;

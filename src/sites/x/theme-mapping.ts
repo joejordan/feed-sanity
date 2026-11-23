@@ -511,4 +511,23 @@ svg[data-testid="icon-verified"] {
 }
 `.trim();
   },
+  shadowExtraCss: (p) =>
+    `
+:host {
+  color: ${p.text};
+  scrollbar-color: ${p.border} ${p.background};
+}
+:where(input, textarea, select, [contenteditable="true"]) {
+  background-color: ${p.surfaceAlt} !important;
+  border-color: ${p.border} !important;
+  color: ${p.text} !important;
+}
+:where([role="separator"], hr) {
+  border-color: ${p.border} !important;
+  background-color: ${p.border} !important;
+}
+::selection {
+  background-color: ${hexWithAlpha(p.accent, 0.28)} !important;
+}
+`.trim(),
 };

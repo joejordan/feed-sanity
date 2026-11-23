@@ -5,6 +5,7 @@
 
 import type { FilterHiding, FilterOutcome } from '../../core/filter-engine';
 import type { Scope } from '../../core/scope';
+import { queryDeepAll } from '../../core/dom';
 import { FILTERED_FEED } from '../../core/filter-engine';
 import { hideElement, OWN_ATTR } from '../../core/surface';
 
@@ -25,15 +26,26 @@ export function parseKeywords(raw: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-function resolveTargets(root: HTMLElement, selector?: string): Element[] {
+function resolveTargets(
+  root: HTMLElement,
+  selector: string | undefined,
+  cache: Map<string, Element[]>,
+): Element[] {
   if (!selector) {
     return [root];
   }
-  try {
-    return [...root.querySelectorAll(selector)];
-  } catch {
-    return [];
+  const cached = cache.get(selector);
+  if (cached) {
+    return cached;
   }
+  let matches: Element[];
+  try {
+    matches = queryDeepAll(root, selector, OWN_ATTR);
+  } catch {
+    matches = [];
+  }
+  cache.set(selector, matches);
+  return matches;
 }
 
 function createHideNote(
@@ -80,6 +92,55 @@ export interface AppliedFilterState {
 }
 
 const IMPORTANT_SUFFIX = /\s*!important\s*$/i;
+const SKIP_REPLACE_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT']);
+
+function applyTextReplacements(
+  root: HTMLElement,
+  replacements: FilterOutcome['replacements'],
+  itemScope: Scope,
+): void {
+  const originals: [node: Text, before: string][] = [];
+  const walk = (node: Node): void => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        const textNode = child as Text;
+        const before = textNode.nodeValue ?? '';
+        if (!before) {
+          continue;
+        }
+        let after = before;
+        for (const { find, replace } of replacements) {
+          find.lastIndex = 0;
+          after = after.replace(find, replace);
+        }
+        if (after !== before) {
+          originals.push([textNode, before]);
+          textNode.nodeValue = after;
+        }
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        const el = child as Element;
+        if (SKIP_REPLACE_TAGS.has(el.tagName) || el.hasAttribute(OWN_ATTR)) {
+          continue;
+        }
+        walk(el);
+        if (el.shadowRoot) {
+          walk(el.shadowRoot);
+        }
+      }
+    }
+  };
+  walk(root);
+  if (root.shadowRoot) {
+    walk(root.shadowRoot);
+  }
+  if (originals.length > 0) {
+    itemScope.add(() => {
+      for (const [textNode, before] of originals.toReversed()) {
+        textNode.nodeValue = before;
+      }
+    });
+  }
+}
 
 /**
  * Applies `outcome` (plus optional `builtInHide` fallback) onto `element`
@@ -96,7 +157,11 @@ export function applyFilterOutcome(
   const hiding: FilterHiding | null =
     outcome.hiding ??
     (builtInHide && outcome.unhidden !== true ? { reveal: '', rehide: '', showNote: false } : null);
-  const hasEffects = hiding !== null || outcome.classes.length > 0 || outcome.styles.length > 0;
+  const hasEffects =
+    hiding !== null ||
+    outcome.classes.length > 0 ||
+    outcome.styles.length > 0 ||
+    outcome.replacements.length > 0;
   if (!hasEffects || parentScope.disposed) {
     return null;
   }
@@ -133,12 +198,14 @@ export function applyFilterOutcome(
     }
   }
 
+  const selectorCache = new Map<string, Element[]>();
+
   for (const { name, selector } of outcome.classes) {
     const tokens = name.split(/\s+/).filter((token) => token.length > 0);
     if (tokens.length === 0) {
       continue;
     }
-    for (const target of resolveTargets(element, selector)) {
+    for (const target of resolveTargets(element, selector, selectorCache)) {
       const added = tokens.filter((token) => !target.classList.contains(token));
       if (added.length > 0) {
         target.classList.add(...added);
@@ -150,7 +217,7 @@ export function applyFilterOutcome(
   for (const { property, value, selector } of outcome.styles) {
     const priority = IMPORTANT_SUFFIX.test(value) ? 'important' : '';
     const cleanValue = priority ? value.replace(IMPORTANT_SUFFIX, '') : value;
-    for (const target of resolveTargets(element, selector)) {
+    for (const target of resolveTargets(element, selector, selectorCache)) {
       if (!(target instanceof HTMLElement)) {
         continue;
       }
@@ -165,6 +232,10 @@ export function applyFilterOutcome(
         }
       });
     }
+  }
+
+  if (outcome.replacements.length > 0) {
+    applyTextReplacements(element, outcome.replacements, itemScope);
   }
 
   return {

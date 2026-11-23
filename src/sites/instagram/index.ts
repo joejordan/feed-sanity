@@ -2,16 +2,20 @@ import type { Feature } from '../../core/feature';
 import type { SiteAdapter } from '../../core/site';
 import type { InstagramPage } from './feature';
 import { version } from '../../../package.json';
+import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
 import { siteStoragePrefix } from '../../core/site-storage';
+import { dataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
+import { readThemeConfig, THEME_DATA_KEY } from '../../ui/appearance';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createInstagramPage, IG_LOCATOR_OVERRIDES } from './feature';
 import igDefaultFollowing from './features/default-following';
 import igFeedFilters from './features/feed-filters';
 import igHideClutter from './features/hide-clutter';
 import igVideoControls from './features/video-controls';
+import igVideoDownload from './features/video-download';
 import { INSTAGRAM_FILTER_SCHEMA } from './filter-schema';
 import { instagramAccountId, instagramPageType, scrubInstagramPii } from './page';
 import instagramTheme from './theme.css?inline';
@@ -23,6 +27,7 @@ export const instagramFeatures: readonly Feature<InstagramPage>[] = [
   igFeedFilters,
   igHideClutter,
   igVideoControls,
+  igVideoDownload,
   externalCss,
 ];
 
@@ -42,11 +47,17 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
   scrubPii: scrubInstagramPii,
   createPage: createInstagramPage,
   features: instagramFeatures,
-  createPanels({ data, page, runner, platform }) {
+  createPanels({ options, data, page, runner, platform }) {
     const { stats } = page;
     const overrides = data.value(IG_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       createFiltersPanel(data, INSTAGRAM_FILTER_SCHEMA),
+      dataPanel({
+        options,
+        filters: savedFilters(data),
+        locators: overrides,
+        theme: data.value(THEME_DATA_KEY, readThemeConfig),
+      }),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();

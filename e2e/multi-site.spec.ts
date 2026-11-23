@@ -17,6 +17,7 @@ const CLIP_WEBM = path.join(PAGES, 'videos', 'clip.webm');
 const X_ORIGIN = 'https://x.com';
 const IG_ORIGIN = 'https://www.instagram.com';
 const GMAIL_ORIGIN = 'https://mail.google.com';
+const REDDIT_ORIGIN = 'https://www.reddit.com';
 
 async function installUserscriptHarness(
   page: Page,
@@ -191,6 +192,13 @@ async function routeMultiSite(route: Route): Promise<void> {
       });
       return;
     }
+  }
+  if (url.origin === REDDIT_ORIGIN && (url.pathname === '/' || url.pathname === '/index.html')) {
+    await route.fulfill({
+      path: path.join(PAGES, 'reddit', 'index.html'),
+      contentType: 'text/html',
+    });
+    return;
   }
   await route.abort('blockedbyclient');
 }
@@ -440,9 +448,10 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await expect(page.locator('#nav-threads')).toBeHidden();
       await expect(page.locator('#nav-explore')).toBeVisible();
 
-      // Shared VideoScrubber mounts directly inside `#ig-player` above the z-index:0 inner wrapper
-      // and sibling `role="presentation"` click-capture layer, so clicking the scrubber seeks!
-      await expect(page.locator('#ig-player > feed-sanity-ui')).toHaveCount(1);
+      // Shared VideoScrubber and DownloadButton mount directly inside `#ig-player` above the
+      // z-index:0 inner wrapper and sibling `role="presentation"` click-capture layer, so clicking
+      // the scrubber seeks!
+      await expect(page.locator('#ig-player > feed-sanity-ui')).toHaveCount(2);
       await expect
         .poll(() =>
           page.evaluate(() => {
@@ -585,6 +594,128 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await expect
         .poll(() => frame.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor))
         .toBe('rgb(30, 30, 46)');
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('Reddit (Shreddit): filters nested & late-attached Shadow DOM posts, redacts Shadow DOM text with live hit counters, hides Shadow clutter, mounts 3-level Shadow video scrubber, and themes Shadow Roots live', async () => {
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
+    try {
+      await installUserscriptHarness(
+        page,
+        {
+          'v2/reddit/loid-e2ereddit123/options': {
+            reddit_hide_sponsored: true,
+            reddit_hide_suggested: true,
+            reddit_keywords: 'airdrop\n',
+            reddit_hide_sidebar: true,
+            reddit_hide_promos: true,
+            reddit_video_scrubber: true,
+          },
+          'v2/reddit/loid-e2ereddit123/filters': [
+            {
+              title: 'Redact secret phrase',
+              enabled: true,
+              match: 'ALL',
+              stop_on_match: false,
+              rules: [
+                {
+                  target: 'subreddit',
+                  operator: 'contains',
+                  matcher: 'str',
+                  match_partial_words: true,
+                  condition: { text: 'r/programming', modifier: 'i' },
+                },
+              ],
+              actions: [{ action: 'replace', find: 'secret-sauce', replace: '[REDACTED]' }],
+            },
+          ],
+        },
+        'loid=e2ereddit1234.1.1700000000',
+      );
+
+      await page.goto(`${REDDIT_ORIGIN}/`);
+
+      // Nested Shadow DOM posts: organic stays visible; DOM ad, SSR hydration ad, recommended, and late-attached keyword post hide!
+      const feed = page.locator('#shreddit-feed');
+      await expect(feed.locator('#t3_org1')).toBeVisible();
+      await expect(feed.locator('#t3_dom_ad')).toBeHidden();
+      await expect(feed.locator('#t3_hydr_ad')).toBeHidden();
+      await expect(feed.locator('#t3_rec1')).toBeHidden();
+      await expect(feed.locator('#t3_late_kw')).toBeHidden();
+
+      // Clutter hidden in BOTH light DOM (#right-sidebar-container) AND inside open Shadow Root (faceplate-banner[data-testid="promo"])!
+      await expect(page.locator('#right-sidebar-container')).toBeHidden();
+      await expect(feed.locator('faceplate-banner[data-testid="promo"]')).toBeHidden();
+
+      // Reversible `replace` filter redacted text inside 2nd-level nested Shadow Root!
+      await expect(feed.locator('#t3_org1 .post-body')).toHaveText(
+        'Clean architecture with [REDACTED] zero polling.',
+      );
+
+      // VideoScrubber mounted inside 3rd-level `<shreddit-player>` open Shadow Root!
+      await expect(feed.locator('#t3_org1 shreddit-player feed-sanity-ui')).toHaveCount(1);
+
+      // Open Options: check Filters live hit counter pill ("1 matched"), Data tab, and live Shadow DOM Appearance theming!
+      await page.evaluate(() =>
+        (
+          globalThis as unknown as { __openFeedSanityOptions: () => void }
+        ).__openFeedSanityOptions(),
+      );
+      const dialog = page.getByRole('dialog', { name: OPTIONS_TITLE });
+      await expect(dialog).toBeVisible();
+
+      await dialog.getByRole('button', { name: 'Filters' }).click();
+      await expect(dialog.getByText('Redact secret phrase')).toBeVisible();
+      await expect(dialog.getByText('1 matched')).toBeVisible();
+
+      await dialog.getByRole('button', { name: 'Data' }).click();
+      await expect(dialog.getByRole('button', { name: /Download JSON/i })).toBeVisible();
+
+      await dialog.getByRole('button', { name: 'Appearance' }).click();
+      await dialog.getByRole('button', { name: /Catppuccin Mocha/i }).click();
+
+      // Both light DOM body AND 2nd-level nested `.post-card` inside `t3_org1`'s Shadow Root update live!
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const postCard = document
+              .querySelector('#shreddit-feed')
+              ?.shadowRoot?.querySelector('#t3_org1')
+              ?.shadowRoot?.querySelector('.post-card');
+            return {
+              bodyBg: getComputedStyle(document.body).backgroundColor,
+              cardBg: postCard ? getComputedStyle(postCard).backgroundColor : null,
+            };
+          }),
+        )
+        .toEqual({
+          bodyBg: 'rgb(30, 30, 46)',
+          cardBg: 'rgb(38, 38, 55)',
+        });
+
+      await dialog.getByRole('button', { name: 'Save' }).click();
+      await expect(dialog).toBeHidden();
+
+      // Full reload persists live Shadow DOM theming, redaction, and late-shadow filtering cleanly.
+      await page.reload();
+      await expect(feed.locator('#t3_late_kw')).toBeHidden();
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const postCard = document
+              .querySelector('#shreddit-feed')
+              ?.shadowRoot?.querySelector('#t3_org1')
+              ?.shadowRoot?.querySelector('.post-card');
+            return postCard ? getComputedStyle(postCard).backgroundColor : null;
+          }),
+        )
+        .toBe('rgb(38, 38, 55)');
       expect(pageErrors).toEqual([]);
     } finally {
       await page.close();

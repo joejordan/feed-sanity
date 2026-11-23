@@ -1,10 +1,12 @@
-import type { CapablePage, SiteCapabilities } from '../../capabilities';
+import type { CapablePage, MediaSources, SiteCapabilities } from '../../capabilities';
+import type { BridgeStatus } from '../../core/bridge';
 import type { DomEnvironment } from '../../core/dom-env';
 import type { Binder, Feature, FeatureDefinition, PageFactory } from '../../core/feature';
 import type { Locate, LocatorStats } from '../../core/locator';
 import type { OptionSpecs } from '../../core/options';
 import type { PageWatcher } from '../../core/page-watcher';
 import type { SavedData } from '../../core/saved';
+import type { VideoDownloadBridge } from '../../features/shared/video-download';
 import type { InstagramNetworkStats } from './page-world';
 import { bindFeed, bindLocate, bindVideos, bindWatch } from '../../core/bind';
 import { PageBridge } from '../../core/bridge';
@@ -20,9 +22,11 @@ import { createLogger } from '../../core/log';
 import { isObject } from '../../engines/react';
 import { InstagramFeed } from './feed';
 import * as selectors from './selectors';
+import { isInstagramMediaAddress } from './urls';
 import { InstagramVideos } from './videos';
 
 export const IG_LOCATOR_OVERRIDES = 'ig_locators';
+const SAFE_VIDEO_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export interface InstagramStats {
   readonly locators: {
@@ -40,6 +44,7 @@ export interface InstagramPage extends CapablePage {
   readonly locate: Locate;
   readonly watch: PageWatcher['watch'];
   readonly onUrlChange: (listener: () => void) => () => void;
+  readonly bridge: VideoDownloadBridge;
   readonly feed: Pick<
     InstagramFeed,
     'onAdd' | 'onRemove' | 'onReset' | 'onTrack' | 'onUntrack' | 'onUpdate'
@@ -64,9 +69,10 @@ export function createInstagramPage(
   const locators = new Locators(IDENTITY_RESOLVER, Object.values(selectors).filter(isLocatorSpec));
   const overrides = data.value(IG_LOCATOR_OVERRIDES, readLocatorOverrides);
   locators.override(overrides.get());
-  overrides.onChange((value) => locators.override(value));
+  env.scope.add(overrides.onChange((value) => locators.override(value)));
 
   const bridge = new PageBridge(installPageWorld, { log: createLogger('ig-bridge') });
+  env.scope.add(() => bridge.dispose());
   let latestNetwork: InstagramNetworkStats = { matchedResponses: 0, cachedItems: 0 };
   let listeningStats = false;
 
@@ -78,24 +84,48 @@ export function createInstagramPage(
       return;
     }
     listeningStats = true;
-    bridge.on('ig:network-stats', (payload) => {
-      if (
-        isObject(payload) &&
-        typeof payload.matchedResponses === 'number' &&
-        typeof payload.cachedItems === 'number'
-      ) {
-        latestNetwork = {
-          matchedResponses: payload.matchedResponses,
-          cachedItems: payload.cachedItems,
-          ...(typeof payload.errors === 'number' ? { errors: payload.errors } : {}),
-        };
-        feed.recheck();
-      }
-    });
+    env.scope.add(
+      bridge.on('ig:network-stats', (payload) => {
+        if (
+          isObject(payload) &&
+          typeof payload.matchedResponses === 'number' &&
+          typeof payload.cachedItems === 'number'
+        ) {
+          const prevCached = latestNetwork.cachedItems;
+          const prevMatched = latestNetwork.matchedResponses;
+          latestNetwork = {
+            matchedResponses: payload.matchedResponses,
+            cachedItems: payload.cachedItems,
+            ...(typeof payload.errors === 'number' ? { errors: payload.errors } : {}),
+          };
+          if (payload.cachedItems > prevCached || payload.matchedResponses > prevMatched) {
+            feed.recheck();
+          }
+        }
+      }),
+    );
   };
 
   feed = new InstagramFeed(env, locate, bridge, subscribeNetworkStats);
   const videos = new InstagramVideos(env, locate);
+
+  const readVideoSources = async (
+    element: HTMLVideoElement,
+    signal?: AbortSignal,
+  ): Promise<MediaSources | null> => {
+    subscribeNetworkStats();
+    const raw = await bridge.ask(element, 'ig-video-sources', signal);
+    if (!isObject(raw)) {
+      return null;
+    }
+    const file = typeof raw.url === 'string' && isInstagramMediaAddress(raw.url) ? raw.url : null;
+    const videoId =
+      typeof raw.videoId === 'string' && SAFE_VIDEO_ID.test(raw.videoId) ? raw.videoId : null;
+    if (!file && !videoId) {
+      return null;
+    }
+    return { file, manifest: !file, videoId };
+  };
 
   const factory: PageFactory<InstagramPage> = (binder: Binder) => {
     const boundFeed = bindFeed(feed, binder);
@@ -106,6 +136,12 @@ export function createInstagramPage(
       locate: bindLocate(locate, binder),
       watch: bindWatch(env, binder),
       onUrlChange: (listener) => binder.listen((guarded) => env.onUrlChange(guarded), listener),
+      bridge: {
+        status: () => bridge.status(),
+        onStatus: (listener: (status: BridgeStatus) => void) =>
+          binder.listen((guarded) => bridge.onStatus(guarded), listener),
+        videoSources: readVideoSources,
+      },
       feed: boundFeed,
       videos: boundVideos,
       capabilities: {

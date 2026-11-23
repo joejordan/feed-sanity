@@ -1,39 +1,16 @@
-import type { XVideo } from '../videos';
-import { measureControls } from '../../../features/video-layout';
-import { overlayEachVideo } from '../../../features/video-overlay';
-import { AT_BOTTOM, placeStrip, samePlace } from '../../../features/video-scrubber/layout';
-import { Scrubber } from '../../../features/video-scrubber/scrubber';
-import scrubberCss from '../../../features/video-scrubber/scrubber.css?inline';
-import { defineXFeature } from '../feature';
-
-const noopHide = () => () => undefined;
+import type { XPage } from '../feature';
+import { createVideoControlsFeature } from '../../../features/shared/video-controls';
+import { X_VIDEO_CONTROL } from '../selectors';
 
 /**
- * Adds Feed Sanity's bottom video scrubber overlay to X timeline videos,
- * reusing the shared `overlayEachVideo` and `Scrubber` primitives.
+ * Adds Feed Sanity's bottom video scrubber and click-to-pause behavior to X
+ * timeline videos via the shared `createVideoControlsFeature`.
  */
-export default defineXFeature({
+export default createVideoControlsFeature<XPage>({
   id: 'x_video_scrubber',
-  options: {
-    x_video_scrubber: {
-      section: 'Videos',
-      title: 'Video scrubber',
-      description: 'Show a seekable progress bar along the bottom edge of X videos.',
-      default: true,
-    },
-  },
-  enabledBy: 'x_video_scrubber',
-  setup({ page, scope, log }) {
-    overlayEachVideo<ReturnType<typeof placeStrip>, XVideo>(
-      { page, scope, log },
-      {
-        css: scrubberCss,
-        initial: AT_BOTTOM,
-        measure: (video) =>
-          placeStrip(video.element.getBoundingClientRect(), measureControls(video)),
-        same: samePlace,
-        render: (video, place) => <Scrubber video={video.element} place={place} hide={noopHide} />,
-      },
-    );
-  },
+  prefix: 'x',
+  scrubberDescription: 'Show a seekable progress bar along the bottom edge of X videos.',
+  clickToPauseDescription: 'Click an X timeline video to pause or resume playback.',
+  postSelector: 'article[data-testid="tweet"]',
+  controlSpec: X_VIDEO_CONTROL,
 });

@@ -62,3 +62,39 @@ export function installAttachShadowHook(
     }
   };
 }
+
+/**
+ * Installs `installAttachShadowHook` and coalesces synchronous open Shadow Root
+ * attachments into one microtask callback (`onBatch(count)`). Returns an
+ * idempotent teardown function that restores `Element.prototype.attachShadow`
+ * and cancels any pending microtask notification.
+ */
+export function watchOpenShadowAttachments(
+  onBatch: (count: number) => void,
+  host: ShadowHookHost = globalThis,
+): () => void {
+  let pendingCount = 0;
+  let disposed = false;
+
+  const remove = installAttachShadowHook(({ mode }) => {
+    if (mode !== 'open' || disposed) {
+      return;
+    }
+    pendingCount++;
+    if (pendingCount === 1) {
+      queueMicrotask(() => {
+        const count = pendingCount;
+        pendingCount = 0;
+        if (!disposed && count > 0) {
+          onBatch(count);
+        }
+      });
+    }
+  }, host);
+
+  return () => {
+    disposed = true;
+    pendingCount = 0;
+    remove();
+  };
+}

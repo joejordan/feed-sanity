@@ -1,0 +1,42 @@
+/*
+ * Reddit (Shreddit) palette mapping onto Feed Sanity's shadow-DOM `--fs-*` tokens.
+ * Tracks light and dark schemes automatically while matching Reddit's orange-red accent.
+ */
+:host {
+  --fs-background: #ffffff;
+  --fs-surface: #f6f8f9;
+  --fs-hover: rgb(15 26 28 / 6%);
+  --fs-press: rgb(15 26 28 / 12%);
+  --fs-icon: #0f1a1c;
+  --fs-icon-secondary: #576f76;
+  --fs-text: #0f1a1c;
+  --fs-text-secondary: #576f76;
+  --fs-divider: #e5ebee;
+  --fs-accent: #ff4500;
+  --fs-accent-surface: rgb(255 69 0 / 14%);
+  --fs-accent-text: #ffffff;
+  --fs-button-secondary: rgb(15 26 28 / 8%);
+  --fs-comment: #eef1f3;
+  --fs-shadow-2: rgb(0 0 0 / 18%);
+  --fs-input: #ffffff;
+  --fs-error: #d93a00;
+  --fs-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :host {
+    --fs-background: #0e1113;
+    --fs-surface: #181c1f;
+    --fs-hover: rgb(242 244 245 / 8%);
+    --fs-press: rgb(242 244 245 / 14%);
+    --fs-icon: #eef1f3;
+    --fs-icon-secondary: #8ba2ad;
+    --fs-text: #eef1f3;
+    --fs-text-secondary: #8ba2ad;
+    --fs-divider: #2a3236;
+    --fs-button-secondary: rgb(242 244 245 / 10%);
+    --fs-comment: #181c1f;
+    --fs-shadow-2: rgb(0 0 0 / 50%);
+    --fs-input: #0e1113;
+  }
+}

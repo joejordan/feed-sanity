@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AttachedShadowInfo, ShadowHookHost } from '.';
-import { installAttachShadowHook } from '.';
+import { installAttachShadowHook, watchOpenShadowAttachments } from '.';
 
 describe('engines/shadow', () => {
   it('notifies on attachShadow, isolates throwing callbacks, and restores the original method', () => {
@@ -52,5 +52,31 @@ describe('engines/shadow', () => {
     expect(proto.attachShadow.call(el, { mode: 'open' })).toBe(fakeRoot);
     // After uninstall our callback no longer fires even when invoked through `outer`.
     expect(seen).toHaveLength(0);
+  });
+
+  it('watchOpenShadowAttachments coalesces open attachments into one microtask batch, ignores closed roots, and cancels on teardown', async () => {
+    const fakeRoot = {} as ShadowRoot;
+    const original = vi.fn(() => fakeRoot) as unknown as Element['attachShadow'];
+    const proto = { attachShadow: original };
+    const host: ShadowHookHost = { Element: { prototype: proto } };
+
+    const batches: number[] = [];
+    const stop = watchOpenShadowAttachments((count) => batches.push(count), host);
+
+    const el = document.createElement('div');
+    proto.attachShadow.call(el, { mode: 'open' });
+    proto.attachShadow.call(el, { mode: 'closed' });
+    proto.attachShadow.call(el, { mode: 'open' });
+    expect(batches).toEqual([]);
+
+    await Promise.resolve();
+    expect(batches).toEqual([2]);
+
+    // Queue another open attachment and dispose before microtask flushes -> cancelled.
+    proto.attachShadow.call(el, { mode: 'open' });
+    stop();
+    await Promise.resolve();
+    expect(batches).toEqual([2]);
+    expect(proto.attachShadow).toBe(original);
   });
 });

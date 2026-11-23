@@ -9,6 +9,7 @@ import {
 } from '../facebook/urls.ts';
 import { GMAIL_EXCLUDE_MATCHES, GMAIL_MATCHES } from './gmail/urls.ts';
 import { INSTAGRAM_EXCLUDE_MATCHES, INSTAGRAM_MATCHES } from './instagram/urls.ts';
+import { REDDIT_EXCLUDE_MATCHES, REDDIT_MATCHES } from './reddit/urls.ts';
 import { X_EXCLUDE_MATCHES, X_MATCHES } from './x/urls.ts';
 
 export interface SiteManifestEntry {
@@ -55,6 +56,15 @@ export const SITE_MANIFEST: readonly SiteManifestEntry[] = [
       'Hide Promotions/Social inbox ads and keyword-matched threads, hide Workspace side panel/Chat/Meet/Gemini clutter, live iframe-aware theming, and External CSS.',
     matches: GMAIL_MATCHES,
     excludeMatches: GMAIL_EXCLUDE_MATCHES,
+    excludeGlobs: [],
+  },
+  {
+    id: 'reddit',
+    displayName: 'Reddit',
+    description:
+      'Hide Promoted ads, Recommended posts, and custom Shadow DOM filter rules, hide sidebar/promo clutter, video scrubber and click-to-pause, live Shadow DOM theming, and External CSS.',
+    matches: REDDIT_MATCHES,
+    excludeMatches: REDDIT_EXCLUDE_MATCHES,
     excludeGlobs: [],
   },
 ];

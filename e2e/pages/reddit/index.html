@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en" class="theme-light">
+  <head>
+    <meta charset="utf-8" />
+    <title>Reddit (Shreddit) E2E Fixture</title>
+    <script id="data" type="application/json">
+      {
+        "feed": {
+          "posts": [
+            { "id": "t3_hydr_ad", "promoted": true },
+            { "id": "t3_org1", "promoted": false }
+          ]
+        }
+      }
+    </script>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #ffffff;
+        color: #0f1a1c;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      shreddit-post,
+      shreddit-ad-post {
+        display: block;
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <shreddit-app user-id="t2_e2ereddit">
+      <main>
+        <shreddit-feed id="shreddit-feed"></shreddit-feed>
+        <aside id="right-sidebar-container">
+          <h2>Popular Communities</h2>
+        </aside>
+      </main>
+    </shreddit-app>
+
+    <script>
+      const feed = document.querySelector('#shreddit-feed');
+      const feedShadow = feed.attachShadow({ mode: 'open' });
+
+      function createShadowPost({ id, subreddit, author, title, body, attrs = {}, hasVideo = false }) {
+        const post = document.createElement('shreddit-post');
+        post.setAttribute('id', id);
+        post.setAttribute('subreddit-prefixed-name', subreddit);
+        post.setAttribute('author', author);
+        post.setAttribute('post-title', title);
+        for (const [k, v] of Object.entries(attrs)) {
+          post.setAttribute(k, v);
+        }
+        const root = post.attachShadow({ mode: 'open' });
+        const style = document.createElement('style');
+        style.textContent = `
+          .post-card { padding: 12px; border: 1px solid #d0d7de; border-radius: 10px; background: #f6f8f9; color: #0f1a1c; }
+          .media-container { position: relative; width: 480px; height: 270px; background: #000; }
+          video { width: 100%; height: 100%; display: block; }
+        `;
+        const card = document.createElement('div');
+        card.className = 'post-card';
+        const h2 = document.createElement('h2');
+        h2.dataset.testid = 'post-title';
+        h2.textContent = title;
+        const p = document.createElement('p');
+        p.className = 'post-body';
+        p.textContent = body;
+        card.append(h2, p);
+
+        if (hasVideo) {
+          const player = document.createElement('shreddit-player');
+          const playerRoot = player.attachShadow({ mode: 'open' });
+          const pStyle = document.createElement('style');
+          pStyle.textContent = `
+            .media-container { position: relative; width: 480px; height: 270px; background: #000; }
+            video { width: 100%; height: 100%; display: block; }
+          `;
+          const shell = document.createElement('div');
+          shell.className = 'media-container';
+          const video = document.createElement('video');
+          video.src = '/clip.webm';
+          video.muted = true;
+          video.playsInline = true;
+          video.preload = 'metadata';
+          shell.append(video);
+          playerRoot.append(pStyle, shell);
+          card.append(player);
+        }
+
+        root.append(style, card);
+        return post;
+      }
+
+      const organic = createShadowPost({
+        id: 't3_org1',
+        subreddit: 'r/programming',
+        author: 'devbuilder',
+        title: 'Nested Shadow DOM engine benchmarks',
+        body: 'Clean architecture with secret-sauce zero polling.',
+        hasVideo: true,
+      });
+
+      const domAd = document.createElement('shreddit-ad-post');
+      domAd.setAttribute('id', 't3_dom_ad');
+      domAd.textContent = 'Sponsored widget offer';
+
+      const hydrationAd = createShadowPost({
+        id: 't3_hydr_ad',
+        subreddit: 'r/technology',
+        author: 'advertiser',
+        title: 'Hydration-indexed promoted post',
+        body: 'No DOM promoted attribute here.',
+      });
+
+      const recommended = createShadowPost({
+        id: 't3_rec1',
+        subreddit: 'r/memes',
+        author: 'memer',
+        title: 'Recommended meme post',
+        body: 'Because you visited r/funny',
+        attrs: { 'is-recommended': '' },
+      });
+
+      const shadowPromo = document.createElement('faceplate-banner');
+      shadowPromo.setAttribute('data-testid', 'promo');
+      shadowPromo.textContent = 'Open in Reddit App';
+
+      const lateHost = document.createElement('div');
+      lateHost.id = 'late-shadow-host';
+
+      feedShadow.append(organic, domAd, hydrationAd, recommended, shadowPromo, lateHost);
+
+      // Attach a new Shadow Root asynchronously after page load to stress-test `installAttachShadowHook`.
+      setTimeout(() => {
+        const lateShadow = lateHost.attachShadow({ mode: 'open' });
+        const latePost = createShadowPost({
+          id: 't3_late_kw',
+          subreddit: 'r/finance',
+          author: 'shill',
+          title: 'Crypto giveaway live',
+          body: 'Free airdrop tokens today!',
+        });
+        lateShadow.append(latePost);
+      }, 60);
+    </script>
+  </body>
+</html>

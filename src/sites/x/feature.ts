@@ -64,9 +64,10 @@ export function createXPage(
   const locators = new Locators(IDENTITY_RESOLVER, Object.values(selectors).filter(isLocatorSpec));
   const overrides = data.value(X_LOCATOR_OVERRIDES, readLocatorOverrides);
   locators.override(overrides.get());
-  overrides.onChange((value) => locators.override(value));
+  env.scope.add(overrides.onChange((value) => locators.override(value)));
 
   const bridge = new PageBridge(installPageWorld, { log: createLogger('x-bridge') });
+  env.scope.add(() => bridge.dispose());
   let latestNetwork: XNetworkStats = { matchedResponses: 0, strippedPromoted: 0 };
   let listeningStats = false;
   let stripPromoted = false;
@@ -76,19 +77,26 @@ export function createXPage(
       return;
     }
     listeningStats = true;
-    bridge.on('x:network-stats', (payload) => {
-      if (
-        isObject(payload) &&
-        typeof payload.matchedResponses === 'number' &&
-        typeof payload.strippedPromoted === 'number'
-      ) {
-        latestNetwork = {
-          matchedResponses: payload.matchedResponses,
-          strippedPromoted: payload.strippedPromoted,
-          ...(typeof payload.errors === 'number' ? { errors: payload.errors } : {}),
-        };
-      }
-    });
+    env.scope.add(
+      bridge.on('x:network-stats', (payload) => {
+        if (
+          isObject(payload) &&
+          typeof payload.matchedResponses === 'number' &&
+          typeof payload.strippedPromoted === 'number'
+        ) {
+          latestNetwork = {
+            matchedResponses: payload.matchedResponses,
+            strippedPromoted: payload.strippedPromoted,
+            ...(typeof payload.errors === 'number' ? { errors: payload.errors } : {}),
+          };
+        }
+      }),
+    );
+    env.scope.add(
+      bridge.on('x:shadow-attached', () => {
+        env.scanShadowRoots();
+      }),
+    );
   };
 
   const locate: Locate = (spec) => locators.locate(spec);

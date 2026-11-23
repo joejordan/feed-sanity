@@ -101,3 +101,17 @@
   justify-content: space-between;
   gap: 8px;
 }
+
+.theme-contrast-warn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgb(217 119 6 / 45%);
+  border-radius: 8px;
+  background: rgb(217 119 6 / 12%);
+  color: var(--fs-text);
+  font-size: 12.5px;
+}

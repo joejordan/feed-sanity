@@ -13,7 +13,7 @@ export type OverlayVideo = Pick<Video, 'element' | 'container'>;
 export interface VideoOverlaySource<V extends OverlayVideo = Video> {
   readonly onAdd: (listener: (video: V) => void) => () => void;
   readonly onRemove: (listener: (video: V) => void) => () => void;
-  readonly onControls: (listener: (video: V) => void) => () => void;
+  readonly onControls?: (listener: (video: V) => void) => () => void;
 }
 
 export interface VideoOverlayOptions<T, V extends OverlayVideo = Video> {
@@ -56,7 +56,9 @@ export function overlayEachVideo<T, V extends OverlayVideo = Video>(
       remove(video);
     }
   });
-  scope.add(page.videos.onControls((video) => shown.get(video)?.measure()));
+  if (page.videos.onControls) {
+    scope.add(page.videos.onControls((video) => shown.get(video)?.measure()));
+  }
   scope.add(page.videos.onRemove(remove));
   // Also called at once with the videos already on the page.
   scope.add(

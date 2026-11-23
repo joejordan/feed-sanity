@@ -420,12 +420,15 @@ describe('instagramSite adapter and features', () => {
 
     await startSite(instagramSite, platform);
 
-    // Scrubber mounts as a direct child of `#player` (above `#inner` and `role="presentation"`).
+    // Scrubber and Save-button overlays mount as direct children of `#player` (above `#inner` and `role="presentation"`).
     await vi.waitFor(() =>
-      expect(player.querySelector(':scope > [data-feed-sanity]')).not.toBeNull(),
+      expect(player.querySelectorAll(':scope > [data-feed-sanity]').length).toBeGreaterThanOrEqual(
+        2,
+      ),
     );
-    const overlayHost = player.querySelector(':scope > [data-feed-sanity]') as HTMLElement;
-    expect(player.lastElementChild).toBe(overlayHost);
+    const overlays = [...player.querySelectorAll<HTMLElement>(':scope > [data-feed-sanity]')];
+    const overlayHost = overlays[0] as HTMLElement;
+    expect(overlays).toContain(player.lastElementChild);
 
     // Clicking our own `[data-feed-sanity]` overlay must NOT trigger click-to-pause.
     dispatchPointerClick(overlayHost, { pointerId: 7, clientX: 150, clientY: 295 });

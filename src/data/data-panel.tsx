@@ -111,7 +111,9 @@ export function DataPanel({ stores }: { stores: DataStores }) {
     try {
       await resetAllData(stores);
       setConfirmingReset(false);
-      setStatus({ text: 'All options, filters and custom selectors were reset to defaults.' });
+      setStatus({
+        text: 'All options, filters, theme and custom selectors were reset to defaults.',
+      });
     } catch {
       setStatus({ text: 'Could not reset settings.', error: true });
     } finally {
@@ -123,7 +125,7 @@ export function DataPanel({ stores }: { stores: DataStores }) {
     <section className="data">
       <h3 className="data-heading">Backup &amp; Restore</h3>
       <p className="description">
-        Export your {NAME} options, post filters and custom selectors as JSON, or import a backup
+        Export your {NAME} options, filters, theme and custom selectors as JSON, or import a backup
         from {NAME}. Changes apply right away with no page reload.
       </p>
 
@@ -267,6 +269,7 @@ export function dataPanel(stores: DataStores): OptionsPanel {
       stores.options.loaded,
       stores.filters.ready,
       stores.locators.ready,
+      stores.theme?.ready ?? Promise.resolve(),
       stores.read_history?.ready ?? Promise.resolve(),
     ]).then(() => undefined),
     read: () => null,

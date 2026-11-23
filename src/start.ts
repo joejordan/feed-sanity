@@ -3,14 +3,16 @@ import { SiteRegistry } from './core/site';
 import { facebookSite } from './sites/facebook';
 import { gmailSite } from './sites/gmail';
 import { instagramSite } from './sites/instagram';
+import { redditSite } from './sites/reddit';
 import { xSite } from './sites/x';
 
-/** Registry of all compiled site adapters (Facebook, Instagram, X, Gmail). */
+/** Registry of all compiled site adapters (Facebook, Instagram, X, Gmail, Reddit). */
 export const siteRegistry = new SiteRegistry()
   .register(facebookSite)
   .register(instagramSite)
   .register(xSite)
-  .register(gmailSite);
+  .register(gmailSite)
+  .register(redditSite);
 
 /** Starts the matching site adapter on the current page. Shared by userscript and tests. */
 export function start(platform: Platform): Promise<string[]> {

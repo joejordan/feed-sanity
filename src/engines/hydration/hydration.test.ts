@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { findInHydration, scanHydrationScripts } from '.';
+import { describe, expect, it, vi } from 'vitest';
+import { findInHydration, scanHydrationScripts, watchHydrationScripts } from '.';
 
 describe('engines/hydration', () => {
   it('parses inline JSON scripts, strips for (;;); prefixes, and skips malformed or oversized blocks', () => {
@@ -43,5 +43,40 @@ describe('engines/hydration', () => {
       return obj.props?.pageProps?.user;
     });
     expect(user).toBe('alice');
+  });
+
+  it('watchHydrationScripts rescans on DOMContentLoaded without re-parsing previously seen scripts', () => {
+    const doc = document.implementation.createHTMLDocument('watch');
+    Object.defineProperty(doc, 'readyState', { value: 'loading', configurable: true });
+    const first = doc.createElement('script');
+    first.type = 'application/json';
+    first.id = 'first';
+    first.textContent = JSON.stringify({ id: 'a' });
+    doc.head.append(first);
+
+    const parseSpy = vi.spyOn(JSON, 'parse');
+    const batches: string[][] = [];
+    const stop = watchHydrationScripts(doc, {}, (payloads) => {
+      batches.push(payloads.map((p) => p.id));
+    });
+
+    expect(batches).toEqual([['first']]);
+    expect(parseSpy).toHaveBeenCalledTimes(1);
+
+    const second = doc.createElement('script');
+    second.type = 'application/json';
+    second.id = 'second';
+    second.textContent = JSON.stringify({ id: 'b' });
+    doc.body.append(second);
+    doc.dispatchEvent(new Event('DOMContentLoaded'));
+
+    expect(batches).toEqual([['first'], ['second']]);
+    // `first` was skipped via WeakSet before JSON.parse on DOMContentLoaded.
+    expect(parseSpy).toHaveBeenCalledTimes(2);
+    stop();
+    parseSpy.mockRestore();
+
+    // Handles undefined document safely.
+    expect(() => watchHydrationScripts(undefined, {}, () => undefined)()).not.toThrow();
   });
 });

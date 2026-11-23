@@ -2,7 +2,7 @@
 
 import type { FilterSchema } from '../../ui/filters/schema';
 import { newAction, newFilter, newRule } from '../../core/filter-types';
-import { HIGHLIGHT_CSS, standardFilterActions } from '../../ui/filters/schema';
+import { DAY_TARGET_OPTION, HIGHLIGHT_CSS, standardFilterActions } from '../../ui/filters/schema';
 
 export const GMAIL_FILTER_SCHEMA: FilterSchema = {
   siteName: 'Gmail',
@@ -57,6 +57,7 @@ export const GMAIL_FILTER_SCHEMA: FilterSchema = {
       group: 'Inbox metadata',
       placeholder: 'sponsored',
     },
+    DAY_TARGET_OPTION,
   ],
   actions: standardFilterActions('thread'),
   recipes: [

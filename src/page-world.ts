@@ -7,6 +7,8 @@ import { isFacebookHost } from './facebook/urls';
 import { startFacebookPageWorld } from './sites/facebook/page-world';
 import { startInstagramPageWorld } from './sites/instagram/page-world';
 import { isInstagramHost } from './sites/instagram/urls';
+import { startRedditPageWorld } from './sites/reddit/page-world';
+import { isRedditHost } from './sites/reddit/urls';
 import { startXPageWorld } from './sites/x/page-world';
 import { isXHost } from './sites/x/urls';
 
@@ -21,5 +23,7 @@ export function startPageWorld(): void {
     startInstagramPageWorld();
   } else if (isXHost(hostname)) {
     startXPageWorld();
+  } else if (isRedditHost(hostname)) {
+    startRedditPageWorld();
   }
 }

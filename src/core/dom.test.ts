@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { addStyle, probe } from './dom';
+import {
+  addStyle,
+  closestAcrossShadows,
+  containsAcrossShadows,
+  probe,
+  queryDeepAll,
+  queryDeepFirst,
+} from './dom';
 
 describe('addStyle', () => {
   it('adds the style sheet to the page once', () => {
@@ -31,5 +38,38 @@ describe('probe', () => {
     expect(probe(root, '.a').map((element) => element.tagName)).toEqual(['DIV', 'P']);
     expect(probe(root, '.b')).toHaveLength(1);
     expect(probe(root, '.c')).toEqual([]);
+  });
+});
+
+describe('shadow-piercing DOM helpers', () => {
+  it('skips elements and descendants inside skipAttr subtrees in queryDeepAll and queryDeepFirst', () => {
+    const host = document.createElement('div');
+    const own = document.createElement('div');
+    own.setAttribute('data-own', '1');
+    const ownBtn = document.createElement('button');
+    ownBtn.id = 'own-btn';
+    own.append(ownBtn);
+
+    const realBtn = document.createElement('button');
+    realBtn.id = 'real-btn';
+
+    const shadowHost = document.createElement('section');
+    const shadow = shadowHost.attachShadow({ mode: 'open' });
+    const shadowBtn = document.createElement('button');
+    shadowBtn.id = 'shadow-btn';
+    shadow.append(shadowBtn);
+
+    host.append(own, realBtn, shadowHost);
+    document.body.append(host);
+
+    // First matching button in `host` is inside `own`; queryDeepFirst must skip it and return `#real-btn`.
+    expect(queryDeepFirst(host, 'button', 'data-own')?.id).toBe('real-btn');
+    expect(queryDeepAll(host, 'button', 'data-own').map((el) => el.id)).toEqual([
+      'real-btn',
+      'shadow-btn',
+    ]);
+    expect(containsAcrossShadows(host, shadowBtn)).toBe(true);
+    expect(closestAcrossShadows(shadowBtn, 'div')).toBe(host);
+    host.remove();
   });
 });

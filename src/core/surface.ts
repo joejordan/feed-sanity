@@ -1,7 +1,7 @@
 import type { DomEnvironment } from './dom-env';
 import type { PageWatcher } from './page-watcher';
 import type { Scope } from './scope';
-import { addStyle } from './dom';
+import { addStyle, isShadowRoot } from './dom';
 import { pageWatcher } from './page-watcher';
 
 /** Attribute marking one of Facebook's elements that a feature is temporarily hiding. */
@@ -31,10 +31,60 @@ const rootHideState = new WeakMap<Document | ShadowRoot, { count: number; remove
 
 function styleRootFor(element: Element): Document | ShadowRoot {
   const root = element.getRootNode();
-  if (root.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in root) {
-    return root as ShadowRoot;
+  return isShadowRoot(root) ? root : (element.ownerDocument ?? document);
+}
+
+export interface StyleAcrossRootsOptions {
+  readonly doc?: Document;
+  readonly env?: Pick<DomEnvironment, 'doc' | 'onShadowRoot'>;
+  /** Optional CSS variant for Shadow Roots (defaults to `lightCss`). */
+  readonly shadowCss?: string;
+}
+
+/**
+ * Adds a `<style id>` to the light document and, when `env` is provided,
+ * mirrors it into every current and late-arriving open `ShadowRoot`. Cleans up
+ * cleanly on `scope` disposal, individual Shadow Root disconnect, or calling
+ * the returned remover.
+ */
+export function addStyleAcrossRoots(
+  scope: Scope,
+  id: string,
+  lightCss: string,
+  { doc, env, shadowCss = lightCss }: StyleAcrossRootsOptions = {},
+): () => void {
+  if (scope.disposed) {
+    return () => undefined;
   }
-  return element.ownerDocument ?? document;
+  const styleScope = scope.child();
+  styleScope.add(addStyle(id, lightCss, doc ?? env?.doc ?? document));
+  if (env) {
+    const shadowRemovers = new Set<() => void>();
+    styleScope.add(
+      env.onShadowRoot((shadow, rootScope) => {
+        if (styleScope.disposed || rootScope.disposed) {
+          return;
+        }
+        const removeStyle = addStyle(id, shadowCss, shadow);
+        let unbindRoot: (() => void) | undefined;
+        const cleanup = (): void => {
+          shadowRemovers.delete(cleanup);
+          unbindRoot?.();
+          unbindRoot = undefined;
+          removeStyle();
+        };
+        shadowRemovers.add(cleanup);
+        unbindRoot = rootScope.add(cleanup);
+      }),
+    );
+    styleScope.add(() => {
+      for (const cleanup of [...shadowRemovers]) {
+        cleanup();
+      }
+      shadowRemovers.clear();
+    });
+  }
+  return () => styleScope.dispose();
 }
 
 /**
@@ -137,35 +187,11 @@ export function concealPending(
   const maxMs = rule.maxMs ?? 300;
   const keyframe = `${rule.id}_reveal`;
   const keyframes = `@keyframes ${keyframe} { 0% { opacity: 0; } 100% { opacity: 1; } }`;
-  const lightCss = `html[${rule.activeAttr}] ${rule.pendingSelector} { animation: ${keyframe} ${maxMs}ms step-end 1; } ${keyframes}`;
-  const removeLight = scope.add(addStyle(rule.id, lightCss, env?.doc ?? document));
-  if (!env) {
-    return removeLight;
-  }
+  const lightCss = `html[${rule.activeAttr}] :is(${rule.pendingSelector}) { animation: ${keyframe} ${maxMs}ms step-end 1; } ${keyframes}`;
   const shadowCss = `${rule.pendingSelector} { animation: ${keyframe} ${maxMs}ms step-end 1; } ${keyframes}`;
-  const shadowRemovers = new Set<() => void>();
-  const stopShadows = env.onShadowRoot((shadow, rootScope) => {
-    if (scope.disposed || rootScope.disposed) {
-      return;
-    }
-    const removeStyle = addStyle(rule.id, shadowCss, shadow);
-    let unbindRoot: (() => void) | undefined;
-    const cleanup = (): void => {
-      shadowRemovers.delete(cleanup);
-      unbindRoot?.();
-      unbindRoot = undefined;
-      removeStyle();
-    };
-    shadowRemovers.add(cleanup);
-    unbindRoot = rootScope.add(cleanup);
-  });
-  return scope.add(() => {
-    stopShadows();
-    removeLight();
-    for (const cleanup of [...shadowRemovers]) {
-      cleanup();
-    }
-    shadowRemovers.clear();
+  return addStyleAcrossRoots(scope, rule.id, lightCss, {
+    ...(env ? { env } : {}),
+    shadowCss,
   });
 }
 

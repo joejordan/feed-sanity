@@ -5,6 +5,7 @@ import type { Badge } from './platform';
 import type { FeatureData } from './saved';
 import { Listeners } from './listeners';
 import { createLogger, messageOf } from './log';
+import { registerDataOwner } from './saved';
 import { Scope } from './scope';
 
 /**
@@ -37,7 +38,7 @@ function bindOptions(options: Options, { listen }: Binder): FeatureOptions<Optio
 
 /** The saved data as a feature sees it, with `onChange` tied to the binder's scope. */
 function bindData(data: FeatureData, { listen }: Binder): FeatureData {
-  return {
+  const bound: FeatureData = {
     value: (name, read) => {
       const saved = data.value(name, read);
       return {
@@ -48,6 +49,8 @@ function bindData(data: FeatureData, { listen }: Binder): FeatureData {
       };
     },
   };
+  registerDataOwner(bound, data);
+  return bound;
 }
 
 /** One feature: whether it runs, its scope while it does, and the errors it has thrown. */

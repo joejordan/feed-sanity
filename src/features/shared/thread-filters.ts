@@ -11,6 +11,7 @@ import type { Scope } from '../../core/scope';
 import type { AppliedFilterState } from './apply-filter-outcome';
 import { defineCapabilityFeature } from '../../capabilities';
 import { runFilterList } from '../../core/filter-engine';
+import { getFilterHitTracker } from '../../core/filter-hits';
 import { isRunnable, savedFilters } from '../../core/filter-types';
 import { applyFilterOutcome, EMPTY_OUTCOME, parseKeywords } from './apply-filter-outcome';
 
@@ -80,6 +81,7 @@ export function createThreadFiltersFeature<P extends CapablePage>(
     setup({ caps, options, data, scope, badge }) {
       const { threads } = caps;
       const customSaved = savedFilters(data);
+      const hitTracker = getFilterHitTracker(data);
 
       let hideAds = options.get(adsKey) === true;
       let keywords = parseKeywords(String(options.get(keywordsKey) ?? ''));
@@ -95,6 +97,7 @@ export function createThreadFiltersFeature<P extends CapablePage>(
 
       const forget = (element: HTMLElement): boolean => {
         tracked.delete(element);
+        hitTracker.forgetItem(element);
         const prev = applied.get(element);
         if (prev) {
           const wasHidden = prev.hidden;
@@ -109,6 +112,16 @@ export function createThreadFiltersFeature<P extends CapablePage>(
       };
 
       const evaluate = (row: ThreadRow, currentScope: Scope, deferBadge = false): void => {
+        const prev = applied.get(row.element);
+        const wasHidden = prev?.hidden === true;
+        if (prev) {
+          if (wasHidden) {
+            hiddenCount--;
+          }
+          prev.dispose();
+          applied.delete(row.element);
+        }
+
         let builtInHide = false;
         if (hideAds && row.isAd === true) {
           builtInHide = true;
@@ -119,24 +132,17 @@ export function createThreadFiltersFeature<P extends CapablePage>(
           builtInHide = keywords.some((word) => text.includes(word));
         }
 
+        const matchedFilters: Filter[] = [];
         const outcome =
           customFilters.length > 0
             ? runFilterList(customFilters, {
                 fields: row.readFields ? row.readFields() : fallbackRowFields(row),
                 element: row.element,
                 itemLabel: 'Thread',
+                onFilterMatch: (filter) => matchedFilters.push(filter),
               })
             : EMPTY_OUTCOME;
-
-        const prev = applied.get(row.element);
-        const wasHidden = prev?.hidden === true;
-        if (prev) {
-          if (wasHidden) {
-            hiddenCount--;
-          }
-          prev.dispose();
-          applied.delete(row.element);
-        }
+        hitTracker.setItemMatches(row.element, matchedFilters);
 
         const next = applyFilterOutcome(currentScope, row.element, outcome, builtInHide);
         const nowHidden = next?.hidden === true;
@@ -205,6 +211,7 @@ export function createThreadFiltersFeature<P extends CapablePage>(
           nextScope.add(() => {
             tracked.clear();
             applied.clear();
+            hitTracker.clear();
             hiddenCount = 0;
           });
           return;

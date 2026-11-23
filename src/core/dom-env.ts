@@ -6,7 +6,7 @@ import { callSafely, Listeners } from './listeners';
 import { createLogger } from './log';
 import { PageWatcher, pageWatcher } from './page-watcher';
 import { Scope } from './scope';
-import { hideElement, markElement, mountSlot, whileOnRoute } from './surface';
+import { hideElement, markElement, mountSlot, OWN_ATTR, whileOnRoute } from './surface';
 
 export interface DomEnvironmentOptions {
   /** Root document to observe (defaults to `globalThis.document`). */
@@ -53,6 +53,8 @@ export interface DomEnvironment {
   watch: PageWatcher['watch'];
   /** Subscribes to open `ShadowRoot`s discovered inside `doc` (when `pierceShadow` is enabled). */
   onShadowRoot: (listener: (root: ShadowRoot, rootScope: Scope) => void) => () => void;
+  /** Immediately scans `doc` and discovered Shadow Roots for newly attached open Shadow Roots. */
+  scanShadowRoots: () => void;
   /** Subscribes to same-origin `<iframe>` child environments (when `includeIframes` is enabled). */
   onIframe: (listener: (childEnv: DomEnvironment, frame: HTMLIFrameElement) => void) => () => void;
   onUrlChange: (listener: () => void) => () => void;
@@ -61,9 +63,14 @@ export interface DomEnvironment {
 
 const SHADOW_RESCAN_INTERVAL_MS = 150;
 const SHADOW_CANDIDATE_TTL_MS = 3000;
+const OWN_UI_TAG = 'feed-sanity-ui';
+
+function isOwnUiHost(el: Element): boolean {
+  return el.localName === OWN_UI_TAG || el.hasAttribute(OWN_ATTR);
+}
 
 function isShadowHostCandidate(el: Element): boolean {
-  if (el.shadowRoot) {
+  if (el.shadowRoot || isOwnUiHost(el)) {
     return false;
   }
   const tag = el.localName;
@@ -168,6 +175,9 @@ export function createDomEnvironment({
     const expiresAt = collectCandidates ? Date.now() + SHADOW_CANDIDATE_TTL_MS : 0;
     let queued = false;
     const visit = (el: Element): void => {
+      if (isOwnUiHost(el)) {
+        return;
+      }
       if (el.shadowRoot) {
         attachShadow(el.shadowRoot);
       } else if (collectCandidates && isShadowHostCandidate(el)) {
@@ -458,6 +468,20 @@ export function createDomEnvironment({
     },
     watch,
     onShadowRoot,
+    scanShadowRoots() {
+      if (!pierceShadow || envScope.disposed) {
+        return;
+      }
+      // Snapshot existing roots first so newly attached roots discovered during
+      // `scanShadowSubtree(doc, false)` are not scanned a second time.
+      const existingRoots = [...shadowRoots];
+      scanShadowSubtree(doc, false);
+      for (const root of existingRoots) {
+        if (root.host.isConnected) {
+          scanShadowSubtree(root, false);
+        }
+      }
+    },
     onIframe(listener) {
       const remove = iframeListeners.add(listener);
       for (const [frame, childEnv] of iframeEnvs) {

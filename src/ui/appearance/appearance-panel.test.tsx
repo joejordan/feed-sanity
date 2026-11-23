@@ -186,4 +186,33 @@ describe('appearancePanel & initSiteTheme', () => {
       env.dispose();
     }
   });
+
+  it('warns inline on low WCAG AA contrast and fixes text color in one click', async () => {
+    const store = inMemoryStore({
+      'test/theme': {
+        ...DEFAULT_THEME_CONFIG,
+        preset: 'warm-paper',
+        background: '#ffffff',
+        surface: '#f8fafc',
+        text: '#dddddd',
+      },
+    });
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+    expect(screen.getByRole('status').textContent).toContain('Low text contrast');
+    await userEvent.click(screen.getByRole('button', { name: 'Fix contrast' }));
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Primary text' }).value).toBe(
+      '#111111',
+    );
+  });
 });

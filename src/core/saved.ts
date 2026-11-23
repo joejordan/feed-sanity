@@ -109,6 +109,18 @@ export interface FeatureData {
   value: <T>(name: string, read: (stored: unknown) => T) => SavedValue<T>;
 }
 
+const dataOwners = new WeakMap<object, object>();
+
+/** Links a scoped `FeatureData` wrapper back to its underlying `SavedData` owner. */
+export function registerDataOwner(wrapper: FeatureData, parent: FeatureData): void {
+  dataOwners.set(wrapper, resolveDataOwner(parent));
+}
+
+/** Resolves a `FeatureData` (possibly wrapped by `Runner`) to its canonical `SavedData` owner. */
+export function resolveDataOwner(data: object): object {
+  return dataOwners.get(data) ?? data;
+}
+
 /** The saved values of one user, each under `<prefix>/<name>` in the store. */
 export class SavedData implements FeatureData {
   readonly #store: Store;

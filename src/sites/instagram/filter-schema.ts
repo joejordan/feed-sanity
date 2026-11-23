@@ -2,7 +2,7 @@
 
 import type { FilterSchema } from '../../ui/filters/schema';
 import { newAction, newFilter, newRule } from '../../core/filter-types';
-import { HIGHLIGHT_CSS, standardFilterActions } from '../../ui/filters/schema';
+import { DAY_TARGET_OPTION, HIGHLIGHT_CSS, standardFilterActions } from '../../ui/filters/schema';
 
 export const INSTAGRAM_FILTER_SCHEMA: FilterSchema = {
   siteName: 'Instagram',
@@ -62,6 +62,7 @@ export const INSTAGRAM_FILTER_SCHEMA: FilterSchema = {
       group: 'Feed signals',
       placeholder: 'sponsored',
     },
+    DAY_TARGET_OPTION,
   ],
   actions: standardFilterActions('post'),
   recipes: [

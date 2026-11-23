@@ -8,8 +8,9 @@ import type { Scope } from '../../core/scope';
 import type { AppliedFilterState } from './apply-filter-outcome';
 import { defineCapabilityFeature } from '../../capabilities';
 import { runFilterList } from '../../core/filter-engine';
+import { getFilterHitTracker } from '../../core/filter-hits';
 import { isRunnable, savedFilters } from '../../core/filter-types';
-import { concealPending, markElement } from '../../core/surface';
+import { concealPending, markElement, OWN_ATTR } from '../../core/surface';
 import { applyFilterOutcome, EMPTY_OUTCOME, parseKeywords } from './apply-filter-outcome';
 
 export interface SharedFeedFiltersConfig<P extends FeedFilterablePage> {
@@ -58,10 +59,22 @@ function fallbackFields(item: FeedItem): FilterFields {
   };
 }
 
-function pauseMediaIn(element: Element): void {
-  for (const media of element.querySelectorAll('video, audio')) {
-    if (media instanceof HTMLMediaElement && !media.paused) {
-      media.pause();
+function pauseMediaIn(root: ParentNode): void {
+  if (root instanceof Element && root.shadowRoot && !root.hasAttribute(OWN_ATTR)) {
+    pauseMediaIn(root.shadowRoot);
+  }
+  for (const child of root.children) {
+    if (child.hasAttribute(OWN_ATTR)) {
+      continue;
+    }
+    if (child instanceof HTMLMediaElement && !child.paused) {
+      child.pause();
+    }
+    if (child.shadowRoot) {
+      pauseMediaIn(child.shadowRoot);
+    }
+    if (child.childElementCount > 0) {
+      pauseMediaIn(child);
     }
   }
 }
@@ -128,6 +141,7 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
     setup({ page, caps, options, data, scope, badge }) {
       const { feed } = caps;
       const customSaved = savedFilters(data);
+      const hitTracker = getFilterHitTracker(data);
 
       let hideSponsored = options.get(sponsoredKey) === true;
       let hideSuggested = options.get(suggestedKey) === true;
@@ -160,7 +174,7 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
           {
             id: concealStyleId,
             activeAttr,
-            pendingSelector: `${config.itemSelector}:not([${checkedAttr}])`,
+            pendingSelector: `:is(${config.itemSelector}):not([${checkedAttr}])`,
             maxMs: 300,
           },
           page.env,
@@ -169,28 +183,15 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
           applied.clear();
           checkedRemovers.clear();
           tracked.clear();
+          hitTracker.clear();
           hiddenCount = 0;
           lastBadge = 0;
           badge(0);
         });
 
         const evaluateOne = (item: FeedItem): void => {
-          const builtInHide = matchesBuiltInHide(item, hideSponsored, hideSuggested, keywords);
-          const outcome =
-            customFilters.length > 0
-              ? runFilterList(customFilters, {
-                  fields: item.readFields ? item.readFields() : fallbackFields(item),
-                  element: item.element,
-                  itemLabel: 'Post',
-                })
-              : EMPTY_OUTCOME;
-          const willHide = outcome.hiding !== null || (builtInHide && outcome.unhidden !== true);
-          if ((willHide || item.pending !== true) && !checkedRemovers.has(item.element)) {
-            checkedRemovers.set(
-              item.element,
-              markElement(subScope, item.element, checkedAttr, '1'),
-            );
-          }
+          // Dispose any prior DOM mutations (such as `replace` text redactions)
+          // before re-evaluating rules so text-matching filters stay idempotent.
           const prev = applied.get(item.element);
           if (prev) {
             if (prev.hidden) {
@@ -198,6 +199,25 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
             }
             prev.dispose();
             applied.delete(item.element);
+          }
+          const builtInHide = matchesBuiltInHide(item, hideSponsored, hideSuggested, keywords);
+          const matchedFilters: Filter[] = [];
+          const outcome =
+            customFilters.length > 0
+              ? runFilterList(customFilters, {
+                  fields: item.readFields ? item.readFields() : fallbackFields(item),
+                  element: item.element,
+                  itemLabel: 'Post',
+                  onFilterMatch: (filter) => matchedFilters.push(filter),
+                })
+              : EMPTY_OUTCOME;
+          hitTracker.setItemMatches(item.element, matchedFilters);
+          const willHide = outcome.hiding !== null || (builtInHide && outcome.unhidden !== true);
+          if ((willHide || item.pending !== true) && !checkedRemovers.has(item.element)) {
+            checkedRemovers.set(
+              item.element,
+              markElement(subScope, item.element, checkedAttr, '1'),
+            );
           }
           const next = applyFilterOutcome(
             subScope,
@@ -216,6 +236,7 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
 
         const forgetOne = (item: FeedItem): void => {
           tracked.delete(item.element);
+          hitTracker.forgetItem(item.element);
           const prev = applied.get(item.element);
           if (prev) {
             if (prev.hidden) {

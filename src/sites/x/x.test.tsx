@@ -167,6 +167,48 @@ describe('xSite adapter and features', () => {
     const player = document.querySelector('#player') as HTMLElement;
     await vi.waitFor(() => expect(player.querySelector('[data-feed-sanity]')).not.toBeNull());
 
+    // Clicking the X video pauses playback via shared click-to-pause (`x_video_click_pauses`).
+    const xVideo = player.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(xVideo, 'paused', { value: false, configurable: true });
+    vi.spyOn(xVideo, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 300, 200));
+    const pauseSpy = vi.spyOn(xVideo, 'pause').mockImplementation(() => undefined);
+    const origElementsFromPoint = document.elementsFromPoint;
+    document.elementsFromPoint = () => [xVideo];
+    try {
+      xVideo.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          composed: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 150,
+          clientY: 100,
+        }),
+      );
+      xVideo.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          composed: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 150,
+          clientY: 100,
+        }),
+      );
+      xVideo.dispatchEvent(
+        new MouseEvent('click', {
+          bubbles: true,
+          composed: true,
+          detail: 1,
+          clientX: 150,
+          clientY: 100,
+        }),
+      );
+      expect(pauseSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      document.elementsFromPoint = origElementsFromPoint;
+    }
+
     // Cross-site `external_css` runs identically on X.
     const cssLink = document.querySelector('#feed_sanity_custom_stylesheet') as HTMLLinkElement | null;
     expect(cssLink?.href).toBe('https://example.com/x.css');

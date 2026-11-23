@@ -1,11 +1,11 @@
+import type { DomEnvironment } from '../../core/dom-env';
 import type { Feature } from '../../core/feature';
 import type { Locate, LocatorSpec } from '../../core/locator';
 import type { OptionSpec } from '../../core/options';
 import type { PageWatcher } from '../../core/page-watcher';
 import type { Scope } from '../../core/scope';
-import { addStyle } from '../../core/dom';
 import { defineFeature } from '../../core/feature';
-import { hideElement } from '../../core/surface';
+import { addStyleAcrossRoots, hideElement } from '../../core/surface';
 
 export interface ClutterRule {
   readonly key: string;
@@ -24,6 +24,7 @@ export interface ClutterRule {
 
 export interface ClutterPage {
   readonly doc: Document;
+  readonly env?: Pick<DomEnvironment, 'onShadowRoot'>;
   readonly locate: Locate;
   readonly watch: PageWatcher['watch'];
 }
@@ -73,22 +74,24 @@ export function createHideClutterFeature<P extends ClutterPage>(config: {
           return;
         }
         // Static CSS-rule mode: zero per-mutation DOM probing, zero flash.
+        // Also mirrors into discovered open Shadow Roots when `page.env` is supplied.
+        const styleId = `feed_sanity_clutter_${rule.key}`;
         let removeStyle: (() => void) | undefined;
         const applyCss = (): void => {
           removeStyle?.();
           removeStyle = undefined;
           const selector = locator.selector();
-          if (selector) {
-            removeStyle = addStyle(
-              `feed_sanity_clutter_${rule.key}`,
-              `${selector} { display: none !important; }`,
-              page.doc,
-            );
+          if (!selector) {
+            return;
           }
+          const css = `${selector} { display: none !important; }`;
+          removeStyle = addStyleAcrossRoots(ruleScope, styleId, css, {
+            doc: page.doc,
+            ...(page.env ? { env: { doc: page.doc, onShadowRoot: page.env.onShadowRoot } } : {}),
+          });
         };
         applyCss();
         ruleScope.add(locator.onChange(applyCss));
-        ruleScope.add(() => removeStyle?.());
       };
 
       for (const rule of config.rules) {

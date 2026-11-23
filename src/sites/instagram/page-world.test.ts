@@ -253,4 +253,47 @@ describe('instagram page-world engine (React fiber + Network Tap)', () => {
       isSuggested: false,
     });
   });
+
+  it('indexes initial SSR hydration JSON scripts at boot before any fetch fires', async () => {
+    const script = document.createElement('script');
+    script.type = 'application/json';
+    script.textContent = JSON.stringify({
+      require: [
+        [
+          'RelayPrefetchedStreamCache',
+          'next',
+          [
+            {
+              pk: 'ssr_900',
+              code: 'SSRCODE',
+              ad_id: 'ad_ssr_1',
+              video_versions: [{ url: 'https://video.cdninstagram.com/v/ssr.mp4', width: 720 }],
+            },
+          ],
+        ],
+      ],
+    });
+    document.body.append(script);
+
+    const handle = startInstagramPageWorld({ document });
+    disposers.push(handle.dispose);
+    const bridge = new PageBridge(async () => undefined);
+
+    const article = document.createElement('article');
+    const link = document.createElement('a');
+    link.href = '/reel/SSRCODE/';
+    const video = document.createElement('video');
+    article.append(link, video);
+    document.body.append(article);
+
+    expect(await bridge.ask(article, 'ig-post-meta')).toEqual({
+      id: 'SSRCODE',
+      isAd: true,
+      isSuggested: false,
+    });
+    expect(await bridge.ask(video, 'ig-video-sources')).toEqual({
+      url: 'https://video.cdninstagram.com/v/ssr.mp4',
+      videoId: 'SSRCODE',
+    });
+  });
 });

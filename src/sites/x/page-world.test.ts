@@ -261,4 +261,25 @@ describe('x page-world engine (React fiber + transforming Network Tap)', () => {
       isSuggested: false,
     });
   });
+
+  it('emits x:shadow-attached via attachShadow hook for open Shadow Roots and restores on dispose', async () => {
+    const origAttach = Element.prototype.attachShadow;
+    const events: unknown[] = [];
+
+    const bridge = new PageBridge(async () => {
+      const handle = startXPageWorld({ Element });
+      disposers.push(handle.dispose);
+    });
+    bridge.on('x:shadow-attached', (payload) => events.push(payload));
+    await bridge.set('x-strip-promoted', false);
+
+    const hostEl = document.createElement('div');
+    document.body.append(hostEl);
+    hostEl.attachShadow({ mode: 'open' });
+    await Promise.resolve();
+
+    expect(events).toEqual([{ attached: true }]);
+    disposers.pop()?.();
+    expect(Element.prototype.attachShadow).toBe(origAttach);
+  });
 });

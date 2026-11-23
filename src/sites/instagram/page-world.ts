@@ -7,6 +7,7 @@ import type { PageReaders, PageWorldEmitter } from '../../core/page-world';
 import type { NetworkTap, NetworkTapHost } from '../../engines/network-tap';
 import type { Loose } from '../../engines/react';
 import { servePageWorld } from '../../core/page-world';
+import { watchHydrationScripts } from '../../engines/hydration';
 import { createNetworkTap } from '../../engines/network-tap';
 import { isObject, walkFiberUp } from '../../engines/react';
 import { isInstagramMediaAddress } from './urls';
@@ -40,6 +41,8 @@ const MAX_WALK_NODES = 4000;
 const FIBER_DEPTH = 25;
 
 const IG_API_PATTERN = /\/(?:graphql\/query|api\/v1\/(?:feed|clips|media))\b/i;
+const IG_HYDRATION_HINT =
+  /"(?:ad_id|adId|is_ad|isSponsored|is_sponsored|isSuggested|is_suggested|explore_story|video_versions)"/;
 const VIDEO_URL_KEYS = [
   'hdSrc',
   'browserNativeHdUrl',
@@ -382,12 +385,17 @@ export interface InstagramPageWorldHandle {
   readonly dispose: () => void;
 }
 
+export interface InstagramPageWorldHost extends NetworkTapHost {
+  readonly document?: Document;
+}
+
 /**
- * Starts the Instagram MAIN-world bridge with React fiber readers and a
- * passive Network Tap indexing GraphQL/REST feed responses.
+ * Starts the Instagram MAIN-world bridge with React fiber readers, SSR
+ * hydration script indexing (`engines/hydration`), and a passive Network Tap
+ * indexing GraphQL/REST feed responses.
  */
 export function startInstagramPageWorld(
-  host: NetworkTapHost = globalThis,
+  host: InstagramPageWorldHost = globalThis,
 ): InstagramPageWorldHandle {
   const cache = new Map<string, CachedMediaMeta>();
   let matchedResponses = 0;
@@ -398,7 +406,30 @@ export function startInstagramPageWorld(
   };
 
   const emitter = servePageWorld(readers);
-  const tap: NetworkTap = createNetworkTap(host);
+
+  const emitStats = (): void => {
+    const totalErrors = tap.stats().totalErrors;
+    emitter.emit('ig:network-stats', {
+      matchedResponses,
+      cachedItems: cache.size,
+      ...(totalErrors > 0 ? { errors: totalErrors } : {}),
+    } satisfies InstagramNetworkStats);
+  };
+
+  const tap: NetworkTap = createNetworkTap(host, {
+    onError: () => emitStats(),
+  });
+
+  const doc = host.document ?? (typeof document === 'undefined' ? undefined : document);
+  const stopHydration = watchHydrationScripts(doc, { textHint: IG_HYDRATION_HINT }, (payloads) => {
+    let added = 0;
+    for (const payload of payloads) {
+      added += indexInstagramPayload(payload.data, cache);
+    }
+    if (added > 0) {
+      emitStats();
+    }
+  });
 
   const parseAndIndex = (raw: string): number => {
     const cleaned = raw.startsWith('for (;;);') ? raw.slice(9) : raw;
@@ -432,12 +463,7 @@ export function startInstagramPageWorld(
       matchedResponses++;
       const updated = parseAndIndex(text);
       if (updated > 0) {
-        const totalErrors = tap.stats().totalErrors;
-        emitter.emit('ig:network-stats', {
-          matchedResponses,
-          cachedItems: cache.size,
-          ...(totalErrors > 0 ? { errors: totalErrors } : {}),
-        } satisfies InstagramNetworkStats);
+        emitStats();
       }
     },
   });
@@ -445,6 +471,7 @@ export function startInstagramPageWorld(
   return {
     emitter,
     dispose() {
+      stopHydration();
       removeRule();
       tap.dispose();
       cache.clear();

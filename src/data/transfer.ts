@@ -1,17 +1,21 @@
+import type { Filter } from '../core/filter-types';
 import type { LocatorOverrides } from '../core/locator';
 import type { OptionSpec, Options, OptionValue } from '../core/options';
 import type { SavedValue } from '../core/saved';
+import type { ThemeConfig } from '../core/theming';
 import type { PostReadData } from '../facebook/post-read';
-import type { Filter } from '../features/post-filters/types';
+import { readFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { isRecord } from '../core/storage';
-import { readFilters } from '../features/post-filters/types';
+import { DEFAULT_THEME_CONFIG } from '../core/theming';
+import { readThemeConfig } from '../ui/appearance';
 
 /** The saved stores that Backup / Restore and Reset operate on. */
 export interface DataStores {
   options: Options;
   filters: SavedValue<Filter[]>;
   locators: SavedValue<LocatorOverrides>;
+  theme?: SavedValue<ThemeConfig> | undefined;
   read_history?: SavedValue<PostReadData> | undefined;
 }
 
@@ -20,6 +24,7 @@ export interface SettingsBackup {
   options: Record<string, OptionValue>;
   filters: Filter[];
   locators?: LocatorOverrides;
+  theme?: ThemeConfig;
 }
 
 /** A validated import ready to apply, or a human-readable error message. */
@@ -30,6 +35,7 @@ export type ParsedBackup =
       readonly skippedOptions: number;
       readonly filters: Filter[] | undefined;
       readonly locators: LocatorOverrides | undefined;
+      readonly theme: ThemeConfig | undefined;
     }
   | {
       readonly ok: false;
@@ -39,17 +45,31 @@ export type ParsedBackup =
 const isValidChoice = (spec: OptionSpec, value: OptionValue): boolean =>
   !spec.choices || spec.choices.some((choice) => choice.value === value);
 
-/** Serializes all current options, filters, and custom locator overrides as pretty-printed JSON. */
-export function exportBackup({ options, filters, locators }: DataStores): string {
+function isDefaultTheme(config: ThemeConfig): boolean {
+  return (
+    config.preset === DEFAULT_THEME_CONFIG.preset &&
+    config.accent === DEFAULT_THEME_CONFIG.accent &&
+    config.background === DEFAULT_THEME_CONFIG.background &&
+    config.surface === DEFAULT_THEME_CONFIG.surface &&
+    config.text === DEFAULT_THEME_CONFIG.text &&
+    config.font === DEFAULT_THEME_CONFIG.font &&
+    config.customCss === DEFAULT_THEME_CONFIG.customCss
+  );
+}
+
+/** Serializes all current options, filters, theme, and custom locator overrides as pretty-printed JSON. */
+export function exportBackup({ options, filters, locators, theme }: DataStores): string {
   const exportedOptions: Record<string, OptionValue> = {};
   for (const [key] of options.list()) {
     exportedOptions[key] = options.get(key);
   }
   const overrides = locators.get();
+  const currentTheme = theme?.get();
   const snapshot: SettingsBackup = {
     options: exportedOptions,
     filters: filters.get(),
     ...(Object.keys(overrides).length > 0 ? { locators: overrides } : {}),
+    ...(currentTheme && !isDefaultTheme(currentTheme) ? { theme: currentTheme } : {}),
   };
   return JSON.stringify(snapshot, null, 2);
 }
@@ -72,10 +92,11 @@ export function parseBackup(text: string, specs: readonly [string, OptionSpec][]
   const hasOptions = 'options' in raw;
   const hasFilters = 'filters' in raw;
   const hasLocators = 'locators' in raw;
-  if (!hasOptions && !hasFilters && !hasLocators) {
+  const hasTheme = 'theme' in raw;
+  if (!hasOptions && !hasFilters && !hasLocators && !hasTheme) {
     return {
       ok: false,
-      error: 'No options, filters or locator overrides were found in that JSON.',
+      error: 'No options, filters, theme or locator overrides were found in that JSON.',
     };
   }
 
@@ -119,12 +140,21 @@ export function parseBackup(text: string, specs: readonly [string, OptionSpec][]
     parsedLocators = readLocatorOverrides(raw.locators);
   }
 
+  let parsedTheme: ThemeConfig | undefined;
+  if (hasTheme) {
+    if (!isRecord(raw.theme)) {
+      return { ok: false, error: '"theme" must be a JSON object.' };
+    }
+    parsedTheme = readThemeConfig(raw.theme);
+  }
+
   return {
     ok: true,
     options: parsedOptions,
     skippedOptions,
     filters: parsedFilters,
     locators: parsedLocators,
+    theme: parsedTheme,
   };
 }
 
@@ -134,7 +164,7 @@ const plural = (count: number, one: string, many: string): string =>
 /** Applies a parsed backup live without requiring a page reload, and returns a status summary. */
 export async function applyBackup(
   parsed: Extract<ParsedBackup, { ok: true }>,
-  { options, filters, locators }: DataStores,
+  { options, filters, locators, theme }: DataStores,
 ): Promise<string> {
   const optionEntries = Object.entries(parsed.options);
   for (const [key, value] of optionEntries) {
@@ -145,6 +175,9 @@ export async function applyBackup(
   }
   if (parsed.locators !== undefined) {
     await locators.set(parsed.locators);
+  }
+  if (parsed.theme !== undefined && theme) {
+    await theme.set(parsed.theme);
   }
 
   const parts: string[] = [];
@@ -159,6 +192,9 @@ export async function applyBackup(
       plural(Object.keys(parsed.locators).length, 'locator override', 'locator overrides'),
     );
   }
+  if (parsed.theme !== undefined && theme) {
+    parts.push('theme');
+  }
   const skipped =
     parsed.skippedOptions > 0
       ? ` (${plural(parsed.skippedOptions, 'unrecognised option', 'unrecognised options')} skipped)`
@@ -168,11 +204,12 @@ export async function applyBackup(
     : `Nothing matched to import${skipped}.`;
 }
 
-/** Resets every registered option to its default and clears saved filters, locator overrides and read history. */
+/** Resets every registered option to its default and clears saved filters, theme, locator overrides and read history. */
 export async function resetAllData({
   options,
   filters,
   locators,
+  theme,
   read_history,
 }: DataStores): Promise<void> {
   for (const [key, spec] of options.list()) {
@@ -180,6 +217,9 @@ export async function resetAllData({
   }
   await filters.set([]);
   await locators.set({});
+  if (theme) {
+    await theme.set({ ...DEFAULT_THEME_CONFIG });
+  }
   if (read_history) {
     await read_history.set({});
   }

@@ -5,9 +5,11 @@
 
 import type { PageReaders, PageToggles, PageWorldEmitter } from '../../core/page-world';
 import type { NetworkTap, NetworkTapHost } from '../../engines/network-tap';
+import type { ShadowHookHost } from '../../engines/shadow';
 import { servePageWorld } from '../../core/page-world';
 import { createNetworkTap } from '../../engines/network-tap';
 import { isObject, walkFiberUp } from '../../engines/react';
+import { watchOpenShadowAttachments } from '../../engines/shadow';
 
 export interface XTweetMeta {
   readonly id: string | null;
@@ -204,18 +206,33 @@ export interface XPageWorldHandle {
   readonly dispose: () => void;
 }
 
+export type XPageWorldHost = NetworkTapHost & ShadowHookHost;
+
 /**
- * Starts X.com's MAIN-world bridge with React fiber tweet inspection and a
+ * Starts X.com's MAIN-world bridge with React fiber tweet inspection,
+ * zero-polling Shadow Root attachment notifications (`engines/shadow`), and a
  * toggleable Network Tap that strips promoted timeline entries before React
  * Native Web lays them out.
  */
-export function startXPageWorld(host: NetworkTapHost = globalThis): XPageWorldHandle {
-  const tap: NetworkTap = createNetworkTap(host);
+export function startXPageWorld(host: XPageWorldHost = globalThis): XPageWorldHandle {
   let removeStripRule: (() => void) | undefined;
   let matchedResponses = 0;
   let strippedPromoted = 0;
 
   let emitter!: PageWorldEmitter;
+
+  const emitNetworkStats = (): void => {
+    const totalErrors = tap.stats().totalErrors;
+    emitter.emit('x:network-stats', {
+      matchedResponses,
+      strippedPromoted,
+      ...(totalErrors > 0 ? { errors: totalErrors } : {}),
+    } satisfies XNetworkStats);
+  };
+
+  const tap: NetworkTap = createNetworkTap(host, {
+    onError: () => emitNetworkStats(),
+  });
 
   const setStripPromoted = (enabled: boolean): { enabled: boolean } => {
     if (enabled && !removeStripRule) {
@@ -228,12 +245,7 @@ export function startXPageWorld(host: NetworkTapHost = globalThis): XPageWorldHa
           if (result) {
             strippedPromoted += result.removed;
           }
-          const totalErrors = tap.stats().totalErrors;
-          emitter.emit('x:network-stats', {
-            matchedResponses,
-            strippedPromoted,
-            ...(totalErrors > 0 ? { errors: totalErrors } : {}),
-          } satisfies XNetworkStats);
+          emitNetworkStats();
           return result?.text;
         },
       });
@@ -253,9 +265,14 @@ export function startXPageWorld(host: NetworkTapHost = globalThis): XPageWorldHa
 
   emitter = servePageWorld(readers, toggles);
 
+  const stopShadowWatch = watchOpenShadowAttachments(() => {
+    emitter.emit('x:shadow-attached', { attached: true });
+  }, host);
+
   return {
     emitter,
     dispose() {
+      stopShadowWatch();
       removeStripRule?.();
       removeStripRule = undefined;
       tap.dispose();

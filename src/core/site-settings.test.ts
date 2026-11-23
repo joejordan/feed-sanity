@@ -18,6 +18,8 @@ describe('site settings and equal site registry', () => {
     expect(siteRegistry.matchHost('x.com')?.id).toBe('x');
     expect(siteRegistry.matchHost('twitter.com')?.id).toBe('x');
     expect(siteRegistry.matchHost('mail.google.com')?.id).toBe('gmail');
+    expect(siteRegistry.matchHost('www.reddit.com')?.id).toBe('reddit');
+    expect(siteRegistry.matchHost('sh.reddit.com')?.id).toBe('reddit');
     expect(siteRegistry.matchHost('example.com')).toBeUndefined();
   });
 

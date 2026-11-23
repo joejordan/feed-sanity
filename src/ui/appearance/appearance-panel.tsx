@@ -3,6 +3,8 @@ import type { THEME_FONT_STACKS, ThemeConfig, ThemeController } from '../../core
 import type { OptionsPanel, PanelProps } from '../options-dialog/panel';
 import {
   BUILTIN_THEMES,
+  contrastingText,
+  contrastRatio,
   DEFAULT_THEME_CONFIG,
   normalizeHex,
   resolveTheme,
@@ -48,6 +50,20 @@ export function readThemeConfig(raw: unknown): ThemeConfig {
   };
 }
 
+const WCAG_AA_CONTRAST = 4.5;
+
+function pickAccessibleText(background: string, surface: string): string {
+  const whiteMin = Math.min(
+    contrastRatio('#ffffff', background),
+    contrastRatio('#ffffff', surface),
+  );
+  const darkMin = Math.min(contrastRatio('#111111', background), contrastRatio('#111111', surface));
+  if (whiteMin === darkMin) {
+    return contrastingText(background);
+  }
+  return whiteMin > darkMin ? '#ffffff' : '#111111';
+}
+
 function AppearancePanelView({
   value,
   onChange,
@@ -59,6 +75,14 @@ function AppearancePanelView({
     onChange(next);
   };
   const update = (patch: Partial<ThemeConfig>): void => applyEdit({ ...value, ...patch });
+
+  const minContrast = effective
+    ? Math.min(
+        contrastRatio(effective.text, effective.background),
+        contrastRatio(effective.text, effective.surface),
+      )
+    : null;
+  const lowContrast = minContrast !== null && minContrast < WCAG_AA_CONTRAST;
 
   return (
     <section className="theme-panel">
@@ -139,6 +163,21 @@ function AppearancePanelView({
           );
         })}
       </div>
+
+      {lowContrast && effective && (
+        <div className="theme-contrast-warn" role="status">
+          <span>Low text contrast ({minContrast.toFixed(1)}:1 — WCAG AA recommends 4.5:1+).</span>
+          <button
+            className="button"
+            type="button"
+            onClick={() =>
+              update({ text: pickAccessibleText(effective.background, effective.surface) })
+            }
+          >
+            Fix contrast
+          </button>
+        </div>
+      )}
 
       <label className="theme-color-row">
         <span>Typography</span>

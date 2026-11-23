@@ -121,4 +121,42 @@ describe('cross-site filter-engine & applyFilterOutcome', () => {
     expect(tbody.querySelector(`[${OWN_ATTR}]`)).toBeNull();
     scope.dispose();
   });
+
+  it('applies reversible text replacements across text nodes while skipping scripts and own UI', () => {
+    const post = document.createElement('article');
+    const body = document.createElement('p');
+    body.textContent = 'Check out this spoiler about the finale!';
+    const script = document.createElement('script');
+    script.textContent = 'const spoiler = true;';
+    const own = document.createElement('span');
+    own.setAttribute(OWN_ATTR, 'badge');
+    own.textContent = 'spoiler badge';
+    post.append(body, script, own);
+    document.body.append(post);
+
+    const scope = new Scope();
+    const outcome = runFilterList(
+      [
+        {
+          title: 'Redact spoilers',
+          enabled: true,
+          rules: [
+            { target: 'any', operator: 'contains', matcher: 'str', condition: { text: 'spoiler' } },
+          ],
+          actions: [{ action: 'replace', find: 'spoiler', replace: '[redacted]' }],
+        },
+      ],
+      { fields: { get: () => body.textContent ?? '' }, element: post },
+    );
+
+    const state = applyFilterOutcome(scope, post, outcome, false);
+    expect(state?.hidden).toBe(false);
+    expect(body.textContent).toBe('Check out this [redacted] about the finale!');
+    expect(script.textContent).toBe('const spoiler = true;');
+    expect(own.textContent).toBe('spoiler badge');
+
+    state?.dispose();
+    expect(body.textContent).toBe('Check out this spoiler about the finale!');
+    scope.dispose();
+  });
 });

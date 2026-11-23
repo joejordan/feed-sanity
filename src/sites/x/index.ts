@@ -2,10 +2,13 @@ import type { Feature } from '../../core/feature';
 import type { SiteAdapter } from '../../core/site';
 import type { XPage } from './feature';
 import { version } from '../../../package.json';
+import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
 import { siteStoragePrefix } from '../../core/site-storage';
+import { dataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
+import { readThemeConfig, THEME_DATA_KEY } from '../../ui/appearance';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createXPage, X_LOCATOR_OVERRIDES } from './feature';
 import xDefaultFollowing from './features/default-following';
@@ -37,17 +40,23 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
   matchesHost: isXHost,
   themeCss: xTheme,
   themeMapping: xThemeMapping,
-  themeEnvOptions: { pierceShadow: true },
+  envOptions: { pierceShadow: true },
   accountId: xAccountId,
   storagePrefix: (accountId) => siteStoragePrefix('x', accountId),
   scrubPii: scrubXPii,
   createPage: createXPage,
   features: xFeatures,
-  createPanels({ data, page, runner, platform }) {
+  createPanels({ options, data, page, runner, platform }) {
     const { stats } = page;
     const overrides = data.value(X_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       createFiltersPanel(data, X_FILTER_SCHEMA),
+      dataPanel({
+        options,
+        filters: savedFilters(data),
+        locators: overrides,
+        theme: data.value(THEME_DATA_KEY, readThemeConfig),
+      }),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();

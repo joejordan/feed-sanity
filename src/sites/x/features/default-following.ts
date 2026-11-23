@@ -8,9 +8,8 @@ function isFollowingTab(el: Element): boolean {
 
 /**
  * Automatically selects the native "Following" timeline tab when arriving on
- * `/home`. Triggers at most once per visit to `/home` so you can still switch
- * back to "For you" manually without being pulled back. Stops its tab watcher
- * immediately once switched to keep idle overhead at zero.
+ * `/home`. Uses `page.env.whileOnRoute` so each visit to `/home` triggers at
+ * most once and stops watching immediately after clicking the tab.
  */
 export default defineXFeature({
   id: 'x_default_following',
@@ -25,49 +24,37 @@ export default defineXFeature({
   },
   enabledBy: 'x_default_following',
   setup({ page, scope }) {
-    let switchedForCurrentHome = false;
-    let stopWatch: (() => void) | undefined;
+    page.env.whileOnRoute(
+      scope,
+      () => xPageType() === 'home',
+      (routeScope) => {
+        let switched = false;
+        let stopWatch: (() => void) | undefined;
 
-    const detachWatch = (): void => {
-      stopWatch?.();
-      stopWatch = undefined;
-    };
+        const stop = page.watch(page.locate(X_TIMELINE_TAB), {
+          added: (tab) => {
+            if (switched || !isFollowingTab(tab)) {
+              return;
+            }
+            switched = true;
+            stopWatch?.();
+            stopWatch = undefined;
+            if (tab.getAttribute('aria-selected') !== 'true' && tab instanceof HTMLElement) {
+              tab.click();
+            }
+          },
+        });
 
-    const trySelect = (tab: Element): void => {
-      if (switchedForCurrentHome || xPageType() !== 'home') {
-        return;
-      }
-      if (!isFollowingTab(tab)) {
-        return;
-      }
-      switchedForCurrentHome = true;
-      detachWatch();
-      if (tab.getAttribute('aria-selected') !== 'true' && tab instanceof HTMLElement) {
-        tab.click();
-      }
-    };
-
-    const syncForRoute = (): void => {
-      if (xPageType() !== 'home') {
-        switchedForCurrentHome = false;
-        detachWatch();
-        return;
-      }
-      if (switchedForCurrentHome || stopWatch) {
-        return;
-      }
-      const stop = page.watch(page.locate(X_TIMELINE_TAB), {
-        added: (tab) => trySelect(tab),
-      });
-      if (switchedForCurrentHome) {
-        stop();
-      } else {
-        stopWatch = stop;
-      }
-    };
-
-    scope.add(detachWatch);
-    page.onUrlChange(syncForRoute);
-    syncForRoute();
+        if (switched) {
+          stop();
+        } else {
+          stopWatch = stop;
+          routeScope.add(() => {
+            stopWatch?.();
+            stopWatch = undefined;
+          });
+        }
+      },
+    );
   },
 });

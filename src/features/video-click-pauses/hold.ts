@@ -1,6 +1,7 @@
 import type { Logger } from '../../core/log';
 import type { Scope } from '../../core/scope';
 import type { Video } from '../../facebook/videos';
+import { containsAcrossShadows } from '../../core/dom';
 
 /**
  * How soon before a video starts a press or a key press inside its container
@@ -69,7 +70,10 @@ export class PauseHolds {
 
   /** Notes a press or a key press by the person, which may be what starts a video. */
   gesture(event: Event): void {
-    this.#gesture = { time: event.timeStamp, target: event.target };
+    const target =
+      (typeof event.composedPath === 'function' ? event.composedPath()[0] : undefined) ??
+      event.target;
+    this.#gesture = { time: event.timeStamp, target };
   }
 
   #played(video: HoldableVideo, hold: Hold, event: Event): void {
@@ -79,7 +83,8 @@ export class PauseHolds {
       gesture &&
       event.timeStamp - gesture.time < GESTURE_MS &&
       gesture.target instanceof Node &&
-      video.container?.contains(gesture.target)
+      video.container &&
+      containsAcrossShadows(video.container, gesture.target)
     ) {
       this.release(element);
       return;

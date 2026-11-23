@@ -1,8 +1,9 @@
 // Geometry shared by the features that put UI over videos: boxes on the
 // screen and where host player controls are.
 
+import type { VideoControl } from '../capabilities';
 import type { Locator } from '../core/locator';
-import type { Video } from '../facebook/videos';
+import { isShadowRoot } from '../core/dom';
 import { OWN_ATTR } from '../core/surface';
 
 const OWN_SELECTOR = `[${OWN_ATTR}]`;
@@ -27,8 +28,10 @@ export const pointIn = (box: Edges, x: number, y: number): boolean =>
   x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
 
 /** Where the host's controls on `video` are on the screen now. Reads layout. */
-export const measureControls = (video: Pick<Video, 'controls'>): ControlBox[] =>
-  video.controls().map(({ element, bar }) => ({
+export const measureControls = (video: {
+  controls?: () => readonly VideoControl[];
+}): ControlBox[] =>
+  (video.controls?.() ?? []).map(({ element, bar }) => ({
     element,
     box: element.getBoundingClientRect(),
     bar,
@@ -47,7 +50,11 @@ export function hasControlAt(
   controls: Pick<Locator, 'matches'>,
   doc: Document = document,
 ): boolean {
-  const stack = doc.elementsFromPoint(x, y);
+  const root = below.getRootNode();
+  const stack =
+    isShadowRoot(root) && typeof root.elementsFromPoint === 'function'
+      ? root.elementsFromPoint(x, y)
+      : doc.elementsFromPoint(x, y);
   const index = stack.findIndex((item) => item === below || item.contains(below));
   const over = index === -1 ? stack : stack.slice(0, index);
   return over.some((item) => {

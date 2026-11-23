@@ -63,8 +63,9 @@ export interface FeedCapability {
 /** A single logical media/video player on a page. */
 export interface MediaItem {
   readonly element: HTMLVideoElement;
-  readonly container: Element;
+  readonly container: HTMLElement;
   readonly surface: string;
+  controls?: () => readonly VideoControl[];
   onControls: (listener: () => void) => () => void;
 }
 
