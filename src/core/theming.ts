@@ -63,6 +63,10 @@ export interface ResolvedTheme {
   readonly palette: ThemePalette | null;
   readonly fontFamily?: string;
   readonly customCss?: string;
+  /** Optional ambient CSS contributed by a showpiece built-in preset (host document). */
+  readonly presetHostCss?: string;
+  /** Optional ambient CSS contributed by a showpiece built-in preset (Feed Sanity UI). */
+  readonly presetUiCss?: string;
 }
 
 export interface ThemePreset {
@@ -70,6 +74,14 @@ export interface ThemePreset {
   readonly name: string;
   readonly description: string;
   readonly palette: ThemePalette;
+  /** Optional multi-color dot strip shown on the preset card (defaults to 4 palette tokens). */
+  readonly swatches?: readonly string[];
+  /** Optional CSS gradient shown on compact circular quick-theme swatches. */
+  readonly swatchGradient?: string;
+  /** Optional ambient CSS layered on the host page (ribbon, soft radial backdrop, etc.). */
+  readonly hostCss?: string;
+  /** Optional ambient CSS layered inside Feed Sanity's own dialog & toolbar popup. */
+  readonly uiCss?: string;
 }
 
 export const THEME_FONT_STACKS = {
@@ -269,6 +281,133 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       accentText: '#ffffff',
       danger: '#dc2626',
     },
+  },
+  {
+    id: 'prism-aurora',
+    name: 'Prism Aurora',
+    description: 'Cosmic obsidian with a full-spectrum rainbow prism ribbon and soft aurora glow.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#090814',
+      surface: '#131126',
+      surfaceAlt: '#1d1a38',
+      text: '#f5f3ff',
+      textMuted: '#b7b0d8',
+      border: '#322b5c',
+      accent: '#c084fc',
+      accentText: '#090814',
+      danger: '#fb7185',
+    },
+    swatches: ['#ff3b8d', '#ff9e2c', '#ffe600', '#22e58b', '#28d7ff', '#8b5cf6'],
+    swatchGradient:
+      'conic-gradient(from 0deg, #ff3b8d, #ff9e2c, #ffe600, #22e58b, #28d7ff, #8b5cf6, #ff3b8d)',
+    hostCss: [
+      'body::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 3px; pointer-events: none; z-index: 2147483640; background: linear-gradient(90deg, #ff3b8d, #ff9e2c, #ffe600, #22e58b, #28d7ff, #8b5cf6, #ff3b8d); }',
+      'body { background-image: radial-gradient(ellipse 65% 42% at 12% 0%, rgb(255 59 141 / 14%), transparent 62%), radial-gradient(ellipse 60% 42% at 88% 0%, rgb(40 215 255 / 14%), transparent 62%), radial-gradient(ellipse 55% 38% at 50% 100%, rgb(139 92 246 / 12%), transparent 65%) !important; background-attachment: fixed !important; }',
+    ].join('\n'),
+    uiCss:
+      '.dialog, .qp-root { box-shadow: inset 0 3px 0 0 transparent; }\n.dialog::before, .qp-root::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; pointer-events: none; z-index: 50; background: linear-gradient(90deg, #ff3b8d, #ff9e2c, #ffe600, #22e58b, #28d7ff, #8b5cf6, #ff3b8d); }',
+  },
+  {
+    id: 'pastel-prism',
+    name: 'Cotton Candy Prism',
+    description:
+      'Iridescent pearl daylight canvas with a pastel rainbow ribbon and vivid orchid accents.',
+    palette: {
+      colorScheme: 'light',
+      background: '#f7f2ff',
+      surface: '#ffffff',
+      surfaceAlt: '#efe6ff',
+      text: '#1e1333',
+      textMuted: '#614d80',
+      border: '#dccbf7',
+      accent: '#c026d3',
+      accentText: '#ffffff',
+      danger: '#e11d48',
+    },
+    swatches: ['#ff7eb3', '#ffb86c', '#ffe87c', '#5ce1c6', '#60a5fa', '#c084fc'],
+    swatchGradient:
+      'conic-gradient(from 0deg, #ff7eb3, #ffb86c, #ffe87c, #5ce1c6, #60a5fa, #c084fc, #ff7eb3)',
+    hostCss: [
+      'body::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 3px; pointer-events: none; z-index: 2147483640; background: linear-gradient(90deg, #ff7eb3, #ffb86c, #ffe87c, #5ce1c6, #60a5fa, #c084fc, #ff7eb3); }',
+      'body { background-image: radial-gradient(ellipse 65% 45% at 15% 0%, rgb(255 126 179 / 16%), transparent 60%), radial-gradient(ellipse 65% 45% at 85% 0%, rgb(96 165 250 / 16%), transparent 60%), radial-gradient(ellipse 55% 40% at 50% 100%, rgb(92 225 198 / 14%), transparent 65%) !important; background-attachment: fixed !important; }',
+    ].join('\n'),
+    uiCss:
+      '.dialog::before, .qp-root::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; pointer-events: none; z-index: 50; background: linear-gradient(90deg, #ff7eb3, #ffb86c, #ffe87c, #5ce1c6, #60a5fa, #c084fc, #ff7eb3); }',
+  },
+  {
+    id: 'cyber-neon',
+    name: 'Cyberpunk Neon',
+    description: 'Night-city indigo with laser cyan highlights and electric magenta edge glow.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#060913',
+      surface: '#0d1326',
+      surfaceAlt: '#151f3d',
+      text: '#eef6ff',
+      textMuted: '#8ca8d6',
+      border: '#243566',
+      accent: '#00f0ff',
+      accentText: '#04121b',
+      danger: '#ff2a85',
+    },
+    swatches: ['#060913', '#00f0ff', '#7c3aed', '#ff2a85'],
+    swatchGradient: 'linear-gradient(135deg, #00f0ff 0%, #7c3aed 52%, #ff2a85 100%)',
+    hostCss: [
+      'body::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 2px; pointer-events: none; z-index: 2147483640; background: linear-gradient(90deg, #00f0ff, #7c3aed, #ff2a85); }',
+      'body { background-image: radial-gradient(ellipse 60% 40% at 10% 0%, rgb(0 240 255 / 12%), transparent 60%), radial-gradient(ellipse 60% 40% at 90% 0%, rgb(255 42 133 / 12%), transparent 60%) !important; background-attachment: fixed !important; }',
+    ].join('\n'),
+    uiCss:
+      '.dialog::before, .qp-root::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none; z-index: 50; background: linear-gradient(90deg, #00f0ff, #7c3aed, #ff2a85); }',
+  },
+  {
+    id: 'sunset-vapor',
+    name: 'Miami Sunset',
+    description: 'Deep twilight plum surfaces lit by tropical coral, magenta, and warm gold.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#140a1d',
+      surface: '#211130',
+      surfaceAlt: '#2f1942',
+      text: '#fff1e6',
+      textMuted: '#d4adc9',
+      border: '#4c2966',
+      accent: '#ff6b4a',
+      accentText: '#1a0905',
+      danger: '#ff4d8d',
+    },
+    swatches: ['#140a1d', '#ff4d8d', '#ff6b4a', '#ffb800'],
+    swatchGradient: 'linear-gradient(135deg, #ff4d8d 0%, #ff6b4a 55%, #ffb800 100%)',
+    hostCss: [
+      'body::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 3px; pointer-events: none; z-index: 2147483640; background: linear-gradient(90deg, #ff4d8d, #ff6b4a, #ffb800); }',
+      'body { background-image: radial-gradient(ellipse 70% 42% at 50% 0%, rgb(255 107 74 / 15%), transparent 62%), radial-gradient(ellipse 50% 35% at 85% 10%, rgb(255 77 141 / 12%), transparent 60%) !important; background-attachment: fixed !important; }',
+    ].join('\n'),
+    uiCss:
+      '.dialog::before, .qp-root::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; pointer-events: none; z-index: 50; background: linear-gradient(90deg, #ff4d8d, #ff6b4a, #ffb800); }',
+  },
+  {
+    id: 'terminal-phosphor',
+    name: 'Hacker Terminal',
+    description: 'Pitch CRT obsidian with luminous phosphor mint text and matrix green accents.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#040c06',
+      surface: '#08170c',
+      surfaceAlt: '#0e2514',
+      text: '#b6f7c8',
+      textMuted: '#63b87c',
+      border: '#194524',
+      accent: '#22c55e',
+      accentText: '#031207',
+      danger: '#fb7185',
+    },
+    swatches: ['#040c06', '#0e2514', '#22c55e', '#b6f7c8'],
+    hostCss: [
+      'body::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 2px; pointer-events: none; z-index: 2147483640; background: linear-gradient(90deg, transparent, #22c55e, transparent); }',
+      'body { background-image: radial-gradient(ellipse 65% 40% at 50% 0%, rgb(34 197 94 / 11%), transparent 65%) !important; background-attachment: fixed !important; }',
+    ].join('\n'),
+    uiCss:
+      '.dialog::before, .qp-root::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none; z-index: 50; background: linear-gradient(90deg, transparent, #22c55e, transparent); }',
   },
 ];
 
@@ -493,6 +632,8 @@ export function resolveTheme(config: ThemeConfig): ResolvedTheme | null {
     palette,
     ...(fontFamily ? { fontFamily } : {}),
     ...(customCss ? { customCss } : {}),
+    ...(preset?.hostCss ? { presetHostCss: preset.hostCss } : {}),
+    ...(preset?.uiCss ? { presetUiCss: preset.uiCss } : {}),
   };
 }
 
@@ -555,6 +696,9 @@ export function compileHostThemeCss(theme: ResolvedTheme, mapping: SiteThemeMapp
   const extra = theme.palette ? mapping.extraCss?.(theme.palette).trim() : undefined;
   if (extra) {
     parts.push(extra);
+  }
+  if (theme.presetHostCss) {
+    parts.push(theme.presetHostCss);
   }
   if (theme.customCss) {
     parts.push(theme.customCss);
@@ -627,10 +771,14 @@ export function compileUiThemeCss(theme: ResolvedTheme): string {
   if (theme.fontFamily) {
     lines.push(`--fs-font: ${theme.fontFamily};`);
   }
-  if (lines.length === 0) {
-    return '';
+  const parts: string[] = [];
+  if (lines.length > 0) {
+    parts.push(`:host {\n  ${lines.join('\n  ')}\n}`);
   }
-  return `:host {\n  ${lines.join('\n  ')}\n}`;
+  if (theme.presetUiCss) {
+    parts.push(theme.presetUiCss);
+  }
+  return parts.join('\n\n');
 }
 
 export const THEME_STYLE_ID = 'feed_sanity_user_theme';

@@ -635,7 +635,9 @@ export function QuickPopup({
                   className="qp-swatch-fill"
                   aria-hidden="true"
                   style={{
-                    background: `linear-gradient(135deg, ${preset.palette.background} 50%, ${preset.palette.accent} 50%)`,
+                    background:
+                      preset.swatchGradient ??
+                      `linear-gradient(135deg, ${preset.palette.background} 50%, ${preset.palette.accent} 50%)`,
                   }}
                 />
               </button>

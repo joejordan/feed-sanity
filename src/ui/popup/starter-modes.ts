@@ -28,12 +28,13 @@ export interface SiteQuickConfig {
 }
 
 export const QUICK_THEME_PRESET_IDS = [
-  'midnight',
+  'prism-aurora',
+  'pastel-prism',
+  'cyber-neon',
+  'sunset-vapor',
   'catppuccin-mocha',
   'warm-paper',
   'crimson-velvet',
-  'synthwave-dusk',
-  'emerald-obsidian',
 ] as const;
 
 export const SITE_QUICK_CONFIGS: Readonly<Record<string, SiteQuickConfig>> = {

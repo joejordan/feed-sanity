@@ -213,10 +213,21 @@ function AppearancePanelView({
             }
           >
             <span className="theme-swatches" aria-hidden="true">
-              <span className="theme-dot" style={{ background: preset.palette.background }} />
-              <span className="theme-dot" style={{ background: preset.palette.surface }} />
-              <span className="theme-dot" style={{ background: preset.palette.text }} />
-              <span className="theme-dot" style={{ background: preset.palette.accent }} />
+              {(
+                preset.swatches ?? [
+                  preset.palette.background,
+                  preset.palette.surface,
+                  preset.palette.text,
+                  preset.palette.accent,
+                ]
+              ).map((color, idx) => (
+                <span
+                  // biome-ignore lint/suspicious/noArrayIndexKey: static preset swatch palette
+                  key={idx}
+                  className="theme-dot"
+                  style={{ background: color }}
+                />
+              ))}
             </span>
             <span className="theme-card-name">{preset.name}</span>
             <p className="theme-card-desc">{preset.description}</p>

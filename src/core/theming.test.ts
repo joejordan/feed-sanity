@@ -395,5 +395,9 @@ describe('first-class multi-site theming engine', () => {
     const shadowCss = compileShadowThemeCss(serifOnly, xThemeMapping);
     expect(shadowCss).toContain(':host {\n  font-family: Georgia');
     expect(shadowCss).toContain('--x-font-sans: Georgia');
+
+    const prism = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'prism-aurora' })!;
+    expect(compileHostThemeCss(prism, xThemeMapping)).toContain('linear-gradient(90deg, #ff3b8d');
+    expect(compileUiThemeCss(prism)).toContain('linear-gradient(90deg, #ff3b8d');
   });
 });
