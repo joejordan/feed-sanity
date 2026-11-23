@@ -3,26 +3,23 @@
 // responder and this project's readers, and imports nothing else. Each build
 // puts it in the page its own way: see `installPageWorld` in
 // `src/core/platform.ts`.
-import { servePageWorld } from './core/page-world';
-import { PAGE_ACTIONS } from './facebook/page-actions';
-import { PAGE_MOUNTS } from './facebook/page-mounts';
-import { PAGE_TOGGLES } from './facebook/page-toggles';
-import { PAGE_READERS } from './facebook/react-readers';
+import { isFacebookHost } from './facebook/urls';
+import { startFacebookPageWorld } from './sites/facebook/page-world';
 import { startInstagramPageWorld } from './sites/instagram/page-world';
 import { isInstagramHost } from './sites/instagram/urls';
 import { startXPageWorld } from './sites/x/page-world';
 import { isXHost } from './sites/x/urls';
 
 export function startPageWorld(): void {
-  if (typeof location !== 'undefined') {
-    if (isInstagramHost(location.hostname)) {
-      startInstagramPageWorld();
-      return;
-    }
-    if (isXHost(location.hostname)) {
-      startXPageWorld();
-      return;
-    }
+  if (typeof location === 'undefined') {
+    return;
   }
-  servePageWorld(PAGE_READERS, PAGE_TOGGLES, PAGE_ACTIONS, PAGE_MOUNTS);
+  const { hostname } = location;
+  if (isFacebookHost(hostname)) {
+    startFacebookPageWorld();
+  } else if (isInstagramHost(hostname)) {
+    startInstagramPageWorld();
+  } else if (isXHost(hostname)) {
+    startXPageWorld();
+  }
 }

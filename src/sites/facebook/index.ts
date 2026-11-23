@@ -9,10 +9,10 @@ import { scrub } from '../../diagnostics/report';
 import { createPage, LOCATOR_OVERRIDES } from '../../facebook/feature';
 import { savedPostData } from '../../facebook/post-read';
 import facebookTheme from '../../facebook/theme.css?inline';
+import { isFacebookHost } from '../../facebook/urls';
 import { currentUserId } from '../../facebook/user';
 import { features, optionsPanels } from '../../features';
 import { savedFilters } from '../../features/post-filters/types';
-import { sitesPanel } from '../../ui/sites-panel';
 import { facebookThemeMapping } from './theme-mapping';
 
 /**
@@ -23,7 +23,7 @@ import { facebookThemeMapping } from './theme-mapping';
 export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPage>> = {
   id: 'facebook',
   displayName: 'Facebook',
-  matchesHost: (hostname) => /(?:^|\.)facebook\.com$/i.test(hostname),
+  matchesHost: isFacebookHost,
   themeCss: facebookTheme,
   themeMapping: facebookThemeMapping,
   accountId: currentUserId,
@@ -44,7 +44,6 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
         locators: overrides,
         read_history: savedPostData(data),
       }),
-      ...(platform.sitePermissions ? [sitesPanel(platform.sitePermissions)] : []),
       diagnosticsPanel({
         collect: () => collectDiagnostics({ version, build: platform.build, page: stats, runner }),
         overrides,

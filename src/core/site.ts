@@ -5,11 +5,13 @@ import type { SiteThemeMapping } from './theming';
 import { initSiteTheme } from '../ui/appearance';
 import { setSiteThemeCss } from '../ui/mount';
 import { openOptionsDialog } from '../ui/options-dialog';
+import { sitesPanel } from '../ui/sites-panel';
 import { FeatureRunner } from './app';
 import { createDomEnvironment } from './dom-env';
 import { createLogger } from './log';
 import { Options } from './options';
 import { SavedData } from './saved';
+import { createSiteSettings } from './site-settings';
 
 export { scrubCommonPii } from './pii';
 
@@ -21,9 +23,8 @@ export interface DiagnosticSection {
 
 /**
  * Contract every target site implements (`src/sites/facebook/`,
- * `src/sites/instagram/`, `src/sites/x/`, `src/sites/tiktok/`,
- * `src/sites/gmail/`). Keeps `src/core/`, `src/ui/`, and `src/platform/`
- * free of site-specific assumptions.
+ * `src/sites/instagram/`, `src/sites/x/`, `src/sites/gmail/`). Keeps
+ * `src/core/`, `src/ui/`, and `src/platform/` free of site-specific assumptions.
  */
 export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory<P>> {
   readonly id: string;
@@ -97,48 +98,119 @@ export class SiteRegistry {
 }
 
 /**
- * Boots a single `SiteAdapter` against `platform`: applies the site's shadow
- * DOM theme, namespaces storage, starts features with fault isolation, syncs
- * the toolbar badge, and wires the Options dialog.
+ * Boots a single `SiteAdapter` against `platform`: loads the shared site
+ * enablement state, wires the toolbar/menu Options trigger, and lazily creates
+ * and runs the site's page services, features, and theme only while enabled
+ * (or on demand when Options is opened while disabled).
  */
-export function startSite<P, F extends PageFactory<P>>(
+export async function startSite<P, F extends PageFactory<P>>(
   site: SiteAdapter<P, F>,
   platform: Platform,
 ): Promise<string[]> {
   setSiteThemeCss(site.themeCss);
-  const account = site.accountId();
-  const prefix = site.storagePrefix(account);
-  const options = new Options(platform.store, `${prefix}/options`);
-  const data = new SavedData(platform.store, prefix);
-  const theme = site.themeMapping
-    ? initSiteTheme(
-        createDomEnvironment({
-          log: createLogger('theme'),
-          ...site.themeEnvOptions,
-        }),
-        data,
-        site.themeMapping,
-      )
-    : undefined;
-  const page = site.createPage(data, () => platform.installPageWorld());
-  const runner = new FeatureRunner(site.features, options, page, data);
-  const panels = [
-    ...(theme ? [theme.panel] : []),
-    ...site.createPanels({ options, data, page, runner, platform }),
-  ];
+  const siteSettings = createSiteSettings(platform.store);
+
+  interface SiteRuntime {
+    readonly options: Options;
+    readonly runner: FeatureRunner<P>;
+    readonly theme: ReturnType<typeof initSiteTheme> | undefined;
+    readonly panels: OptionsPanel[];
+  }
+
+  let runtime: SiteRuntime | undefined;
+  const ensureRuntime = (): SiteRuntime => {
+    if (runtime) {
+      return runtime;
+    }
+    const account = site.accountId();
+    const prefix = site.storagePrefix(account);
+    const options = new Options(platform.store, `${prefix}/options`);
+    const data = new SavedData(platform.store, prefix);
+    const theme = site.themeMapping
+      ? initSiteTheme(
+          createDomEnvironment({
+            log: createLogger('theme'),
+            ...site.themeEnvOptions,
+          }),
+          data,
+          site.themeMapping,
+          { active: false },
+        )
+      : undefined;
+    const page = site.createPage(data, () => platform.installPageWorld());
+    const runner = new FeatureRunner(site.features, options, page, data);
+    const sitePanels = site.createPanels({ options, data, page, runner, platform });
+    const diagIndex = sitePanels.findIndex((panel) => panel.section === 'Diagnostics');
+    const insertAt = diagIndex === -1 ? sitePanels.length : diagIndex;
+    const panels = [
+      ...(theme ? [theme.panel] : []),
+      ...sitePanels.slice(0, insertAt),
+      sitesPanel(siteSettings),
+      ...sitePanels.slice(insertAt),
+    ];
+
+    runner.onBadgeChange((badge) => platform.setBadge(badge));
+    runtime = { options, runner, theme, panels };
+    return runtime;
+  };
 
   // The browser may keep the badge of the page this tab showed before, so
-  // the first one is sent even when it is empty.
-  platform.setBadge(runner.badge());
-  runner.onBadgeChange((badge) => platform.setBadge(badge));
+  // the first one is sent even when it is empty or the site starts disabled.
+  platform.setBadge({ count: 0, failed: false });
 
-  // Register feature options before the first await so the dialog can open as
-  // soon as saved values are read rather than after the slowest feature starts.
-  const started = runner.start();
   platform.onOpenOptions(() => {
-    openOptionsDialog(options, panels).catch((error: unknown) => {
-      createLogger('options').error('could not open the options dialog', error);
-    });
+    const { options, runner, panels } = ensureRuntime();
+    void runner
+      .prepare()
+      .then(() => openOptionsDialog(options, panels))
+      .catch((error: unknown) => {
+        createLogger('options').error('could not open the options dialog', error);
+      });
   });
-  return started;
+
+  await siteSettings.ready;
+
+  let active = false;
+  let generation = 0;
+
+  const deactivate = (): void => {
+    if (!runtime) {
+      return;
+    }
+    runtime.runner.stop();
+    runtime.theme?.setActive(false);
+  };
+
+  const syncEnabled = async (): Promise<string[]> => {
+    const want = siteSettings.isEnabled(site.id);
+    if (want === active) {
+      return [];
+    }
+    const token = ++generation;
+    active = want;
+    if (!want) {
+      deactivate();
+      return [];
+    }
+    const current = ensureRuntime();
+    current.theme?.setActive(true);
+    const failed = await current.runner.start();
+    // If the user disabled the site while an async feature setup was in flight,
+    // stop immediately. If a newer re-enable superseded this token, leave the
+    // newer run active.
+    if (!siteSettings.isEnabled(site.id)) {
+      deactivate();
+      return [];
+    }
+    if (token !== generation) {
+      return [];
+    }
+    return failed;
+  };
+
+  siteSettings.onChange(() => {
+    void syncEnabled();
+  });
+
+  return syncEnabled();
 }

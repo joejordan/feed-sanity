@@ -1,13 +1,7 @@
 import { browser } from 'wxt/browser';
-import type { Badge, Platform, SitePermissionStatus } from '../core/platform';
+import type { Badge, Platform } from '../core/platform';
 import { extensionStore } from './extension-store';
-import {
-  badgeMessage,
-  OPEN_OPTIONS,
-  SITE_PERMISSIONS_GET,
-  sitePermissionRevokeMessage,
-} from './messages';
-import { manifestSiteStatuses } from './site-permissions';
+import { badgeMessage, OPEN_OPTIONS } from './messages';
 
 const BUILDS: Record<string, string> = { firefox: 'Firefox extension', chrome: 'Chrome extension' };
 
@@ -60,26 +54,6 @@ export const extensionPlatform: Platform = {
       setTimeout(() => void sendBadge(), BADGE_DELAY_MS);
     }
   },
-  // The manifest adds it: src/entrypoints/page-world.content.ts runs in the
-  // page's own world. The browser puts it there, so the page's content
-  // security policy does not apply to it.
+  // The manifest registers each site's `*-page-world.content.ts` in `world: 'MAIN'`.
   installPageWorld: () => Promise.resolve(),
-  sitePermissions: {
-    managedByExtension: true,
-    initial: () => manifestSiteStatuses(false),
-    list: () =>
-      Promise.resolve()
-        .then(() => browser.runtime.sendMessage(SITE_PERMISSIONS_GET))
-        .then((res) =>
-          Array.isArray(res) ? (res as SitePermissionStatus[]) : manifestSiteStatuses(false),
-        )
-        .catch(() => manifestSiteStatuses(false)),
-    revoke: (siteId) =>
-      Promise.resolve()
-        .then(() => browser.runtime.sendMessage(sitePermissionRevokeMessage(siteId)))
-        .then((res) =>
-          Array.isArray(res) ? (res as SitePermissionStatus[]) : manifestSiteStatuses(false),
-        )
-        .catch(() => manifestSiteStatuses(false)),
-  },
 };

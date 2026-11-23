@@ -6,7 +6,7 @@ import { createDomEnvironment } from '../../core/dom-env';
 import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { inMemoryStore } from '../../core/testing';
-import { DEFAULT_THEME_CONFIG, THEME_FONT_STACKS } from '../../core/theming';
+import { DEFAULT_THEME_CONFIG, resolveTheme, THEME_FONT_STACKS } from '../../core/theming';
 import { facebookThemeMapping } from '../../sites/facebook/theme-mapping';
 import { setUserThemeCss } from '../mount';
 import { OptionsDialog } from '../options-dialog/options-dialog';
@@ -145,6 +145,42 @@ describe('appearancePanel & initSiteTheme', () => {
 
       await store.set('acct/theme', { ...DEFAULT_THEME_CONFIG, preset: 'catppuccin-mocha' });
       expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
+    } finally {
+      runtime.dispose();
+      env.dispose();
+    }
+  });
+
+  it('respects active: false on load and save, and clears both applied and previewed styles on setActive(false)', async () => {
+    const store = inMemoryStore({
+      'acct/theme': { ...DEFAULT_THEME_CONFIG, preset: 'midnight' },
+    });
+    const data = new SavedData(store, 'acct');
+    const env = createDomEnvironment();
+    const runtime = initSiteTheme(env, data, facebookThemeMapping, { active: false });
+
+    try {
+      await runtime.panel.ready;
+      // Starting inactive injects no theme CSS.
+      expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
+
+      // Saving a new theme while inactive persists it without injecting CSS onto the disabled site.
+      await runtime.panel.save({ ...DEFAULT_THEME_CONFIG, preset: 'warm-paper' });
+      expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
+
+      // Activating applies the saved theme immediately.
+      runtime.setActive(true);
+      expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#f4efe6');
+
+      // Deactivating clears both live preview and applied theme without losing saved config.
+      runtime.controller.preview(resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'nord' }));
+      expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#2e3440');
+      runtime.setActive(false);
+      expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
+
+      // Re-activating restores the saved Warm Paper theme cleanly (not the cleared Nord preview).
+      runtime.setActive(true);
+      expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#f4efe6');
     } finally {
       runtime.dispose();
       env.dispose();

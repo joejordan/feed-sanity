@@ -6,7 +6,6 @@ import { readLocatorOverrides } from '../../core/locator';
 import { siteStoragePrefix } from '../../core/site-storage';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
-import { sitesPanel } from '../../ui/sites-panel';
 import { createXPage, X_LOCATOR_OVERRIDES } from './feature';
 import xDefaultFollowing from './features/default-following';
 import xFeedFilters from './features/feed-filters';
@@ -45,7 +44,6 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
     const { stats } = page;
     const overrides = data.value(X_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
-      ...(platform.sitePermissions ? [sitesPanel(platform.sitePermissions)] : []),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();

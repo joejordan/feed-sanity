@@ -9,32 +9,51 @@ import { appearancePanel, readThemeConfig, THEME_DATA_KEY } from './appearance-p
 export interface SiteThemeRuntime {
   readonly controller: ThemeController;
   readonly panel: OptionsPanel;
+  /** Enables or suspends live theme injection without losing saved configuration. */
+  readonly setActive: (active: boolean) => void;
   readonly dispose: () => void;
 }
 
 /**
  * Initializes first-class theming for a site: loads the site's persisted
- * `ThemeConfig` from `SavedData`, applies it immediately (and whenever storage
- * changes across tabs), and returns the ready-to-mount `Appearance` panel.
+ * `ThemeConfig` from `SavedData`, applies it while `active` (and whenever
+ * storage changes across tabs), and returns the ready-to-mount `Appearance` panel.
  */
 export function initSiteTheme(
   env: DomEnvironment,
   data: SavedData,
   mapping: SiteThemeMapping,
+  { active: initialActive = true }: { readonly active?: boolean } = {},
 ): SiteThemeRuntime {
   const saved = data.value(THEME_DATA_KEY, readThemeConfig);
   const controller = createThemeController(env, mapping, setUserThemeCss);
+  let active = initialActive;
 
   const sync = (): void => {
-    controller.apply(resolveTheme(saved.get()));
+    controller.apply(active ? resolveTheme(saved.get()) : null);
   };
 
-  void saved.ready.then(sync);
+  void saved.ready.then(() => {
+    if (active) {
+      sync();
+    }
+  });
   const stopWatch = saved.onChange(sync);
 
   return {
     controller,
-    panel: appearancePanel(saved, controller),
+    // `saved.set` already triggers `onChange(sync)` above (which respects `active`).
+    panel: appearancePanel(saved, controller, () => undefined),
+    setActive(next) {
+      if (active === next) {
+        return;
+      }
+      active = next;
+      if (!next) {
+        controller.clearPreview();
+      }
+      sync();
+    },
     dispose() {
       stopWatch();
       controller.dispose();

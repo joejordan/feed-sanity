@@ -1,48 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
-import type { SitePermissionStatus, SitePermissionsClient } from '../core/platform';
+import type { SiteSettingsClient, SiteStatus } from '../core/site-settings';
 import type { OptionsPanel } from './options-dialog/panel';
 import { NAME } from '../../project';
 import { definePanel } from './options-dialog/panel';
 import css from './sites-panel.css?inline';
 
-export type { SitePermissionsClient };
-
-function statusLabel(site: SitePermissionStatus): string {
-  if (site.required) {
-    return 'Built-in';
-  }
-  return site.enabled ? 'Enabled' : 'Not enabled';
-}
-
-function SitesPanelView({ client }: { client: SitePermissionsClient }) {
-  const [sites, setSites] = useState<SitePermissionStatus[]>(() => client.initial());
+function SitesPanelView({ client }: { client: SiteSettingsClient }) {
+  const [sites, setSites] = useState<SiteStatus[]>(() => client.list());
   const [busyId, setBusyId] = useState<string | null>(null);
   const alive = useRef(true);
 
   useEffect(() => {
     alive.current = true;
-    void client
-      .list()
-      .then((next) => {
-        if (alive.current) {
-          setSites(next);
-        }
-      })
-      .catch(() => undefined);
+    const refresh = (): void => {
+      if (alive.current) {
+        setSites(client.list());
+      }
+    };
+    const stop = client.onChange(refresh);
     return () => {
       alive.current = false;
+      stop();
     };
   }, [client]);
 
-  const disable = async (siteId: string): Promise<void> => {
-    setBusyId(siteId);
+  const toggle = async (site: SiteStatus): Promise<void> => {
+    setBusyId(site.id);
     try {
-      const next = await client.revoke(siteId);
-      if (alive.current) {
-        setSites(next);
-      }
+      await client.setEnabled(site.id, !site.enabled);
     } catch {
-      // Keep current list on transient IPC error.
+      // Keep current list on transient storage error.
     } finally {
       if (alive.current) {
         setBusyId(null);
@@ -54,50 +41,52 @@ function SitesPanelView({ client }: { client: SitePermissionsClient }) {
     <section className="sites-panel">
       <h3 className="sites-heading">Supported sites</h3>
       <p className="description">
-        {client.managedByExtension
-          ? `Optional sites only request host permission when you enable them. Visit an optional site and click the ${NAME} toolbar button to grant access immediately with no page reload.`
-          : 'Site matching in the userscript build is managed by your userscript manager.'}
+        Enable or disable {NAME} on any supported site. Changes apply immediately to open tabs with
+        no page reload.
       </p>
       <ul className="sites-list">
-        {sites.map((site) => (
-          <li key={site.id} className="sites-card">
-            <div className="sites-meta">
-              <div className="sites-name-row">
-                <span className="sites-name">{site.displayName}</span>
-                <span className={site.enabled ? 'sites-badge enabled' : 'sites-badge'}>
-                  {statusLabel(site)}
-                </span>
+        {sites.map((site) => {
+          const busy = busyId === site.id;
+          let actionLabel: string;
+          if (busy) {
+            actionLabel = site.enabled ? 'Disabling…' : 'Enabling…';
+          } else {
+            actionLabel = site.enabled ? 'Disable' : 'Enable';
+          }
+          return (
+            <li key={site.id} className="sites-card">
+              <div className="sites-meta">
+                <div className="sites-name-row">
+                  <span className="sites-name">{site.displayName}</span>
+                  <span className={site.enabled ? 'sites-badge enabled' : 'sites-badge'}>
+                    {site.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                <p className="description">{site.description}</p>
               </div>
-              <p className="description">{site.description}</p>
-              {!site.required && !site.enabled && client.managedByExtension && (
-                <p className="sites-hint">
-                  Open {site.displayName} and click the {NAME} toolbar icon to enable.
-                </p>
-              )}
-            </div>
-            {!site.required && site.enabled && client.managedByExtension && (
               <button
                 className="button"
                 type="button"
-                disabled={busyId === site.id}
-                onClick={() => void disable(site.id)}
+                aria-label={`${site.enabled ? 'Disable' : 'Enable'} ${site.displayName}`}
+                disabled={busyId !== null}
+                onClick={() => void toggle(site)}
               >
-                {busyId === site.id ? 'Disabling…' : 'Disable'}
+                {actionLabel}
               </button>
-            )}
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
 }
 
-/** Read/revoke Sites panel shown in the Options dialog across all sites. */
-export function sitesPanel(client: SitePermissionsClient): OptionsPanel {
+/** Per-site enable/disable panel shown identically in Options across every supported site. */
+export function sitesPanel(client: SiteSettingsClient): OptionsPanel {
   return definePanel<null>({
     section: 'Sites',
     css,
-    ready: Promise.resolve(),
+    ready: client.ready,
     read: () => null,
     save: () => Promise.resolve(),
     Panel: () => <SitesPanelView client={client} />,

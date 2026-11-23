@@ -6,7 +6,6 @@ import { readLocatorOverrides } from '../../core/locator';
 import { siteStoragePrefix } from '../../core/site-storage';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
-import { sitesPanel } from '../../ui/sites-panel';
 import { createInstagramPage, IG_LOCATOR_OVERRIDES } from './feature';
 import igDefaultFollowing from './features/default-following';
 import igFeedFilters from './features/feed-filters';
@@ -45,7 +44,6 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
     const { stats } = page;
     const overrides = data.value(IG_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
-      ...(platform.sitePermissions ? [sitesPanel(platform.sitePermissions)] : []),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();

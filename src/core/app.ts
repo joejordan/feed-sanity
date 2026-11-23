@@ -64,6 +64,8 @@ class FeatureRun<P> {
   readonly #counts = new Map<Scope, number>();
   /** The scope of the setup now running, if any. */
   #scope: Scope | undefined;
+  /** Stops watching `enabledBy` when this run is stopped. */
+  #stopWatch: (() => void) | undefined;
   #failuresInARow = 0;
 
   constructor(
@@ -94,6 +96,9 @@ class FeatureRun<P> {
    * Resolves false when the first setup failed.
    */
   begin(): Promise<boolean> {
+    if (this.#scope || this.#stopWatch) {
+      return Promise.resolve(true);
+    }
     const key: string | undefined = this.feature.enabledBy;
     if (key === undefined) {
       return this.#run();
@@ -112,7 +117,7 @@ class FeatureRun<P> {
       return Promise.resolve(false);
     }
     let first = Promise.resolve(true);
-    this.#options.watch(key, (on) => {
+    this.#stopWatch = this.#options.watch(key, (on) => {
       if (!on) {
         this.#end('off');
       } else if (!this.#scope) {
@@ -120,6 +125,13 @@ class FeatureRun<P> {
       }
     });
     return first;
+  }
+
+  /** Stops the feature and any `enabledBy` watcher, disposing its active scope. */
+  stop(): void {
+    this.#stopWatch?.();
+    this.#stopWatch = undefined;
+    this.#end('off');
   }
 
   async #run(): Promise<boolean> {
@@ -257,6 +269,9 @@ export class FeatureRunner<P> {
   readonly #listeners = new Listeners<[FeatureStatus]>(createLogger('features'));
   readonly #badgeListeners = new Listeners<[Badge]>(createLogger('features'));
   #badge: Badge = { count: 0, failed: false };
+  #registered = false;
+  #prepared: Promise<void> | undefined;
+  #runId = 0;
 
   constructor(
     features: readonly Feature<P>[],
@@ -281,20 +296,40 @@ export class FeatureRunner<P> {
     );
   }
 
+  /** Registers every feature's options and loads saved values once, without starting features. */
+  async prepare(): Promise<void> {
+    if (!this.#registered) {
+      this.#registered = true;
+      for (const { feature } of this.#runs) {
+        if (feature.options) {
+          this.#options.register(feature.options);
+        }
+      }
+    }
+    if (!this.#prepared) {
+      const pending = this.#options.load().catch((error: unknown) => {
+        if (this.#prepared === pending) {
+          this.#prepared = undefined;
+        }
+        throw error;
+      });
+      this.#prepared = pending;
+    }
+    await this.#prepared;
+  }
+
   /**
    * Registers every feature's options, reads the saved values, then starts
    * the features in list order. A feature that throws is reported and
-   * skipped, so one feature broken by a Facebook change does not take the
+   * skipped, so one feature broken by a host change does not take the
    * others down. Resolves with the ids of the features that failed to start.
-   * Call it once.
    */
   async start(): Promise<string[]> {
-    for (const { feature } of this.#runs) {
-      if (feature.options) {
-        this.#options.register(feature.options);
-      }
+    const id = ++this.#runId;
+    await this.prepare();
+    if (id !== this.#runId) {
+      return [];
     }
-    await this.#options.load();
 
     const failed: string[] = [];
     await Promise.all(
@@ -305,6 +340,14 @@ export class FeatureRunner<P> {
       }),
     );
     return failed;
+  }
+
+  /** Stops every running feature and disposes its scope so the site can be cleanly toggled off. */
+  stop(): void {
+    this.#runId++;
+    for (const run of this.#runs) {
+      run.stop();
+    }
   }
 
   /** The status of every feature, in list order. */

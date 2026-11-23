@@ -180,6 +180,7 @@ function AppearancePanelView({
 export function appearancePanel(
   saved: SavedValue<ThemeConfig>,
   controller: ThemeController,
+  onApply: (config: ThemeConfig) => void = (next) => controller.apply(resolveTheme(next)),
 ): OptionsPanel {
   return definePanel<ThemeConfig>({
     section: 'Appearance',
@@ -188,7 +189,7 @@ export function appearancePanel(
     read: () => saved.get(),
     save: async (next) => {
       await saved.set(next);
-      controller.apply(resolveTheme(next));
+      onApply(next);
       controller.clearPreview();
     },
     onClose: () => controller.clearPreview(),

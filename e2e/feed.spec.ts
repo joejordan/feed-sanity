@@ -488,3 +488,49 @@ test('marks posts as read, persists across reloads, and clears read history from
   await expect(dialog(page).getByText('Read post history cleared.')).toBeVisible();
   await expect(averyReloaded).not.toHaveClass(/\bfs_post_read\b/);
 });
+
+test('treats all sites equally in Sites and toggles Facebook off and back on live', async ({
+  page,
+  pressToolbarButton,
+  badgeText,
+}) => {
+  await page.goto(SUGGESTED_FEED);
+  await expectHidden(page, 'Fennel Farm');
+  await expect.poll(badgeText).toBe('2');
+
+  await pressToolbarButton();
+  await dialog(page).getByRole('button', { name: 'Sites', exact: true }).click();
+  await expect(dialog(page).getByText('Built-in')).toHaveCount(0);
+  await expect(dialog(page).getByRole('button', { name: 'Disable Facebook' })).toBeVisible();
+  await expect(dialog(page).getByRole('button', { name: 'Disable Instagram' })).toBeVisible();
+  await expect(dialog(page).getByRole('button', { name: 'Disable X (Twitter)' })).toBeVisible();
+  await expect(dialog(page).getByRole('button', { name: 'Disable Gmail' })).toBeVisible();
+
+  // Disabling Facebook turns off its features immediately and clears the badge.
+  await dialog(page).getByRole('button', { name: 'Disable Facebook' }).click();
+  await expect(dialog(page).getByRole('button', { name: 'Enable Facebook' })).toBeVisible();
+  await expectShown(page, 'Fennel Farm');
+  await expect.poll(badgeText).toBe('');
+
+  // Re-enabling on the same page load restores filtering and badge without a reload.
+  await dialog(page).getByRole('button', { name: 'Enable Facebook' }).click();
+  await expect(dialog(page).getByRole('button', { name: 'Disable Facebook' })).toBeVisible();
+  await expectHidden(page, 'Fennel Farm');
+  await expect.poll(badgeText).toBe('2');
+
+  // Disabling persists across a full reload with zero feature DOM mutations.
+  await dialog(page).getByRole('button', { name: 'Disable Facebook' }).click();
+  await expect(dialog(page).getByRole('button', { name: 'Enable Facebook' })).toBeVisible();
+  await page.reload();
+  await expect(messageOf(page, 'Fennel Farm')).toBeVisible();
+  await expect(slot(page, 'Fennel Farm')).not.toHaveAttribute('fs_id');
+  await expect.poll(badgeText).toBe('');
+
+  // The toolbar button still opens Options while disabled so Facebook can be re-enabled live.
+  await pressToolbarButton();
+  await dialog(page).getByRole('button', { name: 'Sites', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'Enable Facebook' }).click();
+  await expect(dialog(page).getByRole('button', { name: 'Disable Facebook' })).toBeVisible();
+  await expectHidden(page, 'Fennel Farm');
+  await expect.poll(badgeText).toBe('2');
+});

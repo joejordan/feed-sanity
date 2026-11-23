@@ -382,6 +382,55 @@ describe('feature lifecycle', () => {
 
     expect(seen.map((status) => status.state)).toEqual(['running', 'off']);
   });
+
+  it('supports prepare() retry, stop() cancelling an in-flight start(), disconnecting enabledBy watchers, and restart', async () => {
+    let failLoad = true;
+    const origGet = extensionStore.get.bind(extensionStore);
+    vi.spyOn(extensionStore, 'get').mockImplementation(async (key) => {
+      if (failLoad) {
+        throw new Error('transient read error');
+      }
+      return origGet(key);
+    });
+
+    const events: string[] = [];
+    const feature = defineFeature({
+      id: 'toggleable',
+      options: SWITCH,
+      enabledBy: 'thing_enabled',
+      setup: ({ scope }) => {
+        events.push('start');
+        scope.add(() => events.push('stop'));
+      },
+    });
+    const runner = new FeatureRunner([feature], options, () => undefined, data);
+
+    // Failed prepare() does not permanently poison future prepare() / start() calls.
+    await expect(runner.prepare()).rejects.toThrow('transient read error');
+    failLoad = false;
+
+    // Stopping while start() is awaiting prepare() prevents features from starting.
+    const pendingStart = runner.start();
+    runner.stop();
+    expect(await pendingStart).toEqual([]);
+    expect(events).toEqual([]);
+
+    // Normal start -> stop disconnects `enabledBy` watcher so option flips while stopped do not restart it.
+    expect(await runner.start()).toEqual([]);
+    expect(events).toEqual(['start']);
+    runner.stop();
+    expect(events).toEqual(['start', 'stop']);
+    expect(runner.statuses()[0]?.state).toBe('off');
+
+    await options.set('thing_enabled', false);
+    await options.set('thing_enabled', true);
+    expect(events).toEqual(['start', 'stop']);
+
+    // Starting again after stop cleanly re-runs without double-registering options.
+    expect(await runner.start()).toEqual([]);
+    expect(events).toEqual(['start', 'stop', 'start']);
+    expect(runner.statuses()[0]?.state).toBe('running');
+  });
 });
 
 describe('the badge', () => {

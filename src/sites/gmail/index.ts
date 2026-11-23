@@ -6,7 +6,6 @@ import { readLocatorOverrides } from '../../core/locator';
 import { siteStoragePrefix } from '../../core/site-storage';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
-import { sitesPanel } from '../../ui/sites-panel';
 import { createGmailPage, GMAIL_LOCATOR_OVERRIDES } from './feature';
 import gmailHideClutter from './features/hide-clutter';
 import gmailThreadFilters from './features/thread-filters';
@@ -42,7 +41,6 @@ export const gmailSite: SiteAdapter<GmailPage, ReturnType<typeof createGmailPage
     const { stats } = page;
     const overrides = data.value(GMAIL_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
-      ...(platform.sitePermissions ? [sitesPanel(platform.sitePermissions)] : []),
       diagnosticsPanel({
         collect: () => ({
           version,
