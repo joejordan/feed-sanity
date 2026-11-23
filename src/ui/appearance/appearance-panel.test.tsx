@@ -318,4 +318,47 @@ describe('appearancePanel & initSiteTheme', () => {
     expect(screen.getByText(/1 remaining contrast\/surface issue needs/)).toBeTruthy();
     expect(screen.queryByText(/no unhealed contrast or surface issues found/)).toBeNull();
   });
+
+  it('applies Studio Vibes (Enter the Matrix, Vice City VI), exposes Matrix Rain tuners, and resets effects cleanly', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+    // One-click Enter the Matrix vibe applies Hacker Terminal + Matrix Digital Rain + Glass + Glyphs.
+    await userEvent.click(screen.getByRole('button', { name: /Enter the Matrix/i }));
+    await vi.waitFor(() => {
+      expect(saved.get().preset).toBe('terminal-phosphor');
+      expect(saved.get().effects?.backdrop).toBe('digital-rain');
+      expect(saved.get().effects?.surface).toBe('glass');
+      expect(saved.get().effects?.click).toBe('matrix-burst');
+    });
+
+    // Matrix Rain tuner controls appear automatically and save live.
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Glyph charset' }), 'hex');
+    await vi.waitFor(() => expect(saved.get().effects?.rainCharset).toBe('hex'));
+
+    // Switching to Vice City VI vibe activates GTA VI Vice Horizon + Gradient + Sparks.
+    await userEvent.click(screen.getByRole('button', { name: /Vice City VI/i }));
+    await vi.waitFor(() => {
+      expect(saved.get().preset).toBe('sunset-vapor');
+      expect(saved.get().effects?.backdrop).toBe('vice-horizon');
+      expect(saved.get().effects?.surface).toBe('gradient');
+      expect(saved.get().effects?.click).toBe('spark');
+    });
+
+    // Reset effects clears all studio effects while keeping the color palette intact.
+    await userEvent.click(screen.getByRole('button', { name: 'Reset effects' }));
+    await vi.waitFor(() => {
+      expect(saved.get().preset).toBe('sunset-vapor');
+      expect(saved.get().effects).toBeUndefined();
+    });
+  });
 });

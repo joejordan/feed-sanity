@@ -54,4 +54,25 @@ export const facebookThemeMapping: SiteThemeMapping = {
   },
   extraCss: (p) =>
     `body { background-color: ${p.background} !important; color: ${p.text} !important; }`,
+  backdropRevealCss: (p, { cardAlpha, blurPx }) => {
+    const surface = p?.surface ?? '#18191a';
+    return `
+:root, .__fb-dark-mode, .__fb-light-mode {
+  --web-wash: transparent !important;
+  --wash: transparent !important;
+  --base-wash: transparent !important;
+  --card-background: ${hexWithAlpha(surface, cardAlpha)} !important;
+  --surface-background: ${hexWithAlpha(surface, cardAlpha)} !important;
+  --nav-bar-background: ${hexWithAlpha(surface, cardAlpha)} !important;
+}
+[id^="mount_0_0"],
+[role="main"] {
+  background-color: transparent !important;
+}
+[aria-posinset], [role="banner"], [role="dialog"] {
+  backdrop-filter: blur(${blurPx}px);
+  -webkit-backdrop-filter: blur(${blurPx}px);
+}
+`.trim();
+  },
 };

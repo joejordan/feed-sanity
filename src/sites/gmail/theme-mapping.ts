@@ -96,4 +96,22 @@ div[role="menu"] * {
   background-color: ${hexWithAlpha(p.accent, 0.28)} !important;
 }
 `.trim(),
+  backdropRevealCss: (p, { cardAlpha, blurPx }) => {
+    const surface = p?.surface ?? '#131926';
+    return `
+div.wl,
+header[role="banner"],
+div[role="navigation"] {
+  background-color: transparent !important;
+}
+div.nH:has(> div[role="main"]),
+div[role="main"],
+div[role="dialog"],
+div[role="menu"] {
+  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
+  backdrop-filter: blur(${blurPx}px);
+  -webkit-backdrop-filter: blur(${blurPx}px);
+}
+`.trim();
+  },
 };

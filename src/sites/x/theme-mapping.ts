@@ -537,4 +537,45 @@ svg[data-testid="icon-verified"] {
   background-color: ${hexWithAlpha(p.accent, 0.28)} !important;
 }
 `.trim(),
+  backdropRevealCss: (p, { columnAlpha, cardAlpha, blurPx }) => {
+    const bg = p?.background ?? '#05080f';
+    const surface = p?.surface ?? '#111622';
+    return `
+#react-root,
+header[role="banner"],
+main[role="main"],
+[data-testid="sidebarColumn"],
+[data-testid="sidebarColumn"] > div > div > div > div,
+[data-testid="sidebarColumn"] > div > div > div > div > div {
+  background-color: transparent !important;
+}
+#react-root > div > div > div {
+  background-color: transparent !important;
+}
+#react-root .r-kemksi:not(:where([data-testid="primaryColumn"], [data-testid="primaryColumn"] *, [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *, [data-testid="Dropdown"], [data-testid="Dropdown"] *, [data-testid="HoverCard"], [data-testid="HoverCard"] *, ${IN_VIDEO})),
+#react-root .r-14lw9ot:not(:where(button, [role="button"], [data-testid="primaryColumn"], [data-testid="primaryColumn"] *, [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *, [data-testid="Dropdown"], [data-testid="Dropdown"] *, [data-testid="HoverCard"], [data-testid="HoverCard"] *, ${IN_VIDEO})) {
+  background-color: transparent !important;
+}
+[data-testid="primaryColumn"],
+[data-testid="primaryColumn"] [data-testid="toolBar"] {
+  background-color: ${hexWithAlpha(bg, columnAlpha)} !important;
+  backdrop-filter: blur(${blurPx}px);
+  -webkit-backdrop-filter: blur(${blurPx}px);
+}
+[data-testid="sidebarColumn"] section,
+[data-testid="sidebarColumn"] aside[role="complementary"],
+[data-testid="sidebarColumn"] [data-testid="news_sidebar"],
+[data-testid="sidebarColumn"] .r-1867qdf.r-1kqtdi0,
+[data-testid="sidebarColumn"] .r-1867qdf.r-1phboty,
+[role="dialog"],
+[data-testid="sheetDialog"],
+[role="menu"],
+[data-testid="Dropdown"],
+[data-testid="HoverCard"] {
+  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
+  backdrop-filter: blur(${blurPx}px);
+  -webkit-backdrop-filter: blur(${blurPx}px);
+}
+`.trim();
+  },
 };

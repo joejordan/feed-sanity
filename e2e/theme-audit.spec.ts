@@ -434,6 +434,33 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
           ),
         )
         .toBeCloseTo(1.17, 2);
+
+      // 4. Creative Studio: Enter the Matrix & Vice City VI live backdrops + click effects on X.
+      const studioDialog = await openAppearance(page);
+      await studioDialog.getByRole('button', { name: /Enter the Matrix/i }).click();
+
+      const backdrop = page.locator('[data-feed-sanity="theme-backdrop"]');
+      await expect(backdrop).toBeVisible();
+      await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'digital-rain');
+      await expect(backdrop.locator('canvas')).toBeVisible();
+
+      // Root shell becomes transparent so Matrix Rain shines through the page margins.
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => getComputedStyle(document.querySelector('#react-root')!).backgroundColor,
+          ),
+        )
+        .toBe('rgba(0, 0, 0, 0)');
+
+      // Switch to Vice City VI (GTA VI horizon sunset + neon palms + spark click FX).
+      await studioDialog.getByRole('button', { name: /Vice City VI/i }).click();
+      await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'vice-horizon');
+      await expect(backdrop.locator('canvas')).toBeVisible();
+
+      // Reset to site default tears down the backdrop with zero DOM residue.
+      await studioDialog.getByRole('button', { name: 'Reset to site default' }).click();
+      await expect(backdrop).toHaveCount(0);
     } finally {
       await page.close();
     }

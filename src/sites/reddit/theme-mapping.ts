@@ -89,4 +89,19 @@ header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
   background-color: ${hexWithAlpha(p.accent, 0.28)} !important;
 }
 `.trim(),
+  backdropRevealCss: (p, { cardAlpha, blurPx }) => {
+    const surface = p?.surface ?? '#131926';
+    return `
+shreddit-app,
+main,
+reddit-header-large {
+  background-color: transparent !important;
+}
+header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
+  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
+  backdrop-filter: blur(${blurPx}px);
+  -webkit-backdrop-filter: blur(${blurPx}px);
+}
+`.trim();
+  },
 };

@@ -244,3 +244,227 @@
   flex-direction: column;
   gap: 4px;
 }
+
+/* Creative Studio: Studio Vibes, Live Backgrounds & Safe Tuners */
+.theme-studio-pad {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.theme-studio-intro {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fs-text-secondary);
+  line-height: 1.45;
+}
+
+.theme-studio-subhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.theme-studio-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fs-text);
+}
+
+.theme-studio-hint {
+  font-size: 11.5px;
+  color: var(--fs-text-secondary);
+}
+
+.theme-vibe-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 8px;
+}
+
+.theme-vibe-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--fs-divider);
+  border-radius: 10px;
+  background: var(--fs-surface);
+  color: var(--fs-text);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    transform 110ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.theme-vibe-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--fs-text-secondary);
+}
+
+.theme-vibe-card[aria-pressed="true"] {
+  border-color: var(--fs-accent);
+  box-shadow: 0 0 0 1px var(--fs-accent);
+}
+
+.theme-vibe-banner {
+  display: block;
+  width: 100%;
+  height: 22px;
+}
+
+.theme-vibe-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px 9px;
+}
+
+.theme-backdrop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+  gap: 7px;
+}
+
+.theme-backdrop-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--fs-divider);
+  border-radius: 9px;
+  background: var(--fs-surface);
+  color: var(--fs-text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.theme-backdrop-chip:hover {
+  background: var(--fs-hover);
+}
+
+.theme-backdrop-chip[aria-pressed="true"] {
+  border-color: var(--fs-accent);
+  box-shadow: 0 0 0 1px var(--fs-accent);
+}
+
+.theme-backdrop-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: 1px solid rgb(128 128 128 / 35%);
+  flex-shrink: 0;
+}
+
+.theme-backdrop-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.theme-backdrop-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.theme-backdrop-tag {
+  font-size: 11px;
+  color: var(--fs-text-secondary);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-tuner-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--fs-divider);
+  border-radius: 10px;
+  background: var(--fs-background);
+}
+
+.theme-tuner-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.theme-slider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.theme-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fs-text-secondary);
+}
+
+.theme-slider-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.theme-slider-meta strong {
+  color: var(--fs-text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.theme-range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--fs-accent);
+  cursor: pointer;
+}
+
+.theme-tuner-switches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding-top: 2px;
+}
+
+.theme-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fs-text);
+  font-weight: 500;
+}
+
+.theme-inline-reset {
+  appearance: none;
+  border: 1px solid var(--fs-divider);
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: transparent;
+  color: var(--fs-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.theme-inline-reset:hover {
+  background: var(--fs-hover);
+  color: var(--fs-text);
+}

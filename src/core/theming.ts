@@ -11,6 +11,7 @@
 import type { DomEnvironment } from './dom-env';
 import type { Scope } from './scope';
 import type { ThemeAuditReport, ThemeHealer } from './theme';
+import type { StudioVibe, ThemeEffectsConfig } from './theme-effects';
 import { isRecord } from './storage';
 import { OWN_ATTR } from './surface';
 import {
@@ -26,8 +27,19 @@ import {
   rgbaContrastRatio,
   rgbaLuminance,
 } from './theme';
+import {
+  compileBackdropRevealCss,
+  compileSurfaceFinishCss,
+  compileUiSurfaceCss,
+  createEffectsLayerController,
+  DEFAULT_THEME_EFFECTS,
+  hasActiveEffects,
+  readThemeEffectsConfig,
+} from './theme-effects';
 
+export type { StudioVibe, ThemeEffectsConfig } from './theme-effects';
 export { hexWithAlpha } from './theme';
+export { DEFAULT_THEME_EFFECTS, hasActiveEffects, readThemeEffectsConfig } from './theme-effects';
 
 export type ThemeColorScheme = 'dark' | 'light';
 
@@ -67,6 +79,8 @@ export interface ResolvedTheme {
   readonly presetHostCss?: string;
   /** Optional ambient CSS contributed by a showpiece built-in preset (Feed Sanity UI). */
   readonly presetUiCss?: string;
+  /** Optional Creative Studio live backdrop, surface finish, and click effects. */
+  readonly effects?: ThemeEffectsConfig;
 }
 
 export interface ThemePreset {
@@ -419,6 +433,7 @@ export interface ThemeConfig {
   readonly text: string;
   readonly font: string;
   readonly customCss: string;
+  readonly effects?: ThemeEffectsConfig;
 }
 
 export const DEFAULT_THEME_CONFIG: ThemeConfig = {
@@ -430,6 +445,12 @@ export const DEFAULT_THEME_CONFIG: ThemeConfig = {
   font: 'default',
   customCss: '',
 };
+
+export interface BackdropRevealMetrics {
+  readonly columnAlpha: number;
+  readonly cardAlpha: number;
+  readonly blurPx: number;
+}
 
 export interface AdaptiveThemeMappingOptions {
   /** Enables Layer 1 (live stylesheet/token compiler) + Layer 2 (viewport contrast/polarity self-healer). */
@@ -452,6 +473,11 @@ export interface SiteThemeMapping {
   readonly extraCss?: (palette: ThemePalette) => string;
   /** Optional host-specific CSS rules injected into discovered open `ShadowRoot`s. */
   readonly shadowExtraCss?: (palette: ThemePalette) => string;
+  /** Optional CSS to reveal live backdrops through page gutters while frosting feed columns. */
+  readonly backdropRevealCss?: (
+    palette: ThemePalette | null,
+    metrics: BackdropRevealMetrics,
+  ) => string;
   /** Opt-in automatic stylesheet compiler + real-time contrast/polarity self-healer. */
   readonly adaptive?: AdaptiveThemeMappingOptions;
 }
@@ -551,6 +577,7 @@ export function readThemeConfig(raw: unknown): ThemeConfig {
   }
   const str = (key: string, fallback = ''): string =>
     typeof raw[key] === 'string' ? raw[key] : fallback;
+  const parsedEffects = raw.effects === undefined ? undefined : readThemeEffectsConfig(raw.effects);
   return {
     preset: str('preset', 'default'),
     accent: str('accent'),
@@ -559,6 +586,7 @@ export function readThemeConfig(raw: unknown): ThemeConfig {
     text: str('text'),
     font: str('font', 'default'),
     customCss: str('customCss'),
+    ...(parsedEffects && hasActiveEffects(parsedEffects) ? { effects: parsedEffects } : {}),
   };
 }
 
@@ -571,6 +599,18 @@ export function applyThemePreset(config: ThemeConfig, preset: string): ThemeConf
     background: '',
     surface: '',
     text: '',
+  };
+}
+
+/** Applies a curated Studio Vibe (palette preset, optional font, and live effects). */
+export function applyStudioVibe(config: ThemeConfig, vibe: StudioVibe): ThemeConfig {
+  return {
+    ...applyThemePreset(config, vibe.preset),
+    font: vibe.font ?? 'default',
+    effects: {
+      ...DEFAULT_THEME_EFFECTS,
+      ...vibe.effects,
+    },
   };
 }
 
@@ -594,9 +634,12 @@ export function resolveTheme(config: ThemeConfig): ResolvedTheme | null {
     : 'default';
   const fontFamily = THEME_FONT_STACKS[fontKey];
   const customCss = config.customCss.trim();
+  const normalizedEffects = config.effects ? readThemeEffectsConfig(config.effects) : undefined;
+  const activeEffects =
+    normalizedEffects && hasActiveEffects(normalizedEffects) ? normalizedEffects : undefined;
 
   const hasColorOverride = Boolean(preset || accent || background || surface || text);
-  if (!hasColorOverride && !fontFamily && !customCss) {
+  if (!hasColorOverride && !fontFamily && !customCss && !activeEffects) {
     return null;
   }
 
@@ -634,6 +677,7 @@ export function resolveTheme(config: ThemeConfig): ResolvedTheme | null {
     ...(customCss ? { customCss } : {}),
     ...(preset?.hostCss ? { presetHostCss: preset.hostCss } : {}),
     ...(preset?.uiCss ? { presetUiCss: preset.uiCss } : {}),
+    ...(activeEffects ? { effects: activeEffects } : {}),
   };
 }
 
@@ -683,7 +727,11 @@ function compileFontOverrideCss(fontFamily: string, target: 'host' | 'shadow'): 
 }
 
 /** Compiles `theme` + `mapping` into host-document CSS. */
-export function compileHostThemeCss(theme: ResolvedTheme, mapping: SiteThemeMapping): string {
+export function compileHostThemeCss(
+  theme: ResolvedTheme,
+  mapping: SiteThemeMapping,
+  hostScheme: ThemeColorScheme = theme.palette?.colorScheme ?? 'dark',
+): string {
   const parts: string[] = [];
   if (theme.palette) {
     const decls = buildPaletteDeclarations(theme.palette, mapping);
@@ -699,6 +747,21 @@ export function compileHostThemeCss(theme: ResolvedTheme, mapping: SiteThemeMapp
   }
   if (theme.presetHostCss) {
     parts.push(theme.presetHostCss);
+  }
+  if (theme.effects) {
+    const revealCss = compileBackdropRevealCss(
+      theme.palette,
+      hostScheme,
+      theme.effects,
+      mapping.backdropRevealCss,
+    );
+    if (revealCss) {
+      parts.push(revealCss);
+    }
+    const finishCss = compileSurfaceFinishCss(theme.palette, hostScheme, theme.effects);
+    if (finishCss) {
+      parts.push(finishCss);
+    }
   }
   if (theme.customCss) {
     parts.push(theme.customCss);
@@ -777,6 +840,10 @@ export function compileUiThemeCss(theme: ResolvedTheme): string {
   }
   if (theme.presetUiCss) {
     parts.push(theme.presetUiCss);
+  }
+  const uiFxCss = compileUiSurfaceCss(theme.palette, theme.effects);
+  if (uiFxCss) {
+    parts.push(uiFxCss);
   }
   return parts.join('\n\n');
 }
@@ -907,6 +974,8 @@ export function createThemeController(
   if (healer) {
     cleanups.push(() => healer.dispose());
   }
+  const effectsLayer = createEffectsLayerController(env.doc);
+  cleanups.push(() => effectsLayer.dispose());
 
   const effectiveTheme = (): ResolvedTheme | null =>
     previewTheme === undefined ? savedTheme : previewTheme;
@@ -1167,7 +1236,8 @@ export function createThemeController(
         detectedHostScheme = undefined;
       }
     }
-    hostCss = effective ? compileHostThemeCss(effective, mapping) : '';
+    const currentScheme = resolvedScheme ?? getHostScheme();
+    hostCss = effective ? compileHostThemeCss(effective, mapping, currentScheme) : '';
     shadowCss = undefined;
     const uiCss = effective ? compileUiThemeCss(effective) : '';
     setUiThemeCss(uiCss);
@@ -1184,6 +1254,7 @@ export function createThemeController(
       syncRoot(iframeDoc, hostCss, paletteChanged, resolvedScheme);
     }
     healer?.setPalette(nextPalette);
+    effectsLayer.sync(effective?.effects, nextPalette, currentScheme);
   };
 
   const watchHead = (targetEnv: DomEnvironment): (() => void) | undefined => {
@@ -1288,6 +1359,21 @@ export function createThemeController(
   const stopMainHead = watchHead(env);
   if (stopMainHead) {
     cleanups.push(stopMainHead);
+  }
+  if (!env.doc.body) {
+    const stopBody = env.watcher.watch('body', {
+      added: () => {
+        stopBody();
+        if (disposed) {
+          return;
+        }
+        const effective = effectiveTheme();
+        if (effective?.effects) {
+          effectsLayer.sync(effective.effects, effective.palette, getHostScheme());
+        }
+      },
+    });
+    cleanups.push(stopBody);
   }
 
   return {
