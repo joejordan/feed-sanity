@@ -35,6 +35,7 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
   matchesHost: isXHost,
   themeCss: xTheme,
   themeMapping: xThemeMapping,
+  themeEnvOptions: { pierceShadow: true },
   accountId: xAccountId,
   storagePrefix: (accountId) => siteStoragePrefix('x', accountId),
   scrubPii: scrubXPii,

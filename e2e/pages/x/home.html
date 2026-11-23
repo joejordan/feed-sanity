@@ -10,6 +10,21 @@
         color: #e7e9ea;
         font-family: system-ui, sans-serif;
       }
+      .r-kemksi {
+        background-color: rgb(0, 0, 0);
+      }
+      .r-5zmot {
+        background-color: rgba(0, 0, 0, 0.65);
+      }
+      .r-cl2sl0 {
+        background-color: rgb(20, 20, 20);
+      }
+      .r-1kqtdi0 {
+        border: 1px solid rgb(47, 51, 54);
+      }
+      .r-1867qdf {
+        border-radius: 16px;
+      }
       [data-testid="videoPlayer"] {
         position: relative;
         width: 420px;
@@ -41,15 +56,33 @@
           <a href="/i/grok">Grok</a>
           <a data-testid="premium-hub-tab" href="/i/premium">Premium</a>
           <a data-testid="AppTabBar_Explore_Link" href="/explore">Explore</a>
+          <a
+            id="post-cta"
+            data-testid="SideNav_NewTweet_Button"
+            href="/compose/post"
+            style="background-color: rgb(239, 243, 244);"
+            ><span>Post</span></a
+          >
         </nav>
       </header>
       <div data-testid="GrokDrawer">Grok Drawer</div>
       <main>
         <div data-testid="primaryColumn">
-          <div role="tablist">
-            <a id="for-you-tab" role="tab" aria-selected="true">For you</a>
-            <a id="following-tab" role="tab" aria-selected="false">Following</a>
+          <div>
+            <div id="sticky-header-inner" class="r-5zmot">
+              <div role="tablist">
+                <a id="for-you-tab" role="tab" aria-selected="true"><div><div style="color: rgb(231, 233, 234);">For you</div></div></a>
+                <a id="following-tab" role="tab" aria-selected="false"><div><div style="color: rgb(231, 233, 234);">Following</div></div></a>
+              </div>
+              <div data-testid="ScrollSnap-prevButtonWrapper">
+                <button id="scroll-prev" type="button" style="background-color: rgba(15, 20, 25, 0.75); color: rgb(255, 255, 255);">Prev</button>
+              </div>
+            </div>
           </div>
+          <div id="profile-bio" data-testid="UserDescription" style="color: rgb(231, 233, 234);"><span>Example bio</span></div>
+          <div id="sheet-dialog" data-testid="sheetDialog" class="r-kemksi"><span style="color: rgb(231, 233, 234);">For You settings</span></div>
+          <div id="more-menu" role="menu" class="r-cl2sl0"><div role="menuitem"><span style="color: rgb(231, 233, 234);">Settings</span></div></div>
+          <div id="xchat-host" data-testid="xchatEmbedRoute"></div>
           <div id="timeline">
             <article id="tweet-organic" data-testid="tweet">
               <a href="/alice/status/1001">1h</a>
@@ -72,6 +105,14 @@
           </div>
         </div>
         <div data-testid="sidebarColumn">
+          <form role="search">
+            <div>
+              <div id="search-pill" class="r-kemksi r-1kqtdi0" style="border-radius: 9999px;">
+                <input id="search-input" data-testid="SearchBox_Search_Input" placeholder="Search" />
+              </div>
+            </div>
+          </form>
+          <div id="news-card" class="r-kemksi r-1kqtdi0 r-1867qdf">Today's News</div>
           <aside role="complementary">What's happening</aside>
         </div>
       </main>
@@ -102,6 +143,22 @@
         configurable: true,
       });
       document.querySelector('#timeline').append(suggested);
+
+      // Simulate X Chat attaching its open ShadowRoot with `adoptedStyleSheets` asynchronously after mount.
+      setTimeout(() => {
+        const chatHost = document.querySelector('#xchat-host');
+        if (!chatHost || chatHost.shadowRoot) return;
+        const shadow = chatHost.attachShadow({ mode: 'open' });
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(
+          ':host { --x-bg-primary: #000000; --x-fg-primary: #ffffff; } .chat-root { background-color: var(--x-bg-primary); color: var(--x-fg-primary); }',
+        );
+        shadow.adoptedStyleSheets = [sheet];
+        const root = document.createElement('div');
+        root.className = 'chat-root';
+        root.textContent = 'Encrypted chat';
+        shadow.append(root);
+      }, 40);
     </script>
   </body>
 </html>

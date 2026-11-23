@@ -112,6 +112,32 @@ describe('first-class multi-site theming engine', () => {
     const xCss = compileHostThemeCss(resolved, xThemeMapping);
     expect(xCss).toContain('[data-testid="primaryColumn"]');
     expect(xCss).toContain('background-color: #1e1e2e !important;');
+    expect(xCss).toContain('--x-bg-primary: #1e1e2e !important;');
+    expect(xCss).toContain('--x-fg-primary: #cdd6f4 !important;');
+    expect(xCss).toContain('[data-testid="SearchBox_Search_Input"]');
+    expect(xCss).toContain('background-color: transparent !important;');
+    expect(xCss).toContain('[data-testid="sheetDialog"]');
+    expect(xCss).toContain('[data-testid="UserDescription"]');
+    expect(xCss).toContain('[data-testid="ScrollSnap-prevButtonWrapper"] button');
+
+    const xShadowCss = compileShadowThemeCss(resolved, xThemeMapping);
+    expect(xShadowCss).toContain(
+      ':host, [data-theme="dark"], [data-theme="light"], [data-theme="dim"]',
+    );
+    expect(xShadowCss).toContain('--x-bg-primary: #1e1e2e !important;');
+    expect(xShadowCss).toContain('--x-fg-primary: #cdd6f4 !important;');
+    expect(xShadowCss).toContain('--x-fg-alpha-10: rgb(205 214 244 / 10%) !important;');
+    expect(xShadowCss).toContain('--x-neutral-1000: #29293a !important;');
+    expect(xShadowCss).toContain('--x-btn-secondary-hover: #3d3f52 !important;');
+    expect(xShadowCss).toContain('--color-background: 240 21% 15% !important;');
+    expect(xShadowCss).not.toContain(':root');
+
+    const warmPaperResolved = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'warm-paper' })!;
+    const xLightCss = compileHostThemeCss(warmPaperResolved, xThemeMapping);
+    expect(xLightCss).toContain('color-scheme: light !important;');
+    expect(xLightCss).toContain('--x-bg-primary: #f4efe6 !important;');
+    expect(xLightCss).toContain('--x-fg-primary: #2b241c !important;');
+    expect(xLightCss).toContain('0 4px 18px rgb(0 0 0 / 14%), 0 0 1px rgb(0 0 0 / 12%)');
 
     const shadowCss = compileShadowThemeCss(resolved, facebookThemeMapping);
     expect(shadowCss).toContain(':host, .__fb-dark-mode, .__fb-light-mode');

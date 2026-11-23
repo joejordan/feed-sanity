@@ -294,7 +294,9 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       );
       expect(xhrResult.entries).toEqual(['tweet-organic-1']);
 
-      // First-class Appearance theming applies live on X.com, persists across reload, and themes primaryColumn.
+      // First-class Appearance theming applies live on X.com, persists across reload, and themes
+      // light-on-dark surfaces (Warm Paper on dark-mode X: sticky header, tabs, search pill,
+      // sidebar cards, dialogs/menus, bio, ScrollSnap buttons, and async Chat Shadow DOM).
       await page.evaluate(() =>
         (
           globalThis as unknown as { __openFeedSanityOptions: () => void }
@@ -303,17 +305,72 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       const dialog = page.getByRole('dialog', { name: OPTIONS_TITLE });
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: 'Appearance' }).click();
-      await dialog.getByRole('button', { name: /Nord Frost/i }).click();
+      await dialog.getByRole('button', { name: /Warm Paper/i }).click();
       await expect
         .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-        .toBe('rgb(46, 52, 64)');
+        .toBe('rgb(244, 239, 230)');
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const css = (sel: string) => getComputedStyle(document.querySelector(sel)!);
+            const chatRoot = document
+              .querySelector('#xchat-host')
+              ?.shadowRoot?.querySelector('.chat-root');
+            return {
+              stickyBg: css('#sticky-header-inner').backgroundColor,
+              followingTabColor: css('#following-tab > div > div').color,
+              scrollPrevBg: css('#scroll-prev').backgroundColor,
+              bioColor: css('#profile-bio').color,
+              sheetBg: css('#sheet-dialog').backgroundColor,
+              sheetText: css('#sheet-dialog span').color,
+              menuBg: css('#more-menu').backgroundColor,
+              menuText: css('#more-menu span').color,
+              searchPillBg: css('#search-pill').backgroundColor,
+              searchPillRadius: css('#search-pill').borderRadius,
+              searchInputBg: css('#search-input').backgroundColor,
+              newsCardBg: css('#news-card').backgroundColor,
+              postCtaBg: css('#post-cta').backgroundColor,
+              postCtaText: css('#post-cta span').color,
+              chatBg: chatRoot ? getComputedStyle(chatRoot).backgroundColor : null,
+              chatColor: chatRoot ? getComputedStyle(chatRoot).color : null,
+            };
+          }),
+        )
+        .toEqual({
+          stickyBg: 'rgba(244, 239, 230, 0.88)',
+          followingTabColor: 'rgb(43, 36, 28)',
+          scrollPrevBg: 'rgba(253, 250, 244, 0.92)',
+          bioColor: 'rgb(43, 36, 28)',
+          sheetBg: 'rgb(253, 250, 244)',
+          sheetText: 'rgb(43, 36, 28)',
+          menuBg: 'rgb(253, 250, 244)',
+          menuText: 'rgb(43, 36, 28)',
+          searchPillBg: 'rgb(235, 228, 214)',
+          searchPillRadius: '9999px',
+          searchInputBg: 'rgba(0, 0, 0, 0)',
+          newsCardBg: 'rgb(253, 250, 244)',
+          postCtaBg: 'rgb(180, 83, 9)',
+          postCtaText: 'rgb(255, 255, 255)',
+          chatBg: 'rgb(244, 239, 230)',
+          chatColor: 'rgb(43, 36, 28)',
+        });
       await dialog.getByRole('button', { name: 'Save' }).click();
       await expect(dialog).toBeHidden();
 
       await page.reload();
       await expect
         .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-        .toBe('rgb(46, 52, 64)');
+        .toBe('rgb(244, 239, 230)');
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const chatRoot = document
+              .querySelector('#xchat-host')
+              ?.shadowRoot?.querySelector('.chat-root');
+            return chatRoot ? getComputedStyle(chatRoot).backgroundColor : null;
+          }),
+        )
+        .toBe('rgb(244, 239, 230)');
     } finally {
       await page.close();
     }

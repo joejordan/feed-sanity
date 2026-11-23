@@ -83,6 +83,72 @@ describe('createDomEnvironment', () => {
     env.dispose();
   });
 
+  it('discovers open ShadowRoots attached asynchronously to already-connected hosts', async () => {
+    // Also cover a pre-existing host already in the DOM before `createDomEnvironment` starts
+    // (matching async `siteSettings.ready` startup on X Chat / Calls).
+    const preExistingHost = document.createElement('div');
+    preExistingHost.dataset.testid = 'xcallsRemoteHost';
+    document.body.append(preExistingHost);
+
+    const env = createDomEnvironment({ pierceShadow: true });
+    const seen: ShadowRoot[] = [];
+    env.onShadowRoot((root) => seen.push(root));
+
+    // Mount an empty host element after startup, then attach both shadow roots later.
+    const host = document.createElement('div');
+    host.dataset.testid = 'xchatEmbedRoute';
+    document.body.append(host);
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const preShadow = preExistingHost.attachShadow({ mode: 'open' });
+    const shadow = host.attachShadow({ mode: 'open' });
+
+    await vi.waitFor(() => expect(seen).toEqual([preShadow, shadow]), { timeout: 1000 });
+    expect(env.shadowRoots.has(preShadow)).toBe(true);
+    expect(env.shadowRoots.has(shadow)).toBe(true);
+
+    env.dispose();
+  });
+
+  it('rescans on SPA URL change, expires stale shadow candidates, and cancels timers on dispose', () => {
+    vi.useFakeTimers();
+    try {
+      const env = createDomEnvironment({ pierceShadow: true });
+      const seen: ShadowRoot[] = [];
+      env.onShadowRoot((root) => seen.push(root));
+
+      // Non-candidate tag (`article`) is only found via the whole-doc URL-change rescan.
+      const routeHost = document.createElement('article');
+      document.body.append(routeHost);
+      history.pushState({}, '', '/i/chat');
+      globalThis.dispatchEvent(new PopStateEvent('popstate'));
+      const routeShadow = routeHost.attachShadow({ mode: 'open' });
+
+      vi.advanceTimersByTime(150);
+      expect(seen).toEqual([routeShadow]);
+
+      // Advance past the 3000ms TTL window so polling stops cleanly when idle.
+      vi.advanceTimersByTime(3200);
+      expect(vi.getTimerCount()).toBe(0);
+
+      // Disposing while a candidate rescan timer is armed cancels the timer and stops discovery.
+      const pendingHost = document.createElement('div');
+      document.body.append(pendingHost);
+      history.pushState({}, '', '/i/calls');
+      globalThis.dispatchEvent(new PopStateEvent('popstate'));
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      env.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+
+      pendingHost.attachShadow({ mode: 'open' });
+      vi.advanceTimersByTime(500);
+      expect(seen).toEqual([routeShadow]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('tracks same-origin iframes across load transitions and cleans up on removal', async () => {
     const frame = document.createElement('iframe');
     const docA = document.implementation.createHTMLDocument('a');
