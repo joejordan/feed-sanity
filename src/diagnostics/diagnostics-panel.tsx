@@ -6,6 +6,7 @@ import type { Diagnostics } from './collect';
 import type { CheckedOverrides } from './overrides';
 import { NAME } from '../../project';
 import { definePanel } from '../ui/options-dialog/panel';
+import { Disclosure, SettingCard } from '../ui/primitives';
 import css from './diagnostics-panel.css?inline';
 import { checkOverrides, OVERRIDES_EXAMPLE, overridesText } from './overrides';
 import {
@@ -232,6 +233,7 @@ type Copied = { copied: true } | { failed: string };
 interface DiagnosticsPanelProps extends PanelProps<string> {
   collect: () => Diagnostics;
   check: Check;
+  itemNoun?: string;
   scrubMessage?: (message: string) => string;
   scrubPageType?: (pageType: string) => string;
 }
@@ -247,11 +249,14 @@ export function DiagnosticsPanel({
   onChange,
   collect,
   check,
+  itemNoun = 'Posts',
   scrubMessage,
   scrubPageType,
 }: DiagnosticsPanelProps) {
   const [diagnostics, setDiagnostics] = useState(collect);
   const [copy, setCopy] = useState<Copied>();
+  const trimmed = value.trim();
+  const [inspectorOpen, setInspectorOpen] = useState(trimmed !== '' && trimmed !== '{}');
 
   useEffect(() => {
     const timer = setInterval(() => setDiagnostics(collect()), REFRESH_MS);
@@ -299,7 +304,7 @@ export function DiagnosticsPanel({
       <Facts diagnostics={diagnostics} />
       <h4 className="diag-subheading">Features</h4>
       <Features diagnostics={diagnostics} />
-      <h4 className="diag-subheading">Posts</h4>
+      <h4 className="diag-subheading">{itemNoun}</h4>
       <Posts diagnostics={diagnostics} />
       {diagnostics.extraSections?.map((section) => (
         <div key={section.title}>
@@ -309,10 +314,22 @@ export function DiagnosticsPanel({
           ))}
         </div>
       ))}
-      <h4 className="diag-subheading">Locators</h4>
-      <Locators diagnostics={diagnostics} />
-      <h4 className="diag-subheading">Your selectors</h4>
-      <OverridesEditor value={value} onChange={onChange} check={check} />
+      <SettingCard>
+        <Disclosure
+          label="Locator inspector & custom selectors"
+          open={inspectorOpen}
+          onToggle={() => setInspectorOpen((open) => !open)}
+        >
+          <div style={{ padding: '10px 14px' }}>
+            <h4 className="diag-subheading" style={{ marginTop: 0 }}>
+              Locators
+            </h4>
+            <Locators diagnostics={diagnostics} />
+            <h4 className="diag-subheading">Your selectors</h4>
+            <OverridesEditor value={value} onChange={onChange} check={check} />
+          </div>
+        </Disclosure>
+      </SettingCard>
     </section>
   );
 }
@@ -324,6 +341,8 @@ export interface DiagnosticsPanelSource {
   overrides: SavedValue<LocatorOverrides>;
   /** The name of every locator. A locator can become known after startup, when it is first used. */
   locatorNames: () => readonly string[];
+  /** Optional plural item noun for this site (e.g. `'Threads'` on Gmail, default `'Posts'`). */
+  itemNoun?: string;
   /** Optional site-specific PII scrubber for the text report. */
   scrubMessage?: (message: string) => string;
   /** Optional scrubber for `pageType` in copied reports (e.g. masking Facebook profile slugs). */
@@ -335,6 +354,7 @@ export function diagnosticsPanel({
   collect,
   overrides,
   locatorNames,
+  itemNoun = 'Posts',
   scrubMessage,
   scrubPageType,
 }: DiagnosticsPanelSource): OptionsPanel {
@@ -351,6 +371,20 @@ export function diagnosticsPanel({
     css,
     ready: overrides.ready,
     read: () => overridesText(overrides.get()),
+    searchItems: () => [
+      {
+        id: 'copy-report',
+        title: 'Copy diagnostics bug report',
+        description: 'Copy PII-scrubbed feature, bridge, and locator health report.',
+        keywords: ['diagnostics', 'bug', 'report', 'debug', 'bridge'],
+      },
+      {
+        id: 'locator-overrides',
+        title: 'Custom DOM locator overrides (Your selectors)',
+        description: 'Override CSS selectors when a host site updates its markup.',
+        keywords: ['selectors', 'locators', 'overrides', 'debug'],
+      },
+    ],
     save: async (text) => {
       const checked = check(text);
       if (checked.overrides === null) {
@@ -367,6 +401,7 @@ export function diagnosticsPanel({
         {...props}
         collect={collect}
         check={check}
+        itemNoun={itemNoun}
         {...(scrubMessage ? { scrubMessage } : {})}
         {...(scrubPageType ? { scrubPageType } : {})}
       />

@@ -170,7 +170,14 @@ test('opens the options dialog from the toolbar button', async ({ page, pressToo
   const host = page.locator('feed-sanity-ui#feed_sanity_options');
   expect(await host.evaluate((element) => element.shadowRoot?.mode)).toBe('open');
 
-  // Opens on Home Feed with all feed options, and lists Hide Posts controls cleanly.
+  // Opens on Filtering first with quick shields, and lists Feed & Reading options cleanly.
+  await expect(dialog(page).getByRole('checkbox', { name: 'Hide suggested posts' })).toBeVisible();
+  await expect(dialog(page).getByRole('checkbox', { name: 'Hide ads' })).toBeVisible();
+  await expect(
+    dialog(page).getByRole('checkbox', { name: 'Conceal posts until checked' }),
+  ).toBeVisible();
+
+  await dialog(page).getByRole('button', { name: 'Feed & Reading', exact: true }).click();
   await expect(dialog(page).getByRole('combobox', { name: 'Feed on the Home page' })).toBeVisible();
   await expect(
     dialog(page).getByRole('checkbox', { name: 'Feed menu on the Home button' }),
@@ -186,23 +193,16 @@ test('opens the options dialog from the toolbar button', async ({ page, pressToo
   await expect(
     dialog(page).getByRole('checkbox', { name: 'Stop automatic feed refresh' }),
   ).toBeVisible();
-
-  await dialog(page).getByRole('button', { name: 'Hide Posts', exact: true }).click();
-  await expect(dialog(page).getByRole('checkbox', { name: 'Hide suggested posts' })).toBeVisible();
-  await expect(dialog(page).getByRole('checkbox', { name: 'Hide ads' })).toBeVisible();
-  await expect(
-    dialog(page).getByRole('checkbox', { name: 'Conceal posts until checked' }),
-  ).toBeVisible();
 });
 
-test('imports a JSON backup in the Data section and applies it live', async ({
+test('imports a JSON backup in the Backup & Reset section and applies it live', async ({
   page,
   pressToolbarButton,
 }) => {
   await page.goto(FEED);
   await pressToolbarButton();
 
-  await dialog(page).getByRole('button', { name: 'Data', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'Backup & Reset', exact: true }).click();
   const box = dialog(page).getByRole('textbox', { name: 'Settings JSON to import' });
   await box.fill(
     JSON.stringify({
@@ -231,9 +231,12 @@ test('saves a setting changed in the options dialog to extension storage', async
   await page.goto(FEED);
   await pressToolbarButton();
 
-  await dialog(page).getByRole('button', { name: 'Hide Posts', exact: true }).click();
+  await dialog(page)
+    .getByRole('button', { name: /Bulk Keyword Blocklist/i })
+    .click();
   await dialog(page).getByRole('textbox', { name: 'Keywords' }).fill('typewriter');
-  await dialog(page).getByRole('button', { name: 'Save' }).click();
+  await dialog(page).getByRole('button', { name: 'Apply' }).click();
+  await dialog(page).getByRole('button', { name: 'Close' }).click();
 
   await expect(dialog(page)).toHaveCount(0);
   await expect
@@ -286,6 +289,9 @@ test('shows the running features and the post counts under Diagnostics', async (
   await expect(
     dialog(page).getByText('Feed slots with content not taken for posts: 0.'),
   ).toBeVisible();
+  await dialog(page)
+    .getByRole('button', { name: /Locator inspector & custom selectors/ })
+    .click();
   await expect(
     dialog(page).getByRole('rowheader', { name: /^post any, \d+ lookups/ }),
   ).toBeVisible();
@@ -480,9 +486,9 @@ test('marks posts as read, persists across reloads, and clears read history from
   const averyReloaded = slot(page, 'Avery Quill');
   await expect(averyReloaded).toHaveClass(/\bfs_post_read\b/);
 
-  // Clear read history from the Data section in Options and verify live unhide.
+  // Clear read history from the Backup & Reset section in Options and verify live unhide.
   await pressToolbarButton();
-  await dialog(page).getByRole('button', { name: 'Data', exact: true }).click();
+  await dialog(page).getByRole('button', { name: 'Backup & Reset', exact: true }).click();
   await expect(dialog(page).getByText('1 post is remembered as read.')).toBeVisible();
   await dialog(page).getByRole('button', { name: 'Clear read history' }).click();
   await expect(dialog(page).getByText('Read post history cleared.')).toBeVisible();
@@ -499,7 +505,9 @@ test('treats all sites equally in Sites and toggles Facebook off and back on liv
   await expect.poll(badgeText).toBe('2');
 
   await pressToolbarButton();
-  await dialog(page).getByRole('button', { name: 'Sites', exact: true }).click();
+  await dialog(page)
+    .getByRole('button', { name: /^Sites/ })
+    .click();
   await expect(dialog(page).getByText('Built-in')).toHaveCount(0);
   await expect(dialog(page).getByRole('button', { name: 'Disable Facebook' })).toBeVisible();
   await expect(dialog(page).getByRole('button', { name: 'Disable Instagram' })).toBeVisible();
@@ -528,7 +536,9 @@ test('treats all sites equally in Sites and toggles Facebook off and back on liv
 
   // The toolbar button still opens Options while disabled so Facebook can be re-enabled live.
   await pressToolbarButton();
-  await dialog(page).getByRole('button', { name: 'Sites', exact: true }).click();
+  await dialog(page)
+    .getByRole('button', { name: /^Sites/ })
+    .click();
   await dialog(page).getByRole('button', { name: 'Enable Facebook' }).click();
   await expect(dialog(page).getByRole('button', { name: 'Disable Facebook' })).toBeVisible();
   await expectHidden(page, 'Fennel Farm');

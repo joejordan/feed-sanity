@@ -113,22 +113,29 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
 
   const optionsSpec: Record<string, OptionSpec> = {
     [sponsoredKey]: {
-      section: 'Feed',
+      section: 'Filtering',
+      group: 'Quick Shields',
       title: config.sponsoredTitle,
       description: config.sponsoredDescription,
+      keywords: ['ads', 'sponsored', 'promoted'],
       default: true,
     },
     [suggestedKey]: {
-      section: 'Feed',
+      section: 'Filtering',
+      group: 'Quick Shields',
       title: config.suggestedTitle,
       description: config.suggestedDescription,
+      keywords: ['suggested', 'recommended', 'algorithm'],
       default: true,
     },
     [keywordsKey]: {
-      section: 'Feed',
+      section: 'Filtering',
+      group: 'Bulk Keyword Blocklist',
+      advanced: true,
       title: 'Hide posts matching keywords',
       description:
         config.keywordsDescription ?? 'One keyword or phrase per line (case-insensitive).',
+      keywords: ['mute', 'words', 'blocklist'],
       default: '',
       multiline: true,
     },

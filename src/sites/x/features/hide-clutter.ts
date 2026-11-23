@@ -5,6 +5,8 @@ import { X_NAV_EXPLORE, X_NAV_GROK, X_NAV_PREMIUM, X_SIDEBAR } from '../selector
 /** Hides optional X chrome clutter (Grok, Premium, Right Sidebar, Explore) via zero-flash CSS rules. */
 export default createHideClutterFeature<XPage>({
   id: 'x_hide_clutter',
+  section: 'Timeline & Clutter',
+  group: 'Hide Page Clutter',
   rules: [
     {
       key: 'x_hide_grok',

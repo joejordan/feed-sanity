@@ -14,6 +14,8 @@ function navItemContainer(link: Element): Element {
 /** Hides optional navigation links (Reels, Explore, Threads) cleanly via `createHideClutterFeature`. */
 export default createHideClutterFeature<InstagramPage>({
   id: 'ig_hide_clutter',
+  section: 'Feed & Clutter',
+  group: 'Hide Navigation',
   rules: [
     {
       key: 'ig_hide_reels_nav',

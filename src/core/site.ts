@@ -188,7 +188,7 @@ export async function startSite<P, F extends PageFactory<P>>(
     const panels = [
       ...(theme ? [theme.panel] : []),
       ...sitePanels.slice(0, insertAt),
-      sitesPanel(ensureSiteSettings()),
+      sitesPanel(ensureSiteSettings(), site.id),
       ...sitePanels.slice(insertAt),
     ];
 
@@ -197,21 +197,70 @@ export async function startSite<P, F extends PageFactory<P>>(
     return runtime;
   };
 
-  // Register the Options trigger synchronously before awaiting storage so an
-  // immediate toolbar click right after navigation is never dropped.
+  // Register the Options, Quick Popup, and Popup State handlers synchronously
+  // before awaiting storage so immediate toolbar interactions are never dropped.
   let bootSettled = false;
-  platform.onOpenOptions(() => {
-    void bootStoreReady
-      .then((resolvedStore) => {
-        if (!bootSettled) {
-          bootStore = resolvedStore;
-        }
+
+  const resolveBootSettings = async () => {
+    const resolvedStore = await bootStoreReady;
+    if (!bootSettled) {
+      bootStore = resolvedStore;
+    }
+    const settings = ensureSiteSettings();
+    await settings.ready;
+    return settings;
+  };
+
+  const readPopupTabState = async () => {
+    const settings = await resolveBootSettings();
+    return {
+      settings,
+      state: {
+        siteId: site.id,
+        displayName: site.displayName,
+        storagePrefix: bootPrefix,
+        enabled: settings.isEnabled(site.id),
+        hiddenCount: runtime?.runner.badge().count ?? 0,
+      },
+    };
+  };
+
+  const openOptions = (initialSection?: string): void => {
+    void resolveBootSettings()
+      .then((settings) => {
         const { options, runner, panels } = ensureRuntime();
-        return runner.prepare().then(() => openOptionsDialog(options, panels));
+        return runner.prepare().then(() =>
+          openOptionsDialog(options, panels, {
+            site: { id: site.id, displayName: site.displayName },
+            siteEnabled: settings.isEnabled(site.id),
+            onToggleSite: (enabled) => {
+              void settings.setEnabled(site.id, enabled).catch((error: unknown) => {
+                createLogger('sites').error('could not toggle site state', error);
+              });
+            },
+            onSiteEnabledChange: (listener) =>
+              settings.onChange(() => listener(settings.isEnabled(site.id))),
+            ...(initialSection ? { initialSection } : {}),
+          }),
+        );
       })
       .catch((error: unknown) => {
         createLogger('options').error('could not open the options dialog', error);
       });
+  };
+
+  platform.onOpenOptions(openOptions);
+
+  platform.onPopupStateRequest?.(async () => (await readPopupTabState()).state);
+
+  platform.registerQuickPopup?.(async () => {
+    const { settings, state } = await readPopupTabState();
+    return {
+      store: platform.store,
+      activeTab: state,
+      siteSettings: settings,
+      onOpenSettings: openOptions,
+    };
   });
 
   bootStore = await bootStoreReady;

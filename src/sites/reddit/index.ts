@@ -52,12 +52,15 @@ export const redditSite: SiteAdapter<RedditPage, ReturnType<typeof createRedditP
     const overrides = data.value(REDDIT_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       createFiltersPanel(data, REDDIT_FILTER_SCHEMA),
-      dataPanel({
-        options,
-        filters: savedFilters(data),
-        locators: overrides,
-        theme: data.value(THEME_DATA_KEY, readThemeConfig),
-      }),
+      dataPanel(
+        {
+          options,
+          filters: savedFilters(data),
+          locators: overrides,
+          theme: data.value(THEME_DATA_KEY, readThemeConfig),
+        },
+        { siteName: 'Reddit' },
+      ),
       diagnosticsPanel({
         collect: () => {
           const runtime = stats.runtimeStats();

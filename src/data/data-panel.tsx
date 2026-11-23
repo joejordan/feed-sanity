@@ -1,4 +1,4 @@
-import { useId, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useId, useRef, useState, useSyncExternalStore } from 'react';
 import type { OptionsPanel } from '../ui/options-dialog/panel';
 import type { DataStores } from './transfer';
 import { NAME } from '../../project';
@@ -27,7 +27,7 @@ function downloadJson(text: string): void {
  * filters, or reset everything
  * to defaults.
  */
-export function DataPanel({ stores }: { stores: DataStores }) {
+export function DataPanel({ stores, siteName }: { stores: DataStores; siteName?: string }) {
   const importId = useId();
   const fileInput = useRef<HTMLInputElement>(null);
   const [importText, setImportText] = useState('');
@@ -35,9 +35,12 @@ export function DataPanel({ stores }: { stores: DataStores }) {
   const [exportedText, setExportedText] = useState<string | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [busy, setBusy] = useState(false);
-  const readCount = useSyncExternalStore(
-    (onChange) => stores.read_history?.onChange(onChange) ?? (() => undefined),
-    () => (stores.read_history ? Object.keys(stores.read_history.get()).length : 0),
+  const subscribePostdata = useCallback(
+    (onChange: () => void) => stores.read_history?.onChange(onChange) ?? (() => undefined),
+    [stores.read_history],
+  );
+  const readCount = useSyncExternalStore(subscribePostdata, () =>
+    stores.read_history ? Object.keys(stores.read_history.get()).length : 0,
   );
 
   const onClearReadHistory = async () => {
@@ -223,7 +226,8 @@ export function DataPanel({ stores }: { stores: DataStores }) {
 
       <h4 className="data-subheading">Reset</h4>
       <p className="description">
-        Restore every option to its default and remove all saved filters and custom selectors.
+        Restore every {siteName ? `${siteName} ` : ''}option to its default and remove all saved
+        filters and custom selectors.
       </p>
       <div className="data-actions">
         {confirmingReset ? (
@@ -260,11 +264,16 @@ export function DataPanel({ stores }: { stores: DataStores }) {
   );
 }
 
-/** The Data section of the options dialog. */
-export function dataPanel(stores: DataStores): OptionsPanel {
+/** The Backup & Reset section of the options dialog. */
+export function dataPanel(
+  stores: DataStores,
+  options: { readonly siteName?: string } = {},
+): OptionsPanel {
+  const scopeLabel = options.siteName ? `${options.siteName} ` : '';
   return definePanel<null>({
-    section: 'Data',
+    section: 'Backup & Reset',
     css,
+    instant: true,
     ready: Promise.all([
       stores.options.loaded,
       stores.filters.ready,
@@ -274,6 +283,28 @@ export function dataPanel(stores: DataStores): OptionsPanel {
     ]).then(() => undefined),
     read: () => null,
     save: () => Promise.resolve(),
-    Panel: () => <DataPanel stores={stores} />,
+    searchItems: () => [
+      {
+        id: 'export-json',
+        title: `Export ${scopeLabel}settings backup`,
+        description: 'Download a JSON backup of options, filters, and theme.',
+        keywords: ['backup', 'export', 'json', 'download', 'data'],
+      },
+      {
+        id: 'import-json',
+        title: `Import ${scopeLabel}settings backup`,
+        description: 'Restore a Feed Sanity JSON backup.',
+        keywords: ['import', 'restore', 'json', 'data'],
+      },
+      {
+        id: 'reset-site',
+        title: `Reset ${scopeLabel}settings`,
+        description: 'Restore default options and clear saved filters for this site.',
+        keywords: ['reset', 'clear', 'wipe', 'factory'],
+      },
+    ],
+    Panel: () => (
+      <DataPanel stores={stores} {...(options.siteName ? { siteName: options.siteName } : {})} />
+    ),
   });
 }

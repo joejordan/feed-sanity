@@ -46,13 +46,16 @@ export const gmailSite: SiteAdapter<GmailPage, ReturnType<typeof createGmailPage
     const { stats } = page;
     const overrides = data.value(GMAIL_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
-      createFiltersPanel(data, GMAIL_FILTER_SCHEMA),
-      dataPanel({
-        options,
-        filters: savedFilters(data),
-        locators: overrides,
-        theme: data.value(THEME_DATA_KEY, readThemeConfig),
-      }),
+      createFiltersPanel(data, GMAIL_FILTER_SCHEMA, { section: 'Inbox Filtering' }),
+      dataPanel(
+        {
+          options,
+          filters: savedFilters(data),
+          locators: overrides,
+          theme: data.value(THEME_DATA_KEY, readThemeConfig),
+        },
+        { siteName: 'Gmail' },
+      ),
       diagnosticsPanel({
         collect: () => ({
           version,
@@ -76,6 +79,7 @@ export const gmailSite: SiteAdapter<GmailPage, ReturnType<typeof createGmailPage
         }),
         overrides,
         locatorNames: () => stats.locators.names(),
+        itemNoun: 'Threads',
         scrubMessage: scrubGmailPii,
       }),
     ];

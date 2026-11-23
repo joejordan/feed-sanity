@@ -29,10 +29,12 @@ export default defineFeature({
   id: 'stories_keep_playing',
   options: {
     stories_keep_playing: {
-      section: 'Stories',
+      section: 'Media',
+      group: 'Stories',
       title: 'Keep playing over the list',
       description:
         'Keep a story playing while the pointer or keyboard focus is on the list of stories beside it, where Facebook would pause it.',
+      keywords: ['stories', 'hover', 'pause'],
       default: true,
     },
   },

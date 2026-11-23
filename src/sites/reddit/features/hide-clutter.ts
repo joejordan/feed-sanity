@@ -13,6 +13,8 @@ import {
  */
 export default createHideClutterFeature<RedditPage>({
   id: 'reddit_hide_clutter',
+  section: 'Layout & Clutter',
+  group: 'Hide Page Clutter',
   rules: [
     {
       key: 'reddit_hide_sidebar',

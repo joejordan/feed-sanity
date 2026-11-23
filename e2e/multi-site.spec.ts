@@ -55,11 +55,15 @@ async function installUserscriptHarness(
         configurable: true,
       });
 
-      const menuCommands: Array<() => void> = [];
+      const menuCommands = new Map<string, () => void>();
       (globalThis as unknown as Record<string, unknown>).__openFeedSanityOptions = () => {
-        for (const fn of menuCommands) {
-          fn();
+        for (const [caption, fn] of menuCommands) {
+          if (/options/i.test(caption)) {
+            fn();
+            return;
+          }
         }
+        menuCommands.values().next().value?.();
       };
 
       (globalThis as unknown as Record<string, unknown>).GM = {
@@ -73,8 +77,8 @@ async function installUserscriptHarness(
             cb(key, prev, value, false);
           }
         },
-        registerMenuCommand: (_caption: string, onClick: () => void) => {
-          menuCommands.push(onClick);
+        registerMenuCommand: (caption: string, onClick: () => void) => {
+          menuCommands.set(caption, onClick);
         },
       };
       (globalThis as unknown as Record<string, unknown>).GM_addValueChangeListener = (
@@ -362,23 +366,23 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
           chatBg: 'rgb(244, 239, 230)',
           chatColor: 'rgb(43, 36, 28)',
         });
-      await dialog.getByRole('button', { name: 'Save' }).click();
+      await dialog.getByRole('button', { name: 'Close' }).click();
       await expect(dialog).toBeHidden();
 
-      // Open Filters panel on X.com, create a custom rule from a starter recipe,
-      // test it live, save, and verify the post hides with a revealable note and persists across reload!
+      // Open Filtering panel on X.com, create a custom rule from a starter recipe,
+      // test it live, and verify the post hides with a revealable note and persists across reload!
       await page.evaluate(() =>
         (
           globalThis as unknown as { __openFeedSanityOptions: () => void }
         ).__openFeedSanityOptions(),
       );
       await expect(dialog).toBeVisible();
-      await dialog.getByRole('button', { name: 'Filters' }).click();
+      await dialog.getByRole('button', { name: /^Filtering/ }).click();
       await dialog.getByRole('button', { name: /Mute posts by keyword/i }).click();
       await dialog.getByRole('textbox', { name: 'Text to look for' }).fill('systems engineering');
       await dialog.getByRole('button', { name: /All filters/ }).click();
       await expect(dialog.getByText('Mute keyword')).toBeVisible();
-      await dialog.getByRole('button', { name: 'Save' }).click();
+      await dialog.getByRole('button', { name: 'Close' }).click();
       await expect(dialog).toBeHidden();
 
       // `#tweet-organic` is now hidden by our custom Filter Rule with a click-to-reveal note!
@@ -569,8 +573,8 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await dialog.getByRole('button', { name: 'Appearance' }).click();
       await dialog.getByRole('button', { name: /Catppuccin Mocha/i }).click();
 
-      // Also verify the redesigned Filters panel renders cleanly under strict Trusted Types CSP!
-      await dialog.getByRole('button', { name: 'Filters' }).click();
+      // Also verify the redesigned Inbox Filtering panel renders cleanly under strict Trusted Types CSP!
+      await dialog.getByRole('button', { name: /^Inbox Filtering/ }).click();
       await expect(dialog.getByText('Start from a recipe')).toBeVisible();
       await dialog.getByRole('button', { name: 'Appearance' }).click();
 
@@ -583,7 +587,7 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
         .poll(() => frame.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor))
         .toBe('rgb(30, 30, 46)');
 
-      await dialog.getByRole('button', { name: 'Save' }).click();
+      await dialog.getByRole('button', { name: 'Close' }).click();
       await expect(dialog).toBeHidden();
 
       // Full reload under real Trusted Types CSP persists the theme across main doc + iframe with zero errors.
@@ -670,11 +674,11 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       const dialog = page.getByRole('dialog', { name: OPTIONS_TITLE });
       await expect(dialog).toBeVisible();
 
-      await dialog.getByRole('button', { name: 'Filters' }).click();
+      await dialog.getByRole('button', { name: /^Filtering/ }).click();
       await expect(dialog.getByText('Redact secret phrase')).toBeVisible();
       await expect(dialog.getByText('1 matched')).toBeVisible();
 
-      await dialog.getByRole('button', { name: 'Data' }).click();
+      await dialog.getByRole('button', { name: 'Backup & Reset' }).click();
       await expect(dialog.getByRole('button', { name: /Download JSON/i })).toBeVisible();
 
       await dialog.getByRole('button', { name: 'Appearance' }).click();
@@ -699,7 +703,7 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
           cardBg: 'rgb(38, 38, 55)',
         });
 
-      await dialog.getByRole('button', { name: 'Save' }).click();
+      await dialog.getByRole('button', { name: 'Close' }).click();
       await expect(dialog).toBeHidden();
 
       // Full reload persists live Shadow DOM theming, redaction, and late-shadow filtering cleanly.

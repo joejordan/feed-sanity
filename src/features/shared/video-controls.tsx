@@ -66,15 +66,19 @@ export function createVideoControlsFeature<P extends VideoControlsPage>(
 
   const optionsSpec: Record<string, OptionSpec> = {
     [scrubberKey]: {
-      section: 'Videos',
+      section: 'Media',
+      group: 'Videos',
       title: 'Video scrubber',
       description: config.scrubberDescription,
+      keywords: ['progress', 'seek', 'video'],
       default: true,
     },
     [clickKey]: {
-      section: 'Videos',
+      section: 'Media',
+      group: 'Videos',
       title: 'Click to pause',
       description: config.clickToPauseDescription,
+      keywords: ['pause', 'play', 'video'],
       default: true,
     },
   };

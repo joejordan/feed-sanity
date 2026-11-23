@@ -44,10 +44,12 @@ const RIGHT_RAIL_ID = 'feed_sanity_home_right_rail';
 
 const OPTIONS = {
   home_feed: {
-    section: 'Home Feed',
+    section: 'Feed & Reading',
+    group: 'Home Feed',
     title: 'Feed on the Home page',
     description:
       "The feed you see when you open Facebook, press Home or click the Facebook logo. The menu on the Home button sets it too. Facebook's own feed changes nothing.",
+    keywords: ['chronological', 'most recent', 'friends', 'favorites'],
     default: FACEBOOK_FEED,
     choices: FEEDS.map(({ id, label }) => ({
       value: id,
@@ -55,21 +57,24 @@ const OPTIONS = {
     })),
   },
   home_feed_menu: {
-    section: 'Home Feed',
+    section: 'Feed & Reading',
+    group: 'Home Feed',
     title: 'Feed menu on the Home button',
     description:
       'Show a small arrow beside the Home button in the top bar that opens a list of feeds to switch to. Moves beside the right-side top-bar buttons on narrow windows.',
     default: true,
   },
   home_feed_composer: {
-    section: 'Home Feed',
+    section: 'Feed & Reading',
+    group: 'Home Feed',
     title: 'Post box on other feeds',
     description:
       'Show the "What\'s on your mind?" post box at the top of the Friends, Favorites, Groups, Pages and Most recent feeds.',
     default: true,
   },
   home_feed_rails: {
-    section: 'Home Feed',
+    section: 'Feed & Reading',
+    group: 'Home Feed',
     title: 'Home sidebars and responsive layout on other feeds',
     description:
       "Replace the fixed Feeds sidebar on Friends, Favorites, Groups, Pages and Most recent with Facebook's Home left and right sidebars (including Birthdays), hiding them on narrow windows.",

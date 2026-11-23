@@ -55,11 +55,13 @@ export function createVideoDownloadFeature<P extends VideoDownloadPage>(
 ): Feature<P> {
   const optionsSpec = {
     [config.optionKey]: {
-      section: 'Videos',
+      section: 'Media',
+      group: 'Videos',
       title: 'Save button',
       description:
         config.description ??
         `Show a button in the top left corner of each ${config.siteName} video while hovering that saves the video as a file.`,
+      keywords: ['download', 'mp4', 'video'],
       default: true,
     },
   };

@@ -3,6 +3,7 @@ import type { Logger } from '../../../core/log';
 import type { SavedValue } from '../../../core/saved';
 import type { Scope } from '../../../core/scope';
 import type { XPage } from '../feature';
+import type { SavedVideoSpeed } from './video-speed-model';
 import { PRESS_EVENTS } from '../../../core/intercept';
 import { Listeners } from '../../../core/listeners';
 import { OWN_ATTR } from '../../../core/surface';
@@ -10,11 +11,28 @@ import { resolveEffectiveBackground, rgbaLuminance } from '../../../core/theme';
 import { HOST_TAG, renderInShadow, stopAtHost } from '../../../ui/mount';
 import { defineXFeature } from '../feature';
 import css from './video-speed.css?inline';
+import {
+  clampVideoSpeed,
+  formatSpeedNumber,
+  parseNativeSpeedLabel,
+  parseSpeedInput,
+  readSavedVideoSpeed,
+  X_VIDEO_SPEED_KEY,
+} from './video-speed-model';
 
-export const X_VIDEO_SPEED_KEY = 'x_video_speed';
+export type { SavedVideoSpeed } from './video-speed-model';
+export {
+  clampVideoSpeed,
+  DEFAULT_VIDEO_SPEED,
+  formatSpeedNumber,
+  MAX_VIDEO_SPEED,
+  MIN_VIDEO_SPEED,
+  parseNativeSpeedLabel,
+  parseSpeedInput,
+  readSavedVideoSpeed,
+  X_VIDEO_SPEED_KEY,
+} from './video-speed-model';
 
-export const MIN_VIDEO_SPEED = 0.1;
-export const MAX_VIDEO_SPEED = 16;
 const SLIDER_MIN = 0.25;
 const SLIDER_MAX = 4;
 const SLIDER_STEP = 0.01;
@@ -23,71 +41,6 @@ const SAVE_DEBOUNCE_MS = 160;
 const SPEED_MENU_SELECTOR = '[role="menu"], [role="listbox"], [data-testid="Dropdown"]';
 const SPEED_ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"], button';
 const VIDEO_ENFORCE_EVENTS = ['loadedmetadata', 'play', 'playing', 'ratechange'] as const;
-
-export interface SavedVideoSpeed {
-  readonly rate: number;
-  readonly custom: boolean;
-}
-
-export const DEFAULT_VIDEO_SPEED: SavedVideoSpeed = {
-  rate: 1,
-  custom: false,
-};
-
-/** Rounds a playback speed to 2 decimals and clamps it within `[0.1, 16]`. */
-export function clampVideoSpeed(rate: number): number {
-  const clamped = Math.max(MIN_VIDEO_SPEED, Math.min(MAX_VIDEO_SPEED, rate));
-  return Math.round(clamped * 100) / 100;
-}
-
-/** Formats a numeric speed cleanly without trailing zeros (e.g. `1.17` -> `'1.17'`). */
-export function formatSpeedNumber(rate: number): string {
-  return String(clampVideoSpeed(rate));
-}
-
-function parseBoundedSpeed(numeric: string): number | null {
-  const value = Number.parseFloat(numeric);
-  if (!Number.isFinite(value) || value < MIN_VIDEO_SPEED || value > MAX_VIDEO_SPEED) {
-    return null;
-  }
-  return clampVideoSpeed(value);
-}
-
-/** Parses user-typed speed input (e.g. `'1.17'`, `'2.23x'`, `'0.78×'`). */
-export function parseSpeedInput(raw: string): number | null {
-  const cleaned = raw
-    .trim()
-    .replace(/[x×]\s*$/i, '')
-    .trim();
-  if (!/^\d*(?:\.\d*)?$/.test(cleaned) || cleaned === '' || cleaned === '.') {
-    return null;
-  }
-  return parseBoundedSpeed(cleaned);
-}
-
-/** Parses an X native speed option label (`'Normal'`, `'0.25x'`, `'1.5x'`, `'2x'`, etc.). */
-export function parseNativeSpeedLabel(text: string): number | null {
-  const trimmed = text.trim();
-  if (/^normal$/i.test(trimmed)) {
-    return 1;
-  }
-  const match = /^(\d+(?:\.\d+)?)\s*[x×]$/i.exec(trimmed);
-  return match?.[1] ? parseBoundedSpeed(match[1]) : null;
-}
-
-/** Safely validates persisted `SavedVideoSpeed` data from storage. */
-export function readSavedVideoSpeed(raw: unknown): SavedVideoSpeed {
-  if (typeof raw !== 'object' || raw === null) {
-    return { ...DEFAULT_VIDEO_SPEED };
-  }
-  const obj = raw as Record<string, unknown>;
-  const rate =
-    typeof obj.rate === 'number' && Number.isFinite(obj.rate)
-      ? clampVideoSpeed(obj.rate)
-      : DEFAULT_VIDEO_SPEED.rate;
-  const custom = typeof obj.custom === 'boolean' ? obj.custom : rate !== 1;
-  return { rate, custom };
-}
 
 interface SpeedStore {
   get: () => SavedVideoSpeed;
@@ -651,10 +604,12 @@ export default defineXFeature({
   id: 'x_video_speed',
   options: {
     x_video_speed: {
-      section: 'Videos',
+      section: 'Media',
+      group: 'Videos',
       title: 'Custom video playback speed',
       description:
         'Add a custom speed slider and exact numeric input (e.g. 1.17x, 2.23x, 0.78x) to X’s video Playback speed menu and remember your preferred speed.',
+      keywords: ['speed', 'rate', 'playback', 'video'],
       default: true,
     },
   },

@@ -18,10 +18,12 @@ export default defineFeature({
   id: 'stop_feed_refresh',
   options: {
     stop_feed_refresh: {
-      section: 'Home Feed',
+      section: 'Feed & Reading',
+      group: 'Home Feed',
       title: 'Stop automatic feed refresh',
       description:
         'Stop Facebook from refreshing the Home or Groups feed, or sending you back to Home from another page, after you return to the tab or close a photo or reel.',
+      keywords: ['scroll', 'jump', 'reload', 'refresh'],
       default: true,
     },
   },

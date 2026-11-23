@@ -39,13 +39,16 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
     const overrides = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       ...optionsPanels(data),
-      dataPanel({
-        options,
-        filters: savedFilters(data),
-        locators: overrides,
-        theme: data.value(THEME_DATA_KEY, readThemeConfig),
-        read_history: savedPostData(data),
-      }),
+      dataPanel(
+        {
+          options,
+          filters: savedFilters(data),
+          locators: overrides,
+          theme: data.value(THEME_DATA_KEY, readThemeConfig),
+          read_history: savedPostData(data),
+        },
+        { siteName: 'Facebook' },
+      ),
       diagnosticsPanel({
         collect: () => collectDiagnostics({ version, build: platform.build, page: stats, runner }),
         overrides,

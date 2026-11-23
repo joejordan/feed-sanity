@@ -91,7 +91,8 @@ export default defineFeature({
   id: 'video_click_pauses',
   options: {
     video_click_pauses: {
-      section: 'Videos',
+      section: 'Media',
+      group: 'Videos',
       title: 'Click to pause',
       description:
         "Clicking a video in a post pauses or plays it, where Facebook would open it in a viewer; double-click to open the viewer. Clicking a story pauses or plays it; the story's own buttons still go to the next or previous one.",

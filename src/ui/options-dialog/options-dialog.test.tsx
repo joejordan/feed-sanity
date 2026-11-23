@@ -40,7 +40,7 @@ const specs = {
 
 /** The form control labelled `name`. */
 const field = (role: string, name: string) => screen.getByRole<HTMLInputElement>(role, { name });
-const button = (name: string) => screen.getByRole<HTMLButtonElement>('button', { name });
+const button = (name: string | RegExp) => screen.getByRole<HTMLButtonElement>('button', { name });
 
 afterEach(cleanup);
 
@@ -77,33 +77,44 @@ describe('OptionsDialog', () => {
     expect(screen.queryByRole('checkbox', { name: 'Hide ads' })).toBeNull();
   });
 
-  it('saves the changes and closes', async () => {
+  it('saves boolean toggles immediately with Undo toast, and commits number drafts on Enter or Apply', async () => {
     show();
-    expect(button('Save').disabled).toBe(true);
 
     await userEvent.click(screen.getByRole('checkbox', { name: 'Hide ads' }));
-    await userEvent.clear(screen.getByRole('spinbutton', { name: 'Pause after' }));
-    await userEvent.type(screen.getByRole('spinbutton', { name: 'Pause after' }), '40');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await vi.waitFor(() => expect(options.get('hide_ads')).toBe(true));
+    expect(screen.getByRole('status').textContent).toContain('Hide ads enabled');
 
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(options.get('hide_ads')).toBe(true);
-    expect(options.get('pause_after')).toBe(40);
+    // Undo reverts immediately.
+    await userEvent.click(button('Undo'));
+    await vi.waitFor(() => expect(options.get('hide_ads')).toBe(false));
+
+    // Toggle back on and edit numeric field + press Enter.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Hide ads' }));
+    const spin = screen.getByRole('spinbutton', { name: 'Pause after' });
+    await userEvent.clear(spin);
+    await userEvent.type(spin, '40{Enter}');
+
+    await vi.waitFor(() => expect(options.get('pause_after')).toBe(40));
     expect(await browser.storage.local.get('u/options')).toEqual({
       'u/options': { hide_ads: true, pause_after: 40 },
     });
   });
 
-  it('takes several lines for an option that holds a list', async () => {
+  it('takes several lines for an option that holds a list, supports Reset without saving, and saves via Apply', async () => {
     show();
     await userEvent.click(button('Advanced'));
     const box = screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Keywords' });
     expect(box.tagName).toBe('TEXTAREA');
 
-    await userEvent.type(box, 'one{Enter}two');
-    await userEvent.click(button('Save'));
+    await userEvent.type(box, 'discard me');
+    await userEvent.click(button('Reset'));
+    expect(box.value).toBe('');
+    expect(options.get('keywords')).toBe('');
 
-    expect(options.get('keywords')).toBe('one\ntwo');
+    await userEvent.type(box, 'one{Enter}two');
+    await userEvent.click(button('Apply'));
+
+    await vi.waitFor(() => expect(options.get('keywords')).toBe('one\ntwo'));
   });
 
   /** Shows the dialog with one option that has choices. */
@@ -126,7 +137,7 @@ describe('OptionsDialog', () => {
     return choosing;
   }
 
-  it('offers the choices of an option that has them, and saves the one picked', async () => {
+  it('offers the choices of an option that has them, and saves the one picked immediately', async () => {
     const choosing = await showChoices();
     const select = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Home feed' });
     expect(select.value).toBe('home');
@@ -136,9 +147,8 @@ describe('OptionsDialog', () => {
     ]);
 
     await userEvent.selectOptions(select, 'friends');
-    await userEvent.click(button('Save'));
 
-    expect(choosing.get('feed')).toBe('friends');
+    await vi.waitFor(() => expect(choosing.get('feed')).toBe('friends'));
   });
 
   it('shows a choice saved elsewhere while the dialog is open', async () => {
@@ -149,38 +159,93 @@ describe('OptionsDialog', () => {
     expect(field('combobox', 'Home feed').value).toBe('friends');
   });
 
-  it('drops the changes on Cancel', async () => {
+  it('closes on Escape and Close button', async () => {
     show();
-
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Hide ads' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(options.get('hide_ads')).toBe(false);
-  });
-
-  it('closes without saving on Escape', async () => {
-    show();
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Hide ads' }));
 
     // happy-dom does not turn Escape into a cancel event, as browsers do.
     fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(options.get('hide_ads')).toBe(false);
   });
 
-  it('finds options in every section by title or description', async () => {
-    show();
+  it('finds options and panels in every section via unified Command Jump search', async () => {
+    const panel = definePanel<null>({
+      section: 'Backup & Reset',
+      ready: Promise.resolve(),
+      read: () => null,
+      save: () => Promise.resolve(),
+      searchItems: () => [
+        {
+          id: 'export-json',
+          title: 'Export settings backup',
+          description: 'Download JSON',
+          keywords: ['json', 'backup'],
+        },
+      ],
+      Panel: () => <p>Backup body</p>,
+    });
+    render(<OptionsDialog options={options} panels={[panel]} onClose={onClose} />);
 
-    await userEvent.type(screen.getByRole('searchbox'), 'style sheet');
+    await userEvent.click(button('Search options'));
+    const search = screen.getByRole('searchbox');
+    await userEvent.type(search, 'style sheet');
+
+    expect(screen.getByText('External CSS url')).toBeTruthy();
+    await userEvent.click(button(/External CSS url/));
 
     expect(field('textbox', 'External CSS url').isConnected).toBe(true);
     expect(screen.queryByRole('checkbox', { name: 'Hide ads' })).toBeNull();
 
-    await userEvent.type(screen.getByRole('searchbox'), ' nothing like this');
+    // Also searches custom panel items and jumps straight to that section.
+    await userEvent.click(button('Search options'));
+    await userEvent.type(screen.getByRole('searchbox'), 'backup');
+    await userEvent.click(button(/Export settings backup/));
+    expect(screen.getByText('Backup body')).toBeTruthy();
 
-    expect(screen.getByText('No options match.').isConnected).toBe(true);
+    // Empty state for unmatched queries.
+    await userEvent.click(button('Search options'));
+    await userEvent.type(screen.getByRole('searchbox'), 'nothing matches this');
+    expect(screen.getByText('No options match.')).toBeTruthy();
+  });
+
+  it('groups advanced options under collapsible disclosures and supports site pause switch', async () => {
+    const grouped = new Options(extensionStore, 'g/options');
+    grouped.register({
+      master: {
+        section: 'Filtering',
+        group: 'Quick Shields',
+        title: 'Post filtering',
+        description: 'Master toggle',
+        default: true,
+      },
+      extra: {
+        section: 'Filtering',
+        group: 'Quick Shields',
+        advanced: true,
+        dependsOn: 'master',
+        title: 'Advanced matcher',
+        description: 'Hidden behind disclosure until expanded',
+        default: false,
+      },
+    });
+    await grouped.load();
+    const onToggleSite = vi.fn();
+    render(
+      <OptionsDialog
+        options={grouped}
+        site={{ id: 'x', displayName: 'X (Twitter)' }}
+        siteEnabled={true}
+        onToggleSite={onToggleSite}
+        onClose={onClose}
+      />,
+    );
+
+    expect(screen.queryByRole('checkbox', { name: 'Advanced matcher' })).toBeNull();
+    await userEvent.click(button(/More options/));
+    expect(field('checkbox', 'Advanced matcher').checked).toBe(false);
+
+    await userEvent.click(field('checkbox', 'Enable Feed Sanity on X (Twitter)'));
+    expect(onToggleSite).toHaveBeenCalledWith(false);
   });
 
   it('will not save a number field that does not hold a number', async () => {
@@ -207,15 +272,17 @@ describe('OptionsDialog', () => {
 });
 
 describe('openOptionsDialog', () => {
-  it('opens one dialog in its own shadow root and removes it on close', async () => {
+  it('opens one dialog in its own shadow root, jumps sections if reopened with initialSection, and removes it on close', async () => {
     fakeBrowser.reset();
     const options = await loadedOptions();
 
     await act(() => openOptionsDialog(options));
-    await act(() => openOptionsDialog(options));
+    await act(() => openOptionsDialog(options, [], { initialSection: 'Advanced' }));
 
     const hosts = document.querySelectorAll(HOST_TAG);
     expect(hosts).toHaveLength(1);
+    const heading = hosts[0]?.shadowRoot?.querySelector('h3.pane-heading');
+    expect(heading?.textContent).toBe('Advanced');
     const close = hosts[0]?.shadowRoot?.querySelector<HTMLButtonElement>(
       'button[aria-label=Close]',
     );
@@ -238,7 +305,6 @@ describe('openOptionsDialog', () => {
 
     await act(() => openOptionsDialog(options));
     await click('input[type=checkbox]');
-    await click('button.primary');
     await click('button[aria-label=Close]');
     await act(() => openOptionsDialog(options));
     await act(async () => write.resolve());
@@ -249,7 +315,7 @@ describe('openOptionsDialog', () => {
 });
 
 describe('OptionsDialog panels', () => {
-  /** A panel holding a list of words, edited by adding one. */
+  /** A buffered (non-instant) panel holding a list of words, edited by adding one. */
   function wordsPanel(saved: string[], section: string) {
     const save = vi.fn<(value: string[]) => Promise<void>>(() => Promise.resolve());
     const panel = definePanel<string[]>({
@@ -285,20 +351,19 @@ describe('OptionsDialog panels', () => {
     expect(screen.queryByText('Nothing to set here yet.')).toBeNull();
   });
 
-  it('saves a panel the user edited, and no other', async () => {
+  it('shows floating dirty bar and saves only the buffered panel the user edited', async () => {
     const user = userEvent.setup();
     const options = await loadedOptions();
     const edited = wordsPanel(['a'], 'General');
     const untouched = wordsPanel(['z'], 'Words');
-    const onClose = vi.fn<() => void>();
     render(
       <OptionsDialog
         options={options}
         panels={[edited.panel, untouched.panel]}
-        onClose={onClose}
+        onClose={() => undefined}
       />,
     );
-    expect(button('Save').disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 
     await user.click(button('Words: a'));
     expect(button('Words: a more')).toBeTruthy();
@@ -306,10 +371,9 @@ describe('OptionsDialog panels', () => {
 
     expect(edited.save).toHaveBeenCalledWith(['a', 'more']);
     expect(untouched.save).not.toHaveBeenCalled();
-    expect(onClose).toHaveBeenCalled();
   });
 
-  it('drops the edits of a panel on Cancel', async () => {
+  it('drops the edits of a buffered panel on Cancel', async () => {
     const user = userEvent.setup();
     const options = await loadedOptions();
     const { panel, save } = wordsPanel(['a'], 'General');
@@ -319,9 +383,10 @@ describe('OptionsDialog panels', () => {
     await user.click(button('Cancel'));
 
     expect(save).not.toHaveBeenCalled();
+    expect(button('Words: a')).toBeTruthy();
   });
 
-  it('does not save while a panel says its value has a problem', async () => {
+  it('does not save while a buffered panel says its value has a problem', async () => {
     const user = userEvent.setup();
     const options = await loadedOptions();
     const { panel } = wordsPanel(['a'], 'General');

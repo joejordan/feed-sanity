@@ -40,6 +40,16 @@ export async function readStoreMany(
   return Object.fromEntries(entries);
 }
 
+/** Subscribes to `key` on `store` and returns a guaranteed cleanup callback. */
+export function watchStoreKey(
+  store: Store,
+  key: string,
+  onValue: (value: unknown) => void,
+): StoreUnsubscribe {
+  const stop = store.onChange(key, (_oldValue, newValue) => onValue(newValue));
+  return typeof stop === 'function' ? stop : () => undefined;
+}
+
 export interface PreloadedStore extends Store {
   /** Drops any unconsumed preloaded entries so subsequent reads hit the live backing store. */
   readonly clear: () => void;

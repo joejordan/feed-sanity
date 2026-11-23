@@ -53,12 +53,15 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
     const overrides = data.value(X_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       createFiltersPanel(data, X_FILTER_SCHEMA),
-      dataPanel({
-        options,
-        filters: savedFilters(data),
-        locators: overrides,
-        theme: data.value(THEME_DATA_KEY, readThemeConfig),
-      }),
+      dataPanel(
+        {
+          options,
+          filters: savedFilters(data),
+          locators: overrides,
+          theme: data.value(THEME_DATA_KEY, readThemeConfig),
+        },
+        { siteName: 'X (Twitter)' },
+      ),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();

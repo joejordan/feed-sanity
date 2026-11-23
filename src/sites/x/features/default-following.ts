@@ -15,10 +15,12 @@ export default defineXFeature({
   id: 'x_default_following',
   options: {
     x_default_following: {
-      section: 'Feed',
+      section: 'Timeline & Clutter',
+      group: 'Timeline',
       title: 'Default to Following tab',
       description:
         'Select the chronological Following tab automatically when opening X Home instead of For you.',
+      keywords: ['chronological', 'for you', 'timeline', 'feed'],
       default: false,
     },
   },

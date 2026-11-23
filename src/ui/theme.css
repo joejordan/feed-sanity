@@ -1,17 +1,27 @@
 /*
- * Base styles for every shadow root `mount` creates.
+ * Base styles for every shadow root `mount` creates (and shared by the
+ * standalone extension toolbar popup).
  *
- * Facebook's style sheets do not reach into a shadow root, but inherited
+ * Host site style sheets do not reach into a shadow root, but inherited
  * properties such as font and colour do, so the host resets them. The
- * `--fs-*` colours come from src/facebook/theme.css, which follows Facebook's
- * light and dark themes.
+ * `--fs-*` colours come from each site's `theme.css` and optional user theme.
  */
 :host {
   all: initial;
   color: var(--fs-text);
   font-family: var(--fs-font);
-  font-size: 15px;
-  line-height: 1.34;
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  --fs-radius: 8px;
+  --fs-dialog-bg: var(--fs-background);
+  --fs-sidebar-bg: var(--fs-surface);
+  --fs-card-bg: var(--fs-surface);
+  --fs-control-bg: var(--fs-background);
+  --fs-divider-subtle: color-mix(in srgb, var(--fs-divider) 65%, transparent);
+  --fs-focus-ring: color-mix(in srgb, var(--fs-accent) 45%, transparent);
+  --fs-success: #16a34a;
+  --fs-warning: #d97706;
 }
 
 *,
@@ -26,4 +36,13 @@ select,
 textarea {
   color: inherit;
   font: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

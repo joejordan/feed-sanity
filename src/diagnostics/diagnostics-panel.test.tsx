@@ -122,6 +122,8 @@ describe('DiagnosticsPanel', () => {
       }),
     );
 
+    await user.click(button(/Locator inspector & custom selectors/));
+
     expect(
       screen.getByText(/never found anything: post-reactions\.$/, { selector: 'p' }),
     ).toBeTruthy();
@@ -197,6 +199,7 @@ describe('DiagnosticsPanel', () => {
 
   it('checks the selectors as they are typed', () => {
     const text = renderPanel(() => diagnostics());
+    fireEvent.click(button(/Locator inspector & custom selectors/));
 
     fireEvent.change(editor(), { target: { value: '{ "post": [' } });
     expect(screen.getByText(/^This is not valid JSON\./)).toBeTruthy();
@@ -249,13 +252,13 @@ describe('diagnosticsPanel in the options dialog', () => {
   }
 
   it('saves the selectors with the dialog', async () => {
-    const onClose = await openDialog();
+    await openDialog();
+    fireEvent.click(button(/Locator inspector & custom selectors/));
 
     fireEvent.change(editor(), { target: { value: '{ "post": ["[role=article]"] }' } });
     fireEvent.click(button('Save'));
 
-    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(overrides().get()).toEqual({ post: ['[role=article]'] });
+    await vi.waitFor(() => expect(overrides().get()).toEqual({ post: ['[role=article]'] }));
   });
 
   it('will not save selectors with a mistake, and drops them on Cancel', async () => {
@@ -272,14 +275,13 @@ describe('diagnosticsPanel in the options dialog', () => {
 
   it('puts the built-in selectors back', async () => {
     await saveOverrides({ post: ['div'] });
-    const onClose = await openDialog();
+    await openDialog();
     expect(editor().value).toBe('{\n  "post": [\n    "div"\n  ]\n}');
 
     fireEvent.click(button('Use the built-in selectors'));
     expect(editor().value).toBe('{}');
     fireEvent.click(button('Save'));
 
-    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(overrides().get()).toEqual({});
+    await vi.waitFor(() => expect(overrides().get()).toEqual({}));
   });
 });

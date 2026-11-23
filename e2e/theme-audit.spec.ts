@@ -77,11 +77,15 @@ async function installHarness(
         Set<(name: string, oldVal: unknown, newVal: unknown, remote: boolean) => void>
       >();
       Object.defineProperty(document, 'cookie', { get: () => cookieStr, configurable: true });
-      const menuCommands: Array<() => void> = [];
+      const menuCommands = new Map<string, () => void>();
       (globalThis as unknown as Record<string, unknown>).__openFeedSanityOptions = () => {
-        for (const fn of menuCommands) {
-          fn();
+        for (const [caption, fn] of menuCommands) {
+          if (/options/i.test(caption)) {
+            fn();
+            return;
+          }
         }
+        menuCommands.values().next().value?.();
       };
       (globalThis as unknown as Record<string, unknown>).GM = {
         getValue: async (key: string) => readAll()[key],
@@ -94,8 +98,8 @@ async function installHarness(
             cb(key, prev, value, false);
           }
         },
-        registerMenuCommand: (_caption: string, onClick: () => void) => {
-          menuCommands.push(onClick);
+        registerMenuCommand: (caption: string, onClick: () => void) => {
+          menuCommands.set(caption, onClick);
         },
       };
       (globalThis as unknown as Record<string, unknown>).GM_addValueChangeListener = (
@@ -302,7 +306,8 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
           healFgAttr: 'text',
         });
 
-      // 4. Click "Auto-heal now" + "Audit page" in the Appearance panel and assert 100% coverage & 0 issues!
+      // 4. Open Theme health & layout check, click "Auto-heal now" and assert 100% coverage & 0 issues!
+      await dialog.getByRole('button', { name: /Theme health & layout check/i }).click();
       await dialog.getByRole('button', { name: 'Auto-heal now' }).click();
       await expect(dialog.getByText(/100% coverage/)).toBeVisible();
       await expect(
@@ -333,6 +338,7 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
         .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
         .toBe('rgb(30, 30, 46)');
 
+      await dialog.getByRole('button', { name: /Theme health & layout check/i }).click();
       await dialog.getByRole('button', { name: 'Audit page' }).click();
       await expect(dialog.getByText(/100% coverage/)).toBeVisible();
       await expect(
@@ -351,7 +357,7 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
 
       await mountStatusVideo(page, 'x-status-video');
 
-      // 1. Open Appearance -> pick Crimson Velvet + Editorial Serif -> Save.
+      // 1. Open Appearance -> pick Crimson Velvet + Editorial Serif (instant apply).
       const dialog = await openAppearance(page);
       await dialog.getByRole('button', { name: /Crimson Velvet/i }).click();
       await dialog.getByLabel('Typography').selectOption('serif');
@@ -370,10 +376,11 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
           bg: 'rgb(17, 9, 13)',
         });
 
+      await dialog.getByRole('button', { name: /Theme health & layout check/i }).click();
       await dialog.getByRole('button', { name: 'Audit page' }).click();
       await expect(dialog.getByText(/100% coverage/)).toBeVisible();
       await expect(dialog.getByRole('button', { name: 'Auto-heal now' })).toBeDisabled();
-      await dialog.getByRole('button', { name: 'Save' }).click();
+      await dialog.getByRole('button', { name: 'Close' }).click();
       await expect(dialog).toBeHidden();
 
       // 2. Open X's native Playback speed menu and set custom speed `1.17x`.

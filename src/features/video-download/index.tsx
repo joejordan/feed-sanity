@@ -33,10 +33,12 @@ export default defineFeature({
   id: 'video_download',
   options: {
     video_download: {
-      section: 'Videos',
+      section: 'Media',
+      group: 'Videos',
       title: 'Save button',
       description:
         'Show a button in the top left corner of each video, while the pointer is over it, that saves the video as a file.',
+      keywords: ['download', 'mp4'],
       default: true,
     },
   },

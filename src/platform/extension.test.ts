@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { BADGE_DELAY_MS, extensionPlatform } from './extension';
-import { badgeMessage, OPEN_OPTIONS } from './messages';
+import { badgeMessage, GET_POPUP_STATE, OPEN_OPTIONS, openOptionsMessage } from './messages';
 
 describe('extensionPlatform', () => {
   beforeEach(() => {
@@ -13,7 +13,7 @@ describe('extensionPlatform', () => {
     vi.useRealTimers();
   });
 
-  it('opens the options when the background script says so, and ignores other messages', async () => {
+  it('opens the options when the background script or popup says so, and ignores other messages', async () => {
     const listener = vi.fn();
     extensionPlatform.onOpenOptions(listener);
 
@@ -22,6 +22,30 @@ describe('extensionPlatform', () => {
 
     await browser.runtime.sendMessage(OPEN_OPTIONS);
     expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenLastCalledWith(undefined);
+
+    await browser.runtime.sendMessage(openOptionsMessage('Appearance'));
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenLastCalledWith('Appearance');
+  });
+
+  it('answers popup state requests with the active tab metadata', async () => {
+    extensionPlatform.onPopupStateRequest?.(async () => ({
+      siteId: 'x',
+      displayName: 'X (Twitter)',
+      storagePrefix: 'x/42',
+      enabled: true,
+      hiddenCount: 5,
+    }));
+
+    const reply = await browser.runtime.sendMessage(GET_POPUP_STATE);
+    expect(reply).toEqual({
+      siteId: 'x',
+      displayName: 'X (Twitter)',
+      storagePrefix: 'x/42',
+      enabled: true,
+      hiddenCount: 5,
+    });
   });
 
   it('names the browser it was built for', () => {

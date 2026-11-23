@@ -107,10 +107,12 @@ export default defineFeature({
   id: 'video_scrubber',
   options: {
     video_scrubber: {
-      section: 'Videos',
+      section: 'Media',
+      group: 'Videos',
       title: 'Video scrubber',
       description:
         'Show a bar along the bottom of each video with how far it has played. Click or drag the bar to move through the video.',
+      keywords: ['progress', 'seek', 'bar'],
       default: true,
     },
   },

@@ -52,12 +52,15 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
     const overrides = data.value(IG_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       createFiltersPanel(data, INSTAGRAM_FILTER_SCHEMA),
-      dataPanel({
-        options,
-        filters: savedFilters(data),
-        locators: overrides,
-        theme: data.value(THEME_DATA_KEY, readThemeConfig),
-      }),
+      dataPanel(
+        {
+          options,
+          filters: savedFilters(data),
+          locators: overrides,
+          theme: data.value(THEME_DATA_KEY, readThemeConfig),
+        },
+        { siteName: 'Instagram' },
+      ),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();

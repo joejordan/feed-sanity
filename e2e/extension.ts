@@ -4,8 +4,9 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { test as base, chromium, expect } from '@playwright/test';
-import type { BrowserContext, Route, Worker } from '@playwright/test';
+import type { BrowserContext, Page, Route, Worker } from '@playwright/test';
 import type { browser } from 'wxt/browser';
+import { OPEN_OPTIONS } from '../src/platform/messages';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const EXTENSION = path.join(ROOT, '.output', 'chrome-mv3');
@@ -53,6 +54,10 @@ const NOT_FOUND = { status: 404, contentType: 'text/plain', body: 'Not found' };
  */
 async function serve(route: Route, blocked: string[]): Promise<void> {
   const url = new URL(route.request().url());
+  if (url.protocol === 'chrome-extension:') {
+    await route.continue();
+    return;
+  }
   if (url.origin === CDN) {
     const cors = !url.pathname.startsWith(NO_CORS);
     const file = fileIn(CDN_FILES, cors ? url.pathname : url.pathname.slice(NO_CORS.length - 1));
@@ -87,8 +92,10 @@ interface TestFixtures {
   store: (items: Record<string, unknown>) => Promise<void>;
   /** Reads one value from the extension's storage. */
   stored: (key: string) => Promise<unknown>;
-  /** Fires the toolbar button's click event for the tab `page` is in. */
+  /** Opens the full Options dialog on the tab `page` is in (as clicking "All settings" from the popup does). */
   pressToolbarButton: () => Promise<void>;
+  /** Opens the extension's built `popup.html` connected to the active tab and returns its Page. */
+  openPopup: () => Promise<Page>;
   /** The text of the toolbar button's badge for the tab `page` is in. */
   badgeText: () => Promise<string>;
 }
@@ -160,32 +167,38 @@ export const test = base.extend<TestFixtures, { extensionBrowser: Browser }>({
     });
   },
 
-  // Playwright cannot click the toolbar button, which is part of the
-  // browser's own window. Chromium's DevTools protocol can run an extension's
-  // action on a tab, though, and that fires the same `action.onClicked` event
-  // a click does, so the background script's listener runs. What is not
-  // covered is the button itself: that it is shown, and that a click on it
-  // reaches the extension.
-  pressToolbarButton: async ({ extensionBrowser: { context, worker }, page }, use) => {
-    const session = await context.browser()?.newBrowserCDPSession();
-    if (!session) {
-      throw new Error('No browser-wide DevTools session');
-    }
+  // With `action.default_popup` set in the manifest, clicking the toolbar button
+  // opens `popup.html` instead of firing `action.onClicked`. Existing Options
+  // tests use this fixture to open the Options dialog on the active tab via the
+  // same `OPEN_OPTIONS` message the popup sends, while `openPopup` tests the
+  // real `popup.html` UI end-to-end.
+  pressToolbarButton: async ({ extensionBrowser: { worker } }, use) => {
     await use(async () => {
-      // The action is run on the tab target, which holds the page target.
-      const { targetInfos } = await session.send('Target.getTargets', {
-        filter: [{ type: 'tab' }],
-      });
-      const tab = targetInfos.find((target) => target.url === page.url());
-      if (!tab) {
-        throw new Error(`No tab shows ${page.url()}`);
-      }
-      await session.send('Extensions.triggerAction', {
-        id: new URL(worker.url()).host,
-        targetId: tab.targetId,
-      });
+      await worker.evaluate(async (message) => {
+        const tabs = await chrome.tabs.query({ active: true });
+        const tabId = tabs[0]?.id;
+        if (tabId === undefined) {
+          throw new Error('No active tab to open Options on');
+        }
+        await chrome.tabs.sendMessage(tabId, message);
+      }, OPEN_OPTIONS);
     });
-    await session.detach();
+  },
+
+  openPopup: async ({ extensionBrowser: { context, worker } }, use) => {
+    const opened: Page[] = [];
+    await use(async () => {
+      const extId = new URL(worker.url()).host;
+      const popupPage = await context.newPage();
+      opened.push(popupPage);
+      await popupPage.goto(`chrome-extension://${extId}/popup.html`);
+      return popupPage;
+    });
+    for (const p of opened) {
+      if (!p.isClosed()) {
+        await p.close();
+      }
+    }
   },
 
   // The badge is set for one tab, so it is read for that tab. The browser has

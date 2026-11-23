@@ -5,6 +5,8 @@ import { GMAIL_CATEGORY_TABS, GMAIL_CHAT_MEET, GMAIL_GEMINI, GMAIL_SIDE_PANEL } 
 /** Hides optional Gmail workspace clutter (Side panel, Chat/Meet, Gemini, category tabs) via zero-flash CSS rules. */
 export default createHideClutterFeature<GmailPage>({
   id: 'gmail_hide_clutter',
+  section: 'Workspace',
+  group: 'Hide Workspace Clutter',
   rules: [
     {
       key: 'gmail_hide_side_panel',

@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 import type { Badge, Platform } from '../core/platform';
 import { extensionStore } from './extension-store';
-import { badgeMessage, OPEN_OPTIONS } from './messages';
+import { badgeMessage, GET_POPUP_STATE, parseOpenOptionsMessage } from './messages';
 
 const BUILDS: Record<string, string> = { firefox: 'Firefox extension', chrome: 'Chrome extension' };
 
@@ -32,9 +32,22 @@ export const extensionPlatform: Platform = {
   build: BUILDS[import.meta.env.BROWSER] ?? `${import.meta.env.BROWSER} extension`,
   onOpenOptions(listener) {
     browser.runtime.onMessage.addListener((message) => {
-      if (message === OPEN_OPTIONS) {
-        listener();
+      const parsed = parseOpenOptionsMessage(message);
+      if (parsed.matched) {
+        listener(parsed.section);
       }
+    });
+  },
+  onPopupStateRequest(handler) {
+    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message !== GET_POPUP_STATE) {
+        return;
+      }
+      void handler().then(
+        (state) => sendResponse(state),
+        () => sendResponse(undefined),
+      );
+      return true;
     });
   },
   setBadge(badge) {

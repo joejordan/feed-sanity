@@ -4,12 +4,6 @@
   gap: 16px;
 }
 
-.theme-heading {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -116,25 +110,11 @@
   font-size: 12.5px;
 }
 
-.theme-audit {
+.theme-drawer-pad {
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--fs-divider);
-  border-radius: 10px;
-  background: var(--fs-surface);
-}
-
-.theme-audit-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.theme-audit-title {
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .theme-audit-subtitle {

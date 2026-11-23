@@ -53,22 +53,27 @@ export function createThreadFiltersFeature<P extends CapablePage>(
 ): Feature<P> {
   const adsKey = `${config.prefix}_hide_ads`;
   const keywordsKey = `${config.prefix}_keywords`;
-  const section = config.section ?? 'Inbox';
+  const section = config.section ?? 'Inbox Filtering';
 
   const optionsSpec: Record<string, OptionSpec> = {
     [adsKey]: {
       section,
+      group: 'Quick Shields',
       title: config.adsTitle ?? 'Hide inbox ads',
       description:
         config.adsDescription ?? 'Hide sponsored ad rows in Promotions and Social inbox tabs.',
+      keywords: ['ads', 'sponsored', 'promotions'],
       default: config.adsDefault ?? true,
     },
     [keywordsKey]: {
       section,
+      group: 'Bulk Keyword Blocklist',
+      advanced: true,
       title: config.keywordsTitle ?? 'Hide threads containing keywords',
       description:
         config.keywordsDescription ??
         'Hide inbox threads whose sender, subject, or snippet matches any keyword (one per line).',
+      keywords: ['mute', 'words', 'blocklist'],
       default: '',
       multiline: true,
     },

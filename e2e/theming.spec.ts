@@ -4,10 +4,9 @@ import { expect, ORIGIN, test } from './extension';
 const FEED = `${ORIGIN}/`;
 const THEME_KEY = '100000000000042/theme';
 
-test('previews Appearance themes live across Options tabs, rolls back on Cancel, and persists after Save + reload', async ({
+test('applies Appearance themes live immediately with Undo, supports disclosures, and persists after reload', async ({
   page,
   pressToolbarButton,
-  stored,
 }) => {
   await page.goto(FEED);
   await pressToolbarButton();
@@ -19,7 +18,7 @@ test('previews Appearance themes live across Options tabs, rolls back on Cancel,
   await dialog.getByRole('button', { name: 'Appearance' }).click();
   await expect(dialog.getByRole('button', { name: /^Site Default/i })).toBeVisible();
 
-  // Selecting Catppuccin Mocha previews live on BOTH Facebook (`--web-wash`) and Feed Sanity's own Shadow UI (`--fs-accent`).
+  // Selecting Catppuccin Mocha applies live on BOTH Facebook (`--web-wash`) and Feed Sanity's own Shadow UI (`--fs-accent`).
   await dialog.getByRole('button', { name: /Catppuccin Mocha/i }).click();
   await expect
     .poll(() =>
@@ -37,33 +36,25 @@ test('previews Appearance themes live across Options tabs, rolls back on Cancel,
     )
     .toBe('#cba6f7');
 
-  // Switching to another tab inside Options keeps the staged live preview active.
-  await dialog.getByRole('button', { name: 'Sites' }).click();
-  await expect(dialog.getByText('Facebook', { exact: true })).toBeVisible();
+  // Undo toast reverts immediately to Site Default cleanly.
+  await dialog.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.locator('#feed_sanity_user_theme')).toHaveCount(0);
+
+  // Switching to Sites shows all supported sites.
+  await dialog.getByRole('button', { name: /^Sites/ }).click();
   await expect(dialog.getByText('Instagram', { exact: true })).toBeVisible();
   await expect(dialog.getByText('X (Twitter)', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Gmail', { exact: true })).toBeVisible();
-  expect(
-    await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue('--web-wash').trim(),
-    ),
-  ).toBe('#1e1e2e');
 
-  // Clicking Cancel closes the dialog and restores Site Default cleanly without saving.
-  await dialog.getByRole('button', { name: 'Cancel' }).click();
-  await expect(dialog).toBeHidden();
-  await expect(page.locator('#feed_sanity_user_theme')).toHaveCount(0);
-  expect(await stored(THEME_KEY)).toBeUndefined();
-
-  // Re-open, configure Warm Paper + custom accent + Editorial Serif + custom CSS, then Save.
-  await pressToolbarButton();
-  await expect(dialog).toBeVisible();
+  // Configure Warm Paper + custom accent + Editorial Serif + custom CSS via disclosures (instant apply!).
   await dialog.getByRole('button', { name: 'Appearance' }).click();
   await dialog.getByRole('button', { name: /Warm Paper/i }).click();
+  await dialog.getByRole('button', { name: /Customize colors/i }).click();
   await dialog.getByRole('textbox', { name: 'Accent', exact: true }).fill('#ff5500');
   await dialog.getByRole('combobox', { name: 'Typography' }).selectOption('serif');
+  await dialog.getByRole('button', { name: /Custom CSS/i }).click();
   await dialog.getByRole('textbox', { name: 'Custom CSS' }).fill('body { outline-offset: 7px; }');
-  await dialog.getByRole('button', { name: 'Save' }).click();
+  await dialog.getByRole('button', { name: 'Close' }).click();
   await expect(dialog).toBeHidden();
 
   // Reloading the page persists the theme and applies it automatically.

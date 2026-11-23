@@ -50,7 +50,7 @@ describe('appearancePanel & initSiteTheme', () => {
     });
   });
 
-  it('previews edits live across OptionsDialog tab switches, clears on Cancel, validates hex, and saves', async () => {
+  it('applies presets instantly with live preview, clears preview on close, validates hex, and saves', async () => {
     const store = inMemoryStore();
     const options = new Options(store, 'test/options');
     options.register({
@@ -78,25 +78,25 @@ describe('appearancePanel & initSiteTheme', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
     expect(controller.previewMock).not.toHaveBeenCalled();
 
-    // Selecting a preset previews it live.
+    // Selecting a preset previews and saves it immediately.
     await userEvent.click(screen.getByRole('button', { name: /Catppuccin Mocha/i }));
     expect(controller.previewMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         palette: expect.objectContaining({ background: '#1e1e2e', accent: '#cba6f7' }),
       }),
     );
+    await vi.waitFor(() => expect(saved.get().preset).toBe('catppuccin-mocha'));
 
-    // Switching to another tab inside the open dialog preserves the staged live preview.
+    // Switching to another tab inside the open dialog keeps the saved theme intact.
     await userEvent.click(screen.getByRole('button', { name: 'Feed' }));
-    expect(controller.clearPreviewMock).not.toHaveBeenCalled();
-
-    // Returning to Appearance and selecting Site Default previews `null`.
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
     await userEvent.click(screen.getByRole('button', { name: /^Site Default/i }));
     expect(controller.previewMock).toHaveBeenLastCalledWith(null);
+    await vi.waitFor(() => expect(saved.get().preset).toBe('default'));
 
-    // Clicking Cancel closes the dialog and invokes `panel.onClose` to clear preview cleanly.
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    // Closing the dialog invokes `panel.onClose` to clear preview cleanly.
+    controller.clearPreviewMock.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(controller.clearPreviewMock).toHaveBeenCalledTimes(1);
     unmount();
@@ -208,9 +208,9 @@ describe('appearancePanel & initSiteTheme', () => {
     render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
 
-    expect(screen.getByRole('status').textContent).toContain('Low text contrast');
+    expect(screen.getByText(/Low text contrast/)).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Fix contrast' }));
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText(/Low text contrast/)).toBeNull();
     expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Primary text' }).value).toBe(
       '#111111',
     );
@@ -261,27 +261,26 @@ describe('appearancePanel & initSiteTheme', () => {
 
     render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    await userEvent.click(screen.getByRole('button', { name: /Theme health & layout check/i }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Audit page' }));
     expect(auditMock).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('status').textContent).toContain('80% coverage');
-    expect(screen.getByRole('status').textContent).toContain('div.popup');
+    expect(screen.getByText(/80% coverage/)).toBeTruthy();
+    expect(screen.getAllByText(/div\.popup/).length).toBeGreaterThan(0);
     const healButton = screen.getByRole<HTMLButtonElement>('button', { name: 'Auto-heal now' });
     expect(healButton.disabled).toBe(false);
 
     await userEvent.click(healButton);
     expect(healNowMock).toHaveBeenCalledTimes(1);
     expect(auditMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('status').textContent).toContain('100% coverage');
-    expect(screen.getByRole('status').textContent).toContain(
-      'Fixed 2 elements on this page (80% → 100%)',
-    );
+    expect(screen.getByText(/100% coverage/)).toBeTruthy();
+    expect(screen.getByText(/Fixed 2 elements on this page \(80% → 100%\)/)).toBeTruthy();
     // Once 0 contrast/surface issues remain, Auto-heal now disables until another issue is found.
     expect(healButton.disabled).toBe(true);
 
     // Editing the theme clears stale audit output immediately and re-enables Auto-heal now.
     await userEvent.click(screen.getByRole('button', { name: /Nord/i }));
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText(/100% coverage/)).toBeNull();
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Auto-heal now' }).disabled).toBe(
       false,
     );
@@ -313,10 +312,10 @@ describe('appearancePanel & initSiteTheme', () => {
 
     render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    await userEvent.click(screen.getByRole('button', { name: /Theme health & layout check/i }));
     await userEvent.click(screen.getByRole('button', { name: 'Auto-heal now' }));
 
-    const status = screen.getByRole('status').textContent ?? '';
-    expect(status).toContain('1 remaining contrast/surface issue needs');
-    expect(status).not.toContain('no unhealed contrast or surface issues found');
+    expect(screen.getByText(/1 remaining contrast\/surface issue needs/)).toBeTruthy();
+    expect(screen.queryByText(/no unhealed contrast or surface issues found/)).toBeNull();
   });
 });

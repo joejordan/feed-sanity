@@ -11,6 +11,7 @@
 import type { DomEnvironment } from './dom-env';
 import type { Scope } from './scope';
 import type { ThemeAuditReport, ThemeHealer } from './theme';
+import { isRecord } from './storage';
 import { OWN_ATTR } from './surface';
 import {
   auditThemeCoverage,
@@ -403,6 +404,37 @@ export function contrastRatio(a: string, b: string): number {
 export const contrastingText = (backgroundHex: string): string =>
   relativeLuminance(backgroundHex) > 0.42 ? '#111111' : '#ffffff';
 
+export const THEME_DATA_KEY = 'theme';
+
+export function readThemeConfig(raw: unknown): ThemeConfig {
+  if (!isRecord(raw)) {
+    return { ...DEFAULT_THEME_CONFIG };
+  }
+  const str = (key: string, fallback = ''): string =>
+    typeof raw[key] === 'string' ? raw[key] : fallback;
+  return {
+    preset: str('preset', 'default'),
+    accent: str('accent'),
+    background: str('background'),
+    surface: str('surface'),
+    text: str('text'),
+    font: str('font', 'default'),
+    customCss: str('customCss'),
+  };
+}
+
+/** Switches `config` to `preset` while clearing per-token color overrides. */
+export function applyThemePreset(config: ThemeConfig, preset: string): ThemeConfig {
+  return {
+    ...config,
+    preset,
+    accent: '',
+    background: '',
+    surface: '',
+    text: '',
+  };
+}
+
 export function findThemePreset(id: string): ThemePreset | undefined {
   return BUILTIN_THEMES.find((preset) => preset.id === id);
 }
@@ -571,6 +603,10 @@ export function compileUiThemeCss(theme: ResolvedTheme): string {
       `color-scheme: ${p.colorScheme};`,
       `--fs-background: ${p.surface};`,
       `--fs-surface: ${p.background};`,
+      `--fs-dialog-bg: ${p.surface};`,
+      `--fs-sidebar-bg: ${p.background};`,
+      `--fs-card-bg: ${p.colorScheme === 'dark' ? p.surfaceAlt : p.background};`,
+      `--fs-control-bg: ${p.colorScheme === 'dark' ? p.background : p.surface};`,
       `--fs-hover: ${hoverOverlay};`,
       `--fs-press: ${pressOverlay};`,
       `--fs-icon: ${p.text};`,

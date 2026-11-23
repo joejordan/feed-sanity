@@ -10,6 +10,14 @@ export type OptionValue = boolean | number | string;
 export interface OptionSpec {
   /** Heading the option appears under in the options dialog. */
   section: string;
+  /** Optional card group heading inside `section` (e.g. `'Quick Shields'`, `'Home Feed'`). */
+  group?: string;
+  /** When true, tucked inside the card's collapsible "More options" disclosure drawer. */
+  advanced?: boolean;
+  /** Optional key of a boolean parent option; dims this row when the parent is off. */
+  dependsOn?: string;
+  /** Optional search synonyms matched by unified Command Jump / Search. */
+  keywords?: readonly string[];
   title: string;
   description: string;
   default: OptionValue;

@@ -13,6 +13,7 @@ export interface ClutterRule {
   readonly title: string;
   readonly description: string;
   readonly section?: string;
+  readonly group?: string;
   readonly default?: boolean;
   /**
    * When provided, watches matching elements and hides the resolved container
@@ -37,12 +38,16 @@ export interface ClutterPage {
  */
 export function createHideClutterFeature<P extends ClutterPage>(config: {
   readonly id: string;
+  readonly section?: string;
+  readonly group?: string;
   readonly rules: readonly ClutterRule[];
 }): Feature<P> {
   const optionsSpec: Record<string, OptionSpec> = {};
   for (const rule of config.rules) {
+    const group = rule.group ?? config.group;
     optionsSpec[rule.key] = {
-      section: rule.section ?? 'Navigation',
+      section: rule.section ?? config.section ?? 'Navigation',
+      ...(group ? { group } : {}),
       title: rule.title,
       description: rule.description,
       default: rule.default ?? false,
