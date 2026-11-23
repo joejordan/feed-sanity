@@ -15,7 +15,7 @@ let userThemeCss = '';
 const mountedStyles = new Map<HTMLStyleElement, string>();
 
 const buildShadowCss = (extraCss: string): string =>
-  [theme, siteThemeCss, userThemeCss, extraCss].filter(Boolean).join('\n');
+  [theme, siteThemeCss, extraCss, userThemeCss].filter(Boolean).join('\n');
 
 const refreshMountedStyles = (): void => {
   for (const [style, extraCss] of mountedStyles) {

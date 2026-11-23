@@ -266,14 +266,57 @@ describe('appearancePanel & initSiteTheme', () => {
     expect(auditMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('status').textContent).toContain('80% coverage');
     expect(screen.getByRole('status').textContent).toContain('div.popup');
+    const healButton = screen.getByRole<HTMLButtonElement>('button', { name: 'Auto-heal now' });
+    expect(healButton.disabled).toBe(false);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Auto-heal now' }));
+    await userEvent.click(healButton);
     expect(healNowMock).toHaveBeenCalledTimes(1);
     expect(auditMock).toHaveBeenCalledTimes(2);
     expect(screen.getByRole('status').textContent).toContain('100% coverage');
+    expect(screen.getByRole('status').textContent).toContain(
+      'Fixed 2 elements on this page (80% → 100%)',
+    );
+    // Once 0 contrast/surface issues remain, Auto-heal now disables until another issue is found.
+    expect(healButton.disabled).toBe(true);
 
-    // Editing the theme clears stale audit output immediately.
+    // Editing the theme clears stale audit output immediately and re-enables Auto-heal now.
     await userEvent.click(screen.getByRole('button', { name: /Nord/i }));
     expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Auto-heal now' }).disabled).toBe(
+      false,
+    );
+  });
+
+  it('reports remaining issues accurately when Auto-heal now returns 0 with unresolved contrast violations', async () => {
+    const store = inMemoryStore({
+      'test/theme': { ...DEFAULT_THEME_CONFIG, preset: 'midnight' },
+    });
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    await saved.ready;
+
+    const controller: ThemeController = {
+      ...makeController(),
+      audit: vi.fn().mockReturnValue({
+        score: 90,
+        totalChecked: 10,
+        summary: { contrast: 1, polarityLeak: 0, layoutShift: 0, headerOcclusion: 0 },
+        violations: [
+          { kind: 'contrast', selector: 'span.custom', detail: 'Contrast 2.1:1 < 4.5:1' },
+        ],
+      }),
+      healNow: vi.fn().mockReturnValue(0),
+    };
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Auto-heal now' }));
+
+    const status = screen.getByRole('status').textContent ?? '';
+    expect(status).toContain('1 remaining contrast/surface issue needs');
+    expect(status).not.toContain('no unhealed contrast or surface issues found');
   });
 });

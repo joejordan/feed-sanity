@@ -214,6 +214,13 @@ export function auditThemeCoverage(
     b: 255,
     a: 1,
   };
+  const paletteSurfaces: RgbaColor[] = [palette.background, palette.surface, palette.surfaceAlt]
+    .map((hex) => parseCssColor(hex))
+    .filter((c): c is RgbaColor => c !== null);
+  const matchesPaletteSurface = (c: RgbaColor): boolean =>
+    paletteSurfaces.some(
+      (s) => Math.abs(c.r - s.r) <= 4 && Math.abs(c.g - s.g) <= 4 && Math.abs(c.b - s.b) <= 4,
+    );
   const bgCache = new Map<Element, RgbaColor>();
 
   const violations: ThemeViolation[] = [];
@@ -268,10 +275,12 @@ export function auditThemeCoverage(
       }
     }
 
-    // 2. Check opposite-polarity opaque neutral surface leaks (excluding compact high-contrast CTAs).
+    // 2. Check opposite-polarity opaque neutral surface leaks (excluding compact high-contrast CTAs
+    //    and surfaces explicitly matching the user's chosen palette colors).
     if (
       bg &&
       isOppositePolarityNeutral(bg, palette.colorScheme) &&
+      !matchesPaletteSurface(bg) &&
       !isIntentionalInvertedPill(el, bg, fg, rect)
     ) {
       polarityCount++;

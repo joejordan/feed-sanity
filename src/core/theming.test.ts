@@ -362,4 +362,38 @@ describe('first-class multi-site theming engine', () => {
     expect(controller.audit?.()).toBeNull();
     expect(controller.healNow?.()).toBe(0);
   });
+
+  it('ensures every built-in preset passes WCAG AA contrast and compiles site-wide typography overrides', () => {
+    expect(BUILTIN_THEMES.length).toBeGreaterThanOrEqual(11);
+    const ids = new Set(BUILTIN_THEMES.map((t) => t.id));
+    expect(ids.size).toBe(BUILTIN_THEMES.length);
+    for (const preset of BUILTIN_THEMES) {
+      const p = preset.palette;
+      expect(contrastRatio(p.text, p.background), `${preset.id} text/bg`).toBeGreaterThanOrEqual(7);
+      expect(contrastRatio(p.text, p.surface), `${preset.id} text/surface`).toBeGreaterThanOrEqual(
+        7,
+      );
+      expect(
+        contrastRatio(p.textMuted, p.surface),
+        `${preset.id} muted/surface`,
+      ).toBeGreaterThanOrEqual(4.5);
+      // Midnight Slate uses a bright blue CTA button (#3b82f6, 3.68:1 — passes WCAG AA large/UI
+      // component contrast >= 3:1); every other preset meets >= 4.5:1 on accent CTAs as well.
+      expect(
+        contrastRatio(p.accentText, p.accent),
+        `${preset.id} accentText/accent`,
+      ).toBeGreaterThanOrEqual(preset.id === 'midnight' ? 3.5 : 4.5);
+    }
+
+    const serifOnly = resolveTheme({ ...DEFAULT_THEME_CONFIG, font: 'serif' })!;
+    const hostCss = compileHostThemeCss(serifOnly, xThemeMapping);
+    expect(hostCss).toContain('--x-font-sans: Georgia');
+    expect(hostCss).toContain('body :where(p, span, div');
+    expect(hostCss).toContain(':not(:where([data-feed-sanity]');
+    expect(hostCss).toContain('code, pre, kbd, samp');
+
+    const shadowCss = compileShadowThemeCss(serifOnly, xThemeMapping);
+    expect(shadowCss).toContain(':host {\n  font-family: Georgia');
+    expect(shadowCss).toContain('--x-font-sans: Georgia');
+  });
 });

@@ -1,0 +1,223 @@
+:host {
+  display: block;
+  width: 100%;
+  background: transparent;
+}
+
+.fs-speed-divider {
+  height: 1px;
+  margin: 4px 0 0;
+  background: var(--fs-divider);
+  border: 0;
+}
+
+.fs-speed-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  user-select: none;
+}
+
+.fs-speed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.fs-speed-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fs-speed-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.fs-speed-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--fs-accent-surface);
+  color: var(--fs-accent);
+}
+
+.fs-speed-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fs-speed-reset {
+  appearance: none;
+  border: 1px solid var(--fs-divider);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fs-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.fs-speed-reset:hover {
+  background: var(--fs-hover);
+  color: var(--fs-text);
+  border-color: var(--fs-text-secondary);
+}
+
+.fs-speed-check {
+  width: 16px;
+  height: 16px;
+  color: var(--fs-accent);
+  flex-shrink: 0;
+}
+
+.fs-speed-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fs-speed-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  margin: 4px 0;
+}
+
+.fs-speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--fs-accent);
+  border: 2px solid var(--fs-background);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
+  cursor: pointer;
+  transition: transform 100ms ease;
+}
+
+.fs-speed-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+}
+
+.fs-speed-slider::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--fs-accent);
+  border: 2px solid var(--fs-background);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
+  cursor: pointer;
+}
+
+.fs-speed-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--fs-accent-surface);
+}
+
+.fs-speed-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fs-text-secondary);
+  line-height: 1;
+}
+
+.fs-speed-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fs-speed-step {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--fs-divider);
+  border-radius: 999px;
+  background: var(--fs-button-secondary);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms ease;
+}
+
+.fs-speed-step:hover {
+  background: var(--fs-hover);
+}
+
+.fs-speed-step:active {
+  background: var(--fs-press);
+}
+
+.fs-speed-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--fs-divider);
+  border-radius: 999px;
+  background: var(--fs-input);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.fs-speed-field:focus-within {
+  border-color: var(--fs-accent);
+  box-shadow: 0 0 0 2px var(--fs-accent-surface);
+}
+
+.fs-speed-field[data-invalid="true"] {
+  border-color: var(--fs-error);
+}
+
+.fs-speed-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  padding: 0;
+}
+
+.fs-speed-suffix {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fs-text-secondary);
+  margin-left: 2px;
+  pointer-events: none;
+}

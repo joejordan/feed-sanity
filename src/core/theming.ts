@@ -74,7 +74,7 @@ export interface ThemePreset {
 export const THEME_FONT_STACKS = {
   default: '',
   system: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-  rounded: 'ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif',
+  rounded: 'ui-rounded, "SF Pro Rounded", "Trebuchet MS", "Segoe UI", system-ui, sans-serif',
   serif: 'Georgia, Cambria, "Times New Roman", Times, serif',
   mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
 } as const;
@@ -165,6 +165,108 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       accent: '#ffd60a',
       accentText: '#000000',
       danger: '#ff453a',
+    },
+  },
+  {
+    id: 'crimson-velvet',
+    name: 'Crimson Velvet',
+    description: 'Deep oxblood noir with warm ivory type and burnished crimson accents.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#11090d',
+      surface: '#1c1016',
+      surfaceAlt: '#2a1822',
+      text: '#f7ecee',
+      textMuted: '#c4a6ae',
+      border: '#3f2431',
+      accent: '#e11d48',
+      accentText: '#ffffff',
+      danger: '#fb7185',
+    },
+  },
+  {
+    id: 'synthwave-dusk',
+    name: 'Synthwave Dusk',
+    description: 'Ultraviolet twilight canvas with luminous orchid highlights.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#0f0a1e',
+      surface: '#1a1230',
+      surfaceAlt: '#261b44',
+      text: '#f2ecff',
+      textMuted: '#b9aad9',
+      border: '#3b2b63',
+      accent: '#f472b6',
+      accentText: '#14091d',
+      danger: '#fb7185',
+    },
+  },
+  {
+    id: 'emerald-obsidian',
+    name: 'Emerald Obsidian',
+    description: 'Deep obsidian pine surfaces paired with electric jade accents.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#07110d',
+      surface: '#0e1e18',
+      surfaceAlt: '#162d24',
+      text: '#e8f7f0',
+      textMuted: '#98bfb0',
+      border: '#234538',
+      accent: '#10b981',
+      accentText: '#04140d',
+      danger: '#f87171',
+    },
+  },
+  {
+    id: 'espresso-gold',
+    name: 'Espresso & Gold',
+    description: 'Roasted espresso canvas with warm cream text and antique gold.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#130f0b',
+      surface: '#1f1913',
+      surfaceAlt: '#2d241b',
+      text: '#f6eee3',
+      textMuted: '#c4b39c',
+      border: '#443728',
+      accent: '#eab308',
+      accentText: '#161108',
+      danger: '#f87171',
+    },
+  },
+  {
+    id: 'matcha-porcelain',
+    name: 'Botanical Matcha',
+    description: 'Editorial sage porcelain daylight theme with deep forest accents.',
+    palette: {
+      colorScheme: 'light',
+      background: '#eaf1e8',
+      surface: '#f9fcf8',
+      surfaceAlt: '#dce7d9',
+      text: '#14241a',
+      textMuted: '#455f4e',
+      border: '#c2d3be',
+      accent: '#15803d',
+      accentText: '#ffffff',
+      danger: '#b91c1c',
+    },
+  },
+  {
+    id: 'royal-cobalt',
+    name: 'Royal Cobalt',
+    description: 'Gallery-crisp alabaster surfaces with bold Swiss cobalt accents.',
+    palette: {
+      colorScheme: 'light',
+      background: '#ebf0fa',
+      surface: '#ffffff',
+      surfaceAlt: '#dde6f7',
+      text: '#0e172a',
+      textMuted: '#475569',
+      border: '#c5d3ee',
+      accent: '#1d4ed8',
+      accentText: '#ffffff',
+      danger: '#dc2626',
     },
   },
 ];
@@ -377,6 +479,36 @@ function buildPaletteDeclarations(palette: ThemePalette, mapping: SiteThemeMappi
   return decls;
 }
 
+const FONT_TEXT_ELEMENTS =
+  'p, span, div, a, li, td, th, dt, dd, label, legend, h1, h2, h3, h4, h5, h6, button, input, textarea, select, option, blockquote, figcaption, summary, article, section, main, nav, header, footer, aside';
+
+const FONT_EXCLUDE_SELECTORS = `[${OWN_ATTR}], [${OWN_ATTR}] *, code, pre, kbd, samp, code *, pre *, [class*="icon" i], [class*="material-symbols" i], svg *`;
+
+const HOST_FONT_VARS = [
+  '--font-family-default',
+  '--font-family-apple',
+  '--font-family-segoe',
+  '--font-family-system',
+  '--x-font-sans',
+  '--font-sans',
+  '--font-body',
+] as const;
+
+function compileFontOverrideCss(fontFamily: string, target: 'host' | 'shadow'): string {
+  const varDecls = HOST_FONT_VARS.map((v) => `${v}: ${fontFamily} !important;`).join('\n  ');
+  if (target === 'shadow') {
+    return [
+      `:host {\n  font-family: ${fontFamily} !important;\n  ${varDecls}\n}`,
+      `:where(${FONT_TEXT_ELEMENTS}):not(:where(${FONT_EXCLUDE_SELECTORS})) {\n  font-family: ${fontFamily} !important;\n}`,
+    ].join('\n\n');
+  }
+  return [
+    `:root {\n  ${varDecls}\n}`,
+    `html, body {\n  font-family: ${fontFamily} !important;\n}`,
+    `body :where(${FONT_TEXT_ELEMENTS}):not(:where(${FONT_EXCLUDE_SELECTORS})) {\n  font-family: ${fontFamily} !important;\n}`,
+  ].join('\n\n');
+}
+
 /** Compiles `theme` + `mapping` into host-document CSS. */
 export function compileHostThemeCss(theme: ResolvedTheme, mapping: SiteThemeMapping): string {
   const parts: string[] = [];
@@ -386,7 +518,7 @@ export function compileHostThemeCss(theme: ResolvedTheme, mapping: SiteThemeMapp
     parts.push(`${selectors} {\n  ${decls.join('\n  ')}\n}`);
   }
   if (theme.fontFamily) {
-    parts.push(`html, body {\n  font-family: ${theme.fontFamily} !important;\n}`);
+    parts.push(compileFontOverrideCss(theme.fontFamily, 'host'));
   }
   const extra = theme.palette ? mapping.extraCss?.(theme.palette).trim() : undefined;
   if (extra) {
@@ -416,7 +548,7 @@ export function compileShadowThemeCss(theme: ResolvedTheme, mapping: SiteThemeMa
     parts.push(`${shadowSelectors.join(', ')} {\n  ${decls.join('\n  ')}\n}`);
   }
   if (theme.fontFamily) {
-    parts.push(`:host {\n  font-family: ${theme.fontFamily} !important;\n}`);
+    parts.push(compileFontOverrideCss(theme.fontFamily, 'shadow'));
   }
   const shadowExtra = theme.palette ? mapping.shadowExtraCss?.(theme.palette).trim() : undefined;
   if (shadowExtra) {
@@ -737,17 +869,44 @@ export function createThemeController(
     store.set(root, style);
   };
 
-  const syncAdaptiveForRoot = (root: Document | ShadowRoot): void => {
+  let lastAdaptivePalette: ThemePalette | null = null;
+
+  const samePaletteColors = (a: ThemePalette | null, b: ThemePalette | null): boolean => {
+    if (a === b) {
+      return true;
+    }
+    if (!a || !b) {
+      return false;
+    }
+    return (
+      a.colorScheme === b.colorScheme &&
+      a.background === b.background &&
+      a.surface === b.surface &&
+      a.surfaceAlt === b.surfaceAlt &&
+      a.text === b.text &&
+      a.textMuted === b.textMuted &&
+      a.border === b.border &&
+      a.accent === b.accent &&
+      a.accentText === b.accentText &&
+      a.danger === b.danger
+    );
+  };
+
+  const syncAdaptiveForRoot = (
+    root: Document | ShadowRoot,
+    resolvedHostScheme?: ThemeColorScheme,
+  ): void => {
     if (!adaptiveConfig) {
       return;
     }
+    dirtyRoots.delete(root);
     const palette = effectiveTheme()?.palette ?? null;
     if (!palette) {
       syncNamedRoot(root, ADAPTIVE_STYLE_ID, adaptiveStyles, '');
       return;
     }
     const css = compileAdaptiveRootCss(root, palette, {
-      hostScheme: getHostScheme(),
+      hostScheme: resolvedHostScheme ?? getHostScheme(),
       ...(adaptiveConfig.brandColors ? { brandColors: adaptiveConfig.brandColors } : {}),
       ...mediaOpt,
     });
@@ -779,29 +938,46 @@ export function createThemeController(
       }
       const batch = [...dirtyRoots];
       dirtyRoots.clear();
+      const scheme = getHostScheme();
       for (const dirty of batch) {
         if (dirty.nodeType === Node.DOCUMENT_NODE || (dirty as ShadowRoot).host.isConnected) {
-          syncAdaptiveForRoot(dirty);
+          syncAdaptiveForRoot(dirty, scheme);
         }
       }
     }, 0);
   };
 
-  const syncRoot = (root: Document | ShadowRoot, cssText: string): void => {
+  const syncRoot = (
+    root: Document | ShadowRoot,
+    cssText: string,
+    includeAdaptive = true,
+    resolvedHostScheme?: ThemeColorScheme,
+  ): void => {
     syncNamedRoot(root, THEME_STYLE_ID, styles, cssText);
-    syncAdaptiveForRoot(root);
+    if (includeAdaptive) {
+      syncAdaptiveForRoot(root, resolvedHostScheme);
+    }
   };
 
   const render = (): void => {
     if (disposed) {
       return;
     }
-    cancelAdaptiveRecompile();
     const effective = effectiveTheme();
+    const nextPalette = effective?.palette ?? null;
+    const paletteChanged = !samePaletteColors(nextPalette, lastAdaptivePalette);
+    if (paletteChanged) {
+      cancelAdaptiveRecompile();
+      lastAdaptivePalette = nextPalette;
+    }
+    let resolvedScheme: ThemeColorScheme | undefined;
     if (adaptiveConfig) {
-      if (effective?.palette) {
+      if (nextPalette) {
         if (detectedHostScheme === undefined && env.doc.body) {
           detectedHostScheme = detectNativeHostScheme();
+        }
+        if (paletteChanged) {
+          resolvedScheme = getHostScheme();
         }
       } else {
         detectedHostScheme = undefined;
@@ -811,19 +987,19 @@ export function createThemeController(
     shadowCss = undefined;
     const uiCss = effective ? compileUiThemeCss(effective) : '';
     setUiThemeCss(uiCss);
-    syncRoot(env.doc, hostCss);
+    syncRoot(env.doc, hostCss, paletteChanged, resolvedScheme);
     if (env.shadowRoots.size > 0) {
       const compiledShadow = getShadowCss();
       for (const shadow of env.shadowRoots) {
         if (!isOwnShadowRoot(shadow)) {
-          syncRoot(shadow, compiledShadow);
+          syncRoot(shadow, compiledShadow, paletteChanged, resolvedScheme);
         }
       }
     }
     for (const iframeDoc of iframeDocs) {
-      syncRoot(iframeDoc, hostCss);
+      syncRoot(iframeDoc, hostCss, paletteChanged, resolvedScheme);
     }
-    healer?.setPalette(effective?.palette ?? null);
+    healer?.setPalette(nextPalette);
   };
 
   const watchHead = (targetEnv: DomEnvironment): (() => void) | undefined => {
@@ -833,6 +1009,9 @@ export function createThemeController(
     const stopHead = targetEnv.watcher.watch('head', {
       added: (head) => {
         stopHead();
+        if (disposed) {
+          return;
+        }
         const existing = findExistingStyle(targetEnv.doc, THEME_STYLE_ID, styles);
         if (existing) {
           if (existing.parentElement !== head) {
@@ -908,6 +1087,7 @@ export function createThemeController(
       const stopChildHead = watchHead(childEnv);
       if (stopChildHead) {
         childEnv.scope.add(stopChildHead);
+        cleanups.push(stopChildHead);
       }
       childEnv.scope.add(() => {
         iframeDocs.delete(childEnv.doc);
@@ -969,20 +1149,25 @@ export function createThemeController(
         ...mediaOpt,
       });
     },
-    healNow() {
-      if (disposed) {
-        return 0;
-      }
-      if (adaptiveConfig) {
-        forEachHostRoot((root) => syncAdaptiveForRoot(root));
-      }
-      return healer ? healer.healNow() : 0;
-    },
+    ...(adaptiveConfig
+      ? {
+          healNow() {
+            if (disposed) {
+              return 0;
+            }
+            const scheme = getHostScheme();
+            forEachHostRoot((root) => syncAdaptiveForRoot(root, scheme));
+            return healer ? healer.healNow() : 0;
+          },
+        }
+      : {}),
     dispose() {
       if (disposed) {
         return;
       }
       disposed = true;
+      hostCss = '';
+      shadowCss = undefined;
       cancelAdaptiveRecompile();
       linkLoadAbort.abort();
       for (const stop of cleanups.splice(0)) {

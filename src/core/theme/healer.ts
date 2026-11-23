@@ -178,13 +178,24 @@ export function resolveEffectiveBackground(
   return backdrop;
 }
 
+const WHITE_RGBA: RgbaColor = { r: 255, g: 255, b: 255, a: 1 };
+const DARK_RGBA: RgbaColor = { r: 17, g: 17, b: 17, a: 1 };
+
+function boostAttrSelector(attr: string, value: string): string {
+  // Repeat attribute selector to reach `(0, 5, 0)` specificity so Layer 2 contrast
+  // and polarity healing reliably wins over site-mapping `!important` rules.
+  return `[${attr}="${value}"][${attr}][${attr}][${attr}][${attr}]`;
+}
+
 function buildHealerCss(palette: ThemePalette): string {
   return `
-[${HEAL_BG_ATTR}="surface"] { background-color: ${palette.surface} !important; }
-[${HEAL_BG_ATTR}="surface-alt"] { background-color: ${palette.surfaceAlt} !important; }
-[${HEAL_FG_ATTR}="text"] { color: ${palette.text} !important; }
-[${HEAL_FG_ATTR}="muted"] { color: ${palette.textMuted} !important; }
-[${HEAL_BORDER_ATTR}="1"] { border-color: ${palette.border} !important; }
+${boostAttrSelector(HEAL_BG_ATTR, 'surface')} { background-color: ${palette.surface} !important; }
+${boostAttrSelector(HEAL_BG_ATTR, 'surface-alt')} { background-color: ${palette.surfaceAlt} !important; }
+${boostAttrSelector(HEAL_FG_ATTR, 'text')} { color: ${palette.text} !important; }
+${boostAttrSelector(HEAL_FG_ATTR, 'muted')} { color: ${palette.textMuted} !important; }
+${boostAttrSelector(HEAL_FG_ATTR, 'contrast-light')} { color: #ffffff !important; }
+${boostAttrSelector(HEAL_FG_ATTR, 'contrast-dark')} { color: #111111 !important; }
+${boostAttrSelector(HEAL_BORDER_ATTR, '1')} { border-color: ${palette.border} !important; }
 `.trim();
 }
 
@@ -209,10 +220,12 @@ function samePalette(a: ThemePalette | null, b: ThemePalette | null): boolean {
   );
 }
 
+type HealFgRole = 'muted' | 'text' | 'contrast-light' | 'contrast-dark';
+
 interface PlannedHeal {
   readonly el: Element;
   readonly bgRole?: 'surface' | 'surface-alt';
-  readonly fgRole?: 'muted' | 'text';
+  readonly fgRole?: HealFgRole;
   readonly border?: boolean;
 }
 
@@ -325,6 +338,7 @@ export function createThemeHealer(
     const bg = parseCssColor(style.backgroundColor);
     const fg = parseCssColor(style.color);
 
+    const existingBgRole = el.getAttribute(HEAL_BG_ATTR);
     let bgRole: 'surface' | 'surface-alt' | undefined;
     if (
       bg &&
@@ -332,40 +346,62 @@ export function createThemeHealer(
       !isIntentionalInvertedPill(el, bg, fg)
     ) {
       const role = el.getAttribute('role') ?? '';
-      bgRole =
+      const desiredBgRole =
         INPUT_TAGS.has(el.localName) || role === 'searchbox' || role === 'combobox'
           ? 'surface-alt'
           : 'surface';
+      // Only treat as a pending background change when not already stamped with the
+      // same role; if the role is already present yet the computed background is still
+      // opposite-polarity (e.g. inline `!important`), leave `plannedBg` unset so text
+      // contrast resolves against the true computed backdrop.
+      if (desiredBgRole !== existingBgRole) {
+        bgRole = desiredBgRole;
+      }
     }
 
-    // Seed `bgCache` with the planned healed background immediately so descendant
+    // Seed `bgCache` with the newly planned healed background immediately so descendant
     // text nodes inspected in the same pre-order pass compute contrast against the
     // post-heal surface rather than the stale pre-heal dark/light container.
-    const existingBgRole = el.getAttribute(HEAL_BG_ATTR);
-    const resolvedBgRole = bgRole ?? existingBgRole;
     let plannedBg: RgbaColor | undefined;
-    if (resolvedBgRole === 'surface-alt') {
+    if (bgRole === 'surface-alt') {
       plannedBg = paletteSurfaceAltRgba;
       bgCache.set(el, plannedBg);
-    } else if (resolvedBgRole === 'surface') {
+    } else if (bgRole === 'surface') {
       plannedBg = paletteSurfaceRgba;
       bgCache.set(el, plannedBg);
     }
 
-    let fgRole: 'muted' | 'text' | undefined;
+    let fgRole: HealFgRole | undefined;
     if (fg && fg.a >= 0.3 && (INPUT_TAGS.has(el.localName) || hasDirectText(el))) {
-      const fgOklch = rgbToOklch(fg);
-      if (isNeutralColor(fg, 0.045, fgOklch)) {
-        const effectiveBg =
-          plannedBg ?? resolveEffectiveBackground(el, view, paletteBgRgba, bgCache);
-        const ratio = rgbaContrastRatio(fg, effectiveBg);
-        if (ratio < 4.5) {
-          const wasMuted = fgOklch.L > 0.3 && fgOklch.L < 0.72;
-          const nextRole =
-            wasMuted && rgbaContrastRatio(paletteMutedRgba, effectiveBg) >= 4.5 ? 'muted' : 'text';
-          const candidateRgba = nextRole === 'muted' ? paletteMutedRgba : paletteTextRgba;
-          if (rgbaContrastRatio(candidateRgba, effectiveBg) > ratio + 0.5) {
-            fgRole = nextRole;
+      const effectiveBg = plannedBg ?? resolveEffectiveBackground(el, view, paletteBgRgba, bgCache);
+      const ratio = rgbaContrastRatio(fg, effectiveBg);
+      const fontSize = Number.parseFloat(style.fontSize || '14');
+      const fontWeight = Number.parseInt(style.fontWeight || '400', 10);
+      const isLarge = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700);
+      const minRatio = isLarge ? 3.0 : 4.5;
+      if (ratio < minRatio) {
+        const fgOklch = rgbToOklch(fg);
+        const isNeutral = isNeutralColor(fg, 0.045, fgOklch);
+        const wasMuted = isNeutral && fgOklch.L > 0.3 && fgOklch.L < 0.72;
+        const mutedRatio = rgbaContrastRatio(paletteMutedRgba, effectiveBg);
+        const textRatio = rgbaContrastRatio(paletteTextRgba, effectiveBg);
+        if (wasMuted && mutedRatio >= minRatio) {
+          fgRole = 'muted';
+        } else if (textRatio >= minRatio) {
+          fgRole = 'text';
+        } else {
+          // When even `palette.text` fails WCAG AA against this backdrop (e.g. a
+          // high-chroma custom theme or chromatic link collision), fall back to
+          // crisp `#ffffff` or `#111111` — whichever maximizes readability.
+          const whiteRatio = rgbaContrastRatio(WHITE_RGBA, effectiveBg);
+          const darkRatio = rgbaContrastRatio(DARK_RGBA, effectiveBg);
+          const bestFallbackRole: HealFgRole =
+            whiteRatio >= darkRatio ? 'contrast-light' : 'contrast-dark';
+          const bestFallbackRatio = Math.max(whiteRatio, darkRatio);
+          if (bestFallbackRatio > ratio + 0.5) {
+            fgRole = bestFallbackRole;
+          } else if (textRatio > ratio + 0.5) {
+            fgRole = 'text';
           }
         }
       }
@@ -510,10 +546,39 @@ export function createThemeHealer(
   );
 
   scope.add(
-    env.onShadowRoot((shadow) => {
-      if (activePalette && !isOwnUiElement(shadow.host)) {
+    env.onShadowRoot((shadow, rootScope) => {
+      if (isOwnUiElement(shadow.host)) {
+        return;
+      }
+      if (activePalette) {
         enqueueSubtree(shadow, 100);
       }
+      const shadowObserver = new MutationObserver((records) => {
+        if (!activePalette || disposed || pendingQueue.size >= MAX_PENDING_QUEUE) {
+          return;
+        }
+        for (const rec of records) {
+          for (const node of rec.addedNodes) {
+            if (node.nodeType !== Node.ELEMENT_NODE) {
+              continue;
+            }
+            const el = node as Element;
+            if (isEntryExcluded(el)) {
+              continue;
+            }
+            if (el.childElementCount > 0 || el.shadowRoot) {
+              enqueueSubtree(el, 80);
+            } else {
+              pendingQueue.add(el);
+              scheduleFlush();
+            }
+          }
+        }
+      });
+      shadowObserver.observe(shadow, { childList: true, subtree: true });
+      const stopShadowObserver = (): void => shadowObserver.disconnect();
+      rootScope.add(stopShadowObserver);
+      scope.add(stopShadowObserver);
     }),
   );
 

@@ -59,4 +59,80 @@ describe('core/theme/healer', () => {
     scope.dispose();
     env.dispose();
   });
+
+  it('heals chromatic low-contrast links and nasty custom themes using contrast-light/contrast-dark fallbacks', () => {
+    // Nasty custom theme: bright lime background with unreadable yellow text & blue link.
+    const nastyPalette = {
+      ...warmPaper,
+      colorScheme: 'light' as const,
+      background: '#d9f99d',
+      surface: '#bef264',
+      surfaceAlt: '#a3e635',
+      text: '#fef08a', // terrible contrast on lime!
+      textMuted: '#fde047',
+      accent: '#22c55e',
+    };
+    document.body.style.backgroundColor = nastyPalette.background;
+    document.body.innerHTML = `
+      <div id="card" style="background-color: #bef264;">
+        <p id="bad-text" style="color: #fef08a;">Unreadable custom text</p>
+        <a id="bad-link" href="#" style="color: #86efac;">Unreadable chromatic link</a>
+      </div>
+    `;
+
+    const env = createDomEnvironment();
+    const scope = new Scope();
+    const healer = createThemeHealer(env, scope);
+    healer.setPalette(nastyPalette);
+
+    const healed = healer.healNow();
+    expect(healed).toBeGreaterThanOrEqual(2);
+    expect(document.querySelector('#bad-text')?.getAttribute(HEAL_FG_ATTR)).toBe('contrast-dark');
+    expect(document.querySelector('#bad-link')?.getAttribute(HEAL_FG_ATTR)).toBe('contrast-dark');
+    // Boosted specificity selector guarantees healer rules override site-mapping `!important` rules.
+    expect(document.querySelector(`#${HEALER_STYLE_ID}`)?.textContent).toContain(
+      `[${HEAL_FG_ATTR}="contrast-dark"][${HEAL_FG_ATTR}]`,
+    );
+
+    scope.dispose();
+    env.dispose();
+  });
+
+  it('heals dynamically inserted Shadow DOM elements and avoids bgCache poisoning when background resists override', async () => {
+    const env = createDomEnvironment({ pierceShadow: true });
+    const scope = new Scope();
+    const healer = createThemeHealer(env, scope);
+    healer.setPalette(findThemePreset('midnight')!.palette);
+
+    // 1. Late-inserted dark-on-light node inside an open ShadowRoot heals automatically via Shadow MutationObserver.
+    const host = document.createElement('div');
+    const shadow = host.attachShadow({ mode: 'open' });
+    document.body.append(host);
+    await new Promise((r) => setTimeout(r, 25));
+
+    const latePopup = document.createElement('div');
+    latePopup.style.cssText = 'background-color: rgb(255, 255, 255); color: rgb(20, 20, 20);';
+    latePopup.textContent = 'Late shadow card';
+    shadow.append(latePopup);
+
+    await new Promise((r) => setTimeout(r, 40));
+    expect(latePopup.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+
+    // 2. When an element already has `data-fs-heal-bg="surface"` yet computed bg stays white
+    //    (e.g. inline `!important`), descendant text heals against the true white backdrop (`contrast-dark`).
+    const stubborn = document.createElement('div');
+    stubborn.setAttribute(HEAL_BG_ATTR, 'surface');
+    stubborn.style.cssText = 'background-color: rgb(255, 255, 255) !important;';
+    const washed = document.createElement('span');
+    washed.style.cssText = 'color: rgb(230, 237, 247);';
+    washed.textContent = 'Light text on stubborn white';
+    stubborn.append(washed);
+    document.body.append(stubborn);
+
+    healer.healNow();
+    expect(washed.getAttribute(HEAL_FG_ATTR)).toBe('contrast-dark');
+
+    scope.dispose();
+    env.dispose();
+  });
 });

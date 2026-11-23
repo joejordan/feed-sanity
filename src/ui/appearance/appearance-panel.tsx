@@ -66,29 +66,74 @@ function pickAccessibleText(background: string, surface: string): string {
   return whiteMin > darkMin ? '#ffffff' : '#111111';
 }
 
+interface AuditState {
+  readonly report: ThemeAuditReport;
+  readonly runCount: number;
+  readonly ranAt: string;
+  readonly lastAction: 'audit' | 'heal';
+  readonly healedCount?: number;
+  readonly beforeScore?: number;
+}
+
+function formatScanTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+}
+
 function AppearancePanelView({
   value,
   onChange,
   controller,
 }: PanelProps<ThemeConfig> & { controller: ThemeController }) {
-  const [auditReport, setAuditReport] = useState<ThemeAuditReport | null>(null);
+  const [auditState, setAuditState] = useState<AuditState | null>(null);
   const effective = resolveTheme(value)?.palette ?? null;
   const applyEdit = (next: ThemeConfig): void => {
     controller.preview(resolveTheme(next));
     onChange(next);
-    setAuditReport(null);
+    setAuditState(null);
   };
   const update = (patch: Partial<ThemeConfig>): void => applyEdit({ ...value, ...patch });
 
   const runAudit = (): void => {
     const report = controller.audit?.() ?? null;
-    setAuditReport(report);
+    if (!report) {
+      setAuditState(null);
+      return;
+    }
+    setAuditState((prev) => ({
+      report,
+      runCount: (prev?.runCount ?? 0) + 1,
+      ranAt: formatScanTime(new Date()),
+      lastAction: 'audit',
+    }));
   };
 
   const runHealAndAudit = (): void => {
-    controller.healNow?.();
-    runAudit();
+    const beforeScore = auditState?.report.score;
+    const healedCount = controller.healNow?.() ?? 0;
+    const report = controller.audit?.() ?? null;
+    if (!report) {
+      setAuditState(null);
+      return;
+    }
+    setAuditState((prev) => ({
+      report,
+      runCount: (prev?.runCount ?? 0) + 1,
+      ranAt: formatScanTime(new Date()),
+      lastAction: 'heal',
+      healedCount,
+      ...(beforeScore === undefined ? {} : { beforeScore }),
+    }));
   };
+
+  const auditReport = auditState?.report ?? null;
+  const healableCount = auditReport
+    ? auditReport.summary.contrast + auditReport.summary.polarityLeak
+    : null;
+  const geometryIssues = auditReport
+    ? auditReport.summary.layoutShift + auditReport.summary.headerOcclusion
+    : 0;
+  const healDisabled = healableCount === 0;
+  const healNeedsAttention = healableCount !== null && healableCount > 0;
 
   const minContrast = effective
     ? Math.min(
@@ -196,27 +241,98 @@ function AppearancePanelView({
       {effective && controller.audit && (
         <div className="theme-audit">
           <div className="theme-actions">
-            <span className="theme-audit-title">Theme health &amp; layout check</span>
+            <div className="theme-audit-heading">
+              <span className="theme-audit-title">Theme health &amp; layout check</span>
+              <span className="theme-audit-subtitle">
+                Adaptive theming automatically heals new elements and contrast on every visit.
+              </span>
+            </div>
             <div className="theme-audit-buttons">
               <button className="button" type="button" onClick={runAudit}>
                 Audit page
               </button>
               {controller.healNow && (
-                <button className="button" type="button" onClick={runHealAndAudit}>
+                <button
+                  className={healNeedsAttention ? 'button theme-heal-ready' : 'button'}
+                  type="button"
+                  disabled={healDisabled}
+                  title={
+                    healDisabled
+                      ? 'No contrast or unthemed surface issues to heal'
+                      : 'Re-compile adaptive styles and fix contrast or unthemed surfaces now'
+                  }
+                  onClick={runHealAndAudit}
+                >
                   Auto-heal now
                 </button>
               )}
             </div>
           </div>
-          {auditReport && (
-            <div className="theme-audit-result" role="status">
+          {auditState && auditReport && (
+            <div
+              key={auditState.runCount}
+              className="theme-audit-result"
+              data-healthy={auditReport.violations.length === 0 ? 'true' : 'false'}
+              role="status"
+            >
+              <div className="theme-audit-bar-row">
+                <span className="theme-audit-score">
+                  <strong>{auditReport.score}% coverage</strong> ({auditReport.totalChecked}{' '}
+                  elements checked)
+                </span>
+                <span className="theme-audit-time">Checked {auditState.ranAt}</span>
+              </div>
+              <div className="theme-audit-meter" aria-hidden="true">
+                <div
+                  className="theme-audit-meter-fill"
+                  style={{ width: `${Math.max(0, Math.min(100, auditReport.score))}%` }}
+                />
+              </div>
+              {auditState.lastAction === 'heal' && (
+                <p className="theme-audit-feedback">
+                  {(() => {
+                    if (auditState.healedCount && auditState.healedCount > 0) {
+                      const delta =
+                        auditState.beforeScore !== undefined &&
+                        auditState.beforeScore !== auditReport.score
+                          ? ` (${auditState.beforeScore}% → ${auditReport.score}%)`
+                          : '';
+                      const noun = auditState.healedCount === 1 ? 'element' : 'elements';
+                      return `Fixed ${auditState.healedCount} ${noun} on this page${delta}. Adaptive healing stays active automatically on future visits.`;
+                    }
+                    if (healableCount === 0) {
+                      return 'Re-compiled styles and scanned the page — no unhealed contrast or surface issues found.';
+                    }
+                    const remaining = healableCount ?? 0;
+                    const phrase = remaining === 1 ? 'issue needs' : 'issues need';
+                    return `Re-compiled styles — ${remaining} remaining contrast/surface ${phrase} a higher-contrast palette or custom CSS.`;
+                  })()}
+                </p>
+              )}
               <p className="theme-audit-summary">
-                <strong>{auditReport.score}% coverage</strong> ({auditReport.totalChecked} elements
-                checked) — {auditReport.summary.contrast} contrast,{' '}
-                {auditReport.summary.polarityLeak} unthemed surfaces,{' '}
-                {auditReport.summary.layoutShift} layout shifts,{' '}
-                {auditReport.summary.headerOcclusion} header overlaps.
+                <span data-has-issue={auditReport.summary.contrast > 0 ? 'true' : undefined}>
+                  {auditReport.summary.contrast} contrast
+                </span>
+                ,{' '}
+                <span data-has-issue={auditReport.summary.polarityLeak > 0 ? 'true' : undefined}>
+                  {auditReport.summary.polarityLeak} unthemed surfaces
+                </span>
+                ,{' '}
+                <span data-has-issue={auditReport.summary.layoutShift > 0 ? 'true' : undefined}>
+                  {auditReport.summary.layoutShift} layout shifts
+                </span>
+                ,{' '}
+                <span data-has-issue={auditReport.summary.headerOcclusion > 0 ? 'true' : undefined}>
+                  {auditReport.summary.headerOcclusion} header overlaps
+                </span>
+                .
               </p>
+              {geometryIssues > 0 && auditState.lastAction === 'heal' && (
+                <p className="theme-audit-note">
+                  Layout shifts and header overlaps are reported for inspection and are not
+                  auto-modified.
+                </p>
+              )}
               {auditReport.violations.length > 0 && (
                 <ul className="theme-audit-list">
                   {(() => {

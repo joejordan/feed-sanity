@@ -15,6 +15,7 @@ import xDefaultFollowing from './features/default-following';
 import xFeedFilters from './features/feed-filters';
 import xHideClutter from './features/hide-clutter';
 import xVideoScrubber from './features/video-controls';
+import xVideoSpeed from './features/video-speed';
 import { X_FILTER_SCHEMA } from './filter-schema';
 import { scrubXPii, xAccountId, xPageType } from './page';
 import xTheme from './theme.css?inline';
@@ -26,6 +27,7 @@ export const xFeatures: readonly Feature<XPage>[] = [
   xFeedFilters,
   xHideClutter,
   xVideoScrubber,
+  xVideoSpeed,
   externalCss,
 ];
 

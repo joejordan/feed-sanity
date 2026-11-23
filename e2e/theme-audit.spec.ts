@@ -19,15 +19,46 @@ const CLIP_WEBM = path.join(PAGES, 'videos', 'clip.webm');
 const X_ORIGIN = 'https://x.com';
 const REDDIT_ORIGIN = 'https://www.reddit.com';
 
+let cachedUserscript: string | undefined;
+
+function readUserscriptBundle(): string {
+  if (cachedUserscript === undefined) {
+    if (!existsSync(USERSCRIPT)) {
+      throw new Error(`${USERSCRIPT} is missing. Run \`pnpm build:userscript\` first.`);
+    }
+    cachedUserscript = readFileSync(USERSCRIPT, 'utf8');
+  }
+  return cachedUserscript;
+}
+
+async function openAppearance(page: Page) {
+  await page.evaluate(() =>
+    (globalThis as unknown as { __openFeedSanityOptions: () => void }).__openFeedSanityOptions(),
+  );
+  const dialog = page.getByRole('dialog', { name: OPTIONS_TITLE });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Appearance' }).click();
+  return dialog;
+}
+
+async function mountStatusVideo(page: Page, id: string): Promise<void> {
+  await page.evaluate((videoId) => {
+    const tweet = document.querySelector('#main-post')!;
+    const player = document.createElement('div');
+    player.setAttribute('data-testid', 'videoPlayer');
+    const video = document.createElement('video');
+    video.id = videoId;
+    player.append(video);
+    tweet.append(player);
+  }, id);
+}
+
 async function installHarness(
   page: Page,
   initialStore: Record<string, unknown>,
   cookies: string,
 ): Promise<void> {
-  if (!existsSync(USERSCRIPT)) {
-    throw new Error(`${USERSCRIPT} is missing. Run \`pnpm build:userscript\` first.`);
-  }
-  const bundle = readFileSync(USERSCRIPT, 'utf8');
+  const bundle = readUserscriptBundle();
   await page.addInitScript(
     ({ initial, cookieStr }) => {
       if (globalThis.self !== globalThis.top) {
@@ -307,6 +338,84 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
       await expect(
         dialog.getByText(/0 contrast, 0 unthemed surfaces, 0 layout shifts, 0 header overlaps/),
       ).toBeVisible();
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('X typography applies to host page text, Crimson Velvet passes Audit, and custom video speed persists across reloads', async () => {
+    const page = await context.newPage();
+    try {
+      await installHarness(page, {}, 'twid=u%3D888999');
+      await page.goto(`${X_ORIGIN}/status-audit`);
+
+      await mountStatusVideo(page, 'x-status-video');
+
+      // 1. Open Appearance -> pick Crimson Velvet + Editorial Serif -> Save.
+      const dialog = await openAppearance(page);
+      await dialog.getByRole('button', { name: /Crimson Velvet/i }).click();
+      await dialog.getByLabel('Typography').selectOption('serif');
+
+      // Verify Typography changed the actual host X tweet text font-family (not just the dialog)!
+      await expect
+        .poll(() =>
+          page.evaluate(() => ({
+            tweetFont: getComputedStyle(document.querySelector('[data-testid="tweetText"]')!)
+              .fontFamily,
+            bg: getComputedStyle(document.body).backgroundColor,
+          })),
+        )
+        .toEqual({
+          tweetFont: expect.stringContaining('Georgia'),
+          bg: 'rgb(17, 9, 13)',
+        });
+
+      await dialog.getByRole('button', { name: 'Audit page' }).click();
+      await expect(dialog.getByText(/100% coverage/)).toBeVisible();
+      await expect(dialog.getByRole('button', { name: 'Auto-heal now' })).toBeDisabled();
+      await dialog.getByRole('button', { name: 'Save' }).click();
+      await expect(dialog).toBeHidden();
+
+      // 2. Open X's native Playback speed menu and set custom speed `1.17x`.
+      await page.evaluate(() => {
+        const dropdown = document.createElement('div');
+        dropdown.setAttribute('data-testid', 'Dropdown');
+        const menu = document.createElement('div');
+        menu.setAttribute('role', 'menu');
+        for (const label of ['0.25x', '0.5x', '0.75x', 'Normal', '1.25x', '1.5x', '1.75x', '2x']) {
+          const item = document.createElement('div');
+          item.setAttribute('role', 'menuitem');
+          item.textContent = label;
+          menu.append(item);
+        }
+        dropdown.append(menu);
+        document.body.append(dropdown);
+      });
+
+      const speedInput = page.getByRole('textbox', { name: 'Custom playback speed' });
+      await expect(speedInput).toBeVisible();
+      await speedInput.fill('1.17');
+      await speedInput.press('Enter');
+
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => (document.querySelector('#x-status-video') as HTMLVideoElement).playbackRate,
+          ),
+        )
+        .toBeCloseTo(1.17, 2);
+
+      // 3. Reload the page and mount a fresh video: saved `1.17x` speed must be remembered!
+      await page.reload();
+      await mountStatusVideo(page, 'x-reloaded-video');
+
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => (document.querySelector('#x-reloaded-video') as HTMLVideoElement).playbackRate,
+          ),
+        )
+        .toBeCloseTo(1.17, 2);
     } finally {
       await page.close();
     }
