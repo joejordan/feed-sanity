@@ -13,6 +13,7 @@ import {
   Switch,
   Toast,
   UiIcon,
+  useDraggable,
   useToast,
 } from '../primitives';
 import { useOptionValue } from '../use-option-value';
@@ -275,6 +276,7 @@ export function OptionsDialog({
   const cmdInputRef = useRef<HTMLInputElement>(null);
   const panelsRef = useRef(panels);
   panelsRef.current = panels;
+  const drag = useDraggable(dialog);
 
   const { all, sections, siteSections, manageSections, panelBySection } = useMemo(() => {
     const list = options.list();
@@ -423,10 +425,16 @@ export function OptionsDialog({
     if (previous === next) {
       return;
     }
-    let label = `${spec.title} updated`;
+    // Simple boolean switches are already 1-click reversible, so save silently without toast clutter.
     if (typeof next === 'boolean') {
-      label = `${spec.title} ${next ? 'enabled' : 'disabled'}`;
-    } else if (spec.choices) {
+      void options
+        .set(key, next)
+        .then(() => setTick((t) => t + 1))
+        .catch((error: unknown) => log.error('could not save option', error));
+      return;
+    }
+    let label = `${spec.title} updated`;
+    if (spec.choices) {
       const choiceLabel = spec.choices.find((c) => c.value === next)?.label ?? String(next);
       label = `${spec.title}: ${choiceLabel}`;
     }
@@ -672,6 +680,9 @@ export function OptionsDialog({
       ref={dialog}
       className="dialog"
       aria-label={OPTIONS_TITLE}
+      data-dragging={drag.dragging ? 'true' : undefined}
+      data-moved={drag.moved ? 'true' : undefined}
+      style={drag.style}
       onKeyDown={handleDialogKeyDown}
       onCancel={(event) => {
         event.preventDefault();
@@ -684,7 +695,11 @@ export function OptionsDialog({
     >
       <div className="shell">
         <aside className="sidebar">
-          <div className="site-header">
+          <div
+            className="site-header drag-handle"
+            title="Drag to move · Double-click to center"
+            {...drag.handleProps}
+          >
             <div className="site-identity">
               <span className="site-mark" aria-hidden="true">
                 {site ? getSiteMark(site.id, site.displayName) : 'FS'}
@@ -710,10 +725,6 @@ export function OptionsDialog({
                 onChange={(next) => {
                   setEnabledHere(next);
                   onToggleSite(next);
-                  notify(`${site.displayName} ${next ? 'resumed' : 'paused'}`, () => {
-                    setEnabledHere(!next);
-                    onToggleSite(!next);
-                  });
                 }}
               />
             )}
@@ -751,10 +762,19 @@ export function OptionsDialog({
         </aside>
 
         <div className="pane">
-          <header className="pane-header">
-            <div>
-              <h3 className="pane-heading">{section ?? OPTIONS_TITLE}</h3>
-              {sectionMeta?.subtitle && <p className="pane-subtitle">{sectionMeta.subtitle}</p>}
+          <header
+            className="pane-header drag-handle"
+            title="Drag to move · Double-click to center"
+            {...drag.handleProps}
+          >
+            <div className="pane-header-title">
+              <span className="drag-grip" aria-hidden="true">
+                <UiIcon name="grip" size={14} />
+              </span>
+              <div>
+                <h3 className="pane-heading">{section ?? OPTIONS_TITLE}</h3>
+                {sectionMeta?.subtitle && <p className="pane-subtitle">{sectionMeta.subtitle}</p>}
+              </div>
             </div>
             <button className="close" type="button" aria-label="Close" onClick={closeDialog}>
               <UiIcon name="x" size={16} />

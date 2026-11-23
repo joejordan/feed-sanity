@@ -11,6 +11,13 @@
   color: var(--fs-text);
   overflow: hidden;
   position: relative;
+  transition: opacity 140ms ease;
+}
+
+.dialog[data-dragging="true"] {
+  opacity: 0.42;
+  user-select: none;
+  cursor: grabbing;
 }
 
 .dialog:not([open]) {
@@ -20,6 +27,48 @@
 .dialog::backdrop {
   background: rgb(0 0 0 / 48%);
   backdrop-filter: blur(4px);
+  transition: background 140ms ease;
+}
+
+.dialog[data-moved="true"]::backdrop {
+  background: rgb(0 0 0 / 16%);
+  backdrop-filter: none;
+}
+
+.dialog[data-dragging="true"]::backdrop {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.drag-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.dialog[data-dragging="true"] .drag-handle {
+  cursor: grabbing;
+}
+
+.pane-header-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drag-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 3px;
+  color: var(--fs-text-secondary);
+  opacity: 0.45;
+  flex-shrink: 0;
+  transition: opacity 120ms ease;
+}
+
+.pane-header:hover .drag-grip {
+  opacity: 0.85;
 }
 
 .shell {

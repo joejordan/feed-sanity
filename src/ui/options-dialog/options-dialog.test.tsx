@@ -77,23 +77,25 @@ describe('OptionsDialog', () => {
     expect(screen.queryByRole('checkbox', { name: 'Hide ads' })).toBeNull();
   });
 
-  it('saves boolean toggles immediately with Undo toast, and commits number drafts on Enter or Apply', async () => {
+  it('saves boolean toggles silently without toast clutter, and commits number drafts with Undo on Enter', async () => {
     show();
 
     await userEvent.click(screen.getByRole('checkbox', { name: 'Hide ads' }));
     await vi.waitFor(() => expect(options.get('hide_ads')).toBe(true));
-    expect(screen.getByRole('status').textContent).toContain('Hide ads enabled');
+    expect(screen.queryByRole('status')).toBeNull();
 
-    // Undo reverts immediately.
-    await userEvent.click(button('Undo'));
-    await vi.waitFor(() => expect(options.get('hide_ads')).toBe(false));
-
-    // Toggle back on and edit numeric field + press Enter.
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Hide ads' }));
+    // Edit numeric field + press Enter -> shows Undo toast and supports reverting.
     const spin = screen.getByRole('spinbutton', { name: 'Pause after' });
     await userEvent.clear(spin);
     await userEvent.type(spin, '40{Enter}');
 
+    await vi.waitFor(() => expect(options.get('pause_after')).toBe(40));
+    expect(screen.getByRole('status').textContent).toContain('Pause after saved');
+    await userEvent.click(button('Undo'));
+    await vi.waitFor(() => expect(options.get('pause_after')).toBe(25));
+
+    await userEvent.clear(spin);
+    await userEvent.type(spin, '40{Enter}');
     await vi.waitFor(() => expect(options.get('pause_after')).toBe(40));
     expect(await browser.storage.local.get('u/options')).toEqual({
       'u/options': { hide_ads: true, pause_after: 40 },
@@ -268,6 +270,46 @@ describe('OptionsDialog', () => {
     await act(() => browser.storage.local.set({ 'u/options': { hide_ads: true } }));
 
     expect(field('checkbox', 'Hide ads').checked).toBe(true);
+  });
+
+  it('drags smoothly from the header, sets data-dragging while moving, and recenters on double-click', () => {
+    show();
+    const dialogEl = screen.getByRole<HTMLDialogElement>('dialog');
+    const header = dialogEl.querySelector<HTMLElement>('.pane-header');
+    expect(header).toBeTruthy();
+
+    vi.spyOn(dialogEl, 'getBoundingClientRect').mockReturnValue({
+      left: 200,
+      top: 100,
+      width: 600,
+      height: 400,
+      right: 800,
+      bottom: 500,
+      x: 200,
+      y: 100,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.pointerDown(header as HTMLElement, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      button: 0,
+      clientX: 250,
+      clientY: 120,
+    });
+    expect(dialogEl.getAttribute('data-dragging')).toBeNull();
+
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 330, clientY: 180 });
+    expect(dialogEl.getAttribute('data-dragging')).toBe('true');
+    expect(dialogEl.style.transform).toBe('translate3d(80px, 60px, 0)');
+
+    fireEvent.pointerUp(document, { pointerId: 1, clientX: 330, clientY: 180 });
+    expect(dialogEl.getAttribute('data-dragging')).toBeNull();
+    expect(dialogEl.getAttribute('data-moved')).toBe('true');
+
+    fireEvent.doubleClick(header as HTMLElement);
+    expect(dialogEl.getAttribute('data-moved')).toBeNull();
+    expect(dialogEl.style.transform).toBe('');
   });
 });
 

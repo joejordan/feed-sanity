@@ -177,12 +177,29 @@ describe('DiagnosticsPanel', () => {
 
     fireEvent.click(button('Copy report'));
 
-    await screen.findByText('The report is copied.');
+    await screen.findByText(/The report is copied\./);
     const report = writeText.mock.calls[0]?.[0] ?? '';
     expect(report).toContain('Version 1.2.3, Chrome extension');
     expect(report).toContain('Page type: other');
     expect(report).toContain('post_filters: running, 1 error. Last error: no ID in <address>');
     expect(report).not.toMatch(/jane|facebook\.com|1234567890/);
+  });
+
+  it('shows a clear health banner, supports manual Refresh, and hides Class names when unused', () => {
+    const collect = vi.fn(() =>
+      diagnostics({
+        locators: [locator('post')],
+        classNames: { started: false, known: 0, total: 0, missing: [] },
+      }),
+    );
+    renderPanel(collect);
+
+    expect(screen.getByText('All systems healthy')).toBeTruthy();
+    expect(screen.queryByText('Class names')).toBeNull();
+    expect(collect).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(button('Refresh'));
+    expect(collect).toHaveBeenCalledTimes(2);
   });
 
   it('shows the report to copy by hand when the clipboard refuses it', async () => {

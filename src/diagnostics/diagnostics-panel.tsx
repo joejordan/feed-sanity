@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from 'react';
+import type { FeatureState } from '../core/app';
 import type { LocatorOverrides, LocatorStats } from '../core/locator';
 import type { SavedValue } from '../core/saved';
 import type { OptionsPanel, PanelProps } from '../ui/options-dialog/panel';
@@ -6,7 +7,7 @@ import type { Diagnostics } from './collect';
 import type { CheckedOverrides } from './overrides';
 import { NAME } from '../../project';
 import { definePanel } from '../ui/options-dialog/panel';
-import { Disclosure, SettingCard } from '../ui/primitives';
+import { Badge, Disclosure, SettingCard, UiIcon } from '../ui/primitives';
 import css from './diagnostics-panel.css?inline';
 import { checkOverrides, OVERRIDES_EXAMPLE, overridesText } from './overrides';
 import {
@@ -36,67 +37,315 @@ const needsLook = (locator: LocatorStats): boolean =>
 const names = (locators: readonly LocatorStats[]): string =>
   locators.map((locator) => locator.name).join(', ');
 
+const FEATURE_WORD_OVERRIDES: Readonly<Record<string, string>> = {
+  css: 'CSS',
+  id: 'ID',
+  ig: 'Instagram',
+  x: 'X',
+};
+
+function formatFeatureLabel(id: string): string {
+  return id
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((word) => FEATURE_WORD_OVERRIDES[word] ?? word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function formatClock(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function featureBadgeTone(state: FeatureState): 'success' | 'warning' | 'neutral' {
+  if (state === 'running') {
+    return 'success';
+  }
+  if (state === 'failed') {
+    return 'warning';
+  }
+  return 'neutral';
+}
+
+function bridgeShortLabel(state: Diagnostics['bridge']['state']): {
+  readonly label: string;
+  readonly tone: 'success' | 'warning' | 'neutral';
+} {
+  switch (state) {
+    case 'connected':
+      return { label: 'Connected', tone: 'success' };
+    case 'connecting':
+      return { label: 'Connecting…', tone: 'neutral' };
+    case 'not started':
+      return { label: 'Standby', tone: 'neutral' };
+    default:
+      return { label: 'Unavailable', tone: 'warning' };
+  }
+}
+
+function HealthOverview({
+  diagnostics,
+  itemNoun,
+  onRefresh,
+  onCopy,
+}: {
+  diagnostics: Diagnostics;
+  itemNoun: string;
+  onRefresh: () => void;
+  onCopy: () => void;
+}) {
+  const failed = diagnostics.features.filter((f) => f.state === 'failed');
+  const running = diagnostics.features.filter((f) => f.state === 'running');
+  const brokenLocators = diagnostics.locators.filter(neverFound);
+  const bridgeDown = diagnostics.bridge.state === 'unavailable';
+  const issues: string[] = [];
+  if (failed.length > 0) {
+    issues.push(
+      `${plural(failed.length, 'feature', 'features')} stopped with errors: ${failed.map((f) => f.id).join(', ')}`,
+    );
+  }
+  if (bridgeDown) {
+    issues.push(
+      `Page bridge unavailable (${diagnostics.bridge.problem ?? 'page script did not answer'})`,
+    );
+  }
+  if (brokenLocators.length > 0) {
+    issues.push(
+      `${plural(brokenLocators.length, 'locator', 'locators')} stopped matching: ${names(brokenLocators)}`,
+    );
+  }
+
+  let healthState: 'healthy' | 'warning' | 'error' = 'healthy';
+  let headline = 'All systems healthy';
+  if (failed.length > 0 || bridgeDown) {
+    healthState = 'error';
+    headline =
+      issues.length === 1 ? '1 issue needs attention' : `${issues.length} issues need attention`;
+  } else if (brokenLocators.length > 0) {
+    healthState = 'warning';
+    headline = `${plural(brokenLocators.length, 'selector', 'selectors')} stopped matching`;
+  }
+
+  const bridgePill = bridgeShortLabel(diagnostics.bridge.state);
+  const trackedValue = diagnostics.posts.started ? String(diagnostics.posts.tracked) : 'Standby';
+  const trackedSub = diagnostics.posts.started
+    ? `${diagnostics.posts.withId} with ID`
+    : 'Idle until filtering runs';
+
+  return (
+    <div className="diag-overview">
+      <div className="diag-hero" data-health={healthState}>
+        <div className="diag-hero-main">
+          <div className="diag-hero-title-row">
+            <span className="diag-status-dot" data-health={healthState} aria-hidden="true" />
+            <h3 className="diag-heading">{headline}</h3>
+            <Badge tone={healthState === 'healthy' ? 'success' : 'warning'}>
+              {healthState === 'healthy' ? 'Healthy' : 'Attention'}
+            </Badge>
+          </div>
+          <p className="diag-hero-meta">
+            Live snapshot · updates every {REFRESH_MS / 1000}s · last checked{' '}
+            {formatClock(diagnostics.at)}
+          </p>
+          {issues.length > 0 && (
+            <div className="diag-issue-list">
+              {issues.map((issue) => (
+                <p key={issue} className="diag-issue-item">
+                  • {issue}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="diag-hero-actions">
+          <button className="button" type="button" onClick={onRefresh}>
+            <UiIcon name="refresh" size={13} />
+            Refresh
+          </button>
+          <button className="button primary" type="button" onClick={onCopy}>
+            Copy report
+          </button>
+        </div>
+      </div>
+
+      <div className="diag-kpis">
+        <div className="diag-kpi">
+          <span className="diag-kpi-label">Features</span>
+          <strong className="diag-kpi-value">
+            {running.length} / {diagnostics.features.length}
+          </strong>
+          <span className="diag-kpi-sub">
+            {failed.length > 0 ? `${failed.length} failed` : 'Running on this page'}
+          </span>
+        </div>
+        <div className="diag-kpi">
+          <span className="diag-kpi-label">Hidden on tab</span>
+          <strong className="diag-kpi-value">
+            {diagnostics.badge.failed ? '!' : diagnostics.badge.count}
+          </strong>
+          <span className="diag-kpi-sub">Toolbar badge count</span>
+        </div>
+        <div className="diag-kpi">
+          <span className="diag-kpi-label">Page bridge</span>
+          <div className="diag-kpi-badge">
+            <Badge tone={bridgePill.tone}>{bridgePill.label}</Badge>
+          </div>
+          <span className="diag-kpi-sub">Site data &amp; API hook</span>
+        </div>
+        <div className="diag-kpi">
+          <span className="diag-kpi-label">Tracked {itemNoun.toLowerCase()}</span>
+          <strong className="diag-kpi-value">{trackedValue}</strong>
+          <span className="diag-kpi-sub">{trackedSub}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Facts({ diagnostics }: { diagnostics: Diagnostics }) {
   const { version, build, pageType, badge, classNames, bridge } = diagnostics;
+  const showClassNames = classNames.started || classNames.total > 0;
   return (
-    <dl className="diag-facts">
-      <dt>Version</dt>
-      <dd>{version}</dd>
-      <dt>Build</dt>
-      <dd>{build}</dd>
-      <dt>Page type</dt>
-      <dd>{pageType}</dd>
-      <dt>Toolbar badge</dt>
-      <dd>{badgeSummary(badge)}</dd>
-      <dt>Page bridge</dt>
-      <dd className={bridge.state === 'unavailable' ? 'diag-warn' : undefined}>
-        {bridgeSummary(bridge)}
-      </dd>
-      <dt>Class names</dt>
-      <dd>
-        {classNamesSummary(classNames)}
-        {classNames.started && classNames.missing.length > 0 && (
-          <span className="diag-small">Missing: {classNames.missing.join(', ')}</span>
+    <SettingCard title="Environment & Page Bridge">
+      <dl className="diag-facts">
+        <div className="diag-fact-row">
+          <dt>Version</dt>
+          <dd>{version}</dd>
+        </div>
+        <div className="diag-fact-row">
+          <dt>Build</dt>
+          <dd>{build}</dd>
+        </div>
+        <div className="diag-fact-row">
+          <dt>Page type</dt>
+          <dd>
+            <code>{pageType}</code>
+          </dd>
+        </div>
+        <div className="diag-fact-row">
+          <dt>Toolbar badge</dt>
+          <dd>{badgeSummary(badge)}</dd>
+        </div>
+        <div className="diag-fact-row">
+          <dt>Page bridge</dt>
+          <dd className={bridge.state === 'unavailable' ? 'diag-warn' : undefined}>
+            {bridgeSummary(bridge)}
+            <span className="diag-small">
+              Reads React fiber data, timeline APIs, and page controls without breaking site code.
+            </span>
+          </dd>
+        </div>
+        {showClassNames && (
+          <div className="diag-fact-row">
+            <dt>Class names</dt>
+            <dd>
+              {classNamesSummary(classNames)}
+              {classNames.started && classNames.missing.length > 0 && (
+                <span className="diag-small">Missing: {classNames.missing.join(', ')}</span>
+              )}
+            </dd>
+          </div>
         )}
-      </dd>
-    </dl>
+      </dl>
+    </SettingCard>
   );
 }
 
 function Features({ diagnostics }: { diagnostics: Diagnostics }) {
   return (
-    <table className="diag-table">
-      <thead>
-        <tr>
-          <th scope="col">Feature</th>
-          <th scope="col">State</th>
-          <th scope="col">Errors</th>
-          <th scope="col">Last error</th>
-        </tr>
-      </thead>
-      <tbody>
-        {diagnostics.features.map(({ id, state, errors, lastError }) => (
-          <tr key={id} className={state === 'failed' ? 'diag-failed' : undefined}>
-            <td>{id}</td>
-            <td>{state}</td>
-            <td>{errors}</td>
-            <td>{lastError ?? ''}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <SettingCard title="Features">
+      <div className="diag-card-pad">
+        <p className="diag-help">
+          Each module running on this page. <strong>off</strong> means disabled in your settings;{' '}
+          <strong>failed</strong> means a module stopped itself after repeated runtime errors.
+        </p>
+        <div className="diag-scroll">
+          <table className="diag-table">
+            <thead>
+              <tr>
+                <th scope="col">Feature</th>
+                <th scope="col">State</th>
+                <th scope="col">Errors</th>
+                <th scope="col">Last error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {diagnostics.features.map(({ id, state, errors, lastError }) => (
+                <tr key={id} className={state === 'failed' ? 'diag-failed' : undefined}>
+                  <td>
+                    <span className="diag-feature-label">{formatFeatureLabel(id)}</span>
+                    <span className="diag-feature-id">{id}</span>
+                  </td>
+                  <td>
+                    <Badge tone={featureBadgeTone(state)}>{state}</Badge>
+                  </td>
+                  <td className="diag-num">{errors}</td>
+                  <td className="diag-err-cell">{lastError ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </SettingCard>
   );
 }
 
-function Posts({ diagnostics }: { diagnostics: Diagnostics }) {
+function Posts({ diagnostics, itemNoun }: { diagnostics: Diagnostics; itemNoun: string }) {
   const { posts } = diagnostics;
-  if (!posts.started) {
-    return <p className="diag-notice">{NOT_STARTED}</p>;
+  return (
+    <SettingCard title={`${itemNoun} detection`}>
+      <div className="diag-card-pad">
+        {posts.started ? (
+          <div className="diag-posts-copy">
+            <p>{postSummary(posts)}</p>
+            <p className={posts.unrecognised > 0 ? 'diag-warn' : undefined}>{slotSummary(posts)}</p>
+            <p className="diag-help">
+              Items without an ID are typically promoted ads or special cards without a standard
+              permalink.
+            </p>
+          </div>
+        ) : (
+          <p className="diag-notice">{NOT_STARTED}</p>
+        )}
+      </div>
+    </SettingCard>
+  );
+}
+
+function ExtraSections({ diagnostics }: { diagnostics: Diagnostics }) {
+  if (!diagnostics.extraSections || diagnostics.extraSections.length === 0) {
+    return null;
   }
   return (
     <>
-      <p>{postSummary(posts)}</p>
-      <p className={posts.unrecognised > 0 ? 'diag-warn' : undefined}>{slotSummary(posts)}</p>
+      {diagnostics.extraSections.map((section) => (
+        <SettingCard key={section.title} title={section.title}>
+          <dl className="diag-facts">
+            {section.lines.map((line) => {
+              const colon = line.indexOf(':');
+              if (colon > 0 && colon < line.length - 1) {
+                const label = line.slice(0, colon).trim();
+                const value = line.slice(colon + 1).trim();
+                return (
+                  <div key={line} className="diag-fact-row">
+                    <dt>{label}</dt>
+                    <dd className="diag-num">{value}</dd>
+                  </div>
+                );
+              }
+              return (
+                <div key={line} className="diag-fact-row">
+                  <dd>{line}</dd>
+                </div>
+              );
+            })}
+          </dl>
+        </SettingCard>
+      ))}
     </>
   );
 }
@@ -128,8 +377,8 @@ function LocatorRows({ locator, now }: { locator: LocatorStats; now: number }) {
           <td className={strategy.state === 'ready' ? undefined : 'diag-warn'}>
             {STRATEGY_STATES[strategy.state]}
           </td>
-          <td>{strategy.lookups}</td>
-          <td>{strategy.found}</td>
+          <td className="diag-num">{strategy.lookups}</td>
+          <td className="diag-num">{strategy.found}</td>
           <td>{ago(strategy.lastFound, now)}</td>
         </tr>
       ))}
@@ -145,6 +394,11 @@ function Locators({ diagnostics }: { diagnostics: Diagnostics }) {
   const shown = onlyToLook ? locators.filter(needsLook) : locators;
   return (
     <>
+      <p className="diag-help">
+        Locators are the CSS selectors {NAME} uses to find posts, menus, and videos on this site. If
+        a site redesign breaks a feature, check which locator stopped matching and override it
+        below.
+      </p>
       {never.length > 0 && (
         <p className="diag-warn">
           Looked up {NEVER_FOUND_AFTER} times or more and never found anything: {names(never)}.
@@ -239,10 +493,9 @@ interface DiagnosticsPanelProps extends PanelProps<string> {
 }
 
 /**
- * The Diagnostics section: what the features, the post finder and the
- * locators have done on this page, a report to copy, and the user's own
- * selectors. The numbers are read when it opens and again every few
- * seconds while it is shown.
+ * The Diagnostics section: live health overview, active features, page bridge
+ * & environment telemetry, bug report export, and collapsible DOM locator
+ * inspector with selector overrides.
  */
 export function DiagnosticsPanel({
   value,
@@ -273,57 +526,62 @@ export function DiagnosticsPanel({
     }
   };
 
+  const brokenCount = diagnostics.locators.filter(neverFound).length;
+  const overriddenCount = diagnostics.locators.filter((l) => l.overridden).length;
+  let locatorBadge: ReturnType<typeof Badge> | undefined;
+  if (brokenCount > 0) {
+    locatorBadge = <Badge tone="warning">{brokenCount} never found</Badge>;
+  } else if (overriddenCount > 0) {
+    locatorBadge = <Badge tone="accent">{overriddenCount} custom</Badge>;
+  } else if (diagnostics.locators.length > 0) {
+    locatorBadge = <Badge>{diagnostics.locators.length}</Badge>;
+  }
+
   return (
     <section className="diag">
-      <div className="diag-line">
-        <h3 className="diag-heading">Diagnostics</h3>
-        <button className="button primary" type="button" onClick={() => void copyReport()}>
-          Copy report
-        </button>
-      </div>
-      <p className="description">
-        What {NAME} has found on this page, read again every {REFRESH_MS / 1000} seconds while
-        shown. The report holds counts, selectors, states and error messages, and no names, post
-        text or page addresses.
-      </p>
-      {copy && 'copied' in copy && <p role="status">The report is copied.</p>}
-      {copy && 'failed' in copy && (
-        <>
-          <p role="status" className="error">
-            The report could not be copied. Select the text below and copy it.
-          </p>
-          <textarea
-            className="field diag-code"
-            rows={8}
-            readOnly
-            aria-label="Report"
-            value={copy.failed}
-          />
-        </>
+      <HealthOverview
+        diagnostics={diagnostics}
+        itemNoun={itemNoun}
+        onRefresh={() => setDiagnostics(collect())}
+        onCopy={() => void copyReport()}
+      />
+
+      {copy && 'copied' in copy && (
+        <p role="status" className="diag-copy-status">
+          The report is copied. No names, post text, or page addresses are included.
+        </p>
       )}
-      <Facts diagnostics={diagnostics} />
-      <h4 className="diag-subheading">Features</h4>
+      {copy && 'failed' in copy && (
+        <SettingCard title="Report">
+          <div className="diag-card-pad">
+            <p role="status" className="error">
+              The report could not be copied. Select the text below and copy it.
+            </p>
+            <textarea
+              className="field diag-code"
+              rows={8}
+              readOnly
+              aria-label="Report"
+              value={copy.failed}
+            />
+          </div>
+        </SettingCard>
+      )}
+
       <Features diagnostics={diagnostics} />
-      <h4 className="diag-subheading">{itemNoun}</h4>
-      <Posts diagnostics={diagnostics} />
-      {diagnostics.extraSections?.map((section) => (
-        <div key={section.title}>
-          <h4 className="diag-subheading">{section.title}</h4>
-          {section.lines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-        </div>
-      ))}
+      <Posts diagnostics={diagnostics} itemNoun={itemNoun} />
+      <ExtraSections diagnostics={diagnostics} />
+      <Facts diagnostics={diagnostics} />
+
       <SettingCard>
         <Disclosure
           label="Locator inspector & custom selectors"
+          badge={locatorBadge}
           open={inspectorOpen}
           onToggle={() => setInspectorOpen((open) => !open)}
         >
-          <div style={{ padding: '10px 14px' }}>
-            <h4 className="diag-subheading" style={{ marginTop: 0 }}>
-              Locators
-            </h4>
+          <div className="diag-drawer-pad">
+            <h4 className="diag-subheading">Locators</h4>
             <Locators diagnostics={diagnostics} />
             <h4 className="diag-subheading">Your selectors</h4>
             <OverridesEditor value={value} onChange={onChange} check={check} />

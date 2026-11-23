@@ -5,6 +5,7 @@ import type { SiteSettingsClient, SiteStatus } from '../../core/site-settings';
 import type { Store } from '../../core/storage';
 import type { ThemeConfig } from '../../core/theming';
 import type { SavedVideoSpeed } from '../../sites/x/features/video-speed-model';
+import type { DragHandleProps } from '../primitives';
 import type { StarterModeId } from './starter-modes';
 import { NAME } from '../../../project';
 import { newFilter, newRule, readFilters } from '../../core/filter-types';
@@ -63,6 +64,8 @@ export interface QuickPopupProps {
   readonly onOpenSettings: (section?: string) => void;
   /** Opens a supported site URL (used in the unsupported-tab launcher). */
   readonly onOpenSiteUrl: (url: string) => void;
+  /** Optional drag handle handlers (enabled for the on-page Userscript overlay). */
+  readonly headerDragProps?: DragHandleProps;
   /** Optional close callback (rendered in the floating Userscript quick overlay). */
   readonly onClose?: () => void;
 }
@@ -127,6 +130,7 @@ export function QuickPopup({
   onThemeChange,
   onOpenSettings,
   onOpenSiteUrl,
+  headerDragProps,
   onClose,
 }: QuickPopupProps) {
   const [sites, setSites] = useState<SiteStatus[]>(() => providedSiteSettings?.list() ?? []);
@@ -292,12 +296,7 @@ export function QuickPopup({
                     <Switch
                       checked={site.enabled}
                       ariaLabel={`Enable ${NAME} on ${site.displayName}`}
-                      onChange={(next) => {
-                        setSiteEnabled(site.id, next);
-                        notify(`${site.displayName} ${next ? 'enabled' : 'paused'}`, () => {
-                          setSiteEnabled(site.id, !next);
-                        });
-                      }}
+                      onChange={(next) => setSiteEnabled(site.id, next)}
                     />
                     {cfg && (
                       <button
@@ -333,7 +332,10 @@ export function QuickPopup({
   const activeMode = detectActiveMode(siteConfig.modes, optionsMap, siteConfig.modeDefaults);
   const activeModeSpec = siteConfig.modes.find((m) => m.id === activeMode);
 
-  const patchOptions = (patch: Readonly<Record<string, OptionValue>>, toastLabel: string): void => {
+  const patchOptions = (
+    patch: Readonly<Record<string, OptionValue>>,
+    toastLabel?: string,
+  ): void => {
     if (!optionsKey) {
       return;
     }
@@ -351,22 +353,24 @@ export function QuickPopup({
       await store.set(key, next);
       setOptionsMap(next);
     });
-    notify(toastLabel, () => {
-      enqueueWrite(async () => {
-        const latest = readOptionMap(await store.get(key));
-        const restored = { ...latest };
-        for (const k of patchKeys) {
-          const prev = previousValues[k];
-          if (prev === undefined) {
-            delete restored[k];
-          } else {
-            restored[k] = prev;
+    if (toastLabel) {
+      notify(toastLabel, () => {
+        enqueueWrite(async () => {
+          const latest = readOptionMap(await store.get(key));
+          const restored = { ...latest };
+          for (const k of patchKeys) {
+            const prev = previousValues[k];
+            if (prev === undefined) {
+              delete restored[k];
+            } else {
+              restored[k] = prev;
+            }
           }
-        }
-        await store.set(key, restored);
-        setOptionsMap(restored);
+          await store.set(key, restored);
+          setOptionsMap(restored);
+        });
       });
-    });
+    }
   };
 
   const applyStarterMode = (modeId: StarterModeId): void => {
@@ -497,8 +501,18 @@ export function QuickPopup({
 
   return (
     <div className="qp-root" role="region" aria-label={`${activeTab.displayName} quick controls`}>
-      <header className="qp-header">
+      <header
+        className="qp-header"
+        data-draggable={headerDragProps ? 'true' : undefined}
+        title={headerDragProps ? 'Drag to move · Double-click to reset' : undefined}
+        {...headerDragProps}
+      >
         <div className="qp-identity">
+          {headerDragProps && (
+            <span className="qp-grip" aria-hidden="true">
+              <UiIcon name="grip" size={13} />
+            </span>
+          )}
           <span className="qp-mark" aria-hidden="true">
             {getSiteMark(activeTab.siteId, activeTab.displayName)}
           </span>
@@ -518,12 +532,7 @@ export function QuickPopup({
           <Switch
             checked={siteEnabled}
             ariaLabel={`Enable ${NAME} on ${activeTab.displayName}`}
-            onChange={(next) => {
-              setSiteEnabled(activeTab.siteId, next);
-              notify(`${activeTab.displayName} ${next ? 'resumed' : 'paused'}`, () => {
-                setSiteEnabled(activeTab.siteId, !next);
-              });
-            }}
+            onChange={(next) => setSiteEnabled(activeTab.siteId, next)}
           />
           {closeButton}
         </div>
@@ -563,9 +572,7 @@ export function QuickPopup({
                 <Switch
                   checked={checked}
                   ariaLabel={toggle.label}
-                  onChange={(next) =>
-                    patchOptions({ [toggle.key]: next }, `${toggle.label} ${next ? 'on' : 'off'}`)
-                  }
+                  onChange={(next) => patchOptions({ [toggle.key]: next })}
                 />
               </SettingRow>
             );

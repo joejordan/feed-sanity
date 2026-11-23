@@ -4,7 +4,9 @@ import { UiIcon } from './icons';
 import primitivesCss from './primitives.css?inline';
 
 export type { UiIconName } from './icons';
+export type { DraggableResult, DragHandleProps, DragOffset } from './use-draggable';
 export { UiIcon } from './icons';
+export { useDraggable } from './use-draggable';
 export { primitivesCss };
 
 const SITE_MARKS: Readonly<Record<string, string>> = {

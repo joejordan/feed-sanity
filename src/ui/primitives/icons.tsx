@@ -12,7 +12,9 @@ export type UiIconName =
   | 'chevronRight'
   | 'x'
   | 'sparkles'
-  | 'externalLink';
+  | 'externalLink'
+  | 'grip'
+  | 'refresh';
 
 export interface UiIconProps {
   readonly name: UiIconName;
@@ -94,6 +96,22 @@ export function UiIcon({ name, size = 15, className }: UiIconProps) {
           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
           <polyline points="15 3 21 3 21 9" />
           <line x1="10" y1="14" x2="21" y2="3" />
+        </>
+      )}
+      {name === 'grip' && (
+        <>
+          <circle cx="9" cy="6" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="15" cy="6" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="9" cy="12" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="15" cy="12" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="9" cy="18" r="1.2" fill="currentColor" stroke="none" />
+          <circle cx="15" cy="18" r="1.2" fill="currentColor" stroke="none" />
+        </>
+      )}
+      {name === 'refresh' && (
+        <>
+          <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+          <polyline points="21 3 21 9 15 9" />
         </>
       )}
     </svg>

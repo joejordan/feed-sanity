@@ -1,6 +1,7 @@
+import { useRef } from 'react';
 import type { QuickPopupRequest } from '../../core/platform';
 import { mount } from '../mount';
-import { primitivesCss } from '../primitives';
+import { primitivesCss, useDraggable } from '../primitives';
 import { QuickPopup } from './quick-popup';
 import css from './quick-popup.css?inline';
 
@@ -8,17 +9,48 @@ const HOST_ID = 'feed_sanity_quick_popup';
 
 let closeOpen: (() => void) | undefined;
 
+function DraggableQuickOverlay({
+  request,
+  onClose,
+}: {
+  readonly request: QuickPopupRequest;
+  readonly onClose: () => void;
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const drag = useDraggable(overlayRef);
+
+  return (
+    <div
+      ref={overlayRef}
+      className="qp-overlay"
+      data-dragging={drag.dragging ? 'true' : undefined}
+      style={drag.style}
+    >
+      <QuickPopup
+        store={request.store}
+        activeTab={request.activeTab}
+        siteSettings={request.siteSettings}
+        headerDragProps={drag.handleProps}
+        onOpenSettings={(section) => {
+          onClose();
+          request.onOpenSettings(section);
+        }}
+        onOpenSiteUrl={(url) => {
+          onClose();
+          window.open(url, '_blank', 'noopener');
+        }}
+        onClose={onClose}
+      />
+    </div>
+  );
+}
+
 /**
- * Mounts the shared Quick Control Center anchored top-right inside a Shadow DOM
- * overlay (used by the Userscript build for feature parity with the extension
- * toolbar popup).
+ * Mounts the shared Quick Control Center anchored top-right inside a draggable
+ * Shadow DOM overlay (used by the Userscript build for feature parity with the
+ * extension toolbar popup).
  */
-export function openQuickPopup({
-  store,
-  activeTab,
-  siteSettings,
-  onOpenSettings,
-}: QuickPopupRequest): void {
+export function openQuickPopup(request: QuickPopupRequest): void {
   if (closeOpen) {
     closeOpen();
     return;
@@ -40,28 +72,10 @@ export function openQuickPopup({
     }
   };
 
-  const unmount = mount(
-    <div className="qp-overlay">
-      <QuickPopup
-        store={store}
-        activeTab={activeTab}
-        siteSettings={siteSettings}
-        onOpenSettings={(section) => {
-          close();
-          onOpenSettings(section);
-        }}
-        onOpenSiteUrl={(url) => {
-          close();
-          window.open(url, '_blank', 'noopener');
-        }}
-        onClose={close}
-      />
-    </div>,
-    {
-      id: HOST_ID,
-      css: [primitivesCss, css].join('\n'),
-    },
-  );
+  const unmount = mount(<DraggableQuickOverlay request={request} onClose={close} />, {
+    id: HOST_ID,
+    css: [primitivesCss, css].join('\n'),
+  });
   // Capture phase ensures Escape still closes the overlay even when focus is inside
   // the Shadow DOM host (where `stopAtHost` stops bubble-phase keydown events).
   globalThis.addEventListener('keydown', onKeyDown, true);
