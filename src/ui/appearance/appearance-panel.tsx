@@ -14,9 +14,11 @@ import {
   applyStudioVibe,
   applyThemePreset,
   BUILTIN_THEMES,
+  clearThemeEffects,
   contrastingText,
   contrastRatio,
   DEFAULT_THEME_CONFIG,
+  findActiveStudioVibe,
   normalizeHex,
   resolveTheme,
 } from '../../core/theming';
@@ -191,11 +193,16 @@ function AppearancePanelView({
     applyEdit(applyStudioVibe(value, vibe), `${vibe.name} vibe applied`);
   };
 
-  const isVibeActive = (vibe: StudioVibe): boolean =>
-    value.preset === vibe.preset &&
-    effects.backdrop === (vibe.effects.backdrop ?? 'none') &&
-    effects.surface === (vibe.effects.surface ?? 'default') &&
-    effects.click === (vibe.effects.click ?? 'none');
+  const activeVibe = useMemo(() => findActiveStudioVibe(value), [value]);
+
+  const selectColorTheme = (presetId: string, label: string): void => {
+    const suffix = effectsActive ? ' (effects cleared)' : '';
+    applyEdit(applyThemePreset(value, presetId), `Theme set to ${label}${suffix}`);
+  };
+
+  const resetEffects = (): void => {
+    applyEdit(clearThemeEffects(value), 'Cleared studio effects');
+  };
 
   const runAudit = (): void => {
     setHealthOpen(true);
@@ -244,74 +251,85 @@ function AppearancePanelView({
 
   return (
     <section className="theme-panel">
-      <StudioVibesCard isVibeActive={isVibeActive} onApplyVibe={applyVibe} />
+      <StudioVibesCard activeVibe={activeVibe} onApplyVibe={applyVibe} />
 
-      <div className="theme-actions">
-        <SegmentedControl
-          options={SCHEME_FILTERS}
-          value={schemeFilter}
-          ariaLabel="Filter theme presets"
-          onChange={setSchemeFilter}
-        />
-        <button
-          className="button"
-          type="button"
-          onClick={() => applyEdit({ ...DEFAULT_THEME_CONFIG }, 'Reset theme to site default')}
-        >
-          Reset to site default
-        </button>
-      </div>
-
-      <div className="theme-grid" role="group" aria-label="Theme presets">
-        <button
-          type="button"
-          className="theme-card"
-          aria-pressed={value.preset === 'default'}
-          onClick={() => applyEdit(applyThemePreset(value, 'default'), 'Theme set to Site Default')}
-        >
-          <span className="theme-card-name">Site Default</span>
-          <p className="theme-card-desc">Use the host site's built-in light or dark theme.</p>
-        </button>
-        {filteredPresets.map((preset) => (
+      <SettingCard
+        title="Color Themes"
+        action={
           <button
-            key={preset.id}
+            className="theme-inline-reset"
             type="button"
-            className="theme-card"
-            aria-pressed={value.preset === preset.id}
-            onClick={() =>
-              applyEdit(applyThemePreset(value, preset.id), `Theme set to ${preset.name}`)
-            }
+            onClick={() => applyEdit({ ...DEFAULT_THEME_CONFIG }, 'Reset theme to site default')}
           >
-            <span className="theme-swatches" aria-hidden="true">
-              {(
-                preset.swatches ?? [
-                  preset.palette.background,
-                  preset.palette.surface,
-                  preset.palette.text,
-                  preset.palette.accent,
-                ]
-              ).map((color, idx) => (
-                <span
-                  // biome-ignore lint/suspicious/noArrayIndexKey: static preset swatch palette
-                  key={idx}
-                  className="theme-dot"
-                  style={{ background: color }}
-                />
-              ))}
-            </span>
-            <span className="theme-card-name">{preset.name}</span>
-            <p className="theme-card-desc">{preset.description}</p>
+            Reset to site default
           </button>
-        ))}
-      </div>
+        }
+      >
+        <div className="theme-studio-pad">
+          <div className="theme-actions">
+            <p className="theme-studio-intro">
+              Clean static palettes — picking one turns off live effects.
+            </p>
+            <SegmentedControl
+              options={SCHEME_FILTERS}
+              value={schemeFilter}
+              ariaLabel="Filter theme presets"
+              onChange={setSchemeFilter}
+            />
+          </div>
+
+          <div className="theme-grid" role="group" aria-label="Theme presets">
+            <button
+              type="button"
+              className="theme-card"
+              aria-pressed={!effectsActive && value.preset === 'default'}
+              onClick={() => selectColorTheme('default', 'Site Default')}
+            >
+              <span className="theme-card-name">Site Default</span>
+              <p className="theme-card-desc">Use the host site's built-in light or dark theme.</p>
+            </button>
+            {filteredPresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="theme-card"
+                aria-pressed={!effectsActive && value.preset === preset.id}
+                data-base={effectsActive && value.preset === preset.id ? 'true' : undefined}
+                onClick={() => selectColorTheme(preset.id, preset.name)}
+              >
+                <span className="theme-swatches" aria-hidden="true">
+                  {(
+                    preset.swatches ?? [
+                      preset.palette.background,
+                      preset.palette.surface,
+                      preset.palette.text,
+                      preset.palette.accent,
+                    ]
+                  ).map((color, idx) => (
+                    <span
+                      // biome-ignore lint/suspicious/noArrayIndexKey: static preset swatch palette
+                      key={idx}
+                      className="theme-dot"
+                      style={{ background: color }}
+                    />
+                  ))}
+                </span>
+                <span className="theme-card-name">{preset.name}</span>
+                <p className="theme-card-desc">{preset.description}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      </SettingCard>
 
       <CreativeStudioCard
         effects={effects}
         effectsActive={effectsActive}
         onUpdateEffects={updateEffects}
+        onResetEffects={resetEffects}
       />
 
-      <SettingCard>
+      <SettingCard title="Typography & Advanced">
         <SettingRow
           title="Typography"
           description="Applies across site text and Feed Sanity controls."

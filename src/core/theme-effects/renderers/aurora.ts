@@ -97,7 +97,8 @@ void main() {
 const createAuroraShader: SceneFactory = createShaderScene({
   fragment: AURORA_FRAGMENT,
   uniforms: ['uLow', 'uCore', 'uFringe', 'uLight'],
-  renderScale: 0.5,
+  renderScale: 0.35,
+  maxPixels: 360_000,
   bindPalette(gl, u, palette) {
     const colors = auroraColors(palette);
     gl.uniform3fv(u.uLow, rgbUnit(colors.low));
@@ -116,7 +117,7 @@ function wave(x: number, seed: number): number {
   );
 }
 
-const STRIPS = 72;
+const STRIPS = 48;
 
 const createAuroraCanvas: SceneFactory = (canvas) => {
   const c = canvas.getContext('2d');
@@ -130,6 +131,7 @@ const createAuroraCanvas: SceneFactory = (canvas) => {
     kind: 'canvas2d',
     // A quarter-resolution canvas upscaled by CSS gives free, buttery blur.
     renderScale: 0.25,
+    maxPixels: 360_000,
     render({ palette, view, time, pointer }) {
       const colors = auroraColors(palette);
       const w = view.cssWidth;
@@ -192,6 +194,6 @@ function auroraCss(palette: ScenePalette): string {
 export const AURORA_SCENE: SceneSpec = {
   factories: [createAuroraShader, createAuroraCanvas],
   cssFallback: auroraCss,
-  fps: 30,
+  fps: 20,
   startTime: 18,
 };

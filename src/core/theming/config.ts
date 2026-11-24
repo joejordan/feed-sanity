@@ -7,7 +7,12 @@ import type {
   ThemePalette,
 } from './types';
 import { isRecord } from '../storage';
-import { DEFAULT_THEME_EFFECTS, hasActiveEffects, readThemeEffectsConfig } from '../theme-effects';
+import {
+  DEFAULT_THEME_EFFECTS,
+  hasActiveEffects,
+  readThemeEffectsConfig,
+  STUDIO_VIBES,
+} from '../theme-effects';
 import { contrastingText, normalizeHex, relativeLuminance } from './color-utils';
 import { findThemePreset } from './presets';
 import { DEFAULT_THEME_CONFIG, THEME_FONT_STACKS } from './types';
@@ -31,10 +36,34 @@ export function readThemeConfig(raw: unknown): ThemeConfig {
   };
 }
 
-/** Switches `config` to `preset` while clearing per-token color overrides. */
+/** Returns the matching curated Studio Vibe when `config` matches its preset and active effects. */
+export function findActiveStudioVibe(config: ThemeConfig): StudioVibe | undefined {
+  if (!hasActiveEffects(config.effects)) {
+    return undefined;
+  }
+  const effects = readThemeEffectsConfig(config.effects);
+  return STUDIO_VIBES.find(
+    (vibe) =>
+      config.preset === vibe.preset &&
+      effects.backdrop === (vibe.effects.backdrop ?? 'none') &&
+      effects.surface === (vibe.effects.surface ?? 'default') &&
+      effects.click === (vibe.effects.click ?? 'none'),
+  );
+}
+
+/** Removes active Studio effects (and any vibe-owned font) while keeping the current palette. */
+export function clearThemeEffects(config: ThemeConfig): ThemeConfig {
+  const activeVibe = findActiveStudioVibe(config);
+  const { effects: _removed, ...rest } = config;
+  const resetFont = Boolean(activeVibe?.font && config.font === activeVibe.font);
+  return resetFont ? { ...rest, font: 'default' } : rest;
+}
+
+/** Switches `config` to a clean static color `preset`, clearing color overrides and Studio effects. */
 export function applyThemePreset(config: ThemeConfig, preset: string): ThemeConfig {
+  const cleaned = clearThemeEffects(config);
   return {
-    ...config,
+    ...cleaned,
     preset,
     accent: '',
     background: '',

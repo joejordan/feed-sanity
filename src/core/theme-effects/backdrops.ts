@@ -63,8 +63,9 @@ function buildDigitalRainOptions(ctx: BackdropContext): DigitalRainOptions {
     // Click cascades are routed through `burst` by the click-effects layer, which
     // owns click policy (Glyphs only, never on text-selection drags).
     clickCascade: false,
+    intro: effects.rainIntro,
     exposure: Math.max(0.3, Math.min(1.4, effects.intensity * 1.15)),
-    resolution: 0.8,
+    resolution: 0.75,
   };
 }
 

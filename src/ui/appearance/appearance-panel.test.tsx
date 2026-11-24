@@ -61,7 +61,7 @@ describe('appearancePanel & initSiteTheme', () => {
     const options = new Options(store, 'test/options');
     options.register({
       sample_opt: {
-        section: 'Feed',
+        section: 'Filtering',
         title: 'Sample option',
         description: 'Sample',
         default: false,
@@ -94,7 +94,7 @@ describe('appearancePanel & initSiteTheme', () => {
     await vi.waitFor(() => expect(saved.get().preset).toBe('catppuccin-mocha'));
 
     // Switching to another tab inside the open dialog keeps the saved theme intact.
-    await userEvent.click(screen.getByRole('button', { name: 'Feed' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Filtering' }));
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
     await userEvent.click(screen.getByRole('button', { name: /^Site Default/i }));
     expect(controller.previewMock).toHaveBeenLastCalledWith(null);
@@ -338,18 +338,33 @@ describe('appearancePanel & initSiteTheme', () => {
     render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
 
+    // The redundant "Live preview · Reversible" badge is removed from Studio Vibes.
+    expect(screen.queryByText(/Live preview/i)).toBeNull();
+
     // One-click Enter the Matrix vibe applies Hacker Terminal + Matrix Digital Rain + Glass + Glyphs.
     await userEvent.click(screen.getByRole('button', { name: /Enter the Matrix/i }));
     await vi.waitFor(() => {
       expect(saved.get().preset).toBe('terminal-phosphor');
+      expect(saved.get().font).toBe('mono');
       expect(saved.get().effects?.backdrop).toBe('digital-rain');
+      expect(saved.get().effects?.rainIntro).toBe('rain-in');
       expect(saved.get().effects?.surface).toBe('glass');
       expect(saved.get().effects?.click).toBe('matrix-burst');
     });
 
-    // Matrix Rain tuner controls appear automatically and save live.
+    // Matrix Rain tuner controls (including Rain intro) appear automatically and save live.
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Glyph charset' }), 'hex');
     await vi.waitFor(() => expect(saved.get().effects?.rainCharset).toBe('hex'));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Rain intro' }), 'filled');
+    await vi.waitFor(() => expect(saved.get().effects?.rainIntro).toBe('filled'));
+
+    // Switching to a static Color Theme clears active Studio effects AND resets vibe-owned mono font.
+    await userEvent.click(screen.getByRole('button', { name: /Warm Paper/i }));
+    await vi.waitFor(() => {
+      expect(saved.get().preset).toBe('warm-paper');
+      expect(saved.get().effects).toBeUndefined();
+      expect(saved.get().font).toBe('default');
+    });
 
     // Switching to Vice City VI vibe activates GTA VI Vice Horizon + Gradient + Sparks.
     await userEvent.click(screen.getByRole('button', { name: /Vice City VI/i }));

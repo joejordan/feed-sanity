@@ -17,6 +17,9 @@ import {
   readThemeConfig,
   resolveTheme,
 } from '../theming';
+import { createRandom } from './digital-rain/math';
+import { mountDigitalRain } from './digital-rain/mount';
+import { RainLayer } from './digital-rain/rain-layer';
 import {
   BACKDROP_EFFECT_IDS,
   BACKDROP_OPTIONS,
@@ -48,8 +51,8 @@ interface CanvasStubs {
 }
 
 /** A permissive 2D context: every method is a recorded no-op. */
-function fake2dContext(calls: string[]): CanvasRenderingContext2D {
-  const store: Record<string | symbol, unknown> = {};
+function fake2dContext(calls: string[], canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const store: Record<string | symbol, unknown> = { canvas };
   const gradient = { addColorStop: () => undefined };
   const handler: ProxyHandler<Record<string | symbol, unknown>> = {
     get(target, prop) {
@@ -148,7 +151,7 @@ function installCanvasStubs(options: { webgl: GlMode; twoD: boolean }): CanvasSt
         : fakeWebGlContext(stubs.glCalls, stubs.loseContext, options.webgl === 'ok');
     }
     if (type === '2d' && options.twoD) {
-      return fake2dContext(stubs.calls2d);
+      return fake2dContext(stubs.calls2d, this);
     }
     return null;
   } as typeof HTMLCanvasElement.prototype.getContext);
@@ -264,6 +267,7 @@ describe('Creative Theme & Effects Studio engine', () => {
       rainLook: 'phosphor',
       rainCharset: 'binary',
       rainDensity: 0.15,
+      rainIntro: 'filled',
       surface: 'neon',
       click: 'spark',
     });
@@ -354,7 +358,7 @@ describe('Creative Theme & Effects Studio engine', () => {
   });
 
   it('caps backing-store resolution by device pixel ratio and pixel budget', () => {
-    const capped = resolveBackingSize(1280, 720, 3, { maxPixelRatio: 1.5 });
+    const capped = resolveBackingSize(1280, 720, 3, { maxPixelRatio: 1.5, maxPixels: 2_400_000 });
     expect(capped.pixelRatio).toBe(1.5);
     expect(capped.width).toBe(1920);
     expect(capped.height).toBe(1080);
@@ -364,7 +368,7 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(budget.pixelRatio).toBeLessThan(1);
 
     const soft = resolveBackingSize(1600, 900, 2, { renderScale: 0.5 });
-    expect(soft.pixelRatio).toBe(0.75);
+    expect(soft.pixelRatio).toBe(0.625);
 
     const degenerate = resolveBackingSize(0, Number.NaN, Number.NaN);
     expect(degenerate.width).toBeGreaterThanOrEqual(1);
@@ -866,5 +870,166 @@ describe('Creative Theme & Effects Studio engine', () => {
         }
       }
     }
+  });
+
+  it('supports matrix-component rain-in intro, disc-burst cascades, spot capping, and drag-following cascades', () => {
+    const layer = new RainLayer(createRandom(42), true);
+    layer.setGlyphCount(16);
+    layer.setDynamics({
+      density: 0.7,
+      trailLength: 10,
+      fallRate: 12,
+      speedVariance: 0.3,
+      mutationRate: 0.2,
+    });
+    layer.resize(40, 30, 12, 16);
+
+    // Rain-in starts empty until streams fall in from the top.
+    let initialLit = 0;
+    layer.visit(() => {
+      initialLit++;
+    });
+    expect(initialLit).toBe(0);
+
+    // Disc-burst cascade releases multiple sparks within a ring and caps overlap per spot.
+    const started = layer.cascade(20, 15, 1);
+    expect(started).toBeGreaterThan(1);
+    let capped = 0;
+    for (let i = 0; i < 8; i++) {
+      capped = layer.cascade(20, 15, 0);
+    }
+    expect(capped).toBe(0);
+
+    // Stepping advances streams and compacts finished cascades cleanly.
+    for (let i = 0; i < 60; i++) {
+      layer.step(0.1);
+    }
+    let afterRainIn = 0;
+    layer.visit(() => {
+      afterRainIn++;
+    });
+    expect(afterRainIn).toBeGreaterThan(0);
+
+    // Drag-following cascades fire while primary button is held and stop on release/blur.
+    const stubs = installCanvasStubs({ webgl: 'none', twoD: true });
+    const frames = installFrameDriver();
+    const cascadeSpy = vi.spyOn(RainLayer.prototype, 'cascade');
+    const canvas = document.createElement('canvas');
+    document.body.append(canvas);
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 800,
+      bottom: 600,
+      width: 800,
+      height: 600,
+      toJSON: () => ({}),
+    });
+    const rain = mountDigitalRain(canvas, {
+      intro: 'rain-in',
+      density: 0,
+      clickCascade: true,
+      interactive: true,
+      seed: 7,
+    });
+    cleanups.push(() => rain.destroy());
+
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        button: 0,
+        buttons: 1,
+        clientX: 100,
+        clientY: 200,
+        isPrimary: true,
+        bubbles: true,
+      }),
+    );
+    const afterPress = cascadeSpy.mock.calls.length;
+    expect(afterPress).toBe(1);
+
+    canvas.dispatchEvent(
+      new PointerEvent('pointermove', {
+        buttons: 1,
+        clientX: 500,
+        clientY: 200,
+        isPrimary: true,
+        bubbles: true,
+      }),
+    );
+    frames.flush(0);
+    frames.flush(60);
+    frames.flush(120);
+    const afterDrag = cascadeSpy.mock.calls.length;
+    expect(afterDrag).toBeGreaterThan(afterPress);
+    expect(stubs.calls2d).toContain('drawImage');
+
+    // Releasing the primary button stops drag-following cascades.
+    canvas.dispatchEvent(
+      new PointerEvent('pointerup', {
+        pointerType: 'mouse',
+        button: 0,
+        buttons: 0,
+        clientX: 500,
+        clientY: 200,
+        isPrimary: true,
+        bubbles: true,
+      }),
+    );
+    canvas.dispatchEvent(
+      new PointerEvent('pointermove', {
+        buttons: 0,
+        clientX: 150,
+        clientY: 250,
+        isPrimary: true,
+        bubbles: true,
+      }),
+    );
+    frames.flush(180);
+    frames.flush(240);
+    expect(cascadeSpy.mock.calls.length).toBe(afterDrag);
+
+    // Losing window focus mid-drag also cancels drag cascades cleanly.
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        button: 0,
+        buttons: 1,
+        clientX: 150,
+        clientY: 250,
+        isPrimary: true,
+        bubbles: true,
+      }),
+    );
+    const afterSecondPress = cascadeSpy.mock.calls.length;
+    globalThis.dispatchEvent(new Event('blur'));
+    frames.flush(700);
+    frames.flush(1200);
+    expect(cascadeSpy.mock.calls.length).toBe(afterSecondPress);
+
+    // Mounting with `intro: 'rain-in'` while already `paused: true` opens filled (never blank).
+    stubs.calls2d.length = 0;
+    const pausedCanvas = document.createElement('canvas');
+    document.body.append(pausedCanvas);
+    vi.spyOn(pausedCanvas, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 800,
+      bottom: 600,
+      width: 800,
+      height: 600,
+      toJSON: () => ({}),
+    });
+    const pausedRain = mountDigitalRain(pausedCanvas, {
+      intro: 'rain-in',
+      paused: true,
+      density: 0.7,
+      seed: 9,
+    });
+    cleanups.push(() => pausedRain.destroy());
+    frames.flush(1300);
+    expect(stubs.calls2d).toContain('drawImage');
   });
 });

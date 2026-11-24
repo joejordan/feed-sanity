@@ -2,10 +2,11 @@
 // graceful tapered shooting stars, and ultra-subtle constellation filaments
 // that only appear around the cursor (after Aceternity "Shooting Stars & Stars").
 
+import type { Layer } from './canvas';
 import type { Rgb, ScenePalette } from './palette';
 import type { Scene, SceneFactory, SceneSpec } from './scene-host';
 import { createRandom } from '../digital-rain/math';
-import { createRadialSprite, wrap } from './canvas';
+import { createLayer, createRadialSprite, wrap } from './canvas';
 import { mixRgb, rgbCss, WHITE } from './palette';
 
 interface Star {
@@ -139,7 +140,8 @@ const createStarfieldCanvas: SceneFactory = (canvas) => {
   let untilComet = 3.5;
   let drift = 0;
   let paints: StarPaints | null = null;
-  // Nebula and Milky Way gradients depend only on palette and size.
+  // Static nebula + Milky Way wash pre-rendered into an offscreen layer once per resize/palette.
+  let washLayer: Layer | null = null;
   let washes: CanvasGradient[] = [];
   let river: CanvasGradient | null = null;
   let washKey = '';
@@ -160,8 +162,55 @@ const createStarfieldCanvas: SceneFactory = (canvas) => {
     });
   };
 
+  const buildWashGradients = (
+    target: CanvasRenderingContext2D,
+    palette: ScenePalette,
+    light: boolean,
+    w: number,
+    h: number,
+    reach: number,
+  ): { readonly washes: CanvasGradient[]; readonly river: CanvasGradient } => {
+    const a = target.createRadialGradient(w * 0.16, h * 0.22, 0, w * 0.16, h * 0.22, w * 0.42);
+    a.addColorStop(0, rgbCss(palette.accent, light ? 0.07 : 0.16));
+    a.addColorStop(1, rgbCss(palette.accent, 0));
+    const b = target.createRadialGradient(w * 0.86, h * 0.78, 0, w * 0.86, h * 0.78, w * 0.4);
+    b.addColorStop(0, rgbCss(palette.alt, light ? 0.05 : 0.11));
+    b.addColorStop(1, rgbCss(palette.alt, 0));
+    const riverTone = mixRgb(palette.text, palette.accent, 0.35);
+    const riv = target.createRadialGradient(0, 0, 0, 0, 0, reach);
+    riv.addColorStop(0, rgbCss(riverTone, light ? 0.05 : 0.1));
+    riv.addColorStop(0.55, rgbCss(riverTone, light ? 0.025 : 0.045));
+    riv.addColorStop(1, rgbCss(riverTone, 0));
+    return { washes: [a, b], river: riv };
+  };
+
+  const drawWash = (
+    target: CanvasRenderingContext2D,
+    washList: readonly CanvasGradient[],
+    riverGrad: CanvasGradient | null,
+    w: number,
+    h: number,
+    reach: number,
+  ): void => {
+    for (const wash of washList) {
+      target.fillStyle = wash;
+      target.fillRect(0, 0, w, h);
+    }
+    if (riverGrad) {
+      target.save();
+      target.translate(w * 0.5, h * (BAND_OFFSET + BAND_SLOPE * 0.5));
+      target.rotate(Math.atan2(h * BAND_SLOPE, w));
+      target.scale(1, 0.13);
+      target.fillStyle = riverGrad;
+      target.fillRect(-reach, -reach, reach * 2, reach * 2);
+      target.restore();
+    }
+  };
+
   const scene: Scene = {
     kind: 'canvas2d',
+    maxPixelRatio: 1.25,
+    maxPixels: 1_200_000,
     render({ palette, view, time, dt, pointer, still }) {
       const light = palette.scheme === 'light';
       const w = view.cssWidth;
@@ -171,37 +220,39 @@ const createStarfieldCanvas: SceneFactory = (canvas) => {
       }
       const { tones, glow, headGlow } = paints;
       const reach = Math.hypot(w, h) * 0.62;
-      const key = `${palette.key}|${w}|${h}`;
-      if (key !== washKey || !river) {
+      const washScale = Math.min(0.5, view.pixelRatio);
+      const key = `${palette.key}|${w}|${h}|${washScale.toFixed(3)}`;
+      if (key !== washKey) {
         washKey = key;
-        // Nebula wash: two faint palette clouds lend depth without stealing focus.
-        const a = c.createRadialGradient(w * 0.16, h * 0.22, 0, w * 0.16, h * 0.22, w * 0.42);
-        a.addColorStop(0, rgbCss(palette.accent, light ? 0.07 : 0.16));
-        a.addColorStop(1, rgbCss(palette.accent, 0));
-        const b = c.createRadialGradient(w * 0.86, h * 0.78, 0, w * 0.86, h * 0.78, w * 0.4);
-        b.addColorStop(0, rgbCss(palette.alt, light ? 0.05 : 0.11));
-        b.addColorStop(1, rgbCss(palette.alt, 0));
-        washes = [a, b];
-        // Milky Way glow, built in the band's local (rotated, squashed) space.
-        const riverTone = mixRgb(palette.text, palette.accent, 0.35);
-        river = c.createRadialGradient(0, 0, 0, 0, 0, reach);
-        river.addColorStop(0, rgbCss(riverTone, light ? 0.05 : 0.1));
-        river.addColorStop(0.55, rgbCss(riverTone, light ? 0.025 : 0.045));
-        river.addColorStop(1, rgbCss(riverTone, 0));
+        const nextW = Math.max(1, Math.ceil(w * washScale));
+        const nextH = Math.max(1, Math.ceil(h * washScale));
+        if (washLayer) {
+          washLayer.canvas.width = nextW;
+          washLayer.canvas.height = nextH;
+          washLayer.g.setTransform(washScale, 0, 0, washScale, 0, 0);
+        } else {
+          washLayer = createLayer(doc, w, h, washScale);
+        }
+        if (washLayer) {
+          const built = buildWashGradients(washLayer.g, palette, light, w, h, reach);
+          drawWash(washLayer.g, built.washes, built.river, w, h, reach);
+          washes = [];
+          river = null;
+        } else {
+          const built = buildWashGradients(c, palette, light, w, h, reach);
+          washes = built.washes;
+          river = built.river;
+        }
       }
       c.setTransform(view.pixelRatio, 0, 0, view.pixelRatio, 0, 0);
-      c.clearRect(0, 0, w, h);
-      for (const wash of washes) {
-        c.fillStyle = wash;
-        c.fillRect(0, 0, w, h);
+      if (washLayer) {
+        c.globalCompositeOperation = 'copy';
+        c.drawImage(washLayer.canvas, 0, 0, w, h);
+        c.globalCompositeOperation = 'source-over';
+      } else {
+        c.clearRect(0, 0, w, h);
+        drawWash(c, washes, river, w, h, reach);
       }
-      c.save();
-      c.translate(w * 0.5, h * (BAND_OFFSET + BAND_SLOPE * 0.5));
-      c.rotate(Math.atan2(h * BAND_SLOPE, w));
-      c.scale(1, 0.13);
-      c.fillStyle = river;
-      c.fillRect(-reach, -reach, reach * 2, reach * 2);
-      c.restore();
 
       drift += dt;
       const area = (w * h) / 10_000;
@@ -323,6 +374,15 @@ const createStarfieldCanvas: SceneFactory = (canvas) => {
       c.globalAlpha = 1;
       c.setTransform(1, 0, 0, 1, 0, 0);
     },
+    dispose() {
+      if (washLayer) {
+        washLayer.canvas.width = 0;
+        washLayer.canvas.height = 0;
+        washLayer = null;
+      }
+      washes = [];
+      river = null;
+    },
   };
   return scene;
 };
@@ -343,6 +403,6 @@ function starfieldCss(palette: ScenePalette): string {
 export const STARFIELD_SCENE: SceneSpec = {
   factories: [createStarfieldCanvas],
   cssFallback: starfieldCss,
-  fps: 30,
+  fps: 20,
   startTime: 4,
 };

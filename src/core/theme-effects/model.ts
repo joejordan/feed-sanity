@@ -2,9 +2,10 @@
 // Feed Sanity's Creative Theme & Effects Studio.
 
 import type { RainCharsetName } from './digital-rain/charsets';
-import type { RainLookName } from './digital-rain/settings';
+import type { RainIntro, RainLookName } from './digital-rain/settings';
 import { isRecord } from '../storage';
 import { RAIN_CHARSETS } from './digital-rain/charsets';
+import { RAIN_INTROS } from './digital-rain/settings';
 
 export const BACKDROP_EFFECT_IDS = [
   'none',
@@ -37,6 +38,7 @@ export const RAIN_LOOK_NAMES: readonly RainLookName[] = [
 ];
 
 export const RAIN_CHARSET_NAMES = Object.keys(RAIN_CHARSETS) as readonly RainCharsetName[];
+export const RAIN_INTRO_NAMES = RAIN_INTROS;
 
 export interface ThemeEffectsConfig {
   readonly backdrop: BackdropEffectId;
@@ -56,6 +58,8 @@ export interface ThemeEffectsConfig {
   readonly rainCharset: RainCharsetName;
   /** Stream density for Digital Rain (`0.15..0.9`). */
   readonly rainDensity: number;
+  /** Entry style for Digital Rain (`'filled'` or `'rain-in'`). */
+  readonly rainIntro: RainIntro;
   /** Card, header, and CTA surface treatment. */
   readonly surface: SurfaceFinishId;
   /** Interactive micro-effect triggered on primary clicks. */
@@ -72,6 +76,7 @@ export const DEFAULT_THEME_EFFECTS: ThemeEffectsConfig = {
   rainLook: 'theme',
   rainCharset: 'matrix',
   rainDensity: 0.45,
+  rainIntro: 'filled',
   surface: 'default',
   click: 'none',
 };
@@ -105,13 +110,16 @@ export function readThemeEffectsConfig(raw: unknown): ThemeEffectsConfig {
     rainLook: readEnum(raw.rainLook, RAIN_LOOK_NAMES, DEFAULT_THEME_EFFECTS.rainLook),
     rainCharset: readEnum(raw.rainCharset, RAIN_CHARSET_NAMES, DEFAULT_THEME_EFFECTS.rainCharset),
     rainDensity: clampNumber(raw.rainDensity, 0.15, 0.9, DEFAULT_THEME_EFFECTS.rainDensity),
+    rainIntro: readEnum(raw.rainIntro, RAIN_INTRO_NAMES, DEFAULT_THEME_EFFECTS.rainIntro),
     surface: readEnum(raw.surface, SURFACE_FINISH_IDS, DEFAULT_THEME_EFFECTS.surface),
     click: readEnum(raw.click, CLICK_EFFECT_IDS, DEFAULT_THEME_EFFECTS.click),
   };
 }
 
 /** True when any backdrop, surface finish, or click effect is enabled. */
-export function hasActiveEffects(effects: ThemeEffectsConfig | undefined): boolean {
+export function hasActiveEffects(
+  effects: ThemeEffectsConfig | undefined,
+): effects is ThemeEffectsConfig {
   if (!effects) {
     return false;
   }
@@ -239,6 +247,7 @@ export const STUDIO_VIBES: readonly StudioVibe[] = [
       rainLook: 'phosphor',
       rainCharset: 'matrix',
       rainDensity: 0.46,
+      rainIntro: 'rain-in',
       intensity: 0.8,
       speed: 1,
       glassStrength: 0.26,

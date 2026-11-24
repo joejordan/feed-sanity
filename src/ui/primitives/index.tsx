@@ -202,6 +202,7 @@ export interface SegmentedOption<T extends string> {
 export interface SegmentedControlProps<T extends string> {
   readonly options: readonly SegmentedOption<T>[];
   readonly value: T | null;
+  readonly armedValue?: T | null;
   readonly ariaLabel: string;
   readonly fullWidth?: boolean;
   readonly onChange: (value: T) => void;
@@ -210,6 +211,7 @@ export interface SegmentedControlProps<T extends string> {
 export function SegmentedControl<T extends string>({
   options,
   value,
+  armedValue,
   ariaLabel,
   fullWidth = false,
   onChange,
@@ -229,6 +231,7 @@ export function SegmentedControl<T extends string>({
           type="button"
           className="fs-segmented-btn"
           aria-pressed={value === opt.value}
+          data-armed={armedValue === opt.value ? 'true' : undefined}
           onClick={() => onChange(opt.value)}
         >
           {opt.label}

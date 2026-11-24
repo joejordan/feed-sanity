@@ -32,7 +32,7 @@ export function resolveGlassMetrics(glassStrength: number): {
   const clamped = Math.max(0, Math.min(0.65, glassStrength));
   const columnAlpha = Number((0.92 - clamped * 0.34).toFixed(2));
   const cardAlpha = Number((0.95 - clamped * 0.28).toFixed(2));
-  const blurPx = Math.min(10, Math.round(5 + clamped * 8));
+  const blurPx = Math.min(8, Math.round(4 + clamped * 6));
   return { columnAlpha, cardAlpha, blurPx };
 }
 

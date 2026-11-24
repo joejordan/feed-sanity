@@ -9,6 +9,7 @@ import { HOST_TAG } from '../mount';
 import { openOptionsDialog } from '.';
 import { OptionsDialog } from './options-dialog';
 import { definePanel } from './panel';
+import { orderSections } from './sections';
 
 const specs = {
   hide_ads: {
@@ -445,5 +446,27 @@ describe('OptionsDialog panels', () => {
 
     expect(screen.getByText('Too many words in the panel.')).toBeTruthy();
     expect(button('Save').disabled).toBe(true);
+  });
+
+  it('orders sidebar sections as Filtering, Appearance, Timeline & Clutter, Media', () => {
+    expect(
+      orderSections([
+        'Media',
+        'Diagnostics',
+        'Timeline & Clutter',
+        'Appearance',
+        'Sites',
+        'Filtering',
+        'Data',
+      ]),
+    ).toEqual([
+      'Filtering',
+      'Appearance',
+      'Timeline & Clutter',
+      'Media',
+      'Sites',
+      'Data',
+      'Diagnostics',
+    ]);
   });
 });

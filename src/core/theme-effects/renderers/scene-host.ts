@@ -74,7 +74,7 @@ export interface SceneSpec {
   readonly factories: readonly SceneFactory[];
   /** Static CSS `background` shown when no canvas context is available at all. */
   readonly cssFallback: (palette: ScenePalette) => string;
-  /** Frame cap while animating (default 30). */
+  /** Frame cap while animating (default 20). */
   readonly fps?: number;
   /** Render only while the pointer is moving or settling instead of continuously. */
   readonly onDemand?: boolean;
@@ -84,8 +84,8 @@ export interface SceneSpec {
   readonly pointerRate?: number;
 }
 
-const DEFAULT_MAX_PIXEL_RATIO = 1.5;
-const DEFAULT_MAX_PIXELS = 2_400_000;
+const DEFAULT_MAX_PIXEL_RATIO = 1.25;
+const DEFAULT_MAX_PIXELS = 1_200_000;
 const PRESENCE_RATE = 3.2;
 const SETTLE_EPSILON_PX = 0.35;
 /** Shader clocks wrap so float precision never degrades over long sessions. */
@@ -93,7 +93,7 @@ const CLOCK_WRAP_SECONDS = 3600;
 
 /**
  * Resolves a crisp but bounded backing-store size: the device pixel ratio is
- * capped (default 1.5), multiplied by the scene's render scale, then reduced
+ * capped (default 1.25), multiplied by the scene's render scale, then reduced
  * further when the result would exceed the pixel budget.
  */
 export function resolveBackingSize(
@@ -133,7 +133,7 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   const win = doc.defaultView ?? globalThis;
   const abort = new AbortController();
   const { signal } = abort;
-  const fps = spec.fps ?? 30;
+  const fps = spec.fps ?? 20;
   const frameInterval = 1000 / fps;
   const pointerRate = spec.pointerRate ?? 5;
   const reducedMotion = win.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null;

@@ -65,8 +65,8 @@ test('extension toolbar popup controls live Facebook tab (Starter Mode, Quick Th
     .filter({ has: page.locator('h4', { hasText: 'Bram Okafor' }) });
   await expect(bram).toHaveClass(/\bfs_filter_hidden\b/);
 
-  // Clicking "Audit theme" opens the full Options dialog directly to Appearance on the Facebook tab!
-  await popup.getByRole('button', { name: /Audit theme/i }).click();
+  // Clicking "Theme Studio" opens the full Options dialog directly to Appearance on the Facebook tab!
+  await popup.getByRole('button', { name: /Theme Studio/i }).click();
   const dialog = page.getByRole('dialog', { name: OPTIONS_TITLE });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Appearance' })).toBeVisible();

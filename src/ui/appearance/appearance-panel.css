@@ -32,6 +32,11 @@
   box-shadow: 0 0 0 1px var(--fs-accent);
 }
 
+.theme-card[data-base="true"] {
+  border-style: dashed;
+  border-color: var(--fs-text-secondary);
+}
+
 .theme-swatches {
   display: flex;
   gap: 6px;
@@ -313,9 +318,25 @@
 }
 
 .theme-vibe-banner {
+  position: relative;
   display: block;
   width: 100%;
-  height: 22px;
+  height: 30px;
+  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 12%);
+}
+
+.theme-vibe-tag {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 52%);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
 }
 
 .theme-vibe-body {

@@ -573,4 +573,71 @@ describe('x_video_speed feature', () => {
     expect(spy.mock.calls.length).toBe(callsAfterSettle);
     expect(callsAfterSettle).toBeLessThan(20);
   });
+
+  it('dismisses a portaled #layers speed submenu when clicking Set <number>× via document outside-click fallback', async () => {
+    const { platform, store } = fakePlatform();
+    storesToStop.push(store);
+    expect(await startSite(xSite, platform)).toEqual([]);
+
+    const layers = document.createElement('div');
+    layers.id = 'layers';
+    const layer = document.createElement('div');
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('data-testid', 'Dropdown');
+    for (const label of ['0.5x', 'Normal', '1.5x', '2x']) {
+      const item = document.createElement('div');
+      item.setAttribute('role', 'menuitemradio');
+      item.textContent = label;
+      menu.append(item);
+    }
+    layer.append(menu);
+    layers.append(layer);
+    document.body.append(layers);
+
+    // Also mount an expanded Settings toggle button to verify async React 18 unmount
+    // on outside-click does NOT fall through and double-click the gear back open.
+    const settingsBtn = document.createElement('button');
+    settingsBtn.setAttribute('aria-label', 'Settings');
+    settingsBtn.setAttribute('aria-expanded', 'true');
+    const settingsClickSpy = vi.fn();
+    settingsBtn.addEventListener('click', settingsClickSpy);
+    document.body.append(settingsBtn);
+
+    // Simulate X's React 18 async unmount on document outside-click (Escape alone does not close).
+    const onOutsidePointerDown = (event: Event) => {
+      if (!menu.contains(event.target as Node)) {
+        queueMicrotask(() => layer.remove());
+      }
+    };
+    document.addEventListener('pointerdown', onOutsidePointerDown);
+
+    try {
+      let host: HTMLElement | null = null;
+      await vi.waitFor(() => {
+        host = menu.querySelector<HTMLElement>('[data-feed-sanity="x-video-speed"]');
+        expect(host?.shadowRoot).toBeTruthy();
+      });
+      const root = host!.shadowRoot!;
+      const input = root.querySelector<HTMLInputElement>('.fs-speed-input')!;
+      input.value = '1.35';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+
+      const applyBtn = root.querySelector<HTMLButtonElement>('.fs-speed-apply')!;
+      await vi.waitFor(() => expect(applyBtn.textContent).toBe('Set 1.35×'));
+      applyBtn.click();
+
+      await vi.waitFor(() => {
+        expect(layer.isConnected).toBe(false);
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(settingsClickSpy).not.toHaveBeenCalled();
+      expect(await store.get(`v2/x/777/${X_VIDEO_SPEED_KEY}`)).toEqual({
+        rate: 1.35,
+        custom: true,
+      });
+    } finally {
+      document.removeEventListener('pointerdown', onOutsidePointerDown);
+    }
+  });
 });

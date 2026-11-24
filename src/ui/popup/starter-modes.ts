@@ -358,3 +358,48 @@ export function detectActiveMode(
   }
   return null;
 }
+
+/**
+ * True when the user has explicitly customized settings away from both
+ * factory defaults and every Starter Mode preset (so fresh installs on
+ * sites where `Clean` differs from defaults still start un-collapsed).
+ */
+export function isCustomizedSetup(
+  modes: readonly StarterModeSpec[],
+  saved: Readonly<Record<string, OptionValue>>,
+  defaults: Readonly<Record<string, OptionValue>>,
+): boolean {
+  if (detectActiveMode(modes, saved, defaults) !== null) {
+    return false;
+  }
+  return Object.keys(defaults).some(
+    (key) => saved[key] !== undefined && saved[key] !== defaults[key],
+  );
+}
+
+export interface StarterModeDiff {
+  readonly totalChanges: number;
+  readonly hiddenChanges: number;
+}
+
+/** Counts how many settings applying `mode` would modify (and how many aren't visible toggles). */
+export function diffStarterMode(
+  mode: StarterModeSpec,
+  saved: Readonly<Record<string, OptionValue>>,
+  defaults: Readonly<Record<string, OptionValue>>,
+  visibleToggleKeys: ReadonlySet<string>,
+): StarterModeDiff {
+  let totalChanges = 0;
+  let hiddenChanges = 0;
+  const target: Record<string, OptionValue> = { ...defaults, ...mode.patch };
+  for (const [key, expected] of Object.entries(target)) {
+    const actual = saved[key] === undefined ? defaults[key] : saved[key];
+    if (actual !== expected) {
+      totalChanges++;
+      if (!visibleToggleKeys.has(key)) {
+        hiddenChanges++;
+      }
+    }
+  }
+  return { totalChanges, hiddenChanges };
+}

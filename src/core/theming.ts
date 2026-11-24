@@ -19,7 +19,14 @@ export {
   relativeLuminance,
 } from './theming/color-utils';
 export { compileHostThemeCss, compileShadowThemeCss, compileUiThemeCss } from './theming/compile';
-export { applyStudioVibe, applyThemePreset, readThemeConfig, resolveTheme } from './theming/config';
+export {
+  applyStudioVibe,
+  applyThemePreset,
+  clearThemeEffects,
+  findActiveStudioVibe,
+  readThemeConfig,
+  resolveTheme,
+} from './theming/config';
 export {
   attachThemeScope,
   createThemeController,

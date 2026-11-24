@@ -113,7 +113,7 @@ const KNOWN_SECTIONS: Readonly<Record<string, SectionMeta>> = {
   },
   'Appearance': {
     group: 'site',
-    order: 40,
+    order: 15,
     icon: 'palette',
     subtitle: 'Theme presets, site-wide typography, custom CSS, and live health checks.',
   },

@@ -115,6 +115,7 @@ interface GridPaints {
   readonly floor: CanvasGradient;
   readonly verticals: readonly [CanvasGradient, CanvasGradient];
   readonly halo: CanvasGradient;
+  readonly scanPulse: CanvasGradient;
   readonly horizon: string;
 }
 
@@ -183,6 +184,11 @@ function gridPaints(
       [0.5, rgbCss(mixRgb(glow, WHITE, 0.25), light ? 0.3 : 0.55)],
       [1, rgbCss(glow, 0)],
     ]),
+    scanPulse: linear(-1, 1, [
+      [0, rgbCss(line, 0)],
+      [0.5, rgbCss(mixRgb(line, WHITE, 0.4), light ? 0.22 : 0.36)],
+      [1, rgbCss(line, 0)],
+    ]),
     horizon: rgbCss(mixRgb(glow, WHITE, 0.55), light ? 0.6 : 0.9),
   };
 }
@@ -200,7 +206,9 @@ const createCyberGridCanvas: SceneFactory = (canvas) => {
 
   const scene: Scene = {
     kind: 'canvas2d',
-    maxPixelRatio: 1.75,
+    renderScale: 0.75,
+    maxPixelRatio: 1.25,
+    maxPixels: 1_000_000,
     render({ palette, view, time, dt, pointer }) {
       const light = palette.scheme === 'light';
       const w = view.cssWidth;
@@ -305,20 +313,19 @@ const createCyberGridCanvas: SceneFactory = (canvas) => {
       }
       c.globalAlpha = 1;
 
-      // Horizon scan pulse rolling toward the viewer.
+      // Horizon scan pulse rolling toward the viewer (reuses cached unit gradient).
       scanClock += dt;
       const phase = scanClock % SCAN_PERIOD;
       if (phase < SCAN_DURATION) {
         const s = phase / SCAN_DURATION;
         const y = horizonY + floorH * s * s;
         const band = 2 + s * 14;
-        const pulse = c.createLinearGradient(0, y - band, 0, y + band);
-        const a = Math.sin(Math.PI * s) * (light ? 0.22 : 0.36);
-        pulse.addColorStop(0, rgbCss(paints.line, 0));
-        pulse.addColorStop(0.5, rgbCss(mixRgb(paints.line, WHITE, 0.4), a));
-        pulse.addColorStop(1, rgbCss(paints.line, 0));
-        c.fillStyle = pulse;
-        c.fillRect(0, y - band, w, band * 2);
+        c.globalAlpha = Math.sin(Math.PI * s);
+        c.setTransform(pr, 0, 0, pr * band, 0, y * pr);
+        c.fillStyle = paints.scanPulse;
+        c.fillRect(0, -1, w, 2);
+        c.globalAlpha = 1;
+        c.setTransform(pr, 0, 0, pr, 0, 0);
       }
 
       // Crisp horizon line with a soft halo.
@@ -344,6 +351,6 @@ function cyberGridCss(palette: ScenePalette): string {
 export const CYBER_GRID_SCENE: SceneSpec = {
   factories: [createCyberGridCanvas],
   cssFallback: cyberGridCss,
-  fps: 30,
+  fps: 20,
   startTime: 2,
 };

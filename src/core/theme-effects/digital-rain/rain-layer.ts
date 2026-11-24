@@ -50,8 +50,10 @@ interface CascadeStream {
 const STREAMS_PER_COLUMN = 2;
 const FOLLOW_GAP = 4;
 const MUTATIONS_PER_SECOND = 1.6;
-const CASCADE_REACH = 5;
-const CASCADE_STAGGER = 0.035;
+const CASCADE_RADIUS = 3;
+const CASCADE_FILL = 0.3;
+const CASCADE_EXPANSION = 12;
+const MAX_CASCADES_PER_SPOT = 4;
 const MAX_CASCADE_STREAMS = 600;
 const WARP_FLOOR = 0.03;
 
@@ -70,6 +72,8 @@ export class RainLayer {
   #glyphCount = 1;
   #streams: Stream[] = [];
   #cascades: CascadeStream[] = [];
+  #cascadesByColumn: CascadeStream[][] = [];
+  readonly #lit = new Set<number>();
   #mutationDebt = 0;
   #fallen: number;
 
@@ -156,6 +160,33 @@ export class RainLayer {
     return reach > 0 ? reach * reach * warp.strength : 0;
   }
 
+  #cascadesNear(column: number, row: number): number {
+    const inColumn = this.#cascadesByColumn[column] ?? [];
+    let count = 0;
+    for (const cascade of inColumn) {
+      if (Math.abs(cascade.head - row) < cascade.trail) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  #indexCascades(): void {
+    const byColumn = this.#cascadesByColumn;
+    byColumn.length = this.columns;
+    for (let column = 0; column < this.columns; column += 1) {
+      const list = byColumn[column];
+      if (list) {
+        list.length = 0;
+      } else {
+        byColumn[column] = [];
+      }
+    }
+    for (const cascade of this.#cascades) {
+      byColumn[cascade.column]?.push(cascade);
+    }
+  }
+
   #advance(column: number, from: number, to: number): void {
     if (this.#dynamics.mutationRate <= 0) {
       return;
@@ -223,6 +254,7 @@ export class RainLayer {
       this.#streams.push(this.#createStream());
     }
     this.#cascades = this.#cascades.filter((cascade) => cascade.column < columns);
+    this.#indexCascades();
   }
 
   step(deltaSeconds: number, warp: WarpField | null = null): void {
@@ -253,50 +285,76 @@ export class RainLayer {
       stream.active = head - this.#trailOf(stream) <= this.rows;
     }
 
-    if (this.#cascades.length > 0) {
-      this.#cascades = this.#cascades.filter((cascade) => {
+    const cascades = this.#cascades;
+    if (cascades.length > 0) {
+      let kept = 0;
+      for (const cascade of cascades) {
         if (cascade.delay > 0) {
           cascade.delay -= deltaSeconds;
-          return true;
+        } else {
+          const head = cascade.head + distance * cascade.pace;
+          this.#advance(cascade.column, cascade.head, head);
+          cascade.head = head;
         }
-        const head = cascade.head + distance * cascade.pace;
-        this.#advance(cascade.column, cascade.head, head);
-        cascade.head = head;
-        return head - cascade.trail <= this.rows;
-      });
+        if (cascade.head - cascade.trail > this.rows) {
+          continue;
+        }
+        cascades[kept] = cascade;
+        kept += 1;
+      }
+      if (kept < cascades.length) {
+        cascades.length = kept;
+        this.#indexCascades();
+      }
     }
 
     this.#mutate(deltaSeconds);
+  }
+
+  cascadeRadius(spread: number): number {
+    return spread * CASCADE_RADIUS * this.cellHeight;
   }
 
   cascade(column: number, row: number, spread: number): number {
     if (this.#dynamics.fallRate <= 0 || row >= this.rows) {
       return 0;
     }
-    const reach = Math.round(spread * CASCADE_REACH);
-    const origin = Math.max(0, Math.floor(row));
-    let started = 0;
-    for (let offset = -reach; offset <= reach; offset += 1) {
-      const target = Math.floor(column) + offset;
-      if (target < 0 || target >= this.columns) {
+    const radius = this.cascadeRadius(spread);
+    const radiusRows = radius / this.cellHeight;
+    const radiusColumns = radius / this.cellWidth;
+    const sparks = 1 + Math.round(Math.PI * radiusRows * radiusColumns * CASCADE_FILL);
+    const lit = this.#lit;
+    lit.clear();
+    const before = this.#cascades.length;
+    for (let spark = 0; spark < sparks && this.#cascades.length < MAX_CASCADE_STREAMS; spark += 1) {
+      const reach = spark === 0 ? 0 : Math.sqrt(this.#random());
+      const angle = this.#random() * 2 * Math.PI;
+      const target = Math.floor(column + Math.cos(angle) * reach * radiusColumns);
+      const origin = Math.max(0, Math.floor(row + Math.sin(angle) * reach * radiusRows));
+      const cell = target * this.rows + origin;
+      if (
+        target < 0 ||
+        target >= this.columns ||
+        origin >= this.rows ||
+        lit.has(cell) ||
+        this.#cascadesNear(target, origin) >= MAX_CASCADES_PER_SPOT
+      ) {
         continue;
       }
-      if (this.#cascades.length >= MAX_CASCADE_STREAMS) {
-        break;
-      }
-      const steps = Math.abs(offset);
-      const falloff = reach === 0 ? 0 : steps / reach;
-      this.#cascades.push({
+      lit.add(cell);
+      const stretch = lerp(0.6, 1.1, this.#random());
+      const cascade: CascadeStream = {
         column: target,
         head: origin,
         origin,
-        trail: Math.max(2, this.#dynamics.trailLength * lerp(1.1, 0.55, falloff)),
-        pace: lerp(1.6, 1, falloff) * lerp(0.9, 1.1, this.#random()),
-        delay: steps * CASCADE_STAGGER,
-      });
-      started += 1;
+        trail: Math.max(2, this.#dynamics.trailLength * stretch),
+        pace: lerp(0.95, 1.35, this.#random()),
+        delay: ((reach * radiusRows) / CASCADE_EXPANSION) * lerp(0.6, 1.4, this.#random()),
+      };
+      this.#cascades.push(cascade);
+      this.#cascadesByColumn[target]?.push(cascade);
     }
-    return started;
+    return this.#cascades.length - before;
   }
 
   visit(visitor: StreamVisitor): void {

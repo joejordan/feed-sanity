@@ -94,7 +94,8 @@ void main() {
 const createPrismShader: SceneFactory = createShaderScene({
   fragment: PRISM_FRAGMENT,
   uniforms: ['uLeft', 'uCore', 'uRight', 'uLight'],
-  renderScale: 0.5,
+  renderScale: 0.38,
+  maxPixels: 450_000,
   bindPalette(gl, u, palette) {
     const colors = prismColors(palette);
     gl.uniform3fv(u.uLeft, rgbUnit(colors.left));
@@ -121,7 +122,7 @@ interface Mote {
 }
 
 const RAY_COUNT = 15;
-const MOTE_COUNT = 46;
+const MOTE_COUNT = 32;
 
 const createPrismCanvas: SceneFactory = (canvas) => {
   const c = canvas.getContext('2d');
@@ -153,7 +154,8 @@ const createPrismCanvas: SceneFactory = (canvas) => {
 
   const scene: Scene = {
     kind: 'canvas2d',
-    renderScale: 0.5,
+    renderScale: 0.38,
+    maxPixels: 450_000,
     render({ palette, view, time, dt, pointer }) {
       const colors = prismColors(palette);
       const w = view.cssWidth;
@@ -244,6 +246,6 @@ function prismCss(palette: ScenePalette): string {
 export const PRISM_BEAMS_SCENE: SceneSpec = {
   factories: [createPrismShader, createPrismCanvas],
   cssFallback: prismCss,
-  fps: 30,
+  fps: 20,
   startTime: 9,
 };

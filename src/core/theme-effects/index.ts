@@ -3,7 +3,7 @@ export type { ClickEffectOptions, ClickEffectsController } from './click-fx';
 export type { EffectsLayerController } from './controller';
 export type { RainCharsetName } from './digital-rain/charsets';
 export type { DigitalRainInstance, MountDigitalRainOptions } from './digital-rain/mount';
-export type { DigitalRainOptions, RainLookName } from './digital-rain/settings';
+export type { DigitalRainOptions, RainIntro, RainLookName } from './digital-rain/settings';
 export type {
   BackdropEffectId,
   BackdropOptionMeta,
@@ -26,6 +26,7 @@ export {
   DEFAULT_THEME_EFFECTS,
   hasActiveEffects,
   RAIN_CHARSET_NAMES,
+  RAIN_INTRO_NAMES,
   RAIN_LOOK_NAMES,
   readThemeEffectsConfig,
   STUDIO_VIBES,

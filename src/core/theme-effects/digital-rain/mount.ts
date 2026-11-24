@@ -22,6 +22,12 @@ interface Layers {
   back: RainLayer;
 }
 
+interface DragAnchor {
+  x: number;
+  y: number;
+  seconds: number;
+}
+
 const BASE_FALL_RATE = 13;
 const ROW_PITCH = 1;
 const COLUMN_PITCH = 0.75;
@@ -31,14 +37,18 @@ const BACK_OPACITY = 1.3;
 const BACK_BLOOM = 0.6;
 const INK_BLOOM = 0.5;
 const MAX_FRAME_SECONDS = 0.05;
-const MAX_FPS = 30;
+const MAX_FPS = 24;
 const MIN_FRAME_MS = 1000 / MAX_FPS;
 /** Tolerance for 60Hz/120Hz `requestAnimationFrame` scheduling jitter. */
 const FRAME_JITTER_MS = 2;
-const MAX_CANVAS_PIXELS = 2_400_000;
+const MAX_CANVAS_PIXELS = 1_400_000;
 const FONT_STEPS_PER_PIXEL = 2;
 const WARP_FADE_RATE = 5;
 const WARP_FOLLOW_RATE = 16;
+const DRAG_SCALE = 0.6;
+const DRAG_SPACING = 1.5;
+const HOLD_INTERVAL = 0.35;
+const MAX_DRAG_CASCADES = 12;
 
 class RainEngine {
   readonly #canvas: HTMLCanvasElement;
@@ -61,6 +71,7 @@ class RainEngine {
   #ink = false;
 
   readonly #pointer = { x: 0, y: 0, targetX: 0, targetY: 0, presence: 0, inside: false };
+  #drag: DragAnchor | null = null;
   #running = false;
   #frame = 0;
   #lastTime: number | null = null;
@@ -98,7 +109,8 @@ class RainEngine {
 
   #createLayers(): Layers {
     const random = createRandom(this.#settings.seed ?? randomSeed());
-    const startEmpty = this.#settings.intro === 'rain-in';
+    // When mounted already paused, open filled so the still frame is never blank.
+    const startEmpty = this.#settings.intro === 'rain-in' && !this.#settings.paused;
     const create = (pace: number): RainLayer => {
       const layer = new RainLayer(random, startEmpty);
       layer.setGlyphCount(this.#glyphCount);
@@ -132,6 +144,7 @@ class RainEngine {
     if (pixels > MAX_CANVAS_PIXELS) {
       scale *= Math.sqrt(MAX_CANVAS_PIXELS / pixels);
     }
+    this.#rescalePointer(scale / this.#scale);
     this.#scale = scale;
     const canvasWidth = Math.max(1, Math.round(width * scale));
     const canvasHeight = Math.max(1, Math.round(height * scale));
@@ -195,6 +208,21 @@ class RainEngine {
     }
   }
 
+  #rescalePointer(ratio: number): void {
+    if (ratio === 1 || !Number.isFinite(ratio)) {
+      return;
+    }
+    const pointer = this.#pointer;
+    pointer.x *= ratio;
+    pointer.y *= ratio;
+    pointer.targetX *= ratio;
+    pointer.targetY *= ratio;
+    if (this.#drag) {
+      this.#drag.x *= ratio;
+      this.#drag.y *= ratio;
+    }
+  }
+
   #layout(canvasWidth: number, canvasHeight: number, fontPixels: number): void {
     this.#rotation = -degreesToRadians(this.#settings.angle);
     const cos = Math.abs(Math.cos(this.#rotation));
@@ -251,10 +279,43 @@ class RainEngine {
       };
     }
 
+    if (this.#drag && settings.interactive && settings.clickCascade) {
+      this.#followDrag(this.#drag, deltaSeconds);
+    }
+
     this.#layers.front.step(deltaSeconds, warp);
     if (settings.depth > 0) {
       this.#layers.back.step(deltaSeconds, warp);
     }
+  }
+
+  #followDrag(drag: DragAnchor, deltaSeconds: number): void {
+    const { targetX, targetY } = this.#pointer;
+    const { front } = this.#layers;
+    const spread = this.#settings.cascadeSpread * DRAG_SCALE;
+    const spacing = Math.max(front.cellHeight, front.cascadeRadius(spread)) * DRAG_SPACING;
+    const distance = Math.hypot(targetX - drag.x, targetY - drag.y);
+    const steps = Math.floor(distance / spacing);
+    drag.seconds += deltaSeconds;
+    if (steps === 0 && drag.seconds < HOLD_INTERVAL) {
+      return;
+    }
+    const reached = steps === 0 ? 1 : (spacing * steps) / distance;
+    const count = clamp(steps, 1, MAX_DRAG_CASCADES);
+    const { x, y } = drag;
+    for (let index = 1; index <= count; index += 1) {
+      const along = (reached * index) / count;
+      this.#release(lerp(x, targetX, along), lerp(y, targetY, along), spread);
+    }
+    drag.x = lerp(x, targetX, reached);
+    drag.y = lerp(y, targetY, reached);
+    drag.seconds = 0;
+  }
+
+  #release(x: number, y: number, spread: number): void {
+    const { front } = this.#layers;
+    const [gridX, gridY] = this.#toGrid(x, y);
+    front.cascade(gridX / front.cellWidth, gridY / front.cellHeight, spread);
   }
 
   #draw(): void {
@@ -324,10 +385,13 @@ class RainEngine {
     this.#invalidate();
   }
 
-  pointerMove(x: number, y: number): void {
+  pointerMove(x: number, y: number, held = false): void {
     const pointer = this.#pointer;
     pointer.targetX = x * this.#canvas.width;
     pointer.targetY = y * this.#canvas.height;
+    if (!held) {
+      this.#drag = null;
+    }
     if (!pointer.inside) {
       pointer.x = pointer.targetX;
       pointer.y = pointer.targetY;
@@ -337,10 +401,12 @@ class RainEngine {
 
   pointerLeave(): void {
     this.#pointer.inside = false;
+    this.#drag = null;
   }
 
   pointerPress(x: number, y: number): void {
     this.pointerMove(x, y);
+    this.#drag = { x: this.#pointer.targetX, y: this.#pointer.targetY, seconds: 0 };
     if (this.#settings.interactive && this.#settings.clickCascade) {
       this.cascade(x, y);
     }
@@ -350,9 +416,7 @@ class RainEngine {
     if (!this.#running || !Number.isFinite(x) || !Number.isFinite(y)) {
       return;
     }
-    const { front } = this.#layers;
-    const [gridX, gridY] = this.#toGrid(x * this.#canvas.width, y * this.#canvas.height);
-    front.cascade(gridX / front.cellWidth, gridY / front.cellHeight, this.#settings.cascadeSpread);
+    this.#release(x * this.#canvas.width, y * this.#canvas.height, this.#settings.cascadeSpread);
   }
 
   destroy(): void {
@@ -516,29 +580,39 @@ export function mountDigitalRain(
     if (press) {
       engine.pointerPress(x, y);
     } else {
-      engine.pointerMove(x, y);
+      engine.pointerMove(x, y, (event.buttons & 1) === 1);
     }
   };
-  const onMove = (event: Event): void => {
-    reportPointer(event as PointerEvent, false);
+  const onMove = (event: PointerEvent): void => {
+    reportPointer(event, false);
   };
-  const onDown = (event: Event): void => {
-    const pe = event as PointerEvent;
-    reportPointer(pe, pe.button === 0);
+  const onDown = (event: PointerEvent): void => {
+    reportPointer(event, event.button === 0);
   };
   const onLeave = (): void => engine.pointerLeave();
-  const onUp = (event: Event): void => {
-    if ((event as PointerEvent).pointerType !== 'mouse') {
+  const onUp = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse') {
+      onMove(event);
+    } else {
       engine.pointerLeave();
     }
   };
+  const primaryOnly =
+    (handler: (event: PointerEvent) => void) =>
+    (event: Event): void => {
+      const pe = event as PointerEvent;
+      if (pe.isPrimary !== false) {
+        handler(pe);
+      }
+    };
   const target = pointerTarget ?? canvas;
   const passive = { signal, passive: true };
-  target.addEventListener('pointermove', onMove, passive);
-  target.addEventListener('pointerdown', onDown, passive);
-  target.addEventListener('pointerup', onUp, passive);
+  target.addEventListener('pointermove', primaryOnly(onMove), passive);
+  target.addEventListener('pointerdown', primaryOnly(onDown), passive);
+  target.addEventListener('pointerup', primaryOnly(onUp), passive);
   target.addEventListener('pointerleave', onLeave, passive);
   target.addEventListener('pointercancel', onLeave, passive);
+  win.addEventListener('blur', onLeave, { signal });
 
   refresh();
 

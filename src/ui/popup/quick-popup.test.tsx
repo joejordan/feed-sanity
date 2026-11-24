@@ -5,7 +5,13 @@ import { readFilters } from '../../core/filter-types';
 import { Options } from '../../core/options';
 import { SITES_STORAGE_KEY } from '../../core/site-settings';
 import { inMemoryStore } from '../../core/testing';
-import { readThemeConfig, THEME_DATA_KEY } from '../../core/theming';
+import { STUDIO_VIBES } from '../../core/theme-effects';
+import {
+  applyStudioVibe,
+  DEFAULT_THEME_CONFIG,
+  readThemeConfig,
+  THEME_DATA_KEY,
+} from '../../core/theming';
 import { facebookSite } from '../../sites/facebook';
 import { gmailSite } from '../../sites/gmail';
 import { instagramSite } from '../../sites/instagram';
@@ -17,28 +23,45 @@ import { detectActiveMode, SITE_QUICK_CONFIGS } from './starter-modes';
 
 afterEach(cleanup);
 
+function renderXPopup(
+  store: ReturnType<typeof inMemoryStore>,
+  {
+    hiddenCount = 0,
+    onOpenSettings = vi.fn(),
+    onOpenSiteUrl = vi.fn(),
+  }: {
+    readonly hiddenCount?: number;
+    readonly onOpenSettings?: (section?: string) => void;
+    readonly onOpenSiteUrl?: (url: string) => void;
+  } = {},
+) {
+  return render(
+    <QuickPopup
+      store={store}
+      activeTab={{
+        siteId: 'x',
+        displayName: 'X (Twitter)',
+        storagePrefix: 'x/123',
+        enabled: true,
+        hiddenCount,
+      }}
+      onOpenSettings={onOpenSettings}
+      onOpenSiteUrl={onOpenSiteUrl}
+    />,
+  );
+}
+
+async function readSavedXTheme(store: ReturnType<typeof inMemoryStore>) {
+  return readThemeConfig(await store.get(`x/123/${THEME_DATA_KEY}`));
+}
+
 describe('QuickPopup', () => {
   it('applies Starter Modes with Undo, site toggles, X video speed stepper, Quick Theme, Quick Mute, and deep-links', async () => {
     const store = inMemoryStore({
       'x/123/options': { x_hide_sponsored: true, x_hide_suggested: true },
     });
     const onOpenSettings = vi.fn();
-    const onOpenSiteUrl = vi.fn();
-
-    render(
-      <QuickPopup
-        store={store}
-        activeTab={{
-          siteId: 'x',
-          displayName: 'X (Twitter)',
-          storagePrefix: 'x/123',
-          enabled: true,
-          hiddenCount: 7,
-        }}
-        onOpenSettings={onOpenSettings}
-        onOpenSiteUrl={onOpenSiteUrl}
-      />,
-    );
+    renderXPopup(store, { hiddenCount: 7, onOpenSettings });
 
     expect(screen.getByText('X (Twitter)')).toBeTruthy();
     expect(screen.getByText(/7 hidden here/)).toBeTruthy();
@@ -65,8 +88,7 @@ describe('QuickPopup', () => {
     // Quick Theme swatch updates site theme immediately.
     await userEvent.click(screen.getByRole('button', { name: 'Crimson Velvet theme' }));
     await vi.waitFor(async () => {
-      const savedTheme = readThemeConfig(await store.get(`x/123/${THEME_DATA_KEY}`));
-      expect(savedTheme.preset).toBe('crimson-velvet');
+      expect((await readSavedXTheme(store)).preset).toBe('crimson-velvet');
     });
 
     // Quick Mute creates a runnable Simple filter rule.
@@ -78,11 +100,92 @@ describe('QuickPopup', () => {
       expect(filters[0]?.rules?.[0]?.condition?.text).toBe('spoilers');
     });
 
-    // Footer buttons deep-link to Appearance and Filtering.
-    await userEvent.click(screen.getByRole('button', { name: /Audit theme/i }));
+    // Footer buttons deep-link to Appearance (Theme Studio) and Filtering.
+    await userEvent.click(screen.getByRole('button', { name: /Theme Studio/i }));
     expect(onOpenSettings).toHaveBeenCalledWith('Appearance');
     await userEvent.click(screen.getByRole('button', { name: /All X \(Twitter\) settings/i }));
     expect(onOpenSettings).toHaveBeenCalledWith('Filtering');
+  });
+
+  it('shows active Studio Vibe strip with Pause/FX off, clears Studio FX + vibe font on Quick Theme pick with full Undo', async () => {
+    const matrixVibe = STUDIO_VIBES.find((v) => v.id === 'enter-the-matrix')!;
+    const matrixConfig = applyStudioVibe(DEFAULT_THEME_CONFIG, matrixVibe);
+    const store = inMemoryStore({
+      'x/123/options': { x_hide_sponsored: true, x_hide_suggested: true },
+      [`x/123/${THEME_DATA_KEY}`]: matrixConfig,
+    });
+
+    renderXPopup(store);
+
+    await vi.waitFor(() => expect(screen.getByText('Enter the Matrix')).toBeTruthy());
+
+    // Pausing background motion flips effects.paused without losing the vibe.
+    await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await vi.waitFor(async () => {
+      expect((await readSavedXTheme(store)).effects?.paused).toBe(true);
+    });
+
+    // Picking a light Quick Theme clears Studio effects AND resets Enter the Matrix's mono font.
+    await userEvent.click(screen.getByRole('button', { name: 'Warm Paper theme' }));
+    await vi.waitFor(async () => {
+      const saved = await readSavedXTheme(store);
+      expect(saved.preset).toBe('warm-paper');
+      expect(saved.effects).toBeUndefined();
+      expect(saved.font).toBe('default');
+    });
+
+    // Clicking Undo restores the full previous Studio Vibe (including effects and font).
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await vi.waitFor(async () => {
+      const saved = await readSavedXTheme(store);
+      expect(saved.preset).toBe('terminal-phosphor');
+      expect(saved.effects?.backdrop).toBe('digital-rain');
+      expect(saved.font).toBe('mono');
+    });
+
+    // Clicking "FX off" keeps the color palette while clearing effects and vibe-owned font.
+    await userEvent.click(screen.getByRole('button', { name: 'FX off' }));
+    await vi.waitFor(async () => {
+      const saved = await readSavedXTheme(store);
+      expect(saved.preset).toBe('terminal-phosphor');
+      expect(saved.effects).toBeUndefined();
+      expect(saved.font).toBe('default');
+    });
+  });
+
+  it('collapses Starter Modes for customized setups and requires inline confirmation before overwriting custom settings', async () => {
+    const store = inMemoryStore({
+      // Customized X setup: hides Grok & sidebar, does not match Clean/Focus/Minimal.
+      'x/123/options': {
+        x_hide_sponsored: true,
+        x_hide_suggested: false,
+        x_hide_grok: true,
+        x_hide_sidebar: true,
+      },
+    });
+
+    renderXPopup(store);
+
+    // Starter Modes start collapsed behind "Custom · Presets ▾" so custom users aren't exposed to accidental clobbering.
+    const presetsToggle = await screen.findByRole('button', { name: /Custom · Presets/i });
+    expect(screen.queryByRole('button', { name: 'Focus' })).toBeNull();
+
+    // Expanding Presets reveals modes without modifying anything.
+    await userEvent.click(presetsToggle);
+    await userEvent.click(screen.getByRole('button', { name: 'Focus' }));
+
+    // First click only arms confirmation (zero writes yet) and reports changed + hidden setting counts.
+    expect(screen.getByText(/Focus: changes \d+ settings/i)).toBeTruthy();
+    const stillCustom = (await store.get('x/123/options')) as Record<string, unknown>;
+    expect(stillCustom.x_hide_sidebar).toBe(true);
+
+    // Confirming via Apply writes Focus and supports Undo back to custom settings.
+    await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await vi.waitFor(async () => {
+      const saved = (await store.get('x/123/options')) as Record<string, unknown>;
+      expect(saved.x_default_following).toBe(true);
+      expect(saved.x_hide_sidebar).toBe(false);
+    });
   });
 
   it('renders the Supported Sites launcher on unsupported tabs and persists site toggles', async () => {

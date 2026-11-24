@@ -4,6 +4,7 @@ export type UiIconName =
   | 'shield'
   | 'sliders'
   | 'play'
+  | 'pause'
   | 'palette'
   | 'globe'
   | 'database'
@@ -51,6 +52,12 @@ export function UiIcon({ name, size = 15, className }: UiIconProps) {
         </>
       )}
       {name === 'play' && <polygon points="6 4 20 12 6 20 6 4" />}
+      {name === 'pause' && (
+        <>
+          <rect x="6" y="4" width="4" height="16" rx="1" />
+          <rect x="14" y="4" width="4" height="16" rx="1" />
+        </>
+      )}
       {name === 'palette' && (
         <>
           <circle cx="13.5" cy="6.5" r="1" />

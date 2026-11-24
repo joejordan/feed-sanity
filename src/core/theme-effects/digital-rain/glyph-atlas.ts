@@ -50,7 +50,9 @@ function createSurface(
   if (typeof OffscreenCanvas === 'function') {
     const surface = new OffscreenCanvas(width, height);
     const context = surface.getContext('2d');
-    return context ? [surface, context] : null;
+    if (context) {
+      return [surface, context];
+    }
   }
   const surface = doc.createElement('canvas');
   surface.width = width;

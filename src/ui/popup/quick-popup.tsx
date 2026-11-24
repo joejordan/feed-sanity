@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { OptionValue } from '../../core/options';
 import type { PopupTabState } from '../../core/platform';
 import type { SiteSettingsClient, SiteStatus } from '../../core/site-settings';
@@ -13,7 +13,14 @@ import { createLogger } from '../../core/log';
 import { createSiteSettings } from '../../core/site-settings';
 import { isRecord, readStoreMany, watchStoreKey } from '../../core/storage';
 import {
+  BACKDROP_OPTIONS,
+  hasActiveEffects,
+  readThemeEffectsConfig,
+} from '../../core/theme-effects';
+import {
   applyThemePreset,
+  clearThemeEffects,
+  findActiveStudioVibe,
   findThemePreset,
   readThemeConfig,
   THEME_DATA_KEY,
@@ -39,13 +46,15 @@ import {
 } from '../primitives';
 import {
   detectActiveMode,
+  diffStarterMode,
   getSiteQuickConfig,
+  isCustomizedSetup,
   QUICK_THEME_PRESET_IDS,
   SITE_QUICK_CONFIGS,
 } from './starter-modes';
 
 const log = createLogger('quick-popup');
-const TOAST_MS = 3500;
+const TOAST_MS = 4500;
 const SPEED_STEP = 0.05;
 
 const QUICK_THEMES = QUICK_THEME_PRESET_IDS.flatMap((id) => {
@@ -139,11 +148,18 @@ export function QuickPopup({
   const [optionsMap, setOptionsMap] = useState<Record<string, OptionValue>>({});
   const [theme, setTheme] = useState<ThemeConfig>(() => readThemeConfig(undefined));
   const [videoSpeed, setVideoSpeed] = useState<SavedVideoSpeed>(() => ({ ...DEFAULT_VIDEO_SPEED }));
+  const [presetsOpen, setPresetsOpen] = useState(true);
+  const [pendingMode, setPendingMode] = useState<StarterModeId | null>(null);
   const { toast, notify } = useToast(TOAST_MS);
   const onThemeChangeRef = useRef(onThemeChange);
   onThemeChangeRef.current = onThemeChange;
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const mutationSeqRef = useRef(0);
+
+  const syncTheme = useCallback((next: ThemeConfig): void => {
+    setTheme(next);
+    onThemeChangeRef.current?.(next);
+  }, []);
 
   const enqueueWrite = (task: () => Promise<void>): void => {
     mutationSeqRef.current++;
@@ -198,16 +214,22 @@ export function QuickPopup({
     let alive = true;
     const loadSeq = mutationSeqRef.current;
     const keys = speedKey ? [optionsKey, themeKey, speedKey] : [optionsKey, themeKey];
+    setPendingMode(null);
 
     void readStoreMany(store, keys)
       .then((loaded) => {
         if (!alive || mutationSeqRef.current !== loadSeq) {
           return;
         }
-        setOptionsMap(readOptionMap(loaded[optionsKey]));
+        const loadedOptions = readOptionMap(loaded[optionsKey]);
+        setOptionsMap(loadedOptions);
+        if (siteConfig) {
+          setPresetsOpen(
+            !isCustomizedSetup(siteConfig.modes, loadedOptions, siteConfig.modeDefaults),
+          );
+        }
         const nextTheme = readThemeConfig(loaded[themeKey]);
-        setTheme(nextTheme);
-        onThemeChangeRef.current?.(nextTheme);
+        syncTheme(nextTheme);
         if (speedKey) {
           setVideoSpeed(readSavedVideoSpeed(loaded[speedKey]));
         }
@@ -224,9 +246,7 @@ export function QuickPopup({
       watchStoreKey(store, themeKey, (next) => {
         if (alive) {
           mutationSeqRef.current++;
-          const parsed = readThemeConfig(next);
-          setTheme(parsed);
-          onThemeChangeRef.current?.(parsed);
+          syncTheme(readThemeConfig(next));
         }
       }),
       ...(speedKey
@@ -247,7 +267,12 @@ export function QuickPopup({
         unsub();
       }
     };
-  }, [optionsKey, themeKey, speedKey, store]);
+  }, [optionsKey, themeKey, speedKey, siteConfig, store, syncTheme]);
+
+  const visibleToggleKeys = useMemo(
+    () => new Set(siteConfig?.toggles.map((t) => t.key) ?? []),
+    [siteConfig],
+  );
 
   const setSiteEnabled = (siteId: string, enabled: boolean): void => {
     const client = siteSettingsRef.current;
@@ -332,6 +357,12 @@ export function QuickPopup({
   const siteEnabled = sites.find((s) => s.id === activeTab.siteId)?.enabled ?? activeTab.enabled;
   const activeMode = detectActiveMode(siteConfig.modes, optionsMap, siteConfig.modeDefaults);
   const activeModeSpec = siteConfig.modes.find((m) => m.id === activeMode);
+  const isCustomized = isCustomizedSetup(siteConfig.modes, optionsMap, siteConfig.modeDefaults);
+  const pendingModeSpec =
+    isCustomized && pendingMode ? siteConfig.modes.find((m) => m.id === pendingMode) : undefined;
+  const pendingDiff = pendingModeSpec
+    ? diffStarterMode(pendingModeSpec, optionsMap, siteConfig.modeDefaults, visibleToggleKeys)
+    : null;
 
   const patchOptions = (
     patch: Readonly<Record<string, OptionValue>>,
@@ -377,49 +408,73 @@ export function QuickPopup({
   const applyStarterMode = (modeId: StarterModeId): void => {
     const mode = siteConfig.modes.find((m) => m.id === modeId);
     if (mode) {
+      setPendingMode(null);
       patchOptions({ ...siteConfig.modeDefaults, ...mode.patch }, `${mode.label} mode applied`);
     }
   };
 
-  const applyQuickTheme = (preset: string): void => {
+  const handleModeSelect = (modeId: StarterModeId): void => {
+    if (!isCustomized || pendingMode === modeId) {
+      applyStarterMode(modeId);
+      return;
+    }
+    setPendingMode(modeId);
+  };
+
+  const updateThemeConfig = (
+    transform: (current: ThemeConfig) => ThemeConfig,
+    toastLabel: string,
+  ): void => {
     if (!themeKey) {
       return;
     }
     const key = themeKey;
-    let previousColors = {
-      preset: theme.preset,
-      accent: theme.accent,
-      background: theme.background,
-      surface: theme.surface,
-      text: theme.text,
-    };
-    const optimistic = applyThemePreset(theme, preset);
-    setTheme(optimistic);
-    onThemeChangeRef.current?.(optimistic);
+    let previous: ThemeConfig = theme;
+    syncTheme(transform(theme));
     enqueueWrite(async () => {
       const latest = readThemeConfig(await store.get(key));
-      previousColors = {
-        preset: latest.preset,
-        accent: latest.accent,
-        background: latest.background,
-        surface: latest.surface,
-        text: latest.text,
-      };
-      const next = applyThemePreset(latest, preset);
+      previous = latest;
+      const next = transform(latest);
       await store.set(key, next);
-      setTheme(next);
-      onThemeChangeRef.current?.(next);
+      syncTheme(next);
     });
-    const label = preset === 'default' ? 'Site Default' : (findThemePreset(preset)?.name ?? preset);
-    notify(`Theme: ${label}`, () => {
+    notify(toastLabel, () => {
       enqueueWrite(async () => {
-        const latest = readThemeConfig(await store.get(key));
-        const restored: ThemeConfig = { ...latest, ...previousColors };
-        await store.set(key, restored);
-        setTheme(restored);
-        onThemeChangeRef.current?.(restored);
+        await store.set(key, previous);
+        syncTheme(previous);
       });
     });
+  };
+
+  const applyQuickTheme = (preset: string): void => {
+    const hadEffects = hasActiveEffects(theme.effects);
+    const label = preset === 'default' ? 'Site Default' : (findThemePreset(preset)?.name ?? preset);
+    const suffix = hadEffects ? ' (FX cleared)' : '';
+    updateThemeConfig((current) => applyThemePreset(current, preset), `Theme: ${label}${suffix}`);
+  };
+
+  const toggleBackdropMotion = (): void => {
+    if (!hasActiveEffects(theme.effects)) {
+      return;
+    }
+    const nextPaused = !readThemeEffectsConfig(theme.effects).paused;
+    updateThemeConfig(
+      (current) => {
+        if (!hasActiveEffects(current.effects)) {
+          return current;
+        }
+        const parsed = readThemeEffectsConfig(current.effects);
+        return { ...current, effects: { ...parsed, paused: nextPaused } };
+      },
+      nextPaused ? 'Background motion paused' : 'Background motion resumed',
+    );
+  };
+
+  const clearStudioEffects = (): void => {
+    if (!hasActiveEffects(theme.effects)) {
+      return;
+    }
+    updateThemeConfig((current) => clearThemeEffects(current), 'Studio effects off');
   };
 
   const stepVideoSpeed = (delta: number): void => {
@@ -491,6 +546,67 @@ export function QuickPopup({
     theme.preset && theme.preset !== 'default'
       ? (findThemePreset(theme.preset)?.name ?? 'Custom')
       : 'Site Default';
+  const effectsActive = hasActiveEffects(theme.effects);
+  const activeVibe = findActiveStudioVibe(theme);
+  const activeEffects = effectsActive ? readThemeEffectsConfig(theme.effects) : null;
+  const activeBackdrop =
+    activeEffects && activeEffects.backdrop !== 'none'
+      ? BACKDROP_OPTIONS.find((opt) => opt.id === activeEffects.backdrop)
+      : undefined;
+  let themeBadgeLabel = activeThemeName;
+  if (activeVibe) {
+    themeBadgeLabel = activeVibe.name;
+  } else if (effectsActive) {
+    themeBadgeLabel = `${activeThemeName} · FX`;
+  }
+
+  let idleModeHint = `Pick a starter mode for ${activeTab.displayName}`;
+  if (activeModeSpec) {
+    idleModeHint = activeModeSpec.summary;
+  } else if (isCustomized) {
+    idleModeHint = 'Custom settings · Pick a preset to apply';
+  }
+  let modeHintContent = <span className="qp-mode-hint-text">{idleModeHint}</span>;
+  if (pendingModeSpec && pendingDiff) {
+    const noun = pendingDiff.totalChanges === 1 ? 'setting' : 'settings';
+    const hiddenNote =
+      pendingDiff.hiddenChanges > 0 ? ` (${pendingDiff.hiddenChanges} hidden)` : '';
+    modeHintContent = (
+      <>
+        <span className="qp-mode-hint-text">
+          {pendingModeSpec.label}: changes {pendingDiff.totalChanges} {noun}
+          {hiddenNote}
+        </span>
+        <span className="qp-mode-confirm-actions">
+          <button
+            type="button"
+            className="qp-link-btn accent"
+            onClick={() => applyStarterMode(pendingModeSpec.id)}
+          >
+            Apply
+          </button>
+          <button type="button" className="qp-link-btn" onClick={() => setPendingMode(null)}>
+            Cancel
+          </button>
+        </span>
+      </>
+    );
+  }
+
+  const presetsToggleButton =
+    isCustomized || !presetsOpen ? (
+      <button
+        type="button"
+        className="qp-presets-btn"
+        aria-expanded={presetsOpen}
+        onClick={() => {
+          setPresetsOpen((open) => !open);
+          setPendingMode(null);
+        }}
+      >
+        {presetsOpen ? 'Presets ▴' : 'Custom · Presets ▾'}
+      </button>
+    ) : undefined;
 
   let statusText = 'Paused on this site';
   if (siteEnabled) {
@@ -547,22 +663,27 @@ export function QuickPopup({
           </div>
         )}
 
-        <div>
-          <div className="fs-kicker-row">
-            <h4 className="fs-kicker">Mode</h4>
-            {activeMode === null && <Badge>Custom</Badge>}
+        {presetsOpen && (
+          <div className="qp-mode-wrap" data-custom={isCustomized ? 'true' : undefined}>
+            <div className="fs-kicker-row">
+              <h4 className="fs-kicker">Mode</h4>
+              {isCustomized && <Badge tone="accent">Custom</Badge>}
+            </div>
+            <SegmentedControl
+              ariaLabel={`${activeTab.displayName} starter mode`}
+              fullWidth
+              value={activeMode}
+              armedValue={pendingModeSpec?.id ?? null}
+              options={siteConfig.modes.map((m) => ({ value: m.id, label: m.label }))}
+              onChange={handleModeSelect}
+            />
+            <div className="qp-mode-hint" role={pendingModeSpec ? 'status' : undefined}>
+              {modeHintContent}
+            </div>
           </div>
-          <SegmentedControl
-            ariaLabel={`${activeTab.displayName} starter mode`}
-            fullWidth
-            value={activeMode}
-            options={siteConfig.modes.map((m) => ({ value: m.id, label: m.label }))}
-            onChange={applyStarterMode}
-          />
-          {activeModeSpec && <p className="qp-mode-hint">{activeModeSpec.summary}</p>}
-        </div>
+        )}
 
-        <SettingCard title="Quick Controls">
+        <SettingCard title="Quick Controls" action={presetsToggleButton}>
           {siteConfig.toggles.map((toggle) => {
             const checked =
               typeof optionsMap[toggle.key] === 'boolean'
@@ -573,7 +694,10 @@ export function QuickPopup({
                 <Switch
                   checked={checked}
                   ariaLabel={toggle.label}
-                  onChange={(next) => patchOptions({ [toggle.key]: next })}
+                  onChange={(next) => {
+                    setPendingMode(null);
+                    patchOptions({ [toggle.key]: next });
+                  }}
                 />
               </SettingRow>
             );
@@ -610,14 +734,57 @@ export function QuickPopup({
           )}
         </SettingCard>
 
-        <SettingCard title="Quick Theme" action={<Badge>{activeThemeName}</Badge>}>
+        <SettingCard
+          title="Theme"
+          action={<Badge tone={effectsActive ? 'accent' : 'neutral'}>{themeBadgeLabel}</Badge>}
+        >
+          {activeEffects && (
+            <div className="qp-studio-bar">
+              <span className="qp-studio-info">
+                <span
+                  className="qp-studio-dot"
+                  aria-hidden="true"
+                  style={{
+                    background:
+                      activeVibe?.swatch ??
+                      activeBackdrop?.preview ??
+                      'linear-gradient(135deg, var(--fs-accent), var(--fs-card-bg))',
+                  }}
+                />
+                <span className="qp-studio-label">
+                  {activeEffects.paused ? 'Motion paused' : (activeBackdrop?.name ?? 'Studio FX')}
+                </span>
+              </span>
+              <span className="qp-studio-actions">
+                {activeEffects.backdrop !== 'none' && (
+                  <button
+                    type="button"
+                    className="qp-mini-btn"
+                    aria-pressed={activeEffects.paused}
+                    onClick={toggleBackdropMotion}
+                  >
+                    <UiIcon name={activeEffects.paused ? 'play' : 'pause'} size={10} />
+                    {activeEffects.paused ? 'Play' : 'Pause'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="qp-mini-btn"
+                  title="Turn off Studio effects and keep color palette"
+                  onClick={clearStudioEffects}
+                >
+                  FX off
+                </button>
+              </span>
+            </div>
+          )}
           <div className="qp-swatches" role="group" aria-label="Quick theme presets">
             <button
               type="button"
               className="qp-swatch-btn"
               title="Site Default"
               aria-label="Site Default theme"
-              aria-pressed={!theme.preset || theme.preset === 'default'}
+              aria-pressed={!effectsActive && (!theme.preset || theme.preset === 'default')}
               onClick={() => applyQuickTheme('default')}
             >
               <span className="qp-swatch-fill qp-swatch-default" aria-hidden="true" />
@@ -629,7 +796,7 @@ export function QuickPopup({
                 className="qp-swatch-btn"
                 title={preset.name}
                 aria-label={`${preset.name} theme`}
-                aria-pressed={theme.preset === preset.id}
+                aria-pressed={!effectsActive && theme.preset === preset.id}
                 onClick={() => applyQuickTheme(preset.id)}
               >
                 <span
@@ -659,13 +826,17 @@ export function QuickPopup({
       )}
 
       <footer className="qp-footer">
-        <button type="button" className="qp-btn" onClick={() => onOpenSettings('Appearance')}>
+        <button
+          type="button"
+          className="qp-btn qp-btn-ghost"
+          onClick={() => onOpenSettings('Appearance')}
+        >
           <UiIcon name="sparkles" size={13} />
-          Audit theme
+          Theme Studio
         </button>
         <button
           type="button"
-          className="qp-btn primary"
+          className="qp-btn primary qp-btn-grow"
           onClick={() => onOpenSettings(siteConfig.filterSection)}
         >
           All {activeTab.displayName} settings →

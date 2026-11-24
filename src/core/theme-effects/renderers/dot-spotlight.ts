@@ -116,7 +116,8 @@ const createDotSpotlightCanvas: SceneFactory = (canvas) => {
 
   const scene: Scene = {
     kind: 'canvas2d',
-    maxPixelRatio: 2,
+    maxPixelRatio: 1.5,
+    maxPixels: 1_500_000,
     render({ palette, view, pointer }) {
       const { width, height, pixelRatio } = view;
       const ratioKey = `${palette.key}|${pixelRatio.toFixed(3)}`;
@@ -185,7 +186,7 @@ function dotSpotlightCss(palette: ScenePalette): string {
 export const DOT_SPOTLIGHT_SCENE: SceneSpec = {
   factories: [createDotSpotlightCanvas],
   cssFallback: dotSpotlightCss,
-  fps: 60,
+  fps: 30,
   onDemand: true,
   pointerRate: 9,
 };

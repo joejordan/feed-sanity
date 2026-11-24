@@ -2,6 +2,7 @@ import type {
   BackdropEffectId,
   ClickEffectId,
   RainCharsetName,
+  RainIntro,
   RainLookName,
   StudioVibe,
   SurfaceFinishId,
@@ -10,13 +11,54 @@ import type {
 import {
   BACKDROP_OPTIONS,
   CLICK_EFFECT_OPTIONS,
-  DEFAULT_THEME_EFFECTS,
   RAIN_CHARSET_NAMES,
+  RAIN_INTRO_NAMES,
   RAIN_LOOK_NAMES,
   STUDIO_VIBES,
   SURFACE_FINISH_OPTIONS,
 } from '../../core/theme-effects';
 import { Badge, SegmentedControl, SettingCard, SettingRow, Switch } from '../primitives';
+
+const RAIN_INTRO_LABELS: Record<RainIntro, string> = {
+  filled: 'Already falling',
+  'rain-in': 'Rain in from top',
+};
+
+const BACKDROP_NAMES = new Map(BACKDROP_OPTIONS.map((opt) => [opt.id, opt.name]));
+
+function RainSelect<T extends string>({
+  label,
+  ariaLabel,
+  value,
+  options,
+  labels,
+  onChange,
+}: {
+  readonly label: string;
+  readonly ariaLabel: string;
+  readonly value: T;
+  readonly options: readonly T[];
+  readonly labels: Readonly<Record<T, string>>;
+  readonly onChange: (next: T) => void;
+}) {
+  return (
+    <label className="theme-color-row">
+      <span>{label}</span>
+      <select
+        className="field"
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value as T)}
+      >
+        {options.map((name) => (
+          <option key={name} value={name}>
+            {labels[name]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 const RAIN_LOOK_LABELS: Record<RainLookName, string> = {
   theme: 'Match active theme',
@@ -40,41 +82,48 @@ const RAIN_CHARSET_LABELS: Record<RainCharsetName, string> = {
 };
 
 export interface StudioVibesCardProps {
-  readonly isVibeActive: (vibe: StudioVibe) => boolean;
+  readonly activeVibe: StudioVibe | undefined;
   readonly onApplyVibe: (vibe: StudioVibe) => void;
 }
 
-export function StudioVibesCard({ isVibeActive, onApplyVibe }: StudioVibesCardProps) {
+export function StudioVibesCard({ activeVibe, onApplyVibe }: StudioVibesCardProps) {
   return (
     <SettingCard
       title="Studio Vibes"
-      action={<Badge tone="accent">Live preview · Reversible</Badge>}
+      action={activeVibe ? <Badge tone="accent">{activeVibe.name}</Badge> : undefined}
     >
       <div className="theme-studio-pad">
         <p className="theme-studio-intro">
-          Transform this site in one click — every vibe pairs a high-contrast palette with live
-          backgrounds, surface finishes, and click effects you can remix below.
+          Full-scene looks pairing curated palettes with live backgrounds, surface finishes, and
+          click effects.
         </p>
         <div className="theme-vibe-grid" role="group" aria-label="Studio vibes">
-          {STUDIO_VIBES.map((vibe) => (
-            <button
-              key={vibe.id}
-              type="button"
-              className="theme-vibe-card"
-              aria-pressed={isVibeActive(vibe)}
-              onClick={() => onApplyVibe(vibe)}
-            >
-              <span
-                className="theme-vibe-banner"
-                aria-hidden="true"
-                style={{ background: vibe.swatch }}
-              />
-              <span className="theme-vibe-body">
-                <span className="theme-card-name">{vibe.name}</span>
-                <span className="theme-card-desc">{vibe.tagline}</span>
-              </span>
-            </button>
-          ))}
+          {STUDIO_VIBES.map((vibe) => {
+            const backdropName = vibe.effects.backdrop
+              ? BACKDROP_NAMES.get(vibe.effects.backdrop)
+              : undefined;
+            return (
+              <button
+                key={vibe.id}
+                type="button"
+                className="theme-vibe-card"
+                aria-pressed={activeVibe?.id === vibe.id}
+                onClick={() => onApplyVibe(vibe)}
+              >
+                <span
+                  className="theme-vibe-banner"
+                  aria-hidden="true"
+                  style={{ background: vibe.swatch }}
+                >
+                  {backdropName && <span className="theme-vibe-tag">{backdropName}</span>}
+                </span>
+                <span className="theme-vibe-body">
+                  <span className="theme-card-name">{vibe.name}</span>
+                  <span className="theme-card-desc">{vibe.tagline}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </SettingCard>
@@ -85,28 +134,24 @@ export interface CreativeStudioCardProps {
   readonly effects: ThemeEffectsConfig;
   readonly effectsActive: boolean;
   readonly onUpdateEffects: (patch: Partial<ThemeEffectsConfig>, toastLabel?: string) => void;
+  readonly onResetEffects: () => void;
 }
 
 export function CreativeStudioCard({
   effects,
   effectsActive,
   onUpdateEffects,
+  onResetEffects,
 }: CreativeStudioCardProps) {
   return (
     <SettingCard
-      title="Creative Studio"
+      title="Customize Effects"
       action={
         effectsActive ? (
-          <button
-            type="button"
-            className="theme-inline-reset"
-            onClick={() => onUpdateEffects({ ...DEFAULT_THEME_EFFECTS }, 'Cleared studio effects')}
-          >
+          <button type="button" className="theme-inline-reset" onClick={onResetEffects}>
             Reset effects
           </button>
-        ) : (
-          <Badge>Contrast-safe</Badge>
-        )
+        ) : undefined
       }
     >
       <div className="theme-studio-pad">
@@ -146,40 +191,30 @@ export function CreativeStudioCard({
         {effects.backdrop === 'digital-rain' && (
           <div className="theme-tuner-box" role="group" aria-label="Matrix Rain settings">
             <div className="theme-tuner-grid">
-              <label className="theme-color-row">
-                <span>Rain style</span>
-                <select
-                  className="field"
-                  aria-label="Rain style"
-                  value={effects.rainLook}
-                  onChange={(event) =>
-                    onUpdateEffects({ rainLook: event.currentTarget.value as RainLookName })
-                  }
-                >
-                  {RAIN_LOOK_NAMES.map((name) => (
-                    <option key={name} value={name}>
-                      {RAIN_LOOK_LABELS[name]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="theme-color-row">
-                <span>Glyph charset</span>
-                <select
-                  className="field"
-                  aria-label="Glyph charset"
-                  value={effects.rainCharset}
-                  onChange={(event) =>
-                    onUpdateEffects({ rainCharset: event.currentTarget.value as RainCharsetName })
-                  }
-                >
-                  {RAIN_CHARSET_NAMES.map((name) => (
-                    <option key={name} value={name}>
-                      {RAIN_CHARSET_LABELS[name]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <RainSelect
+                label="Rain style"
+                ariaLabel="Rain style"
+                value={effects.rainLook}
+                options={RAIN_LOOK_NAMES}
+                labels={RAIN_LOOK_LABELS}
+                onChange={(rainLook) => onUpdateEffects({ rainLook })}
+              />
+              <RainSelect
+                label="Glyph charset"
+                ariaLabel="Glyph charset"
+                value={effects.rainCharset}
+                options={RAIN_CHARSET_NAMES}
+                labels={RAIN_CHARSET_LABELS}
+                onChange={(rainCharset) => onUpdateEffects({ rainCharset })}
+              />
+              <RainSelect
+                label="Intro"
+                ariaLabel="Rain intro"
+                value={effects.rainIntro}
+                options={RAIN_INTRO_NAMES}
+                labels={RAIN_INTRO_LABELS}
+                onChange={(rainIntro) => onUpdateEffects({ rainIntro })}
+              />
             </div>
             <label className="theme-slider-row">
               <span className="theme-slider-meta">

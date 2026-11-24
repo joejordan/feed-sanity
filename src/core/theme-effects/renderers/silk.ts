@@ -45,9 +45,9 @@ uniform float uLight;
 ${GLSL_NOISE}
 
 // Long sinuous ridges running along y: the cloth's folds, gently swaying.
-float drape(vec2 p, float t) {
-  float warp = 0.5 * sin(p.y * 1.25 + t * 0.5) + 0.26 * sin(p.y * 2.6 - t * 0.33 + p.x * 0.7);
-  warp += 0.08 * snoise(vec2(p.x * 0.6, p.y * 0.5 - t * 0.08));
+// Low-frequency simplex warp is sampled once per fragment and reused for normals.
+float drape(vec2 p, float t, float noiseWarp) {
+  float warp = 0.5 * sin(p.y * 1.25 + t * 0.5) + 0.26 * sin(p.y * 2.6 - t * 0.33 + p.x * 0.7) + noiseWarp;
   float x = p.x + warp;
   float h = 0.62 * sin(x * 5.2 + t * 0.28);
   h += 0.27 * sin(x * 9.1 - p.y * 0.7 - t * 0.21 + 1.3);
@@ -62,10 +62,11 @@ void main() {
   p = mat2(cos(a), -sin(a), sin(a), cos(a)) * p * 1.35;
   float t = uTime * 0.55;
 
+  float noiseWarp = 0.08 * snoise(vec2(p.x * 0.6, p.y * 0.5 - t * 0.08));
   float eps = 0.012;
-  float h = drape(p, t);
-  float hx = drape(p + vec2(eps, 0.0), t);
-  float hy = drape(p + vec2(0.0, eps), t);
+  float h = drape(p, t, noiseWarp);
+  float hx = drape(p + vec2(eps, 0.0), t, noiseWarp);
+  float hy = drape(p + vec2(0.0, eps), t, noiseWarp);
   vec3 n = normalize(vec3(-(hx - h) / eps * 0.085, -(hy - h) / eps * 0.085, 1.0));
 
   vec3 L = normalize(vec3(-0.42, 0.58, 0.7));
@@ -92,8 +93,8 @@ void main() {
 const createSilkShader: SceneFactory = createShaderScene({
   fragment: SILK_FRAGMENT,
   uniforms: ['uShadow', 'uBase', 'uSheen', 'uGlint', 'uLight'],
-  // Cheap sine-only field: render sharper than the noise shaders.
-  renderScale: 0.75,
+  renderScale: 0.45,
+  maxPixels: 450_000,
   bindPalette(gl, u, palette) {
     const colors = silkColors(palette);
     gl.uniform3fv(u.uShadow, rgbUnit(colors.shadow));
@@ -105,7 +106,9 @@ const createSilkShader: SceneFactory = createShaderScene({
 });
 
 const DRAPES = 7;
-const DRAPE_SAMPLES = 28;
+const DRAPE_SAMPLES = 20;
+const DRAPE_COS = Math.cos(-0.55);
+const DRAPE_SIN = Math.sin(-0.55);
 
 function drapeAmplitude(h: number, i: number): number {
   return h * (0.05 + 0.02 * Math.sin(i * 1.7));
@@ -122,10 +125,12 @@ const createSilkCanvas: SceneFactory = (canvas) => {
   let folds: CanvasGradient[] = [];
   const scene: Scene = {
     kind: 'canvas2d',
-    renderScale: 0.35,
+    renderScale: 0.3,
+    maxPixels: 360_000,
     render({ palette, view, time }) {
       const w = view.cssWidth;
       const h = view.cssHeight;
+      const pr = view.pixelRatio;
       const span = Math.hypot(w, h);
       const key = `${palette.key}|${w}|${h}`;
       if (key !== cacheKey || !ground) {
@@ -150,14 +155,19 @@ const createSilkCanvas: SceneFactory = (canvas) => {
           return fold;
         });
       }
-      c.setTransform(view.pixelRatio, 0, 0, view.pixelRatio, 0, 0);
+      c.setTransform(pr, 0, 0, pr, 0, 0);
       c.fillStyle = ground;
       c.fillRect(0, 0, w, h);
 
       // Diagonal drapes: each fold is a sinuous band with a lit crest and shaded trough.
-      c.save();
-      c.translate(w / 2, h / 2);
-      c.rotate(-0.55);
+      c.setTransform(
+        DRAPE_COS * pr,
+        DRAPE_SIN * pr,
+        -DRAPE_SIN * pr,
+        DRAPE_COS * pr,
+        (w / 2) * pr,
+        (h / 2) * pr,
+      );
       const t = time * 0.5;
       for (let i = 0; i < DRAPES; i++) {
         const offset = ((i + 0.5) / DRAPES - 0.5) * span * 0.95;
@@ -181,7 +191,6 @@ const createSilkCanvas: SceneFactory = (canvas) => {
         c.fillStyle = folds[i] ?? ground;
         c.fill();
       }
-      c.restore();
       c.setTransform(1, 0, 0, 1, 0, 0);
     },
   };
@@ -196,6 +205,6 @@ function silkCss(palette: ScenePalette): string {
 export const SILK_SCENE: SceneSpec = {
   factories: [createSilkShader, createSilkCanvas],
   cssFallback: silkCss,
-  fps: 30,
+  fps: 20,
   startTime: 6,
 };

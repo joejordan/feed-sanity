@@ -337,9 +337,41 @@ function findNativeSpeedValueElements(rowEl: Element): Element[] {
   return [...result];
 }
 
+function dispatchSyntheticClick(target: EventTarget, shouldContinue?: () => boolean): void {
+  const init = {
+    button: 0,
+    buttons: 1,
+    clientX: 0,
+    clientY: 0,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+  };
+  const steps: ReadonlyArray<() => Event> = [
+    ...(typeof PointerEvent === 'function'
+      ? [
+          () => new PointerEvent('pointerdown', { ...init, isPrimary: true }),
+          () => new PointerEvent('pointerup', { ...init, buttons: 0, isPrimary: true }),
+        ]
+      : []),
+    () => new MouseEvent('mousedown', init),
+    () => new MouseEvent('mouseup', { ...init, buttons: 0 }),
+    // Keep `detail: 0` (matching scripted `.click()`) so `click-fx.ts` ignores it.
+    () => new MouseEvent('click', { ...init, buttons: 0, detail: 0 }),
+  ];
+  for (const createEvent of steps) {
+    if (shouldContinue && !shouldContinue()) {
+      return;
+    }
+    target.dispatchEvent(createEvent());
+  }
+}
+
 /**
  * Dismisses X's Playback speed submenu cleanly after the user confirms a custom
  * speed, matching the behavior of clicking one of X's native radio options.
+ * Each fallback yields a macrotask so React 18 finishes committing any unmount
+ * before deciding whether the next fallback is needed.
  */
 function dismissSpeedMenu(menuContainer: Element, host: HTMLElement, doc: Document): void {
   const escInit: KeyboardEventInit = {
@@ -354,28 +386,87 @@ function dismissSpeedMenu(menuContainer: Element, host: HTMLElement, doc: Docume
   const escTarget = menuContainer.isConnected ? menuContainer : doc;
   escTarget.dispatchEvent(new KeyboardEvent('keydown', escInit));
 
-  // Defer fallback past React's commit so we only click the layer's own mask if Escape
-  // did not dismiss the submenu.
-  setTimeout(() => {
-    if (!host.isConnected) {
-      return;
-    }
-    const layer = host.closest('#layers > *') ?? menuContainer.closest('#layers > *');
-    const mask = layer?.querySelector<HTMLElement>('[data-testid="mask"]');
+  const isStillOpen = (): boolean => host.isConnected;
+  const layer = host.closest('#layers > *') ?? menuContainer.closest('#layers > *');
+  const inDialogLayer = Boolean(layer?.querySelector('[role="dialog"]'));
+  const player = menuContainer.closest(
+    '[data-testid="videoPlayer"], [data-testid="videoComponent"]',
+  );
+  const findSettingsButton = (): HTMLElement | null => {
+    const btn =
+      player?.querySelector<HTMLElement>(
+        'button[aria-label*="Settings" i], [role="button"][aria-label*="Settings" i]',
+      ) ??
+      doc.querySelector<HTMLElement>(
+        'button[aria-label*="Settings" i][aria-expanded="true"], [role="button"][aria-label*="Settings" i][aria-expanded="true"]',
+      );
+    return btn && !btn.closest(OWN_ATTR_SELECTOR) ? btn : null;
+  };
+
+  const fallbacks: Array<() => boolean> = [];
+  if (layer && !inDialogLayer) {
+    const mask = layer.querySelector<HTMLElement>('[data-testid="mask"]');
     if (mask) {
-      mask.click();
-      return;
+      fallbacks.push(() => {
+        dispatchSyntheticClick(mask, isStillOpen);
+        return true;
+      });
     }
-    const player = menuContainer.closest(
-      '[data-testid="videoPlayer"], [data-testid="videoComponent"]',
-    );
-    const settingsBtn = player?.querySelector<HTMLElement>(
-      'button[aria-label*="Settings" i], [role="button"][aria-label*="Settings" i]',
-    );
-    if (settingsBtn && !settingsBtn.closest(`[${OWN_ATTR}]`)) {
-      settingsBtn.click();
-    }
-  }, 0);
+  }
+  if (player) {
+    fallbacks.push(() => {
+      const btn = findSettingsButton();
+      if (!btn) {
+        return false;
+      }
+      btn.click();
+      return true;
+    });
+  }
+  if (!inDialogLayer && doc.body && !menuContainer.contains(doc.body)) {
+    fallbacks.push(() => {
+      dispatchSyntheticClick(doc.body, isStillOpen);
+      return true;
+    });
+  }
+  if (!player) {
+    fallbacks.push(() => {
+      const btn = findSettingsButton();
+      if (!btn) {
+        return false;
+      }
+      btn.click();
+      return true;
+    });
+  }
+
+  const runFallback = (index: number): void => {
+    setTimeout(() => {
+      if (!isStillOpen() || index >= fallbacks.length) {
+        return;
+      }
+      const fired = fallbacks[index]?.() ?? false;
+      if (index + 1 < fallbacks.length && isStillOpen()) {
+        if (fired) {
+          runFallback(index + 1);
+        } else {
+          // Skipped unavailable fallback immediately without waiting an extra tick.
+          for (let next = index + 1; next < fallbacks.length; next++) {
+            if (!isStillOpen()) {
+              return;
+            }
+            if (fallbacks[next]?.()) {
+              if (next + 1 < fallbacks.length) {
+                runFallback(next + 1);
+              }
+              return;
+            }
+          }
+        }
+      }
+    }, 0);
+  };
+  runFallback(0);
 }
 
 /**

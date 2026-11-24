@@ -141,6 +141,8 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
       names.map((name) => [name, gl.getUniformLocation(linked, name)]),
     ) as UniformMap<U | BuiltinUniform>;
     let boundPalette: ScenePalette | null = null;
+    let boundWidth = 0;
+    let boundHeight = 0;
     let lost = false;
     const onContextLost = (): void => {
       lost = true;
@@ -148,13 +150,22 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
     };
     canvas.addEventListener('webglcontextlost', onContextLost);
 
+    const syncResolution = (width: number, height: number): void => {
+      if (width !== boundWidth || height !== boundHeight) {
+        boundWidth = width;
+        boundHeight = height;
+        gl.uniform2f(uniforms.uResolution, width, height);
+      }
+    };
+
     const scene: Scene = {
       kind: 'webgl',
-      renderScale: spec.renderScale ?? 0.5,
-      maxPixels: spec.maxPixels ?? 1_200_000,
+      renderScale: spec.renderScale ?? 0.45,
+      maxPixels: spec.maxPixels ?? 640_000,
       resize(view) {
         if (!lost) {
           gl.viewport(0, 0, view.width, view.height);
+          syncResolution(view.width, view.height);
         }
       },
       render(frame) {
@@ -165,7 +176,7 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
           boundPalette = frame.palette;
           spec.bindPalette(gl, uniforms, frame.palette);
         }
-        gl.uniform2f(uniforms.uResolution, frame.view.width, frame.view.height);
+        syncResolution(frame.view.width, frame.view.height);
         gl.uniform1f(uniforms.uTime, frame.time);
         gl.uniform3f(
           uniforms.uPointer,
