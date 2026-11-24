@@ -3,7 +3,12 @@ import type { OptionValue } from '../../core/options';
 import type { PopupTabState } from '../../core/platform';
 import type { SiteSettingsClient, SiteStatus } from '../../core/site-settings';
 import type { Store } from '../../core/storage';
-import type { ThemeDocumentV1 } from '../../core/theming';
+import type { ThemeDocumentV1 } from '../../core/theming/document';
+import type {
+  GlobalThemeOverride,
+  SavedThemeEntry,
+  ThemeLibraryClient,
+} from '../../core/theming/library';
 import type { SavedVideoSpeed } from '../../sites/x/features/video-speed-model';
 import type { DragHandleProps } from '../primitives';
 import type { StarterModeId } from './starter-modes';
@@ -12,19 +17,23 @@ import { newFilter, newRule, readFilters } from '../../core/filter-types';
 import { createLogger } from '../../core/log';
 import { createSiteSettings } from '../../core/site-settings';
 import { isRecord, readStoreMany, watchStoreKey } from '../../core/storage';
-import { BACKDROP_OPTIONS } from '../../core/theme-effects';
+import { findBackdropOption } from '../../core/theme-effects/model';
 import {
+  applyThemeDocument,
   applyThemePreset,
   clearThemeEffects,
   describeThemeDocument,
-  documentEffectsToConfig,
   findActiveStudioVibe,
   findActiveThemePreset,
-  findThemePreset,
+  flipThemeColorScheme,
+  hasPaletteOverrides,
   readThemeDocument,
-  THEME_DATA_KEY,
   updateThemeEffects,
-} from '../../core/theming';
+} from '../../core/theming/config';
+import { analyzeThemeDocument, documentEffectsToConfig } from '../../core/theming/document';
+import { createThemeLibrary, EMPTY_THEME_LIBRARY } from '../../core/theming/library';
+import { findThemePreset } from '../../core/theming/presets';
+import { THEME_DATA_KEY } from '../../core/theming/types';
 import {
   clampVideoSpeed,
   DEFAULT_VIDEO_SPEED,
@@ -36,6 +45,7 @@ import {
 import {
   Badge,
   getSiteMark,
+  previewLeaveProps,
   SegmentedControl,
   SettingCard,
   SettingRow,
@@ -68,8 +78,12 @@ export interface QuickPopupProps {
   readonly activeTab: PopupTabState | null;
   /** Optional caller-owned site settings client (reused by userscript runtime). */
   readonly siteSettings?: SiteSettingsClient;
+  /** Optional caller-owned cross-site theme library client (reused by userscript runtime). */
+  readonly themeLibrary?: ThemeLibraryClient;
   /** Optional callback notified whenever the active site's theme config loads or changes. */
   readonly onThemeChange?: (doc: ThemeDocumentV1) => void;
+  /** Optional callback for live hover/focus theme previews (`null` ends preview). */
+  readonly onPreviewTheme?: (doc: ThemeDocumentV1 | null) => void;
   /** Opens the full Options dialog on the active tab, optionally jumping to `section`. */
   readonly onOpenSettings: (section?: string) => void;
   /** Opens a supported site URL (used in the unsupported-tab launcher). */
@@ -78,6 +92,141 @@ export interface QuickPopupProps {
   readonly headerDragProps?: DragHandleProps;
   /** Optional close callback (rendered in the floating Userscript quick overlay). */
   readonly onClose?: () => void;
+}
+
+interface AnalyzedSavedTheme {
+  readonly entry: SavedThemeEntry;
+  readonly fingerprint: string;
+  readonly hasEffects: boolean;
+  readonly backdropName?: string;
+  readonly dotBackground: string;
+}
+
+function getSavedThemeDotStyle(doc: ThemeDocumentV1): string {
+  const swatches = doc.meta.swatches;
+  if (swatches && swatches.length >= 3) {
+    const stops = swatches.slice(0, 4);
+    return `linear-gradient(135deg, ${stops.join(', ')})`;
+  }
+  if (doc.palette) {
+    return `linear-gradient(135deg, ${doc.palette.background} 50%, ${doc.palette.accent} 50%)`;
+  }
+  const backdropId = doc.effects?.backdrop?.id;
+  if (backdropId && backdropId !== 'none') {
+    const backdrop = findBackdropOption(backdropId);
+    if (backdrop) {
+      return backdrop.preview;
+    }
+  }
+  return 'linear-gradient(135deg, #f3f4f6 50%, #1f2937 50%)';
+}
+
+function sameSiteStatuses(a: readonly SiteStatus[], b: readonly SiteStatus[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((site, i) => site.id === b[i]?.id && site.enabled === b[i]?.enabled)
+  );
+}
+
+interface ManagedClient {
+  readonly ready: Promise<void>;
+  readonly onChange: (listener: () => void) => () => void;
+  readonly dispose?: () => void;
+}
+
+/** Subscribes to a caller-provided or self-owned reactive store client and disposes owned instances on unmount. */
+function useOwnedClient<C extends ManagedClient>(
+  store: Store,
+  provided: C | undefined,
+  create: (store: Store) => C,
+  onSync: (client: C) => void,
+) {
+  const clientRef = useRef<C | undefined>(provided);
+  const onSyncRef = useRef(onSync);
+  onSyncRef.current = onSync;
+
+  useEffect(() => {
+    let alive = true;
+    const owned = !provided;
+    const client = provided ?? create(store);
+    clientRef.current = client;
+    if (owned) {
+      onSyncRef.current(client);
+    }
+
+    const sync = (): void => {
+      if (alive) {
+        onSyncRef.current(client);
+      }
+    };
+    const stopWatch = client.onChange(sync);
+    void client.ready.then(sync);
+
+    return () => {
+      alive = false;
+      stopWatch();
+      if (owned) {
+        client.dispose?.();
+      }
+      if (clientRef.current === client) {
+        clientRef.current = undefined;
+      }
+    };
+  }, [provided, store, create]);
+
+  return clientRef;
+}
+
+interface SavedThemesStripProps {
+  readonly items: readonly AnalyzedSavedTheme[];
+  readonly activeFingerprint: string;
+  readonly ariaLabel: string;
+  readonly onSelect: (entry: SavedThemeEntry) => void;
+  readonly onPreview?: (item: AnalyzedSavedTheme) => void;
+  readonly onClearPreview?: () => void;
+}
+
+function SavedThemesStrip({
+  items,
+  activeFingerprint,
+  ariaLabel,
+  onSelect,
+  onPreview,
+  onClearPreview,
+}: SavedThemesStripProps) {
+  return (
+    <div
+      className="qp-saved-list"
+      role="group"
+      aria-label={ariaLabel}
+      {...(onClearPreview ? previewLeaveProps(onClearPreview) : {})}
+    >
+      {items.map((item) => {
+        const name = item.entry.document.meta.name;
+        const tooltip = item.backdropName ? `${name} · ${item.backdropName}` : name;
+        return (
+          <button
+            key={item.entry.id}
+            type="button"
+            className="qp-saved-chip"
+            title={tooltip}
+            aria-pressed={activeFingerprint !== '' && item.fingerprint === activeFingerprint}
+            onMouseEnter={onPreview ? () => onPreview(item) : undefined}
+            onFocus={onPreview ? () => onPreview(item) : undefined}
+            onClick={() => onSelect(item.entry)}
+          >
+            <span
+              className="qp-saved-dot"
+              aria-hidden="true"
+              style={{ background: item.dotBackground }}
+            />
+            <span className="qp-saved-name">{name}</span>
+            {item.hasEffects && <UiIcon name="sparkles" size={10} className="qp-saved-fx" />}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function readOptionMap(raw: unknown): Record<string, OptionValue> {
@@ -95,7 +244,7 @@ function readOptionMap(raw: unknown): Record<string, OptionValue> {
 
 interface QuickMuteFormProps {
   readonly placeholder: string;
-  readonly onSubmitTerm: (term: string) => Promise<void>;
+  readonly onSubmitTerm: (term: string) => void;
 }
 
 /** Isolated 1-line Quick Mute input so typing never re-renders the rest of the popup. */
@@ -111,7 +260,7 @@ function QuickMuteForm({ placeholder, onSubmitTerm }: QuickMuteFormProps) {
           return;
         }
         setDraft('');
-        void onSubmitTerm(term);
+        onSubmitTerm(term);
       }}
     >
       <input
@@ -137,29 +286,60 @@ export function QuickPopup({
   store,
   activeTab,
   siteSettings: providedSiteSettings,
+  themeLibrary: providedThemeLibrary,
   onThemeChange,
+  onPreviewTheme,
   onOpenSettings,
   onOpenSiteUrl,
   headerDragProps,
   onClose,
 }: QuickPopupProps) {
   const [sites, setSites] = useState<SiteStatus[]>(() => providedSiteSettings?.list() ?? []);
-  const siteSettingsRef = useRef<SiteSettingsClient | undefined>(providedSiteSettings);
+  const [savedThemes, setSavedThemes] = useState<readonly SavedThemeEntry[]>(
+    () => providedThemeLibrary?.list() ?? EMPTY_THEME_LIBRARY.themes,
+  );
+  const [globalTheme, setGlobalTheme] = useState<GlobalThemeOverride | undefined>(() =>
+    providedThemeLibrary?.getGlobalTheme(),
+  );
   const [optionsMap, setOptionsMap] = useState<Record<string, OptionValue>>({});
   const [theme, setTheme] = useState<ThemeDocumentV1>(() => readThemeDocument(undefined));
   const [videoSpeed, setVideoSpeed] = useState<SavedVideoSpeed>(() => ({ ...DEFAULT_VIDEO_SPEED }));
   const [presetsOpen, setPresetsOpen] = useState(true);
   const [pendingMode, setPendingMode] = useState<StarterModeId | null>(null);
   const { toast, notify } = useToast(TOAST_MS);
+  const mountedRef = useRef(true);
   const onThemeChangeRef = useRef(onThemeChange);
   onThemeChangeRef.current = onThemeChange;
+  const onPreviewThemeRef = useRef(onPreviewTheme);
+  onPreviewThemeRef.current = onPreviewTheme;
+  const hoverPreviewKeyRef = useRef<string | null>(null);
+  const themeJsonCacheRef = useRef<{ doc: ThemeDocumentV1; json: string } | null>(null);
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const mutationSeqRef = useRef(0);
 
   const syncTheme = useCallback((next: ThemeDocumentV1): void => {
+    if (!mountedRef.current) {
+      return;
+    }
     setTheme(next);
     onThemeChangeRef.current?.(next);
   }, []);
+
+  const clearHoverPreview = useCallback((): void => {
+    if (hoverPreviewKeyRef.current === null) {
+      return;
+    }
+    hoverPreviewKeyRef.current = null;
+    onPreviewThemeRef.current?.(null);
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearHoverPreview();
+    };
+  }, [clearHoverPreview]);
 
   const enqueueWrite = (task: () => Promise<void>): void => {
     mutationSeqRef.current++;
@@ -169,6 +349,7 @@ export function QuickPopup({
   };
 
   const siteConfig = activeTab ? getSiteQuickConfig(activeTab.siteId) : undefined;
+  const isSupportedTab = Boolean(activeTab && siteConfig);
   const optionsKey = activeTab ? `${activeTab.storagePrefix}/options` : null;
   const themeKey = activeTab ? `${activeTab.storagePrefix}/${THEME_DATA_KEY}` : null;
   const filtersKey = activeTab ? `${activeTab.storagePrefix}/filters` : null;
@@ -177,35 +358,25 @@ export function QuickPopup({
       ? `${activeTab.storagePrefix}/${X_VIDEO_SPEED_KEY}`
       : null;
 
-  useEffect(() => {
-    let alive = true;
-    const owned = !providedSiteSettings;
-    const client = providedSiteSettings ?? createSiteSettings(store);
-    siteSettingsRef.current = client;
-    setSites(client.list());
+  const siteSettingsRef = useOwnedClient(
+    store,
+    providedSiteSettings,
+    createSiteSettings,
+    (client) => {
+      const next = client.list();
+      setSites((prev) => (sameSiteStatuses(prev, next) ? prev : next));
+    },
+  );
 
-    const stopWatch = client.onChange(() => {
-      if (alive) {
-        setSites(client.list());
-      }
-    });
-    void client.ready.then(() => {
-      if (alive) {
-        setSites(client.list());
-      }
-    });
-
-    return () => {
-      alive = false;
-      stopWatch();
-      if (owned) {
-        client.dispose?.();
-      }
-      if (siteSettingsRef.current === client) {
-        siteSettingsRef.current = undefined;
-      }
-    };
-  }, [providedSiteSettings, store]);
+  const themeLibraryRef = useOwnedClient(
+    store,
+    providedThemeLibrary,
+    createThemeLibrary,
+    (client) => {
+      setSavedThemes(client.list());
+      setGlobalTheme(client.getGlobalTheme());
+    },
+  );
 
   useEffect(() => {
     if (!optionsKey || !themeKey) {
@@ -280,6 +451,8 @@ export function QuickPopup({
     activeVibe,
     activePreset,
     activeBackdrop,
+    paletteCustomized,
+    themeSummaryLabel,
     themeBadgeLabel,
   } = useMemo(() => {
     const resolvedEffects = documentEffectsToConfig(theme.effects);
@@ -288,7 +461,7 @@ export function QuickPopup({
     const preset = findActiveThemePreset(theme);
     const backdrop =
       resolvedEffects && resolvedEffects.backdrop !== 'none'
-        ? BACKDROP_OPTIONS.find((opt) => opt.id === resolvedEffects.backdrop)
+        ? findBackdropOption(resolvedEffects.backdrop)
         : undefined;
     const summaryLabel = describeThemeDocument(theme).label;
     return {
@@ -297,9 +470,59 @@ export function QuickPopup({
       activeVibe: vibe,
       activePreset: preset,
       activeBackdrop: backdrop,
+      paletteCustomized: hasPaletteOverrides(theme),
+      themeSummaryLabel: summaryLabel,
       themeBadgeLabel: hasEffects && !vibe ? `${summaryLabel} · FX` : summaryLabel,
     };
   }, [theme]);
+
+  const analyzedSavedThemes = useMemo<readonly AnalyzedSavedTheme[]>(
+    () =>
+      savedThemes.map((entry) => {
+        const caps = analyzeThemeDocument(entry.document);
+        const backdropName = caps.backdropEngine
+          ? findBackdropOption(caps.backdropEngine)?.name
+          : undefined;
+        return {
+          entry,
+          fingerprint: caps.fingerprint,
+          hasEffects: Boolean(caps.backdropEngine || caps.surfaceFinish || caps.clickEffect),
+          ...(backdropName ? { backdropName } : {}),
+          dotBackground: getSavedThemeDotStyle(entry.document),
+        };
+      }),
+    [savedThemes],
+  );
+
+  const activeThemeFingerprint = useMemo(
+    () => (isSupportedTab && savedThemes.length > 0 ? analyzeThemeDocument(theme).fingerprint : ''),
+    [isSupportedTab, savedThemes.length, theme],
+  );
+
+  const globalThemeFingerprint = useMemo(
+    () =>
+      !isSupportedTab && savedThemes.length > 0 && globalTheme
+        ? analyzeThemeDocument(globalTheme.document).fingerprint
+        : '',
+    [isSupportedTab, savedThemes.length, globalTheme],
+  );
+
+  const applyDocumentToAllSites = (doc: ThemeDocumentV1, displayName?: string): void => {
+    const client = themeLibraryRef.current;
+    if (!client) {
+      return;
+    }
+    const label = displayName ?? doc.meta.name;
+    void client.applyToAllSites(doc).then(
+      () => {
+        notify(`Applied "${label}" to all sites`);
+      },
+      (error: unknown) => {
+        log.error('could not apply theme to all sites', error);
+        notify(error instanceof Error ? error.message : 'Could not apply theme to all sites');
+      },
+    );
+  };
 
   const setSiteEnabled = (siteId: string, enabled: boolean): void => {
     const client = siteSettingsRef.current;
@@ -315,6 +538,10 @@ export function QuickPopup({
     <button type="button" className="qp-close" aria-label="Close" onClick={onClose}>
       <UiIcon name="x" size={15} />
     </button>
+  ) : null;
+
+  const toastEl = toast ? (
+    <Toast message={toast.message} {...(toast.onUndo ? { onUndo: toast.onUndo } : {})} />
   ) : null;
 
   if (!activeTab || !siteConfig) {
@@ -366,11 +593,22 @@ export function QuickPopup({
               );
             })}
           </SettingCard>
+
+          {analyzedSavedThemes.length > 0 && (
+            <SettingCard title="My Themes" action={<Badge tone="neutral">All sites</Badge>}>
+              <div className="qp-saved-card-pad">
+                <SavedThemesStrip
+                  items={analyzedSavedThemes}
+                  activeFingerprint={globalThemeFingerprint}
+                  ariaLabel="My Themes"
+                  onSelect={(entry) => applyDocumentToAllSites(entry.document)}
+                />
+              </div>
+            </SettingCard>
+          )}
         </div>
 
-        {toast && (
-          <Toast message={toast.message} {...(toast.onUndo ? { onUndo: toast.onUndo } : {})} />
-        )}
+        {toastEl}
 
         <footer className="qp-footer">
           <p className="qp-footer-tip">
@@ -410,7 +648,9 @@ export function QuickPopup({
       }
       const next = { ...latest, ...patch };
       await store.set(key, next);
-      setOptionsMap(next);
+      if (mountedRef.current) {
+        setOptionsMap(next);
+      }
     });
     if (toastLabel) {
       notify(toastLabel, () => {
@@ -426,7 +666,9 @@ export function QuickPopup({
             }
           }
           await store.set(key, restored);
-          setOptionsMap(restored);
+          if (mountedRef.current) {
+            setOptionsMap(restored);
+          }
         });
       });
     }
@@ -448,6 +690,42 @@ export function QuickPopup({
     setPendingMode(modeId);
   };
 
+  const getCurrentThemeJson = (): string => {
+    if (themeJsonCacheRef.current?.doc !== theme) {
+      themeJsonCacheRef.current = { doc: theme, json: JSON.stringify(theme) };
+    }
+    return themeJsonCacheRef.current.json;
+  };
+
+  const previewCandidate = (previewKey: string, buildCandidate: () => ThemeDocumentV1): void => {
+    if (!siteEnabled || !onPreviewThemeRef.current || hoverPreviewKeyRef.current === previewKey) {
+      return;
+    }
+    const candidate = buildCandidate();
+    if (candidate === theme || JSON.stringify(candidate) === getCurrentThemeJson()) {
+      clearHoverPreview();
+      return;
+    }
+    hoverPreviewKeyRef.current = previewKey;
+    onPreviewThemeRef.current(candidate);
+  };
+
+  const previewSavedTheme = (item: AnalyzedSavedTheme): void => {
+    if (!siteEnabled || !onPreviewThemeRef.current) {
+      return;
+    }
+    const previewKey = `saved:${item.entry.id}`;
+    if (hoverPreviewKeyRef.current === previewKey) {
+      return;
+    }
+    if (activeThemeFingerprint !== '' && item.fingerprint === activeThemeFingerprint) {
+      clearHoverPreview();
+      return;
+    }
+    hoverPreviewKeyRef.current = previewKey;
+    onPreviewThemeRef.current(item.entry.document);
+  };
+
   const updateThemeDocument = (
     transform: (current: ThemeDocumentV1) => ThemeDocumentV1,
     toastLabel: string,
@@ -455,17 +733,32 @@ export function QuickPopup({
     if (!themeKey) {
       return;
     }
+    const hadPreview = hoverPreviewKeyRef.current !== null;
+    hoverPreviewKeyRef.current = null;
     const key = themeKey;
     let previous: ThemeDocumentV1 = theme;
     syncTheme(transform(theme));
     enqueueWrite(async () => {
-      const latest = readThemeDocument(await store.get(key));
-      previous = latest;
-      const next = transform(latest);
-      await store.set(key, next);
-      syncTheme(next);
+      try {
+        const latest = readThemeDocument(await store.get(key));
+        previous = latest;
+        const next = transform(latest);
+        const unchanged = JSON.stringify(next) === JSON.stringify(latest);
+        await store.set(key, next);
+        syncTheme(next);
+        if (hadPreview && unchanged && hoverPreviewKeyRef.current === null) {
+          onPreviewThemeRef.current?.(null);
+        }
+      } catch (error: unknown) {
+        syncTheme(previous);
+        if (hadPreview && hoverPreviewKeyRef.current === null) {
+          onPreviewThemeRef.current?.(null);
+        }
+        throw error;
+      }
     });
     notify(toastLabel, () => {
+      hoverPreviewKeyRef.current = null;
       enqueueWrite(async () => {
         await store.set(key, previous);
         syncTheme(previous);
@@ -477,6 +770,24 @@ export function QuickPopup({
     const label = preset === 'default' ? 'Site Default' : (findThemePreset(preset)?.name ?? preset);
     const suffix = effectsActive ? ' (FX cleared)' : '';
     updateThemeDocument((current) => applyThemePreset(current, preset), `Theme: ${label}${suffix}`);
+  };
+
+  const applySavedTheme = (entry: SavedThemeEntry): void => {
+    updateThemeDocument(
+      () => applyThemeDocument(entry.document),
+      `Theme: ${entry.document.meta.name}`,
+    );
+  };
+
+  const flipPalettePolarity = (): void => {
+    if (!theme.palette) {
+      return;
+    }
+    const nextScheme = theme.palette.colorScheme === 'dark' ? 'light' : 'dark';
+    updateThemeDocument(
+      (current) => flipThemeColorScheme(current),
+      nextScheme === 'light' ? 'Switched to light palette' : 'Switched to dark palette',
+    );
   };
 
   const toggleBackdropMotion = (): void => {
@@ -514,7 +825,9 @@ export function QuickPopup({
       const nextRate = clampVideoSpeed(latest.rate + delta);
       const next: SavedVideoSpeed = { rate: nextRate, custom: !isNativeXSpeed(nextRate) };
       await store.set(key, next);
-      setVideoSpeed(next);
+      if (mountedRef.current) {
+        setVideoSpeed(next);
+      }
     });
   };
 
@@ -538,7 +851,7 @@ export function QuickPopup({
     });
   };
 
-  const handleQuickMute = async (term: string): Promise<void> => {
+  const handleQuickMute = (term: string): void => {
     if (!filtersKey) {
       return;
     }
@@ -614,6 +927,15 @@ export function QuickPopup({
         {presetsOpen ? 'Presets ▴' : 'Custom · Presets ▾'}
       </button>
     ) : undefined;
+
+  let studioBarLabel = 'Studio FX';
+  if (activeBackdrop) {
+    studioBarLabel = activeEffects?.paused
+      ? `${activeBackdrop.name} · Paused`
+      : activeBackdrop.name;
+  } else if (activeEffects?.paused) {
+    studioBarLabel = 'Motion paused';
+  }
 
   let statusText = 'Paused on this site';
   if (siteEnabled) {
@@ -758,15 +1080,18 @@ export function QuickPopup({
                       'linear-gradient(135deg, var(--fs-accent), var(--fs-card-bg))',
                   }}
                 />
-                <span className="qp-studio-label">
-                  {activeEffects.paused ? 'Motion paused' : (activeBackdrop?.name ?? 'Studio FX')}
-                </span>
+                <span className="qp-studio-label">{studioBarLabel}</span>
               </span>
               <span className="qp-studio-actions">
                 {activeEffects.backdrop !== 'none' && (
                   <button
                     type="button"
                     className="qp-mini-btn"
+                    title={
+                      activeEffects.paused
+                        ? 'Resume background animation'
+                        : 'Pause background animation'
+                    }
                     aria-pressed={activeEffects.paused}
                     onClick={toggleBackdropMotion}
                   >
@@ -785,39 +1110,107 @@ export function QuickPopup({
               </span>
             </div>
           )}
-          <div className="qp-swatches" role="group" aria-label="Quick theme presets">
-            <button
-              type="button"
-              className="qp-swatch-btn"
-              title="Site Default"
-              aria-label="Site Default theme"
-              aria-pressed={!effectsActive && theme.id === 'default'}
-              onClick={() => applyQuickTheme('default')}
+          <div className="qp-swatches-row">
+            <div
+              className="qp-swatches"
+              role="group"
+              aria-label="Quick theme presets"
+              {...previewLeaveProps(clearHoverPreview)}
             >
-              <span className="qp-swatch-fill qp-swatch-default" aria-hidden="true" />
-            </button>
-            {QUICK_THEMES.map((preset) => (
               <button
-                key={preset.id}
                 type="button"
                 className="qp-swatch-btn"
-                title={preset.name}
-                aria-label={`${preset.name} theme`}
-                aria-pressed={!effectsActive && activePreset?.id === preset.id}
-                onClick={() => applyQuickTheme(preset.id)}
+                title="Site Default"
+                aria-label="Site Default theme"
+                aria-pressed={!effectsActive && theme.id === 'default'}
+                onMouseEnter={() =>
+                  previewCandidate('preset:default', () => applyThemePreset(theme, 'default'))
+                }
+                onFocus={() =>
+                  previewCandidate('preset:default', () => applyThemePreset(theme, 'default'))
+                }
+                onClick={() => applyQuickTheme('default')}
               >
-                <span
-                  className="qp-swatch-fill"
-                  aria-hidden="true"
-                  style={{
-                    background:
-                      preset.swatchGradient ??
-                      `linear-gradient(135deg, ${preset.palette.background} 50%, ${preset.palette.accent} 50%)`,
-                  }}
-                />
+                <span className="qp-swatch-fill qp-swatch-default" aria-hidden="true" />
               </button>
-            ))}
+              {QUICK_THEMES.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className="qp-swatch-btn"
+                  title={preset.name}
+                  aria-label={`${preset.name} theme`}
+                  aria-pressed={
+                    !effectsActive && !paletteCustomized && activePreset?.id === preset.id
+                  }
+                  onMouseEnter={() =>
+                    previewCandidate(`preset:${preset.id}`, () =>
+                      applyThemePreset(theme, preset.id),
+                    )
+                  }
+                  onFocus={() =>
+                    previewCandidate(`preset:${preset.id}`, () =>
+                      applyThemePreset(theme, preset.id),
+                    )
+                  }
+                  onClick={() => applyQuickTheme(preset.id)}
+                >
+                  <span
+                    className="qp-swatch-fill"
+                    aria-hidden="true"
+                    style={{
+                      background:
+                        preset.swatchGradient ??
+                        `linear-gradient(135deg, ${preset.palette.background} 50%, ${preset.palette.accent} 50%)`,
+                    }}
+                  />
+                </button>
+              ))}
+            </div>
+            <div className="qp-swatch-actions">
+              {theme.palette && (
+                <button
+                  type="button"
+                  className="qp-swatch-action"
+                  aria-label={
+                    theme.palette.colorScheme === 'dark'
+                      ? 'Switch to light palette'
+                      : 'Switch to dark palette'
+                  }
+                  title={
+                    theme.palette.colorScheme === 'dark'
+                      ? 'Flip to light palette'
+                      : 'Flip to dark palette'
+                  }
+                  onClick={flipPalettePolarity}
+                >
+                  <UiIcon name={theme.palette.colorScheme === 'dark' ? 'sun' : 'moon'} size={13} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="qp-swatch-action"
+                aria-label="Apply theme to all sites"
+                title={`Apply "${themeSummaryLabel}" to all sites`}
+                onClick={() => applyDocumentToAllSites(theme, themeSummaryLabel)}
+              >
+                <UiIcon name="globe" size={13} />
+              </button>
+            </div>
           </div>
+          {analyzedSavedThemes.length > 0 && (
+            <div className="qp-saved-section">
+              <span className="qp-saved-kicker">My Themes</span>
+              <SavedThemesStrip
+                items={analyzedSavedThemes}
+                activeFingerprint={activeThemeFingerprint}
+                ariaLabel="My Themes"
+                onSelect={applySavedTheme}
+                onPreview={previewSavedTheme}
+                onClearPreview={clearHoverPreview}
+              />
+            </div>
+          )}
         </SettingCard>
 
         <SettingCard title="Quick Mute">
@@ -828,9 +1221,7 @@ export function QuickPopup({
         </SettingCard>
       </div>
 
-      {toast && (
-        <Toast message={toast.message} {...(toast.onUndo ? { onUndo: toast.onUndo } : {})} />
-      )}
+      {toastEl}
 
       <footer className="qp-footer">
         <button

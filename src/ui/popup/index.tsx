@@ -30,6 +30,8 @@ function DraggableQuickOverlay({
         store={request.store}
         activeTab={request.activeTab}
         siteSettings={request.siteSettings}
+        {...(request.themeLibrary ? { themeLibrary: request.themeLibrary } : {})}
+        {...(request.onPreviewTheme ? { onPreviewTheme: request.onPreviewTheme } : {})}
         headerDragProps={drag.handleProps}
         onOpenSettings={(section) => {
           onClose();

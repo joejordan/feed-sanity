@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
 import type { PopupTabState } from '../../core/platform';
-import type { ThemeDocumentV1 } from '../../core/theming';
-import { compileUiThemeCss, resolveTheme } from '../../core/theming';
+import type { ThemeDocumentV1 } from '../../core/theming/document';
+import { compileUiThemeCss } from '../../core/theming/compile';
+import { resolveTheme } from '../../core/theming/config';
 import { extensionStore } from '../../platform/extension-store';
-import { GET_POPUP_STATE, isPopupTabState, openOptionsMessage } from '../../platform/messages';
+import {
+  GET_POPUP_STATE,
+  isPopupTabState,
+  openOptionsMessage,
+  THEME_PREVIEW_PORT,
+  themePreviewMessage,
+} from '../../platform/messages';
 import { QuickPopup } from '../../ui/popup/quick-popup';
 import quickPopupCss from '../../ui/popup/quick-popup.css?inline';
 import { primitivesCss } from '../../ui/primitives';
@@ -55,14 +62,22 @@ const POPUP_THEME_TOKENS_CSS = `
 }
 `;
 
+const styleCache = new Map<string, HTMLStyleElement>();
+
 function injectStyle(id: string, text: string): void {
-  let el = document.querySelector<HTMLStyleElement>(`#${id}`);
-  if (!el) {
-    el = document.createElement('style');
-    el.id = id;
-    document.head.append(el);
+  let el = styleCache.get(id);
+  if (!el?.isConnected) {
+    el = document.querySelector<HTMLStyleElement>(`#${id}`) ?? undefined;
+    if (!el) {
+      el = document.createElement('style');
+      el.id = id;
+      document.head.append(el);
+    }
+    styleCache.set(id, el);
   }
-  el.textContent = text;
+  if (el.textContent !== text) {
+    el.textContent = text;
+  }
 }
 
 // Adapt `:host` rules from baseThemeCss and compileUiThemeCss to `:root` for the
@@ -81,9 +96,17 @@ interface ActiveTabInfo {
   readonly state: PopupTabState;
 }
 
+function compilePopupUiTheme(doc: ThemeDocumentV1 | null): string {
+  const resolved = doc ? resolveTheme(doc) : null;
+  return resolved ? toDocumentCss(compileUiThemeCss(resolved)) : '';
+}
+
 function PopupApp() {
   const [loaded, setLoaded] = useState(false);
   const [active, setActive] = useState<ActiveTabInfo | null>(null);
+  const savedThemeCssRef = useRef('');
+  const previewingRef = useRef(false);
+  const previewPortRef = useRef<ReturnType<typeof browser.tabs.connect> | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -114,21 +137,18 @@ function PopupApp() {
         }
         return null;
       })
+      .catch(() => null)
       .then((result) => {
-        if (alive) {
-          setActive(result);
-          if (!result) {
-            injectStyle('fs-popup-user-theme', '');
-          }
-          setLoaded(true);
+        if (!alive) {
+          return;
         }
-      })
-      .catch(() => {
-        if (alive) {
-          setActive(null);
+        setActive(result);
+        if (!result) {
+          savedThemeCssRef.current = '';
+          previewingRef.current = false;
           injectStyle('fs-popup-user-theme', '');
-          setLoaded(true);
         }
+        setLoaded(true);
       });
 
     return () => {
@@ -136,10 +156,62 @@ function PopupApp() {
     };
   }, []);
 
+  useEffect(
+    () => () => {
+      const port = previewPortRef.current;
+      previewPortRef.current = null;
+      try {
+        port?.disconnect();
+      } catch {
+        // Port already closed.
+      }
+    },
+    [],
+  );
+
   const handleThemeChange = useCallback((doc: ThemeDocumentV1) => {
-    const resolved = resolveTheme(doc);
-    injectStyle('fs-popup-user-theme', resolved ? toDocumentCss(compileUiThemeCss(resolved)) : '');
+    const css = compilePopupUiTheme(doc);
+    savedThemeCssRef.current = css;
+    if (!previewingRef.current) {
+      injectStyle('fs-popup-user-theme', css);
+    }
   }, []);
+
+  const handlePreviewTheme = useCallback(
+    (doc: ThemeDocumentV1 | null) => {
+      previewingRef.current = doc !== null;
+      injectStyle('fs-popup-user-theme', doc ? compilePopupUiTheme(doc) : savedThemeCssRef.current);
+      if (!active) {
+        return;
+      }
+      if (!doc && !previewPortRef.current) {
+        return;
+      }
+      let port = previewPortRef.current;
+      try {
+        if (!port) {
+          port = browser.tabs.connect(active.tabId, { name: THEME_PREVIEW_PORT });
+          previewPortRef.current = port;
+          port.onDisconnect.addListener(() => {
+            if (previewPortRef.current === port) {
+              previewPortRef.current = null;
+            }
+          });
+        }
+        port.postMessage(themePreviewMessage(doc));
+      } catch {
+        if (previewPortRef.current === port) {
+          previewPortRef.current = null;
+        }
+        try {
+          port?.disconnect();
+        } catch {
+          // Port already disconnected.
+        }
+      }
+    },
+    [active],
+  );
 
   if (!loaded) {
     return null;
@@ -150,6 +222,7 @@ function PopupApp() {
       store={extensionStore}
       activeTab={active?.state ?? null}
       onThemeChange={handleThemeChange}
+      {...(active ? { onPreviewTheme: handlePreviewTheme } : {})}
       onOpenSettings={(section) => {
         if (active) {
           void browser.tabs

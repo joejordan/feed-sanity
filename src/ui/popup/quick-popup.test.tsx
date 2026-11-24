@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/preact';
+import { act, cleanup, render, screen } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFilters } from '../../core/filter-types';
@@ -9,12 +9,15 @@ import { STUDIO_VIBES } from '../../core/theme-effects';
 import {
   applyStudioVibe,
   applyThemeDocument,
+  createThemeLibrary,
   DEFAULT_THEME_DOCUMENT,
   isCustomImportedDocument,
   parseThemeDocument,
   readThemeDocument,
+  readThemeLibraryState,
   THEME_DATA_KEY,
   THEME_FILE_FORMAT,
+  THEME_LIBRARY_KEY,
 } from '../../core/theming';
 import { facebookSite } from '../../sites/facebook';
 import { gmailSite } from '../../sites/gmail';
@@ -31,10 +34,12 @@ function renderXPopup(
   store: ReturnType<typeof inMemoryStore>,
   {
     hiddenCount = 0,
+    onPreviewTheme,
     onOpenSettings = vi.fn(),
     onOpenSiteUrl = vi.fn(),
   }: {
     readonly hiddenCount?: number;
+    readonly onPreviewTheme?: (doc: ReturnType<typeof readThemeDocument> | null) => void;
     readonly onOpenSettings?: (section?: string) => void;
     readonly onOpenSiteUrl?: (url: string) => void;
   } = {},
@@ -49,6 +54,7 @@ function renderXPopup(
         enabled: true,
         hiddenCount,
       }}
+      {...(onPreviewTheme ? { onPreviewTheme } : {})}
       onOpenSettings={onOpenSettings}
       onOpenSiteUrl={onOpenSiteUrl}
     />,
@@ -321,5 +327,100 @@ describe('QuickPopup', () => {
       expect(saved.meta.name).toBe('Aurora Mist');
       expect(isCustomImportedDocument(saved)).toBe(true);
     });
+  });
+
+  it('switches saved My Themes with hover preview, toggles polarity, pauses motion, and applies to all sites', async () => {
+    const store = inMemoryStore();
+    const lib = createThemeLibrary(store);
+    const matrixVibe = STUDIO_VIBES.find((v) => v.id === 'enter-the-matrix')!;
+    const matrixDoc = applyStudioVibe(DEFAULT_THEME_DOCUMENT, matrixVibe);
+    await lib.saveTheme(matrixDoc, { name: 'Midnight Rain' });
+    lib.dispose();
+
+    const onPreviewTheme = vi.fn();
+    const { unmount } = renderXPopup(store, { onPreviewTheme });
+
+    const savedChip = await screen.findByRole('button', { name: 'Midnight Rain' });
+    expect(savedChip.getAttribute('aria-pressed')).toBe('false');
+
+    // Hovering a My Themes chip previews it; leaving clears the preview.
+    await userEvent.hover(savedChip);
+    expect(onPreviewTheme).toHaveBeenCalledTimes(1);
+    expect(onPreviewTheme.mock.calls[0]?.[0]?.meta.name).toBe('Midnight Rain');
+
+    await userEvent.unhover(savedChip);
+    expect(onPreviewTheme).toHaveBeenLastCalledWith(null);
+
+    // Clicking applies the saved theme without sending a trailing clear on mouseleave.
+    onPreviewTheme.mockClear();
+    await userEvent.hover(savedChip);
+    expect(onPreviewTheme).toHaveBeenCalledTimes(1);
+    await userEvent.click(savedChip);
+    await userEvent.unhover(savedChip);
+    expect(onPreviewTheme).toHaveBeenCalledTimes(1);
+
+    await vi.waitFor(async () => {
+      const saved = await readSavedXTheme(store);
+      expect(saved.meta.name).toBe('Midnight Rain');
+      expect(saved.effects?.backdrop?.id).toBe('digital-rain');
+    });
+    expect(savedChip.getAttribute('aria-pressed')).toBe('true');
+
+    // Pausing motion keeps the backdrop name visible alongside Paused status.
+    await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await vi.waitFor(() => expect(screen.getByText('Matrix Rain · Paused')).toBeTruthy());
+
+    // Polarity flip toggles dark -> light with full Undo support.
+    await userEvent.click(screen.getByRole('button', { name: 'Switch to light palette' }));
+    await vi.waitFor(async () => {
+      expect((await readSavedXTheme(store)).palette?.colorScheme).toBe('light');
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await vi.waitFor(async () => {
+      expect((await readSavedXTheme(store)).palette?.colorScheme).toBe('dark');
+    });
+
+    // Apply to all sites writes a global theme override in the shared library.
+    await userEvent.click(screen.getByRole('button', { name: 'Apply theme to all sites' }));
+    await vi.waitFor(async () => {
+      const libraryState = readThemeLibraryState(await store.get(THEME_LIBRARY_KEY));
+      expect(libraryState.globalTheme?.document.meta.name).toBe('Midnight Rain');
+      expect(libraryState.globalTheme?.document.effects?.backdrop?.paused).toBe(true);
+    });
+
+    // Unmounting while hovering a quick swatch clears the live preview cleanly.
+    onPreviewTheme.mockClear();
+    await userEvent.hover(screen.getByRole('button', { name: 'Warm Paper theme' }));
+    expect(onPreviewTheme).toHaveBeenCalledTimes(1);
+    act(() => unmount());
+    expect(onPreviewTheme).toHaveBeenLastCalledWith(null);
+  });
+
+  it('shows My Themes on unsupported tabs and broadcasts global theme on click', async () => {
+    const store = inMemoryStore();
+    const lib = createThemeLibrary(store);
+    const matrixVibe = STUDIO_VIBES.find((v) => v.id === 'enter-the-matrix')!;
+    await lib.saveTheme(applyStudioVibe(DEFAULT_THEME_DOCUMENT, matrixVibe), {
+      name: 'Matrix Everywhere',
+    });
+    lib.dispose();
+
+    render(
+      <QuickPopup
+        store={store}
+        activeTab={null}
+        onOpenSettings={vi.fn()}
+        onOpenSiteUrl={vi.fn()}
+      />,
+    );
+
+    const chip = await screen.findByRole('button', { name: 'Matrix Everywhere' });
+    await userEvent.click(chip);
+
+    await vi.waitFor(async () => {
+      const libraryState = readThemeLibraryState(await store.get(THEME_LIBRARY_KEY));
+      expect(libraryState.globalTheme?.document.meta.name).toBe('Matrix Everywhere');
+    });
+    expect(chip.getAttribute('aria-pressed')).toBe('true');
   });
 });

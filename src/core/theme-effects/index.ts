@@ -31,6 +31,7 @@ export {
   DEFAULT_THEME_EFFECTS,
   DIGITAL_RAIN_PARAM_SPECS,
   deriveEffectParams,
+  findBackdropOption,
   getBackdropParamSpecs,
   hasActiveEffects,
   mergeEffectsPatch,

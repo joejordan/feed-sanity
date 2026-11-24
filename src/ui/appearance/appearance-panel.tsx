@@ -46,6 +46,7 @@ import { definePanel } from '../options-dialog/panel';
 import {
   Badge,
   Disclosure,
+  previewLeaveProps,
   SegmentedControl,
   SettingCard,
   SettingRow,
@@ -59,7 +60,6 @@ import { CreativeStudioCard, StudioVibesCard } from './studio-section';
 import { ThemeLibraryCard } from './theme-library-card';
 import {
   downloadThemeDocumentFile,
-  previewLeaveProps,
   ThemeSwatches,
   ThemeTransferDisclosure,
 } from './theme-transfer';

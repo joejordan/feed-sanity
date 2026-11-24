@@ -695,6 +695,15 @@ export const BACKDROP_OPTIONS: readonly BackdropOptionMeta[] = [
   },
 ];
 
+const BACKDROP_OPTION_BY_ID: ReadonlyMap<BackdropEffectId, BackdropOptionMeta> = new Map(
+  BACKDROP_OPTIONS.map((option) => [option.id, option]),
+);
+
+/** Returns metadata for `id` in O(1) time. */
+export function findBackdropOption(id: BackdropEffectId): BackdropOptionMeta | undefined {
+  return BACKDROP_OPTION_BY_ID.get(id);
+}
+
 export const SURFACE_FINISH_OPTIONS: ReadonlyArray<{
   readonly value: SurfaceFinishId;
   readonly label: string;

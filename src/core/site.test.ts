@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CapablePage } from '../capabilities';
 import type { DomEnvironment } from './dom-env';
+import type { PopupTabState, QuickPopupRequest } from './platform';
 import type { SiteAdapter } from './site';
 import type { Store } from './storage';
 import { defineCapabilityFeature } from '../capabilities';
@@ -8,7 +9,13 @@ import { defineFeature } from './feature';
 import { SiteRegistry, scrubCommonPii, startSite } from './site';
 import { SITES_STORAGE_KEY } from './site-settings';
 import { inMemoryStore } from './testing';
-import { readEarlyThemeCss, writeEarlyThemeCss } from './theming';
+import {
+  applyThemePreset,
+  DEFAULT_THEME_DOCUMENT,
+  readEarlyThemeCss,
+  THEME_DATA_KEY,
+  writeEarlyThemeCss,
+} from './theming';
 
 describe('SiteRegistry, capabilities, and startSite', () => {
   it('scrubs URLs, emails, and long numbers generically', () => {
@@ -160,7 +167,7 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       displayName: 'Facebook',
       matchesHost: () => true,
       themeCss: '',
-      themeMapping: { rootSelectors: [':root'] },
+      themeMapping: { rootSelectors: [':root'], colorVars: { '--bg': (p) => p.background } },
       accountId: () => 'u1',
       scrubPii: scrubCommonPii,
       createPage: (_data, _install, env) => {
@@ -202,7 +209,7 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       displayName: 'Facebook',
       matchesHost: () => true,
       themeCss: '',
-      themeMapping: { rootSelectors: [':root'] },
+      themeMapping: { rootSelectors: [':root'], colorVars: { '--bg': (p) => p.background } },
       accountId: () => 'u1',
       scrubPii: scrubCommonPii,
       createPage: () => () => ({}),
@@ -231,5 +238,85 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       .querySelector('#feed_sanity_options')
       ?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Close"]')
       ?.click();
+  });
+
+  it('wires popup state, live theme previews (gated by site enablement), and Userscript quick popup library', async () => {
+    const mochaDoc = applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha');
+    const warmDoc = applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper');
+    const store = inMemoryStore({
+      [`v2/facebook/u1/${THEME_DATA_KEY}`]: mochaDoc,
+    });
+
+    let getPopupState: (() => Promise<PopupTabState>) | undefined;
+    let sendThemePreview: ((doc: typeof DEFAULT_THEME_DOCUMENT | null) => void) | undefined;
+    let getQuickPopupReq: (() => Promise<QuickPopupRequest>) | undefined;
+
+    const site: SiteAdapter<Record<string, never>> = {
+      id: 'facebook',
+      displayName: 'Facebook',
+      matchesHost: () => true,
+      themeCss: '',
+      themeMapping: { rootSelectors: [':root'], colorVars: { '--bg': (p) => p.background } },
+      accountId: () => 'u1',
+      scrubPii: scrubCommonPii,
+      createPage: () => () => ({}),
+      features: [],
+      createPanels: () => [],
+    };
+
+    await startSite(site, {
+      build: 'test',
+      store,
+      setBadge: () => undefined,
+      onOpenOptions: () => () => undefined,
+      onPopupStateRequest: (handler) => {
+        getPopupState = handler;
+      },
+      onThemePreview: (listener) => {
+        sendThemePreview = listener;
+      },
+      registerQuickPopup: (getReq) => {
+        getQuickPopupReq = getReq;
+      },
+      installPageWorld: () => Promise.resolve(),
+    });
+
+    await vi.waitFor(() =>
+      expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#1e1e2e'),
+    );
+
+    const popupState = await getPopupState?.();
+    expect(popupState).toEqual({
+      siteId: 'facebook',
+      displayName: 'Facebook',
+      storagePrefix: 'v2/facebook/u1',
+      enabled: true,
+      hiddenCount: 0,
+    });
+
+    // Live theme preview applies Warm Paper, previews Site Default cleanly, and restores Mocha on null.
+    sendThemePreview?.(warmDoc);
+    expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#f4efe6');
+
+    sendThemePreview?.(DEFAULT_THEME_DOCUMENT);
+    expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
+
+    sendThemePreview?.(null);
+    expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#1e1e2e');
+
+    // Userscript quick popup receives the shared themeLibrary and working onPreviewTheme callback.
+    const req = await getQuickPopupReq?.();
+    expect(req?.themeLibrary).toBeDefined();
+    expect(req?.onPreviewTheme).toBeTypeOf('function');
+    req?.onPreviewTheme?.(warmDoc);
+    expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#f4efe6');
+    req?.onPreviewTheme?.(null);
+    expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#1e1e2e');
+
+    // Disabling the site clears theming and ignores subsequent preview requests.
+    await store.set(SITES_STORAGE_KEY, { facebook: false });
+    await vi.waitFor(() => expect(document.querySelector('#feed_sanity_user_theme')).toBeNull());
+    sendThemePreview?.(warmDoc);
+    expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
   });
 });

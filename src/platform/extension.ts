@@ -1,7 +1,13 @@
 import { browser } from 'wxt/browser';
 import type { Badge, Platform } from '../core/platform';
 import { extensionStore } from './extension-store';
-import { badgeMessage, GET_POPUP_STATE, parseOpenOptionsMessage } from './messages';
+import {
+  badgeMessage,
+  GET_POPUP_STATE,
+  parseOpenOptionsMessage,
+  parseThemePreviewMessage,
+  THEME_PREVIEW_PORT,
+} from './messages';
 
 const BUILDS: Record<string, string> = { firefox: 'Firefox extension', chrome: 'Chrome extension' };
 
@@ -48,6 +54,33 @@ export const extensionPlatform: Platform = {
         () => sendResponse(undefined),
       );
       return true;
+    });
+  },
+  onThemePreview(listener) {
+    browser.runtime.onConnect.addListener((port) => {
+      if (port.name !== THEME_PREVIEW_PORT) {
+        return;
+      }
+      let previewActive = false;
+      const clearPreview = (): void => {
+        if (previewActive) {
+          previewActive = false;
+          listener(null);
+        }
+      };
+      port.onMessage.addListener((message) => {
+        const parsed = parseThemePreviewMessage(message);
+        if (!parsed) {
+          return;
+        }
+        if (parsed.type === 'preview') {
+          previewActive = true;
+          listener(parsed.document);
+        } else {
+          clearPreview();
+        }
+      });
+      port.onDisconnect.addListener(clearPreview);
     });
   },
   setBadge(badge) {

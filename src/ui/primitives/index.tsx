@@ -22,6 +22,18 @@ export function getSiteMark(siteId: string, displayName: string): string {
   return SITE_MARKS[siteId] ?? displayName.slice(0, 2).toUpperCase();
 }
 
+/** Shared mouseleave + focus-leaving props that clear a live hover/focus preview cleanly. */
+export function previewLeaveProps(onClear: () => void) {
+  return {
+    onMouseLeave: onClear,
+    onBlur: (event: { currentTarget: HTMLElement; relatedTarget: EventTarget | null }) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        onClear();
+      }
+    },
+  };
+}
+
 export interface SwitchProps {
   readonly id?: string;
   readonly checked: boolean;

@@ -2,7 +2,7 @@ import type { OptionsPanel } from '../ui/options-dialog/panel';
 import type { DomEnvironment } from './dom-env';
 import type { Feature, PageFactory } from './feature';
 import type { Platform } from './platform';
-import type { SiteThemeMapping } from './theming';
+import type { SiteThemeMapping, ThemeDocumentV1, ThemeLibraryClient } from './theming';
 import { initSiteTheme, THEME_DATA_KEY } from '../ui/appearance';
 import { setSiteThemeCss } from '../ui/mount';
 import { openOptionsDialog } from '../ui/options-dialog';
@@ -19,6 +19,7 @@ import {
   applyEarlyThemeCss,
   clearEarlyThemeStyle,
   createThemeLibrary,
+  resolveTheme,
   THEME_GLOBAL_REV_KEY,
   THEME_LIBRARY_KEY,
   writeEarlyThemeCss,
@@ -167,10 +168,19 @@ export async function startSite<P, F extends PageFactory<P>>(
   let runtime: SiteRuntime | undefined;
   let bootStore = platform.store;
   let siteSettings: ReturnType<typeof createSiteSettings> | undefined;
+  let themeLibrary: ThemeLibraryClient | undefined;
 
   const ensureSiteSettings = (): ReturnType<typeof createSiteSettings> => {
     siteSettings ??= createSiteSettings(bootStore);
     return siteSettings;
+  };
+
+  const ensureThemeLibrary = (): ThemeLibraryClient | undefined => {
+    if (!site.themeMapping) {
+      return undefined;
+    }
+    themeLibrary ??= createThemeLibrary(bootStore);
+    return themeLibrary;
   };
 
   const ensureRuntime = (): SiteRuntime => {
@@ -183,11 +193,12 @@ export async function startSite<P, F extends PageFactory<P>>(
       log: createLogger(`${site.id}-dom`),
       ...site.envOptions,
     });
+    const library = ensureThemeLibrary();
     const theme = site.themeMapping
       ? initSiteTheme(env, data, site.themeMapping, {
           active: false,
           earlyCacheSiteId: site.id,
-          library: createThemeLibrary(bootStore),
+          ...(library ? { library } : {}),
         })
       : undefined;
     const page = site.createPage(
@@ -271,16 +282,34 @@ export async function startSite<P, F extends PageFactory<P>>(
       });
   };
 
+  let active = false;
+
+  const applyThemePreview = (doc: ThemeDocumentV1 | null): void => {
+    if (!active || !runtime?.theme) {
+      return;
+    }
+    if (doc === null) {
+      runtime.theme.controller.clearPreview();
+    } else {
+      runtime.theme.controller.preview(resolveTheme(doc));
+    }
+  };
+
   platform.onOpenOptions(openOptions);
 
   platform.onPopupStateRequest?.(async () => (await readPopupTabState()).state);
 
+  platform.onThemePreview?.(applyThemePreview);
+
   platform.registerQuickPopup?.(async () => {
     const { settings, state } = await readPopupTabState();
+    const library = ensureThemeLibrary();
     return {
       store: platform.store,
       activeTab: state,
       siteSettings: settings,
+      ...(library ? { themeLibrary: library } : {}),
+      ...(site.themeMapping ? { onPreviewTheme: applyThemePreview } : {}),
       onOpenSettings: openOptions,
     };
   });
@@ -299,7 +328,6 @@ export async function startSite<P, F extends PageFactory<P>>(
     }
   }
 
-  let active = false;
   let generation = 0;
 
   const deactivate = (): void => {

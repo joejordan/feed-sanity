@@ -18,8 +18,15 @@ import {
   THEME_EFFECT_BOUNDS,
   validateEffectParams,
 } from '../../core/theme-effects';
-import { Badge, SegmentedControl, SettingCard, SettingRow, Switch, TextInput } from '../primitives';
-import { previewLeaveProps } from './theme-transfer';
+import {
+  Badge,
+  previewLeaveProps,
+  SegmentedControl,
+  SettingCard,
+  SettingRow,
+  Switch,
+  TextInput,
+} from '../primitives';
 
 const SLIDER_COMMIT_DEBOUNCE_MS = 250;
 

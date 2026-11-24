@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import type { SavedThemeEntry, ThemeCapabilities, ThemeDocumentV1 } from '../../core/theming';
 import { MAX_LIBRARY_THEMES } from '../../core/theming';
-import { Badge, SettingCard, TextInput } from '../primitives';
-import { downloadThemeDocumentFile, previewLeaveProps, ThemeSwatches } from './theme-transfer';
+import { Badge, previewLeaveProps, SettingCard, TextInput } from '../primitives';
+import { downloadThemeDocumentFile, ThemeSwatches } from './theme-transfer';
 
 export interface AnalyzedLibraryEntry {
   readonly entry: SavedThemeEntry;

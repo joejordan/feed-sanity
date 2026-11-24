@@ -1,5 +1,7 @@
 import type { Badge, PopupTabState } from '../core/platform';
+import type { ThemeDocumentV1 } from '../core/theming/document';
 import { isRecord } from '../core/storage';
+import { parseThemeDocument } from '../core/theming/document';
 
 /** Sent from the background script or toolbar popup to a tab to open the options dialog. */
 export const OPEN_OPTIONS = 'feed-sanity/open-options';
@@ -58,4 +60,28 @@ export function isBadgeMessage(message: unknown): message is BadgeMessage {
     return false;
   }
   return Number.isInteger(message.badge.count) && typeof message.badge.failed === 'boolean';
+}
+
+/** Port name used by the toolbar popup to stream live hover-to-preview themes to the active tab. */
+export const THEME_PREVIEW_PORT = 'feed-sanity/theme-preview';
+
+export type ThemePreviewMessage =
+  | { readonly type: 'preview'; readonly document: ThemeDocumentV1 }
+  | { readonly type: 'clear' };
+
+export const themePreviewMessage = (doc: ThemeDocumentV1 | null): ThemePreviewMessage =>
+  doc ? { type: 'preview', document: doc } : { type: 'clear' };
+
+export function parseThemePreviewMessage(message: unknown): ThemePreviewMessage | null {
+  if (!isRecord(message)) {
+    return null;
+  }
+  if (message.type === 'clear') {
+    return { type: 'clear' };
+  }
+  if (message.type === 'preview') {
+    const parsed = parseThemeDocument(message.document);
+    return parsed.ok && parsed.document ? { type: 'preview', document: parsed.document } : null;
+  }
+  return null;
 }

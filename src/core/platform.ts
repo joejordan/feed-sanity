@@ -1,5 +1,6 @@
 import type { SiteSettingsClient } from './site-settings';
 import type { Store } from './storage';
+import type { ThemeDocumentV1, ThemeLibraryClient } from './theming';
 
 /** What the toolbar button's badge shows for the page. */
 export interface Badge {
@@ -23,6 +24,8 @@ export interface QuickPopupRequest {
   readonly store: Store;
   readonly activeTab: PopupTabState;
   readonly siteSettings: SiteSettingsClient;
+  readonly themeLibrary?: ThemeLibraryClient;
+  readonly onPreviewTheme?: (doc: ThemeDocumentV1 | null) => void;
   readonly onOpenSettings: (section?: string) => void;
 }
 
@@ -50,6 +53,11 @@ export interface Platform {
    * without requesting extra host or `tabs` permissions.
    */
   onPopupStateRequest?: (handler: () => Promise<PopupTabState>) => void;
+  /**
+   * Optional handler receiving live hover-to-preview theme updates from the
+   * extension toolbar popup (`null` ends the preview, including on popup close).
+   */
+  onThemePreview?: (listener: (doc: ThemeDocumentV1 | null) => void) => void;
   /**
    * Shows `badge` on the toolbar button, for this tab only. The userscript
    * has no toolbar button, and there it does nothing.
