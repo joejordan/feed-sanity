@@ -265,6 +265,8 @@ export interface OverlayOptions {
    * change the page; a state update in the UI, which renders later, is fine.
    */
   onMeasure?: () => void;
+  /** Optional z-index on the overlay host (e.g. top-bar controls sitting above a host link). */
+  zIndex?: number;
 }
 
 /** Removes the overlay when called. */
@@ -296,11 +298,11 @@ export interface MountedOverlay {
 export function mountOverlay(
   target: Element,
   ui: ReactNode,
-  { container = () => target.parentElement, css = '', onMeasure }: OverlayOptions = {},
+  { container = () => target.parentElement, css = '', onMeasure, zIndex }: OverlayOptions = {},
 ): MountedOverlay {
   const host = document.createElement(HOST_TAG);
   host.setAttribute(OWN_ATTR, '');
-  host.style.cssText = HOST_STYLE;
+  host.style.cssText = zIndex === undefined ? HOST_STYLE : `${HOST_STYLE};z-index:${zIndex}`;
   stopAtHost(host, PRESS_EVENTS);
   const unmount = renderInShadow(host, ui, css);
   const overlay: Overlay = {

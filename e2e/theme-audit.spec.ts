@@ -436,22 +436,91 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
         .toBeCloseTo(1.17, 2);
 
       // 4. Creative Studio: Enter the Matrix & Vice City VI live backdrops + click effects on X.
+      // Mount a tall spacer, an X search typeahead popup, and a "For you" dropdown trigger + #layers menu.
+      await page.evaluate(() => {
+        const root = document.querySelector('#react-root')!;
+        const layers = document.createElement('div');
+        layers.id = 'layers';
+        root.prepend(layers);
+
+        const col = document.querySelector('[data-testid="primaryColumn"]')!;
+        const tablist = document.createElement('div');
+        tablist.setAttribute('role', 'tablist');
+        const forYouBtn = document.createElement('button');
+        forYouBtn.id = 'for-you-dropdown-btn';
+        forYouBtn.type = 'button';
+        forYouBtn.textContent = 'For you ▾';
+        forYouBtn.addEventListener('click', () => {
+          const card = document.createElement('div');
+          card.id = 'for-you-menu-card';
+          card.className = 'r-kemksi';
+          const menu = document.createElement('div');
+          menu.setAttribute('role', 'menu');
+          menu.setAttribute('data-testid', 'Dropdown');
+          menu.textContent = 'For you · Following';
+          card.append(menu);
+          layers.replaceChildren(card);
+        });
+        tablist.append(forYouBtn);
+        col.prepend(tablist);
+
+        const sidebar = document.createElement('div');
+        sidebar.setAttribute('data-testid', 'sidebarColumn');
+        const form = document.createElement('form');
+        form.setAttribute('role', 'search');
+        const popupWrap = document.createElement('div');
+        popupWrap.id = 'search-popup-wrapper';
+        popupWrap.className = 'r-kemksi';
+        const listbox = document.createElement('div');
+        listbox.id = 'typeaheadDropdown-1';
+        listbox.setAttribute('role', 'listbox');
+        listbox.textContent = 'Try searching for people, lists, or keywords';
+        popupWrap.append(listbox);
+        form.append(popupWrap);
+        sidebar.append(form);
+        document.querySelector('main[role="main"]')?.append(sidebar);
+
+        const spacer = document.createElement('div');
+        spacer.style.height = '2400px';
+        col.append(spacer);
+      });
+
       const studioDialog = await openAppearance(page);
       await studioDialog.getByRole('button', { name: /Enter the Matrix/i }).click();
+
+      // Dialog stays fixed in the viewport even when the underlying page scrolls.
+      const dialogRectBefore = await studioDialog.boundingBox();
+      await page.evaluate(() => window.scrollTo(0, 700));
+      const dialogRectAfter = await studioDialog.boundingBox();
+      expect(dialogRectBefore).not.toBeNull();
+      expect(dialogRectAfter).not.toBeNull();
+      expect(Math.abs((dialogRectAfter?.y ?? 0) - (dialogRectBefore?.y ?? 0))).toBeLessThanOrEqual(
+        2,
+      );
+      await page.evaluate(() => window.scrollTo(0, 0));
 
       const backdrop = page.locator('[data-feed-sanity="theme-backdrop"]');
       await expect(backdrop).toBeVisible();
       await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'digital-rain');
       await expect(backdrop.locator('canvas')).toBeVisible();
 
-      // Root shell becomes transparent so Matrix Rain shines through the page margins.
+      // Root shell becomes transparent so Matrix Rain shines through the page margins,
+      // while the X search typeahead popup & its wrapper stay opaque and readable.
       await expect
         .poll(() =>
-          page.evaluate(
-            () => getComputedStyle(document.querySelector('#react-root')!).backgroundColor,
-          ),
+          page.evaluate(() => ({
+            rootBg: getComputedStyle(document.querySelector('#react-root')!).backgroundColor,
+            listboxBg: getComputedStyle(document.querySelector('#typeaheadDropdown-1')!)
+              .backgroundColor,
+            wrapperBg: getComputedStyle(document.querySelector('#search-popup-wrapper')!)
+              .backgroundColor,
+          })),
         )
-        .toBe('rgba(0, 0, 0, 0)');
+        .toEqual({
+          rootBg: 'rgba(0, 0, 0, 0)',
+          listboxBg: expect.not.stringMatching(/^rgba?\(0,\s*0,\s*0,\s*0\)$/),
+          wrapperBg: expect.not.stringMatching(/^rgba?\(0,\s*0,\s*0,\s*0\)$/),
+        });
 
       // Switch to Vice City VI (GTA VI horizon sunset + neon palms + spark click FX).
       await studioDialog.getByRole('button', { name: /Vice City VI/i }).click();
@@ -470,8 +539,20 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
         /^(webgl|canvas2d)$/,
       );
 
-      // Reset to site default tears down the backdrop with zero DOM residue.
-      await studioDialog.getByRole('button', { name: 'Reset to site default' }).click();
+      // Close dialog and verify the "For you" dropdown button is clickable under a live Studio theme
+      // and opens its #layers dropdown menu with a non-transparent surface.
+      await studioDialog.getByRole('button', { name: 'Close' }).click();
+      await expect(studioDialog).toBeHidden();
+      await page.locator('#for-you-dropdown-btn').click();
+      await expect(page.locator('#for-you-menu-card [role="menu"]')).toBeVisible();
+      const menuBg = await page.evaluate(
+        () => getComputedStyle(document.querySelector('#for-you-menu-card')!).backgroundColor,
+      );
+      expect(menuBg).not.toMatch(/^rgba?\(0,\s*0,\s*0,\s*0\)$/);
+
+      // Reopen and reset to site default: tears down the backdrop with zero DOM residue.
+      const resetDialog = await openAppearance(page);
+      await resetDialog.getByRole('button', { name: 'Reset to site default' }).click();
       await expect(backdrop).toHaveCount(0);
     } finally {
       await page.close();

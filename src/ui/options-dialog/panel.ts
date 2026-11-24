@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { Options } from '../../core/options';
 
 /** Searchable item contributed by a custom panel to unified dialog search (`⌘K`). */
 export interface PanelSearchItem {
@@ -21,6 +22,8 @@ export interface PanelProps<T> {
   onChange: (value: T) => void;
   /** Optional toast notifier supplied by `OptionsDialog` for instant-apply + Undo feedback. */
   notify?: (message: string, onUndo?: () => void) => void;
+  /** Optional shared `Options` store so panels can embed related feature options cleanly. */
+  options?: Options;
 }
 
 /**

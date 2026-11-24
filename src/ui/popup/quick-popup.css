@@ -28,9 +28,17 @@
 }
 
 .qp-overlay[data-dragging="true"] {
-  opacity: 0.42;
+  opacity: 0.86;
+  background: color-mix(in srgb, var(--fs-dialog-bg) 76%, transparent);
+  backdrop-filter: blur(16px) saturate(145%);
+  -webkit-backdrop-filter: blur(16px) saturate(145%);
   user-select: none;
   cursor: grabbing;
+}
+
+.qp-overlay[data-dragging="true"] .qp-header,
+.qp-overlay[data-dragging="true"] .qp-footer {
+  background: color-mix(in srgb, var(--fs-sidebar-bg) 72%, transparent);
 }
 
 .qp-header {

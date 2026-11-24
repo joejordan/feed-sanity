@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import type { ReactNode } from 'react';
+import { OWN_ATTR } from '../core/surface';
 import theme from './theme.css?inline';
 
 /** The tag of every host element, so they are easy to find in the page. */
@@ -94,6 +95,7 @@ export function renderInShadow(host: HTMLElement, ui: ReactNode, css = ''): () =
 export function mount(ui: ReactNode, { id, css = '' }: MountOptions): () => void {
   const host = document.createElement(HOST_TAG);
   host.id = id;
+  host.setAttribute(OWN_ATTR, 'ui');
   (document.body ?? document.documentElement).append(host);
   const unmount = renderInShadow(host, ui, css);
   return () => {

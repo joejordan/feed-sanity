@@ -47,7 +47,7 @@ export const instagramThemeMapping: SiteThemeMapping = {
   },
   extraCss: (p) =>
     `html, body { background-color: ${p.background} !important; color: ${p.text} !important; }`,
-  backdropRevealCss: (p, { columnAlpha, cardAlpha, blurPx }) => {
+  backdropRevealCss: (p, { columnAlpha, cardAlpha }) => {
     const bg = p?.background ?? '#05080f';
     const surface = p?.surface ?? '#12151f';
     return `
@@ -56,10 +56,11 @@ section,
 main[role="main"] {
   background-color: transparent !important;
 }
-article, [role="dialog"], nav {
+article, nav {
   background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
-  backdrop-filter: blur(${blurPx}px);
-  -webkit-backdrop-filter: blur(${blurPx}px);
+}
+[role="dialog"], [role="menu"] {
+  background-color: ${hexWithAlpha(surface, Math.max(0.96, cardAlpha))} !important;
 }
 main[role="main"] > div {
   background-color: ${hexWithAlpha(bg, columnAlpha * 0.75)} !important;

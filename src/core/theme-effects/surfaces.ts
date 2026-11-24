@@ -26,7 +26,7 @@ export function resolveGlassMetrics(glassStrength: number): {
 }
 
 /**
- * Compiles CSS that layers the active backdrop cleanly at `z-index: 0` behind
+ * Compiles CSS that layers the active backdrop cleanly at `z-index: -1` behind
  * the host application while making outer canvas wrappers transparent so live
  * backgrounds (Matrix Rain, Vice Horizon, Aurora, Constellations, etc.) shine
  * dramatically through margins and gently behind frosted cards.
@@ -56,14 +56,10 @@ body {
   background-color: transparent !important;
   background-image: none !important;
 }
-body > :not([${OWN_ATTR}]) {
-  position: relative;
-  z-index: 1;
-}
 [${OWN_ATTR}="${BACKDROP_OWN_VALUE}"] {
   position: fixed;
   inset: 0;
-  z-index: 0;
+  z-index: -1;
   pointer-events: none;
   overflow: hidden;
   contain: strict;
@@ -74,10 +70,11 @@ body > :not([${OWN_ATTR}]) {
   const fallbackCards = siteCustom
     ? siteCustom
     : `
-main, [role="main"], article, [role="dialog"], [role="menu"] {
+main, [role="main"], article {
   background-color: ${hexWithAlpha(surfaceBg, metrics.cardAlpha)} !important;
-  backdrop-filter: blur(${metrics.blurPx}px);
-  -webkit-backdrop-filter: blur(${metrics.blurPx}px);
+}
+[role="dialog"], [role="menu"], [role="listbox"] {
+  background-color: ${hexWithAlpha(surfaceBg, Math.max(0.95, metrics.cardAlpha))} !important;
 }`;
 
   return [genericReveal.trim(), fallbackCards.trim()].filter(Boolean).join('\n\n');
@@ -103,18 +100,25 @@ export function compileSurfaceFinishCss(
   const border = palette?.border ?? (hostScheme === 'light' ? '#cbd5e1' : '#2b364d');
   const danger = palette?.danger ?? '#ec4899';
 
-  const cardTargets =
-    ':where([role="dialog"], [role="menu"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sidebarColumn"] section, [data-testid="sidebarColumn"] aside, shreddit-post)';
+  const leafCardTargets =
+    ':where([data-testid="sidebarColumn"] section, [data-testid="sidebarColumn"] aside, shreddit-post)';
+  const popupTargets =
+    ':where([role="dialog"], [role="menu"], [role="listbox"], [id^="typeaheadDropdown"], [data-testid="Dropdown"], [data-testid="HoverCard"])';
+  const cardTargets = `${leafCardTargets}, ${popupTargets}`;
 
   if (effects.surface === 'glass') {
     const { cardAlpha, blurPx } = resolveGlassMetrics(Math.max(0.24, effects.glassStrength));
     const highlight = hexWithAlpha(text, hostScheme === 'light' ? 0.14 : 0.08);
     return `
-${cardTargets} {
+${leafCardTargets} {
   background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
   backdrop-filter: blur(${blurPx}px) saturate(135%) !important;
   -webkit-backdrop-filter: blur(${blurPx}px) saturate(135%) !important;
   box-shadow: inset 0 1px 0 0 ${highlight}, 0 8px 28px rgb(0 0 0 / 18%) !important;
+}
+${popupTargets} {
+  background-color: ${hexWithAlpha(surface, Math.max(0.95, cardAlpha))} !important;
+  box-shadow: inset 0 1px 0 0 ${highlight}, 0 10px 32px rgb(0 0 0 / 26%) !important;
 }`.trim();
   }
 

@@ -396,4 +396,53 @@ describe('appearancePanel & initSiteTheme', () => {
     // The click-effects copy promises calm, interactive-only feedback.
     expect(screen.getByText(/Selecting text stays quiet/)).toBeTruthy();
   });
+
+  it('embeds External stylesheet inside the Custom CSS disclosure at the bottom of Appearance instead of a top-level card', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    options.register({
+      custom_stylesheet_url: {
+        section: 'Appearance',
+        group: 'External Stylesheet',
+        title: 'External CSS url',
+        description: 'Link an external stylesheet.',
+        default: '',
+        hiddenInList: true,
+      },
+    });
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    await saved.ready;
+    const controller: ThemeController = {
+      ...makeController(),
+      audit: vi.fn().mockReturnValue(null),
+    };
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+
+    // Not rendered as a standalone top-level card above the Appearance panel.
+    expect(screen.queryByText('External Stylesheet')).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'External CSS url' })).toBeNull();
+
+    // Custom CSS disclosure is the final disclosure at the bottom of Appearance.
+    const disclosures = screen.getAllByRole('button', { name: /Customize colors|Custom CSS/i });
+    expect(disclosures.at(-1)?.textContent).toContain('Custom CSS');
+
+    // Expand Custom CSS and save an external stylesheet URL.
+    await userEvent.click(screen.getByRole('button', { name: /Custom CSS/i }));
+    const urlInput = screen.getByRole<HTMLInputElement>('textbox', { name: 'External CSS url' });
+    await userEvent.type(urlInput, 'https://example.com/theme.css');
+    await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await vi.waitFor(() =>
+      expect(options.get('custom_stylesheet_url')).toBe('https://example.com/theme.css'),
+    );
+    expect(screen.getByRole('button', { name: /Custom CSS/i }).textContent).toContain('Active');
+
+    // Clearing resets the saved URL cleanly.
+    await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    await vi.waitFor(() => expect(options.get('custom_stylesheet_url')).toBe(''));
+  });
 });

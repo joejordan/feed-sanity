@@ -504,7 +504,7 @@ export default defineFeature({
             mountOverlay(
               link,
               <FeedMenu feeds={FEEDS} choice={choice} shown={shown} anchor={link} onPick={pick} />,
-              { css, onMeasure: syncFallback },
+              { css, onMeasure: syncFallback, zIndex: 10 },
             ),
           );
           syncFallback();
@@ -532,7 +532,7 @@ export default defineFeature({
                 mode="toolbar"
                 visible={fallback}
               />,
-              { css, onMeasure: syncFallback },
+              { css, onMeasure: syncFallback, zIndex: 10 },
             ),
           );
           syncFallback();

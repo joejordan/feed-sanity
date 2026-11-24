@@ -57,7 +57,7 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
     backdropHost.setAttribute(OWN_ATTR, BACKDROP_OWN_VALUE);
     backdropHost.setAttribute('aria-hidden', 'true');
     backdropHost.style.cssText =
-      'position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;contain:strict;';
+      'position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;contain:strict;';
     target.prepend(backdropHost);
     return backdropHost;
   };

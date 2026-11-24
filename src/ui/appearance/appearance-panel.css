@@ -468,3 +468,9 @@
   background: var(--fs-hover);
   color: var(--fs-text);
 }
+
+.theme-external-css-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

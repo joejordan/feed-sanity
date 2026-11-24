@@ -492,6 +492,9 @@ export function OptionsDialog({
     }
     const hits: IndexedSearchHit[] = [];
     for (const [key, spec] of all) {
+      if (spec.hiddenInList) {
+        continue;
+      }
       hits.push({
         id: `opt:${key}`,
         title: spec.title,
@@ -558,7 +561,7 @@ export function OptionsDialog({
   };
 
   const { sectionOptions, sectionGroups } = useMemo(() => {
-    const filtered = all.filter(([, spec]) => spec.section === section);
+    const filtered = all.filter(([, spec]) => spec.section === section && !spec.hiddenInList);
     return { sectionOptions: filtered, sectionGroups: groupSectionOptions(filtered) };
   }, [all, section]);
 
@@ -826,6 +829,7 @@ export function OptionsDialog({
                   value={value}
                   onChange={(next) => handlePanelChange(panel, next)}
                   notify={notify}
+                  options={options}
                 />
               );
             })}

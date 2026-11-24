@@ -124,15 +124,59 @@ function AppearancePanelView({
   value,
   onChange,
   notify,
+  options,
   controller,
 }: PanelProps<ThemeConfig> & { controller: ThemeController }) {
   const fontId = useId();
+  const externalCssId = useId();
   const [auditState, setAuditState] = useState<AuditState | null>(null);
   const [schemeFilter, setSchemeFilter] = useState<SchemeFilter>('all');
+  const hasExternalCssOption = useMemo(
+    () => Boolean(options?.list().some(([key]) => key === 'custom_stylesheet_url')),
+    [options],
+  );
+  const [savedExternalCssUrl, setSavedExternalCssUrl] = useState(() =>
+    hasExternalCssOption && options ? String(options.get('custom_stylesheet_url')) : '',
+  );
+  const [externalCssDraft, setExternalCssDraft] = useState(savedExternalCssUrl);
+
+  useEffect(() => {
+    if (!hasExternalCssOption || !options) {
+      return;
+    }
+    return options.watch('custom_stylesheet_url', (next) => {
+      const url = String(next);
+      setSavedExternalCssUrl(url);
+      setExternalCssDraft(url);
+    });
+  }, [hasExternalCssOption, options]);
+
   const hasCustomColors = Boolean(value.accent || value.background || value.surface || value.text);
   const [colorsOpen, setColorsOpen] = useState(hasCustomColors);
-  const [cssOpen, setCssOpen] = useState(Boolean(value.customCss.trim()));
+  const [cssOpen, setCssOpen] = useState(
+    Boolean(value.customCss.trim() || savedExternalCssUrl.trim()),
+  );
   const [healthOpen, setHealthOpen] = useState(false);
+
+  const commitExternalCssUrl = (raw: string): void => {
+    if (!hasExternalCssOption || !options) {
+      return;
+    }
+    const nextUrl = raw.trim();
+    if (nextUrl === savedExternalCssUrl) {
+      setExternalCssDraft(nextUrl);
+      return;
+    }
+    const previousUrl = savedExternalCssUrl;
+    setExternalCssDraft(nextUrl);
+    setSavedExternalCssUrl(nextUrl);
+    void options.set('custom_stylesheet_url', nextUrl);
+    notify?.(nextUrl ? 'External stylesheet saved' : 'External stylesheet cleared', () => {
+      setExternalCssDraft(previousUrl);
+      setSavedExternalCssUrl(previousUrl);
+      void options.set('custom_stylesheet_url', previousUrl);
+    });
+  };
 
   const effective = useMemo(() => resolveTheme(value)?.palette ?? null, [value]);
   const minContrast = useMemo(
@@ -650,28 +694,6 @@ function AppearancePanelView({
           </div>
         </Disclosure>
 
-        <Disclosure
-          label="Custom CSS"
-          badge={value.customCss.trim() ? <Badge tone="accent">Active</Badge> : undefined}
-          open={cssOpen}
-          onToggle={() => setCssOpen((open) => !open)}
-        >
-          <div className="theme-drawer-pad">
-            <label className="theme-color-row">
-              <span>Custom CSS</span>
-              <textarea
-                className="field"
-                rows={4}
-                aria-label="Custom CSS"
-                placeholder="Optional CSS layered on top of this site's theme"
-                spellCheck={false}
-                value={value.customCss}
-                onChange={(event) => update({ customCss: event.currentTarget.value })}
-              />
-            </label>
-          </div>
-        </Disclosure>
-
         {effective && controller.audit && (
           <Disclosure
             label="Theme health & layout check"
@@ -802,6 +824,81 @@ function AppearancePanelView({
             </div>
           </Disclosure>
         )}
+
+        <Disclosure
+          label="Custom CSS"
+          badge={
+            value.customCss.trim() || savedExternalCssUrl.trim() ? (
+              <Badge tone="accent">Active</Badge>
+            ) : undefined
+          }
+          open={cssOpen}
+          onToggle={() => setCssOpen((open) => !open)}
+        >
+          <div className="theme-drawer-pad">
+            <label className="theme-color-row">
+              <span>Custom CSS</span>
+              <textarea
+                className="field"
+                rows={4}
+                aria-label="Custom CSS"
+                placeholder="Write custom CSS rules layered on top of this site's theme"
+                spellCheck={false}
+                value={value.customCss}
+                onChange={(event) => update({ customCss: event.currentTarget.value })}
+              />
+            </label>
+            {hasExternalCssOption && (
+              <div className="theme-color-row">
+                <label htmlFor={externalCssId}>External stylesheet URL</label>
+                <div className="theme-external-css-row">
+                  <input
+                    id={externalCssId}
+                    type="text"
+                    inputMode="url"
+                    className="field theme-hex"
+                    aria-label="External CSS url"
+                    placeholder="https://example.com/custom.css"
+                    spellCheck={false}
+                    value={externalCssDraft}
+                    onInput={(event) => setExternalCssDraft(event.currentTarget.value)}
+                    onChange={(event) => setExternalCssDraft(event.currentTarget.value)}
+                    onBlur={(event) => commitExternalCssUrl(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        commitExternalCssUrl(event.currentTarget.value);
+                      }
+                    }}
+                  />
+                  {externalCssDraft.trim() !== savedExternalCssUrl && (
+                    <button
+                      type="button"
+                      className="button primary"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => commitExternalCssUrl(externalCssDraft)}
+                    >
+                      Apply
+                    </button>
+                  )}
+                  {savedExternalCssUrl && externalCssDraft.trim() === savedExternalCssUrl && (
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() => commitExternalCssUrl('')}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <span className="theme-studio-hint">
+                  Optional HTTPS stylesheet URL (served as <code>text/css</code>). Use inline CSS,
+                  an external URL, or both.
+                </span>
+              </div>
+            )}
+          </div>
+        </Disclosure>
       </SettingCard>
     </section>
   );
@@ -841,9 +938,9 @@ export function appearancePanel(
       },
       {
         id: 'custom-css',
-        title: 'Custom CSS',
-        description: 'Layer custom stylesheet rules on top of this site.',
-        keywords: ['style', 'stylesheet', 'css'],
+        title: 'Custom CSS & External stylesheet',
+        description: 'Write inline CSS rules or link an external HTTPS stylesheet.',
+        keywords: ['style', 'stylesheet', 'css', 'external', 'url', 'link'],
       },
       {
         id: 'theme-health',

@@ -14,6 +14,8 @@ export interface OptionSpec {
   group?: string;
   /** When true, tucked inside the card's collapsible "More options" disclosure drawer. */
   advanced?: boolean;
+  /** When true, omitted from the generic section list because a custom panel embeds it. */
+  hiddenInList?: boolean;
   /** Optional key of a boolean parent option; dims this row when the parent is off. */
   dependsOn?: string;
   /** Optional search synonyms matched by unified Command Jump / Search. */

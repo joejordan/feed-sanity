@@ -373,3 +373,46 @@ test('replaces the fixed Feeds sidebar with responsive Home rails on narrow view
   );
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test('keeps the Home caret menu clickable and visible while a Studio theme backdrop is active', async ({
+  page,
+  store,
+  stored,
+}) => {
+  await store({
+    [OPTIONS_KEY.replace(/\/options$/, '/theme')]: {
+      preset: 'terminal-phosphor',
+      accent: '',
+      background: '',
+      surface: '',
+      text: '',
+      font: 'default',
+      customCss: '',
+      effects: {
+        backdrop: 'digital-rain',
+        surface: 'glass',
+        click: 'matrix-burst',
+        intensity: 0.72,
+        speed: 1,
+        glassStrength: 0.35,
+        paused: false,
+        interactive: true,
+        rainLook: 'phosphor',
+        rainCharset: 'matrix',
+        rainDensity: 0.55,
+      },
+    },
+  });
+
+  await page.goto(GROUPS);
+  await expect(page.locator('[data-feed-sanity="theme-backdrop"]')).toBeVisible();
+
+  await caret(page).click();
+  await expect(menu(page)).toBeVisible();
+  await feedEntry(page, 'Friends').click();
+
+  await expect(page).toHaveURL(FRIENDS);
+  await expect
+    .poll(() => stored(OPTIONS_KEY))
+    .toEqual(expect.objectContaining({ home_feed: 'friends' }));
+});

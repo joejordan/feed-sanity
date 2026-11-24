@@ -47,7 +47,13 @@ function useTopLayer(ref: { readonly current: HTMLElement | null }): void {
   useEffect(() => {
     const element = ref.current;
     if (typeof element?.showPopover === 'function') {
-      element.showPopover();
+      try {
+        if (!element.matches(':popover-open')) {
+          element.showPopover();
+        }
+      } catch {
+        // Fallback fixed positioning with high z-index still displays the menu cleanly.
+      }
     }
   }, [ref]);
 }

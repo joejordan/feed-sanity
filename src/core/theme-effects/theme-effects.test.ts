@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import type { BackdropEffectId } from './index';
+import { facebookThemeMapping } from '../../sites/facebook/theme-mapping';
 import { xThemeMapping } from '../../sites/x/theme-mapping';
 import { createDomEnvironment } from '../dom-env';
 import {
@@ -688,5 +689,38 @@ describe('Creative Theme & Effects Studio engine', () => {
 
     controller.apply(null);
     expect(backdropHost()).toBeNull();
+  });
+
+  it('layers backdrop at z-index -1 without body stacking traps and keeps popups opaque without ancestor backdrop-filter', () => {
+    const matrixVibe = STUDIO_VIBES.find((v) => v.id === 'enter-the-matrix')!;
+    const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_CONFIG, matrixVibe))!;
+
+    const xCss = compileHostThemeCss(resolved, xThemeMapping, 'dark');
+    expect(xCss).toContain('z-index: -1;');
+    expect(xCss).not.toContain('body > :not(');
+    expect(xCss).toContain('#layers');
+    expect(xCss).toContain('form[role="search"]');
+    expect(xCss).toContain('[role="listbox"]');
+    expect(xCss).toContain('[id^="typeaheadDropdown"]');
+    // Primary column must NOT carry backdrop-filter (which traps sticky/fixed headers & dropdowns).
+    expect(xCss).not.toMatch(/\[data-testid="primaryColumn"\][^}]*backdrop-filter/s);
+
+    const glassCss = compileSurfaceFinishCss(resolved.palette, 'dark', {
+      ...DEFAULT_THEME_EFFECTS,
+      surface: 'glass',
+    });
+    // Popups stay high-opacity without backdrop-filter creating a stacking trap.
+    expect(glassCss).not.toMatch(/\[role="dialog"\][^}]*backdrop-filter/s);
+    expect(glassCss).toContain('[role="listbox"]');
+
+    const fbCss = compileHostThemeCss(resolved, facebookThemeMapping, 'dark');
+    expect(fbCss).not.toContain('body > :not(');
+    expect(fbCss).toContain('--popover-background:');
+    expect(fbCss).not.toMatch(/\[role="banner"\][^}]*backdrop-filter/s);
+
+    const layer = createEffectsLayerController(document);
+    cleanups.push(() => layer.dispose());
+    layer.sync(resolved.effects, resolved.palette, 'dark');
+    expect((backdropHost() as HTMLElement | null)?.style.zIndex).toBe('-1');
   });
 });
