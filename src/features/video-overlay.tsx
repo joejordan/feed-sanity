@@ -56,6 +56,13 @@ export function overlayEachVideo<T, V extends OverlayVideo = Video>(
       remove(video);
     }
   });
+  const measureAll = (): void => {
+    for (const overlay of shown.values()) {
+      overlay.measure();
+    }
+  };
+  document.addEventListener('fullscreenchange', measureAll);
+  scope.add(() => document.removeEventListener('fullscreenchange', measureAll));
   if (page.videos.onControls) {
     scope.add(page.videos.onControls((video) => shown.get(video)?.measure()));
   }

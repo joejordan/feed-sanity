@@ -16,6 +16,7 @@ import { CustomSpeedControl } from './video-speed-control';
 import {
   clampVideoSpeed,
   formatSpeedLabel,
+  isNativeXSpeed,
   parseNativeSpeedLabel,
   readSavedVideoSpeed,
   X_VIDEO_SPEED_KEY,
@@ -27,8 +28,10 @@ export {
   DEFAULT_VIDEO_SPEED,
   formatSpeedLabel,
   formatSpeedNumber,
+  isNativeXSpeed,
   MAX_VIDEO_SPEED,
   MIN_VIDEO_SPEED,
+  NATIVE_X_SPEEDS,
   parseNativeSpeedLabel,
   parseSpeedInput,
   readSavedVideoSpeed,
@@ -37,6 +40,7 @@ export {
 
 const SAVE_DEBOUNCE_MS = 160;
 const SPEED_EPSILON = 0.005;
+const MENU_INTERACTION_WINDOW_MS = 500;
 const MENU_CONTAINER_SELECTOR = [
   '[role="menu"]',
   '[role="listbox"]',
@@ -55,8 +59,8 @@ const PARENT_SPEED_ROW_RE =
 const PARENT_SPEED_LABEL_RE = /^playback\s+speed$/i;
 const NATIVE_HIDDEN_ATTR = 'data-fs-speed-native-hidden';
 const HIDE_CHECK_ATTR = 'data-fs-speed-hide-check';
+const SELECTED_ROW_ATTR = 'data-fs-speed-selected';
 const OWN_PARENT_BADGE_VALUE = 'x-speed-parent-value';
-const OWN_NATIVE_CHECK_VALUE = 'x-speed-native-check';
 const PAGE_STYLE_ID = 'feed_sanity_x_video_speed';
 const PAGE_SPEED_CSS = `
 [${NATIVE_HIDDEN_ATTR}="true"] {
@@ -65,19 +69,18 @@ const PAGE_SPEED_CSS = `
 [${HIDE_CHECK_ATTR}="true"] svg:not([data-feed-sanity-icon]) {
   visibility: hidden !important;
 }
+[${HIDE_CHECK_ATTR}="true"] input[type="radio"] {
+  opacity: 0.45 !important;
+}
+[${SELECTED_ROW_ATTR}="true"] {
+  color: var(--fs-accent, rgb(29, 155, 240)) !important;
+  font-weight: 700 !important;
+}
 [${OWN_ATTR}="${OWN_PARENT_BADGE_VALUE}"] {
   font-weight: 500;
   opacity: 0.82;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-[${OWN_ATTR}="${OWN_NATIVE_CHECK_VALUE}"] {
-  display: inline-flex;
-  align-items: center;
-  margin-left: auto;
-  padding-left: 8px;
-  color: var(--fs-accent, rgb(29, 155, 240));
-  flex-shrink: 0;
 }
 `;
 
@@ -91,6 +94,11 @@ interface DetectedSpeedMenu {
   readonly items: readonly DetectedSpeedItem[];
   readonly parent: Element;
   readonly anchor: Element;
+}
+
+interface SpeedMenuActivity {
+  readonly isMenuOpen: () => boolean;
+  readonly recentlyInteracted: () => boolean;
 }
 
 function extractVisibleText(root: Node): string {
@@ -219,25 +227,41 @@ function findNativeSpeedValueElements(rowEl: Element): Element[] {
   return keepInnermost(matches).map((item) => item.el);
 }
 
-function createNativeCheckBadge(doc: Document): HTMLSpanElement {
-  const span = doc.createElement('span');
-  span.setAttribute(OWN_ATTR, OWN_NATIVE_CHECK_VALUE);
-  span.setAttribute('aria-hidden', 'true');
-  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('data-feed-sanity-icon', 'check');
-  svg.setAttribute('width', '16');
-  svg.setAttribute('height', '16');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '2.5');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-  const poly = doc.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-  poly.setAttribute('points', '20 6 9 17 4 12');
-  svg.append(poly);
-  span.append(svg);
-  return span;
+/**
+ * Dismisses X's Playback speed submenu cleanly after the user confirms a custom
+ * speed, matching the behavior of clicking one of X's native radio options.
+ */
+function dismissSpeedMenu(menuContainer: Element, host: HTMLElement, doc: Document): void {
+  const escInit: KeyboardEventInit = {
+    key: 'Escape',
+    code: 'Escape',
+    keyCode: 27,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+  };
+  menuContainer.dispatchEvent(new KeyboardEvent('keydown', escInit));
+  doc.dispatchEvent(new KeyboardEvent('keydown', escInit));
+
+  queueMicrotask(() => {
+    if (!host.isConnected) {
+      return;
+    }
+    const mask = doc.querySelector<HTMLElement>('#layers [data-testid="mask"]');
+    if (mask) {
+      mask.click();
+      return;
+    }
+    const player = menuContainer.closest(
+      '[data-testid="videoPlayer"], [data-testid="videoComponent"]',
+    );
+    const settingsBtn = player?.querySelector<HTMLElement>(
+      'button[aria-label*="Settings" i], [role="button"][aria-label*="Settings" i]',
+    );
+    if (settingsBtn && !settingsBtn.closest(`[${OWN_ATTR}]`)) {
+      settingsBtn.click();
+    }
+  });
 }
 
 /**
@@ -262,7 +286,7 @@ function buildMenuPolarityCss(target: Element, doc: Document): string {
   --fs-text-secondary: #71767b;
   --fs-divider: #2f3336;
   --fs-button-secondary: rgb(231 233 234 / 10%);
-  --fs-input: rgb(255 255 255 / 6%);
+  --fs-input: rgb(255 255 255 / 8%);
 }`;
   }
   return `:host {
@@ -302,8 +326,8 @@ function isXAnimatedGif(video: HTMLVideoElement): boolean {
 }
 
 function applySpeedToVideo(video: HTMLVideoElement, rate: number): void {
-  const needsDefault = Math.abs(video.defaultPlaybackRate - rate) > 0.005;
-  const needsRate = Math.abs(video.playbackRate - rate) > 0.005;
+  const needsDefault = Math.abs(video.defaultPlaybackRate - rate) > SPEED_EPSILON;
+  const needsRate = Math.abs(video.playbackRate - rate) > SPEED_EPSILON;
   if (!needsDefault && !needsRate) {
     return;
   }
@@ -403,11 +427,22 @@ function createSpeedStore(
 function attachVideoSpeedEnforcer(
   page: XPage,
   scope: Scope,
-  getSpeed: () => SavedVideoSpeed,
+  store: SpeedStore,
+  menuActivity: SpeedMenuActivity,
 ): (rate: number) => void {
   const videoCleanups = new Map<HTMLVideoElement, () => void>();
-  const initial = getSpeed();
+  const initial = store.get();
   let enforceActive = initial.rate !== 1 || initial.custom;
+  let applyingOwnRate = false;
+
+  const writeOwnRate = (video: HTMLVideoElement, rate: number): void => {
+    applyingOwnRate = true;
+    try {
+      applySpeedToVideo(video, rate);
+    } finally {
+      applyingOwnRate = false;
+    }
+  };
 
   scope.add(
     page.videos.onAdd((xVideo) => {
@@ -415,13 +450,27 @@ function attachVideoSpeedEnforcer(
       if (videoCleanups.has(video) || isXAnimatedGif(video)) {
         return;
       }
-      const enforce = (): void => {
-        if (scope.disposed) {
+      const enforce = (event?: Event): void => {
+        if (scope.disposed || applyingOwnRate) {
           return;
         }
-        const speed = getSpeed();
+        const speed = store.get();
+        // If X's native speed control changed playbackRate from a user interaction
+        // inside a speed menu, adopt it into our store instead of overwriting it.
+        if (event?.type === 'ratechange') {
+          const nextRate = clampVideoSpeed(video.playbackRate);
+          const differs = Math.abs(nextRate - speed.rate) > SPEED_EPSILON;
+          const userChangedNative =
+            differs &&
+            (menuActivity.recentlyInteracted() ||
+              (menuActivity.isMenuOpen() && nextRate !== 1 && isNativeXSpeed(nextRate)));
+          if (userChangedNative) {
+            store.set({ rate: nextRate, custom: !isNativeXSpeed(nextRate) }, true);
+            return;
+          }
+        }
         if (enforceActive || speed.rate !== 1 || speed.custom) {
-          applySpeedToVideo(video, speed.rate);
+          writeOwnRate(video, speed.rate);
         }
       };
       enforce();
@@ -453,7 +502,7 @@ function attachVideoSpeedEnforcer(
         cleanup();
         continue;
       }
-      applySpeedToVideo(video, rate);
+      writeOwnRate(video, rate);
     }
   };
 }
@@ -474,7 +523,7 @@ function isOnlyOwnMutation(records: readonly MutationRecord[]): boolean {
   return true;
 }
 
-function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
+function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMenuActivity {
   interface MountedMenu {
     readonly host: HTMLElement;
     readonly unmount: () => void;
@@ -493,12 +542,13 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
   const parentRows = new Map<Element, EnhancedParentRow>();
   const nativeBound = new WeakSet<Element>();
   const clickAbort = new AbortController();
+  let lastMenuInteractionAt = 0;
   scope.add(() => clickAbort.abort());
 
   const clearNativeItemDecorations = (items: readonly DetectedSpeedItem[]): void => {
     for (const { rowEl } of items) {
       rowEl.removeAttribute(HIDE_CHECK_ATTR);
-      rowEl.querySelector(`[${OWN_ATTR}="${OWN_NATIVE_CHECK_VALUE}"]`)?.remove();
+      rowEl.removeAttribute(SELECTED_ROW_ATTR);
     }
   };
 
@@ -506,20 +556,14 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
     const speed = store.get();
     const hasMatchingNative =
       !speed.custom && items.some((item) => Math.abs(item.rate - speed.rate) < SPEED_EPSILON);
-    for (const { el, rowEl, rate } of items) {
+    for (const { rowEl, rate } of items) {
       const isSelected = hasMatchingNative && Math.abs(rate - speed.rate) < SPEED_EPSILON;
       if (isSelected) {
         rowEl.removeAttribute(HIDE_CHECK_ATTR);
-        const hasNativeSvg = rowEl.querySelector('svg:not([data-feed-sanity-icon])') !== null;
-        const ownCheck = rowEl.querySelector(`[${OWN_ATTR}="${OWN_NATIVE_CHECK_VALUE}"]`);
-        if (hasNativeSvg) {
-          ownCheck?.remove();
-        } else if (!ownCheck) {
-          el.append(createNativeCheckBadge(page.doc));
-        }
+        rowEl.setAttribute(SELECTED_ROW_ATTR, 'true');
       } else {
         rowEl.setAttribute(HIDE_CHECK_ATTR, 'true');
-        rowEl.querySelector(`[${OWN_ATTR}="${OWN_NATIVE_CHECK_VALUE}"]`)?.remove();
+        rowEl.removeAttribute(SELECTED_ROW_ATTR);
       }
     }
   };
@@ -608,24 +652,38 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
     return false;
   };
 
-  const bindNativeSpeedOption = (el: Element): void => {
-    if (nativeBound.has(el)) {
+  const bindNativeSpeedOption = (targetEl: Element, labelEl: Element): void => {
+    if (nativeBound.has(targetEl)) {
       return;
     }
-    nativeBound.add(el);
+    nativeBound.add(targetEl);
     const applyNativeChoice = (): void => {
       if (scope.disposed) {
         return;
       }
       // Re-parse on interaction so React reusing the DOM node for another submenu item
       // never applies a stale speed closure.
-      const currentRate = parseNativeSpeedLabel(extractVisibleText(el));
+      const currentRate =
+        parseNativeSpeedLabel(extractVisibleText(labelEl)) ??
+        parseNativeSpeedLabel(extractVisibleText(targetEl));
       if (currentRate !== null) {
+        lastMenuInteractionAt = Date.now();
         store.set({ rate: currentRate, custom: false }, true);
       }
     };
-    el.addEventListener('click', applyNativeChoice, { capture: true, signal: clickAbort.signal });
-    el.addEventListener(
+    targetEl.addEventListener('pointerdown', applyNativeChoice, {
+      capture: true,
+      signal: clickAbort.signal,
+    });
+    targetEl.addEventListener('click', applyNativeChoice, {
+      capture: true,
+      signal: clickAbort.signal,
+    });
+    targetEl.addEventListener('change', applyNativeChoice, {
+      capture: true,
+      signal: clickAbort.signal,
+    });
+    targetEl.addEventListener(
       'keydown',
       (event) => {
         const key = (event as KeyboardEvent).key;
@@ -682,8 +740,11 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
 
       teardownOwnedRows();
       const { parent, anchor, items } = detected;
-      for (const { el } of items) {
-        bindNativeSpeedOption(el);
+      for (const { el, rowEl } of items) {
+        bindNativeSpeedOption(rowEl, el);
+        if (el !== rowEl) {
+          bindNativeSpeedOption(el, el);
+        }
       }
       const existing = mountedByParent.get(parent);
       if (existing) {
@@ -705,7 +766,10 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
       anchor.after(host);
       const unmount = renderInShadow(
         host,
-        <CustomSpeedControl store={store} />,
+        <CustomSpeedControl
+          store={store}
+          onConfirm={() => dismissSpeedMenu(menu, host, page.doc)}
+        />,
         polarityCss ? `${polarityCss}\n${css}` : css,
       );
       mountedByParent.set(parent, { host, unmount, items });
@@ -748,12 +812,17 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): void {
       teardownParentRow(rowEl);
     }
   });
+
+  return {
+    isMenuOpen: () => mountedByParent.size > 0,
+    recentlyInteracted: () => Date.now() - lastMenuInteractionAt < MENU_INTERACTION_WINDOW_MS,
+  };
 }
 
 /**
- * Adds a divider and native-looking Custom playback speed slider + numeric
- * input box beneath X's native video Settings -> Playback speed options,
- * persisting the chosen speed across videos and reloads.
+ * Adds a divider and native-looking Custom playback speed slider, editable
+ * numeric input, and Set button beneath X's native video Settings -> Playback
+ * speed options, keeping native choices and Feed Sanity's toolbar popup synced.
  */
 export default defineXFeature({
   id: 'x_video_speed',
@@ -773,7 +842,7 @@ export default defineXFeature({
     const saved = data.value(X_VIDEO_SPEED_KEY, readSavedVideoSpeed);
     let applyToAllVideos: (rate: number) => void = () => undefined;
     const store = createSpeedStore(saved, log, scope, (rate) => applyToAllVideos(rate));
-    applyToAllVideos = attachVideoSpeedEnforcer(page, scope, store.get);
-    watchSpeedMenus(page, scope, store);
+    const menuActivity = watchSpeedMenus(page, scope, store);
+    applyToAllVideos = attachVideoSpeedEnforcer(page, scope, store, menuActivity);
   },
 });

@@ -300,13 +300,12 @@ describe('x_video_speed feature', () => {
       'true',
     );
 
-    // 3. Clicking native 1.5x activates native checkmark on 1.5x and clears Custom active state.
+    // 3. Clicking native 1.5x marks it selected via paint-only attribute (zero stray SVG badges) and clears Custom active state.
     (popover.querySelector('#opt-15') as HTMLElement).click();
     await vi.waitFor(() => expect(video.playbackRate).toBeCloseTo(1.5, 2));
     expect(popover.querySelector('#opt-15')?.getAttribute('data-fs-speed-hide-check')).toBeNull();
-    expect(
-      popover.querySelector('#opt-15 [data-feed-sanity="x-speed-native-check"]'),
-    ).not.toBeNull();
+    expect(popover.querySelector('#opt-15')?.getAttribute('data-fs-speed-selected')).toBe('true');
+    expect(popover.querySelector('[data-feed-sanity="x-speed-native-check"]')).toBeNull();
     expect(popover.querySelector('#opt-normal')?.getAttribute('data-fs-speed-hide-check')).toBe(
       'true',
     );
@@ -322,6 +321,98 @@ describe('x_video_speed feature', () => {
       expect(popover.querySelector('[data-feed-sanity="x-speed-parent-value"]')?.textContent).toBe(
         ' · 1.5x',
       );
+    });
+  });
+
+  it('provides a clear editable input + Set confirm button that dismisses the submenu and syncs native radio/ratechange back into saved speed', async () => {
+    document.body.innerHTML = `
+      <div data-testid="primaryColumn">
+        <article data-testid="tweet">
+          <div data-testid="videoPlayer"><video id="v-sync"></video></div>
+        </article>
+      </div>
+    `;
+
+    const { platform, store } = fakePlatform();
+    storesToStop.push(store);
+    expect(await startSite(xSite, platform)).toEqual([]);
+
+    const video = document.querySelector('#v-sync') as HTMLVideoElement;
+    const dropdown = document.createElement('div');
+    dropdown.setAttribute('data-testid', 'Dropdown');
+    const menu = document.createElement('div');
+    menu.setAttribute('role', 'menu');
+    for (const label of ['0.25x', '0.5x', '1x', '1.25x', '1.5x', '2x']) {
+      const row = document.createElement('label');
+      row.setAttribute('role', 'menuitemradio');
+      const span = document.createElement('span');
+      span.textContent = label;
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'x-speed';
+      row.append(span, radio);
+      menu.append(row);
+    }
+    dropdown.append(menu);
+    document.body.append(dropdown);
+
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector('feed-sanity-ui[data-feed-sanity="x-video-speed"]'),
+      ).not.toBeNull(),
+    );
+
+    const host = document.querySelector(
+      'feed-sanity-ui[data-feed-sanity="x-video-speed"]',
+    ) as HTMLElement;
+    const shadow = host.shadowRoot!;
+
+    // No confusing 1x reset button and no misleading "×" suffix inside the numeric field.
+    expect(shadow.querySelector('.fs-speed-reset')).toBeNull();
+    expect(shadow.querySelector('.fs-speed-suffix')).toBeNull();
+
+    // Selecting a native speed via radio input change syncs cleanly into our store.
+    const row125 = [...menu.querySelectorAll('label')].find((el) => el.textContent === '1.25x')!;
+    const radio125 = row125.querySelector('input[type="radio"]') as HTMLInputElement;
+    radio125.checked = true;
+    radio125.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(async () => {
+      expect(await store.get(`v2/x/777/${X_VIDEO_SPEED_KEY}`)).toEqual({
+        rate: 1.25,
+        custom: false,
+      });
+    });
+
+    // If X natively changes video.playbackRate while the speed menu is open, adopt it instead of snapping back.
+    video.playbackRate = 1.75;
+    video.dispatchEvent(new Event('ratechange'));
+    await vi.waitFor(async () => {
+      expect(await store.get(`v2/x/777/${X_VIDEO_SPEED_KEY}`)).toEqual({
+        rate: 1.75,
+        custom: false,
+      });
+    });
+    expect(video.playbackRate).toBeCloseTo(1.75, 2);
+
+    // Typing a custom speed and clicking the primary "Set 1.42×" button saves immediately and dispatches Escape to close the submenu.
+    const escKeys: string[] = [];
+    dropdown.addEventListener('keydown', (event) => escKeys.push((event as KeyboardEvent).key));
+    const input = shadow.querySelector(
+      'input[aria-label="Custom playback speed"]',
+    ) as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.input(input, { target: { value: '1.42' } });
+    const applyBtn = shadow.querySelector('button.fs-speed-apply') as HTMLButtonElement;
+    expect(applyBtn.textContent).toBe('Set 1.42×');
+    fireEvent.click(applyBtn);
+
+    expect(video.playbackRate).toBeCloseTo(1.42, 2);
+    expect(escKeys).toContain('Escape');
+    await vi.waitFor(async () => {
+      expect(await store.get(`v2/x/777/${X_VIDEO_SPEED_KEY}`)).toEqual({
+        rate: 1.42,
+        custom: true,
+      });
     });
   });
 });

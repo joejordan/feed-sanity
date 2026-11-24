@@ -273,6 +273,20 @@ describe('video_click_pauses', () => {
     expect(heard).toEqual([]);
   });
 
+  it('leaves clicks alone while the video player is in fullscreen mode', () => {
+    Object.defineProperty(document, 'fullscreenElement', {
+      value: byId('player'),
+      configurable: true,
+    });
+    try {
+      press();
+      expect(video.paused).toBe(false);
+      expect(heard).toEqual([...PRESS]);
+    } finally {
+      Reflect.deleteProperty(document, 'fullscreenElement');
+    }
+  });
+
   it('leaves clicks alone once switched off', async () => {
     await options.set('video_click_pauses', false);
 

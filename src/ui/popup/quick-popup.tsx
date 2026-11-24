@@ -22,6 +22,7 @@ import {
   clampVideoSpeed,
   DEFAULT_VIDEO_SPEED,
   formatSpeedNumber,
+  isNativeXSpeed,
   readSavedVideoSpeed,
   X_VIDEO_SPEED_KEY,
 } from '../../sites/x/features/video-speed-model';
@@ -427,11 +428,11 @@ export function QuickPopup({
     }
     const key = speedKey;
     const optimisticRate = clampVideoSpeed(videoSpeed.rate + delta);
-    setVideoSpeed({ rate: optimisticRate, custom: optimisticRate !== 1 });
+    setVideoSpeed({ rate: optimisticRate, custom: !isNativeXSpeed(optimisticRate) });
     enqueueWrite(async () => {
       const latest = readSavedVideoSpeed(await store.get(key));
       const nextRate = clampVideoSpeed(latest.rate + delta);
-      const next: SavedVideoSpeed = { rate: nextRate, custom: nextRate !== 1 };
+      const next: SavedVideoSpeed = { rate: nextRate, custom: !isNativeXSpeed(nextRate) };
       await store.set(key, next);
       setVideoSpeed(next);
     });

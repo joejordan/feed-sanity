@@ -247,4 +247,32 @@ describe('Scrubber', () => {
 
     expect(slider().className).toContain('playing');
   });
+
+  it('hides while the video or an ancestor is fullscreen so the native fullscreen scrubber stays usable', () => {
+    const player = document.createElement('div');
+    player.append(video);
+    document.body.append(player);
+    show();
+    expect(screen.queryByRole('slider')).not.toBeNull();
+
+    Object.defineProperty(document, 'fullscreenElement', {
+      value: player,
+      configurable: true,
+    });
+    act(() => {
+      document.dispatchEvent(new Event('fullscreenchange'));
+    });
+    expect(screen.queryByRole('slider')).toBeNull();
+
+    Object.defineProperty(document, 'fullscreenElement', {
+      value: null,
+      configurable: true,
+    });
+    act(() => {
+      document.dispatchEvent(new Event('fullscreenchange'));
+    });
+    expect(screen.queryByRole('slider')).not.toBeNull();
+    Reflect.deleteProperty(document, 'fullscreenElement');
+    player.remove();
+  });
 });

@@ -79,8 +79,23 @@ export function Scrubber({ video, place, hide }: ScrubberProps) {
   const [pointer, setPointer] = useState<number | null>(null);
   /** The time being dragged to. */
   const [dragTime, setDragTime] = useState<number | null>(null);
+  const [inFullscreen, setInFullscreen] = useState(() => {
+    const fs = video.ownerDocument?.fullscreenElement ?? null;
+    return Boolean(fs && (fs === video || fs.contains(video) || video.contains(fs)));
+  });
 
   useEffect(() => () => seeker.dispose(), [seeker]);
+
+  useEffect(() => {
+    const doc = video.ownerDocument ?? document;
+    const syncFullscreen = (): void => {
+      const fs = doc.fullscreenElement;
+      setInFullscreen(Boolean(fs && (fs === video || fs.contains(video) || video.contains(fs))));
+    };
+    syncFullscreen();
+    doc.addEventListener('fullscreenchange', syncFullscreen);
+    return () => doc.removeEventListener('fullscreenchange', syncFullscreen);
+  }, [video]);
 
   // Facebook can give the same element another video. What was going on
   // with the old one stops.
@@ -96,7 +111,7 @@ export function Scrubber({ video, place, hide }: ScrubberProps) {
   }, [video, seeker]);
 
   const { duration } = media;
-  const shows = isSeekable(duration);
+  const shows = isSeekable(duration) && !inFullscreen;
   // Preact runs this after the next paint, so for a frame Facebook's bar and
   // the strip can both show, or neither. The feature's hider shows the bar
   // again at once when the feature stops.

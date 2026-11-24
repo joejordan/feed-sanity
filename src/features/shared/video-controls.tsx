@@ -129,6 +129,15 @@ export function createVideoControlsFeature<P extends VideoControlsPage>(
           if (!video || video.surface !== clickSurface) {
             return undefined;
           }
+          // Never hijack pointer events while the player is in fullscreen; host
+          // players provide their own fullscreen scrubber and click controls.
+          const fs = page.doc.fullscreenElement;
+          if (
+            fs &&
+            (fs === video.element || fs.contains(video.element) || video.element.contains(fs))
+          ) {
+            return undefined;
+          }
           const box = video.element.getBoundingClientRect();
           if (
             !pointIn(box, event.clientX, event.clientY) ||

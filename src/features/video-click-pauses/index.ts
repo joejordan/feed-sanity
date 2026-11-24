@@ -172,6 +172,14 @@ export default defineFeature({
       if (video?.surface !== 'feed') {
         return undefined;
       }
+      // Leave native fullscreen controls and scrubbers untouched.
+      const fs = document.fullscreenElement;
+      if (
+        fs &&
+        (fs === video.element || fs.contains(video.element) || video.element.contains(fs))
+      ) {
+        return undefined;
+      }
       const picture = video.element.getBoundingClientRect();
       if (!pointIn(picture, x, y) || controlAt(x, y, video.element, picture)) {
         return undefined;

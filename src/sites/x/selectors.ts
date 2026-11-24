@@ -8,9 +8,13 @@ export const X_TWEET = anyOf('x-tweet', [
 /** Video elements inside X timeline posts and media viewers. */
 export const X_VIDEO = anyOf('x-video', [{ selector: 'video', seen: '2026-11-22' }]);
 
-/** Interactive controls overlaying an X video player. */
+/** Interactive controls overlaying an X video player (buttons, native scrubber, links). */
 export const X_VIDEO_CONTROL = anyOf('x-video-control', [
-  { selector: 'button, [role=button], [role=slider], a[href]', seen: '2026-11-22' },
+  {
+    selector:
+      'button, [role=button], [role=slider], input[type="range"], [data-testid*="scrubber" i], [aria-label*="seek" i], [aria-label*="timeline" i], [aria-label*="progress" i], a[href]',
+    seen: '2026-11-23',
+  },
 ]);
 
 /** Right sidebar column ("What's happening", "Who to follow", News/Scores). */

@@ -1,6 +1,11 @@
 import { useState, useSyncExternalStore } from 'react';
 import type { SavedVideoSpeed } from './video-speed-model';
-import { clampVideoSpeed, formatSpeedNumber, parseSpeedInput } from './video-speed-model';
+import {
+  clampVideoSpeed,
+  formatSpeedNumber,
+  isNativeXSpeed,
+  parseSpeedInput,
+} from './video-speed-model';
 
 const SLIDER_MIN = 0.25;
 const SLIDER_MAX = 4;
@@ -14,16 +19,29 @@ export interface SpeedStore {
   subscribe: (listener: () => void) => () => void;
 }
 
-export function CustomSpeedControl({ store }: { readonly store: SpeedStore }) {
+export interface CustomSpeedControlProps {
+  readonly store: SpeedStore;
+  /** Called when the user confirms their chosen speed via Enter or the Set button. */
+  readonly onConfirm?: () => void;
+}
+
+export function CustomSpeedControl({ store, onConfirm }: CustomSpeedControlProps) {
   const speed = useSyncExternalStore(store.subscribe, store.get);
   const [draft, setDraft] = useState<string | null>(null);
 
   const displayText = draft ?? formatSpeedNumber(speed.rate);
-  const inputInvalid = draft !== null && draft.trim() !== '' && parseSpeedInput(draft) === null;
+  const parsedDraft = draft === null ? speed.rate : parseSpeedInput(draft);
+  const inputInvalid = draft !== null && draft.trim() !== '' && parsedDraft === null;
+  const activeRate = parsedDraft ?? speed.rate;
 
   const sliderValue = Math.max(SLIDER_MIN, Math.min(SLIDER_MAX, speed.rate));
   const sliderPct = ((sliderValue - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100;
   const sliderTrack = `linear-gradient(to right, var(--fs-accent) 0%, var(--fs-accent) ${sliderPct}%, var(--fs-divider) ${sliderPct}%, var(--fs-divider) 100%)`;
+
+  const applyRate = (rate: number, immediate: boolean): void => {
+    const clamped = clampVideoSpeed(rate);
+    store.set({ rate: clamped, custom: !isNativeXSpeed(clamped) }, immediate);
+  };
 
   const handleSlider = (raw: string, immediate: boolean): void => {
     const val = Number.parseFloat(raw);
@@ -31,28 +49,36 @@ export function CustomSpeedControl({ store }: { readonly store: SpeedStore }) {
       return;
     }
     setDraft(null);
-    store.set({ rate: clampVideoSpeed(val), custom: true }, immediate);
+    applyRate(val, immediate);
   };
 
-  const commitDraft = (): void => {
-    if (draft !== null) {
-      const parsed = parseSpeedInput(draft);
-      if (parsed !== null) {
-        store.set({ rate: parsed, custom: true }, true);
-      }
-      setDraft(null);
+  const commitDraft = (): number | null => {
+    if (draft === null) {
+      return speed.rate;
     }
+    const parsed = parseSpeedInput(draft);
+    setDraft(null);
+    if (parsed !== null) {
+      applyRate(parsed, true);
+      return parsed;
+    }
+    return null;
+  };
+
+  const confirmAndClose = (): void => {
+    const finalRate = draft === null ? speed.rate : parseSpeedInput(draft);
+    if (finalRate === null) {
+      return;
+    }
+    setDraft(null);
+    applyRate(finalRate, true);
+    onConfirm?.();
   };
 
   const stepBy = (dir: -1 | 1, fine: boolean): void => {
     setDraft(null);
     const delta = dir * (fine ? SLIDER_STEP : BUTTON_STEP);
-    store.set({ rate: clampVideoSpeed(speed.rate + delta), custom: true }, true);
-  };
-
-  const resetNormal = (): void => {
-    setDraft(null);
-    store.set({ rate: 1, custom: false }, true);
+    applyRate(speed.rate + delta, true);
   };
 
   return (
@@ -60,36 +86,8 @@ export function CustomSpeedControl({ store }: { readonly store: SpeedStore }) {
       <hr className="fs-speed-divider" />
       <div className="fs-speed-section" role="group" aria-label="Custom playback speed">
         <div className="fs-speed-header">
-          <span className="fs-speed-title-group">
-            <span className="fs-speed-title">Custom</span>
-            <span className="fs-speed-badge">{formatSpeedNumber(speed.rate)}×</span>
-          </span>
-          <span className="fs-speed-header-right">
-            {speed.rate !== 1 && (
-              <button
-                type="button"
-                className="fs-speed-reset"
-                aria-label="Reset playback speed to 1x"
-                onClick={resetNormal}
-              >
-                1×
-              </button>
-            )}
-            {speed.custom && (
-              <svg
-                className="fs-speed-check"
-                viewBox="0 0 24 24"
-                aria-label="Custom speed active"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
-          </span>
+          <span className="fs-speed-title">Custom speed</span>
+          <span className="fs-speed-badge">{formatSpeedNumber(activeRate)}×</span>
         </div>
 
         <div className="fs-speed-slider-wrap">
@@ -120,54 +118,74 @@ export function CustomSpeedControl({ store }: { readonly store: SpeedStore }) {
             type="button"
             className="fs-speed-step"
             aria-label="Decrease playback speed"
+            title="Decrease speed (hold Shift for 0.01)"
             onClick={(event) => stepBy(-1, event.shiftKey)}
           >
             −
           </button>
-          <label className="fs-speed-field" data-invalid={inputInvalid ? 'true' : undefined}>
-            <input
-              type="text"
-              inputMode="decimal"
-              className="fs-speed-input"
-              aria-label="Custom playback speed"
-              placeholder="1.00"
-              value={displayText}
-              onFocus={() => setDraft(formatSpeedNumber(speed.rate))}
-              onInput={(event) => {
-                const raw = event.currentTarget.value;
-                setDraft(raw);
-                const parsed = parseSpeedInput(raw);
-                if (parsed !== null) {
-                  store.set({ rate: parsed, custom: true }, false);
-                }
-              }}
-              onBlur={commitDraft}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  commitDraft();
-                } else if (event.key === 'ArrowUp') {
-                  event.preventDefault();
-                  stepBy(1, event.shiftKey);
-                } else if (event.key === 'ArrowDown') {
-                  event.preventDefault();
-                  stepBy(-1, event.shiftKey);
-                }
-              }}
-            />
-            <span className="fs-speed-suffix" aria-hidden="true">
-              ×
-            </span>
-          </label>
+          <input
+            type="text"
+            inputMode="decimal"
+            className="fs-speed-input"
+            aria-label="Custom playback speed"
+            aria-invalid={inputInvalid || undefined}
+            placeholder="Type speed"
+            title="Type any speed from 0.1 to 16 and press Enter"
+            value={displayText}
+            onFocus={(event) => {
+              setDraft(formatSpeedNumber(speed.rate));
+              event.currentTarget.select();
+            }}
+            onInput={(event) => {
+              const raw = event.currentTarget.value;
+              setDraft(raw);
+              const parsed = parseSpeedInput(raw);
+              if (parsed !== null) {
+                applyRate(parsed, false);
+              }
+            }}
+            onBlur={() => {
+              commitDraft();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                confirmAndClose();
+              } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                stepBy(1, event.shiftKey);
+              } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                stepBy(-1, event.shiftKey);
+              }
+            }}
+          />
           <button
             type="button"
             className="fs-speed-step"
             aria-label="Increase playback speed"
+            title="Increase speed (hold Shift for 0.01)"
             onClick={(event) => stepBy(1, event.shiftKey)}
           >
             +
           </button>
         </div>
+
+        {inputInvalid && (
+          <span className="fs-speed-hint" role="alert">
+            Enter a number between 0.1 and 16
+          </span>
+        )}
+
+        <button
+          type="button"
+          className="fs-speed-apply"
+          disabled={inputInvalid}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={confirmAndClose}
+        >
+          Set {formatSpeedNumber(activeRate)}×
+        </button>
       </div>
     </>
   );
