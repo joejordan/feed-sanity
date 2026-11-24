@@ -4,7 +4,6 @@ import type { InstagramPage } from './feature';
 import { version } from '../../../package.json';
 import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
-import { siteStoragePrefix } from '../../core/site-storage';
 import { dataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
@@ -34,7 +33,7 @@ export const instagramFeatures: readonly Feature<InstagramPage>[] = [
 /**
  * Instagram `SiteAdapter` built on the shared multi-site kernel (`DomEnvironment`,
  * `PageBridge` v2, `engines/react`, `engines/network-tap`, `capabilities`,
- * `siteStoragePrefix`, and site-agnostic `external_css` + `SitesPanel`).
+ * and site-agnostic `external_css` + `SitesPanel`).
  */
 export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createInstagramPage>> = {
   id: 'instagram',
@@ -43,7 +42,6 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
   themeCss: instagramTheme,
   themeMapping: instagramThemeMapping,
   accountId: instagramAccountId,
-  storagePrefix: (accountId) => siteStoragePrefix('instagram', accountId),
   scrubPii: scrubInstagramPii,
   createPage: createInstagramPage,
   features: instagramFeatures,

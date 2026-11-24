@@ -118,9 +118,12 @@ describe('first-class multi-site theming engine', () => {
       `:host {\n  --fs-font: ${THEME_FONT_STACKS.serif};\n}`,
     );
 
-    // Prototype-chain keys like `toString` or `constructor` must be ignored cleanly.
-    expect(resolveTheme(readThemeDocument({ font: 'toString' }))).toBeNull();
-    expect(resolveTheme(readThemeDocument({ font: 'constructor' }))).toBeNull();
+    // Prototype-chain keys like `toString` or `constructor` in typography presets must be ignored cleanly.
+    for (const preset of ['toString', 'constructor']) {
+      expect(
+        resolveTheme(readThemeDocument({ ...DEFAULT_THEME_DOCUMENT, typography: { preset } })),
+      ).toBeNull();
+    }
 
     // Custom light canvas on top of 'default' infers light colorScheme and contrasting accentText.
     const customLight = resolveTheme(

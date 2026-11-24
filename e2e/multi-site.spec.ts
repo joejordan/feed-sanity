@@ -8,6 +8,7 @@ import path from 'node:path';
 import { chromium, expect, test } from '@playwright/test';
 import type { BrowserContext, Page, Route } from '@playwright/test';
 import { OPTIONS_TITLE } from '../project';
+import { applyThemePreset, DEFAULT_THEME_DOCUMENT } from '../src/core/theming/config';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const USERSCRIPT = path.join(ROOT, '.output', 'userscript', 'feed-sanity.user.js');
@@ -426,15 +427,7 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
             ig_hide_threads_nav: true,
             ig_video_scrubber: true,
           },
-          'v2/instagram/999000/theme': {
-            preset: 'catppuccin-mocha',
-            accent: '',
-            background: '',
-            surface: '',
-            text: '',
-            font: 'default',
-            customCss: '',
-          },
+          'v2/instagram/999000/theme': applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'),
         },
         'ds_user_id=999000',
       );

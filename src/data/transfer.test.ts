@@ -144,7 +144,7 @@ describe('data transfer', () => {
     });
   });
 
-  it('exports, imports, and resets saved theme documents (and migrates legacy v0 backups)', async () => {
+  it('exports, imports, and resets saved theme documents and rejects malformed theme payloads', async () => {
     const stores = makeStores();
     const theme = data.value(THEME_DATA_KEY, readThemeDocument);
     await Promise.all([stores.filters.ready, stores.locators.ready, theme.ready]);
@@ -178,17 +178,14 @@ describe('data transfer', () => {
       typography: { preset: 'serif' },
     });
 
-    // Legacy v0 flat theme backup imports cleanly into canonical ThemeDocumentV1.
-    const legacyBackup = JSON.stringify({
-      theme: { preset: 'warm-paper', font: 'mono', accent: '', customCss: '' },
+    // Non-ThemeDocumentV1 theme payloads are rejected with a clear validation error.
+    const invalidThemeBackup = JSON.stringify({
+      theme: { preset: 'warm-paper', font: 'mono' },
     });
-    const parsedLegacy = parseBackup(legacyBackup, options.list());
-    expect(parsedLegacy.ok).toBe(true);
-    if (!parsedLegacy.ok) {
-      return;
+    const parsedInvalid = parseBackup(invalidThemeBackup, options.list());
+    expect(parsedInvalid.ok).toBe(false);
+    if (!parsedInvalid.ok) {
+      expect(parsedInvalid.error).toMatch(/format/i);
     }
-    await applyBackup(parsedLegacy, withTheme);
-    expect(theme.get().id).toBe('warm-paper');
-    expect(theme.get().typography).toEqual({ preset: 'mono' });
   });
 });

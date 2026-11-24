@@ -4,7 +4,6 @@ import type { XPage } from './feature';
 import { version } from '../../../package.json';
 import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
-import { siteStoragePrefix } from '../../core/site-storage';
 import { dataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
@@ -46,7 +45,6 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
   themeMapping: xThemeMapping,
   envOptions: { pierceShadow: true },
   accountId: xAccountId,
-  storagePrefix: (accountId) => siteStoragePrefix('x', accountId),
   scrubPii: scrubXPii,
   createPage: createXPage,
   features: xFeatures,

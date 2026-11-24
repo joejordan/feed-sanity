@@ -4,7 +4,6 @@ import type { RedditPage } from './feature';
 import { version } from '../../../package.json';
 import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
-import { siteStoragePrefix } from '../../core/site-storage';
 import { dataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
@@ -43,7 +42,6 @@ export const redditSite: SiteAdapter<RedditPage, ReturnType<typeof createRedditP
   themeMapping: redditThemeMapping,
   envOptions: { pierceShadow: true },
   accountId: redditAccountId,
-  storagePrefix: (accountId) => siteStoragePrefix('reddit', accountId),
   scrubPii: scrubRedditPii,
   createPage: createRedditPage,
   features: redditFeatures,

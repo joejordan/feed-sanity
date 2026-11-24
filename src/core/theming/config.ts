@@ -1,8 +1,8 @@
 // Canonical ThemeDocumentV1 state model, built-in catalog materializers,
-// immutable document editors, and one-way migration from legacy flat v0 configs.
+// and immutable document editors.
 
 import type { StudioVibe, ThemeEffectsConfig } from '../theme-effects';
-import type { ThemeDocumentMeta, ThemeDocumentTypography, ThemeDocumentV1 } from './document';
+import type { ThemeDocumentV1 } from './document';
 import type {
   ResolvedTheme,
   ThemeColorScheme,
@@ -12,12 +12,7 @@ import type {
 } from './types';
 import { isRecord } from '../storage';
 import { samePalette } from '../theme';
-import {
-  DEFAULT_THEME_EFFECTS,
-  hasActiveEffects,
-  readThemeEffectsConfig,
-  STUDIO_VIBES,
-} from '../theme-effects';
+import { DEFAULT_THEME_EFFECTS, readThemeEffectsConfig, STUDIO_VIBES } from '../theme-effects';
 import {
   contrastingText,
   getPaletteSwatches,
@@ -29,8 +24,6 @@ import {
   configEffectsToDocument,
   documentEffectsToConfig,
   parseThemeDocument,
-  sanitizeCustomCss,
-  slugifyThemeId,
   THEME_FILE_FORMAT,
   THEME_SCHEMA_VERSION,
 } from './document';
@@ -135,19 +128,22 @@ export function resolveTheme(doc: ThemeDocumentV1): ResolvedTheme | null {
   };
 }
 
-/** True when `doc` imposes no visual, typography, effects, chrome, or CSS overrides. */
-export function isSiteDefaultDocument(doc: ThemeDocumentV1): boolean {
+function isEmptyThemeDocument(
+  doc: ThemeDocumentV1,
+  effects: ThemeEffectsConfig | undefined,
+): boolean {
   const fontPreset = doc.typography?.preset;
   const hasTypography = Boolean(
     (fontPreset && fontPreset !== 'default') || doc.typography?.customStack,
   );
   return (
-    !doc.palette &&
-    !hasTypography &&
-    !doc.chrome &&
-    !(doc.customCss?.trim() ?? '') &&
-    !documentEffectsToConfig(doc.effects)
+    !doc.palette && !hasTypography && !doc.chrome && !(doc.customCss?.trim() ?? '') && !effects
   );
+}
+
+/** True when `doc` imposes no visual, typography, effects, chrome, or CSS overrides. */
+export function isSiteDefaultDocument(doc: ThemeDocumentV1): boolean {
+  return isEmptyThemeDocument(doc, documentEffectsToConfig(doc.effects));
 }
 
 /** Returns the built-in `ThemePreset` underlying `doc`, if any (including Studio Vibes). */
@@ -198,11 +194,7 @@ export interface ThemeSummary {
 /** Canonical user-facing summary of whether `doc` overrides native site styling and its label. */
 export function describeThemeDocument(doc: ThemeDocumentV1): ThemeSummary {
   const effects = documentEffectsToConfig(doc.effects);
-  const fontPreset = doc.typography?.preset;
-  const hasTypography = Boolean(
-    (fontPreset && fontPreset !== 'default') || doc.typography?.customStack,
-  );
-  if (!doc.palette && !hasTypography && !doc.chrome && !(doc.customCss?.trim() ?? '') && !effects) {
+  if (isEmptyThemeDocument(doc, effects)) {
     return { overriding: false, label: 'Site Default' };
   }
   if (isCustomImportedDocument(doc)) {
@@ -300,108 +292,13 @@ function withPalettePatch(
   });
 }
 
-/**
- * One-way migration from pre-cutover flat `ThemeConfig` storage records
- * (`{ preset, accent, background, surface, text, font, customCss, effects?, document? }`)
- * into a canonical `ThemeDocumentV1`.
- */
-function migrateLegacyThemeConfig(raw: Record<string, unknown>): ThemeDocumentV1 {
-  const str = (key: string, fallback = ''): string =>
-    typeof raw[key] === 'string' ? raw[key] : fallback;
-
-  const parsedEmbedded = raw.document === undefined ? undefined : parseThemeDocument(raw.document);
-  const baseDoc = parsedEmbedded?.ok ? parsedEmbedded.document : undefined;
-
-  const presetId = str('preset', 'default');
-  const preset = baseDoc ? undefined : findThemePreset(presetId);
-
-  const basePalette = baseDoc ? baseDoc.palette : (preset?.palette ?? null);
-  const palette = withPalettePatch(basePalette, {
-    accent: str('accent'),
-    background: str('background'),
-    surface: str('surface'),
-    text: str('text'),
-  });
-  const hasColorPatch = palette !== basePalette;
-
-  const rawFont = str('font', 'default');
-  const fontPreset = isThemeFontId(rawFont) && rawFont !== 'default' ? rawFont : undefined;
-  const customStack = fontPreset ? undefined : baseDoc?.typography?.customStack;
-  const typography: ThemeDocumentTypography | undefined =
-    fontPreset || customStack
-      ? {
-          ...(fontPreset ? { preset: fontPreset } : {}),
-          ...(customStack ? { customStack } : {}),
-        }
-      : undefined;
-
-  const parsedEffects = raw.effects === undefined ? undefined : readThemeEffectsConfig(raw.effects);
-  const activeEffects =
-    parsedEffects && hasActiveEffects(parsedEffects) ? parsedEffects : undefined;
-  const docEffects = configEffectsToDocument(activeEffects);
-
-  const rawCss = str('customCss').trim();
-  const customCss = rawCss ? sanitizeCustomCss(rawCss).css || undefined : undefined;
-  const chrome = baseDoc?.chrome ?? preset?.chrome;
-
-  // Match curated Studio Vibe when legacy flat config matches one.
-  const matchedVibe =
-    !baseDoc && preset && activeEffects ? matchStudioVibe(preset.id, activeEffects) : undefined;
-
-  if (!palette && !typography && !docEffects && !chrome && !customCss) {
-    return { ...DEFAULT_THEME_DOCUMENT };
-  }
-
-  let id = 'default';
-  let baseMeta: ThemeDocumentMeta = { name: 'Site Default' };
-  let inheritedSwatches: readonly string[] | undefined;
-  if (baseDoc) {
-    id = baseDoc.id;
-    baseMeta = baseDoc.meta;
-    inheritedSwatches = baseDoc.meta.swatches;
-  } else if (matchedVibe) {
-    id = matchedVibe.id;
-    baseMeta = { name: matchedVibe.name, description: matchedVibe.tagline };
-    inheritedSwatches = preset?.swatches;
-  } else if (preset) {
-    id = preset.id;
-    baseMeta = { name: preset.name, description: preset.description };
-    inheritedSwatches = preset.swatches;
-  } else if (palette) {
-    id = 'custom';
-    baseMeta = { name: 'Custom theme' };
-  }
-  const meta: ThemeDocumentMeta = {
-    ...baseMeta,
-    ...optionalSwatches(palette, hasColorPatch ? undefined : inheritedSwatches),
-  };
-
-  return {
-    format: THEME_FILE_FORMAT,
-    schemaVersion: THEME_SCHEMA_VERSION,
-    id: slugifyThemeId(id),
-    meta,
-    palette,
-    ...(typography ? { typography } : {}),
-    ...(chrome ? { chrome } : {}),
-    ...(docEffects ? { effects: docEffects } : {}),
-    ...(customCss ? { customCss } : {}),
-  };
-}
-
-/**
- * Reads a persisted site theme from storage into a validated `ThemeDocumentV1`,
- * seamlessly migrating any legacy pre-v1 flat `ThemeConfig` record on read.
- */
+/** Reads a persisted site theme from storage into a validated `ThemeDocumentV1`. */
 export function readThemeDocument(raw: unknown): ThemeDocumentV1 {
-  if (!isRecord(raw)) {
+  if (!isRecord(raw) || raw.format !== THEME_FILE_FORMAT) {
     return { ...DEFAULT_THEME_DOCUMENT };
   }
-  if (raw.format === THEME_FILE_FORMAT) {
-    const parsed = parseThemeDocument(raw);
-    return parsed.ok && parsed.document ? parsed.document : { ...DEFAULT_THEME_DOCUMENT };
-  }
-  return migrateLegacyThemeConfig(raw);
+  const parsed = parseThemeDocument(raw);
+  return parsed.ok && parsed.document ? parsed.document : { ...DEFAULT_THEME_DOCUMENT };
 }
 
 /** Removes active Studio effects (and any vibe-owned font) while preserving the active palette & CSS. */

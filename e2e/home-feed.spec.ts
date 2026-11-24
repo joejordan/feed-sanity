@@ -1,5 +1,7 @@
 import type { Page } from '@playwright/test';
-import { expect, OPTIONS_KEY, ORIGIN, test } from './extension';
+import { STUDIO_VIBES } from '../src/core/theme-effects/model';
+import { vibeToThemeDocument } from '../src/core/theming/config';
+import { expect, OPTIONS_KEY, ORIGIN, THEME_KEY, test } from './extension';
 
 const HOME = `${ORIGIN}/`;
 const FRIENDS = `${ORIGIN}/?filter=friends&sk=h_chr`;
@@ -379,29 +381,9 @@ test('keeps the Home caret menu clickable and visible while a Studio theme backd
   store,
   stored,
 }) => {
+  const matrixVibe = STUDIO_VIBES.find((v) => v.id === 'enter-the-matrix')!;
   await store({
-    [OPTIONS_KEY.replace(/\/options$/, '/theme')]: {
-      preset: 'terminal-phosphor',
-      accent: '',
-      background: '',
-      surface: '',
-      text: '',
-      font: 'default',
-      customCss: '',
-      effects: {
-        backdrop: 'digital-rain',
-        surface: 'glass',
-        click: 'matrix-burst',
-        intensity: 0.72,
-        speed: 1,
-        glassStrength: 0.35,
-        paused: false,
-        interactive: true,
-        rainLook: 'phosphor',
-        rainCharset: 'matrix',
-        rainDensity: 0.55,
-      },
-    },
+    [THEME_KEY]: vibeToThemeDocument(matrixVibe),
   });
 
   await page.goto(GROUPS);

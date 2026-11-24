@@ -3,6 +3,7 @@ import type { Badge, Platform } from '../../core/platform';
 import { startSite } from '../../core/site';
 import { HIDDEN_ATTR } from '../../core/surface';
 import { inMemoryStore } from '../../core/testing';
+import { applyThemePreset, DEFAULT_THEME_DOCUMENT } from '../../core/theming';
 import { setUserThemeCss } from '../../ui/mount';
 import { gmailSite } from '.';
 
@@ -161,15 +162,7 @@ describe('gmailSite adapter (zero React, strict Trusted Types, ThreadListCapabil
         gmail_hide_gemini: true,
         custom_stylesheet_url: 'https://example.com/gmail.css',
       },
-      'v2/gmail/u0/theme': {
-        preset: 'catppuccin-mocha',
-        accent: '',
-        background: '',
-        surface: '',
-        text: '',
-        font: 'default',
-        customCss: '',
-      },
+      'v2/gmail/u0/theme': applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'),
     });
     const badges: Badge[] = [];
     const platform: Platform = {

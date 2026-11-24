@@ -4,6 +4,7 @@ import { newFilter, newRule } from '../../core/filter-types';
 import { startSite } from '../../core/site';
 import { HIDDEN_ATTR } from '../../core/surface';
 import { inMemoryStore } from '../../core/testing';
+import { applyThemePreset, DEFAULT_THEME_DOCUMENT } from '../../core/theming';
 import { THEME_DATA_KEY } from '../../ui/appearance';
 import { redditSite } from './index';
 import { startRedditPageWorld } from './page-world';
@@ -169,15 +170,10 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
           reddit_video_click_pauses: false,
         },
         'v2/reddit/t2_reddit123/filters': [redactFilter],
-        [`v2/reddit/t2_reddit123/${THEME_DATA_KEY}`]: {
-          preset: 'catppuccin-mocha',
-          accent: '',
-          background: '',
-          surface: '',
-          text: '',
-          font: 'default',
-          customCss: '',
-        },
+        [`v2/reddit/t2_reddit123/${THEME_DATA_KEY}`]: applyThemePreset(
+          DEFAULT_THEME_DOCUMENT,
+          'catppuccin-mocha',
+        ),
       },
       async () => {
         if (!pageWorldHandle) {

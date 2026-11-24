@@ -45,7 +45,6 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       matchesHost: (host) => host === 'demo.example',
       themeCss: '',
       accountId: () => 'u1',
-      storagePrefix: (account) => `v2/demo/${account}`,
       scrubPii: scrubCommonPii,
       createPage: () => () => ({
         capabilities: {
@@ -97,7 +96,6 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       matchesHost: () => true,
       themeCss: '',
       accountId: () => 'u1',
-      storagePrefix: (account) => `v2/facebook/${account}`,
       scrubPii: scrubCommonPii,
       createPage: () => () => ({}),
       features: [trackedFeature],
@@ -164,7 +162,6 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       themeCss: '',
       themeMapping: { rootSelectors: [':root'] },
       accountId: () => 'u1',
-      storagePrefix: (account) => `v2/facebook/${account}`,
       scrubPii: scrubCommonPii,
       createPage: (_data, _install, env) => {
         receivedEnvs.push(env);
@@ -207,7 +204,6 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       themeCss: '',
       themeMapping: { rootSelectors: [':root'] },
       accountId: () => 'u1',
-      storagePrefix: (account) => `v2/facebook/${account}`,
       scrubPii: scrubCommonPii,
       createPage: () => () => ({}),
       features: [],

@@ -1,8 +1,8 @@
 import { OPTIONS_TITLE } from '../project';
-import { expect, ORIGIN, test } from './extension';
+import { DEFAULT_THEME_DOCUMENT, updateThemeTypography } from '../src/core/theming/config';
+import { expect, ORIGIN, THEME_KEY, test } from './extension';
 
 const FEED = `${ORIGIN}/`;
-const THEME_KEY = '100000000000042/theme';
 
 test('applies Appearance themes live immediately with Undo, supports disclosures, and persists after reload', async ({
   page,
@@ -82,15 +82,7 @@ test('keeps Site Default colors untouched when only Typography is customized', a
   store,
 }) => {
   await store({
-    [THEME_KEY]: {
-      preset: 'default',
-      accent: '',
-      background: '',
-      surface: '',
-      text: '',
-      font: 'mono',
-      customCss: '',
-    },
+    [THEME_KEY]: updateThemeTypography(DEFAULT_THEME_DOCUMENT, 'mono'),
   });
 
   await page.goto(FEED);

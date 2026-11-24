@@ -291,7 +291,10 @@ describe('display-notice feature (X & Facebook)', () => {
     history.replaceState({}, '', '/settings/?tab=dark_mode_category');
     const fbMain = renderFacebookDarkModeDom();
     const { platform, store } = makePlatform({
-      '100000000000042/theme': applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'),
+      'v2/facebook/100000000000042/theme': applyThemePreset(
+        DEFAULT_THEME_DOCUMENT,
+        'catppuccin-mocha',
+      ),
     });
 
     const failed = await startSite(facebookSite, platform);

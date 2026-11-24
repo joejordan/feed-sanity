@@ -7,7 +7,7 @@ import type { PostReadData } from '../facebook/post-read';
 import { readFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { isRecord } from '../core/storage';
-import { DEFAULT_THEME_DOCUMENT, isSiteDefaultDocument, readThemeDocument } from '../core/theming';
+import { DEFAULT_THEME_DOCUMENT, isSiteDefaultDocument, parseThemeDocument } from '../core/theming';
 
 /** The saved stores that Backup / Restore and Reset operate on. */
 export interface DataStores {
@@ -132,7 +132,14 @@ export function parseBackup(text: string, specs: readonly [string, OptionSpec][]
     if (!isRecord(raw.theme)) {
       return { ok: false, error: '"theme" must be a JSON object.' };
     }
-    parsedTheme = readThemeDocument(raw.theme);
+    const parsedThemeDoc = parseThemeDocument(raw.theme);
+    if (!parsedThemeDoc.ok || !parsedThemeDoc.document) {
+      return {
+        ok: false,
+        error: parsedThemeDoc.errors[0] ?? '"theme" is not a valid Feed Sanity theme document.',
+      };
+    }
+    parsedTheme = parsedThemeDoc.document;
   }
 
   return {

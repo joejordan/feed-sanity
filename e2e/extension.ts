@@ -6,6 +6,8 @@ import path from 'node:path';
 import { test as base, chromium, expect } from '@playwright/test';
 import type { BrowserContext, Page, Route, Worker } from '@playwright/test';
 import type { browser } from 'wxt/browser';
+import { siteStoragePrefix } from '../src/core/site-storage';
+import { THEME_DATA_KEY } from '../src/core/theming/types';
 import { OPEN_OPTIONS } from '../src/platform/messages';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -25,11 +27,14 @@ export const ORIGIN = 'https://www.facebook.com';
 export const CDN = 'https://video.e2e.fbcdn.net';
 const NO_CORS = '/no-cors/';
 
-/** The logged-in user, from the `c_user` cookie. Settings are saved under this prefix. */
+/** The logged-in user, from the `c_user` cookie. */
 const USER_ID = '100000000000042';
+/** Canonical v2 storage prefix for Facebook settings in E2E tests. */
+const STORAGE_PREFIX = siteStoragePrefix('facebook', USER_ID);
 
-export const OPTIONS_KEY = `${USER_ID}/options`;
-export const FILTERS_KEY = `${USER_ID}/filters`;
+export const OPTIONS_KEY = `${STORAGE_PREFIX}/options`;
+export const FILTERS_KEY = `${STORAGE_PREFIX}/filters`;
+export const THEME_KEY = `${STORAGE_PREFIX}/${THEME_DATA_KEY}`;
 
 // The extension API in the service worker, for the functions the tests run
 // there with `evaluate`. Declared in this module only, so code under src/

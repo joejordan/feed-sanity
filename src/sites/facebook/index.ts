@@ -18,8 +18,8 @@ import { facebookThemeMapping } from './theme-mapping';
 
 /**
  * Facebook `SiteAdapter` wiring Feed Sanity's Facebook features, Meta Comet
- * page-world bridge, storage prefix, theme tokens,
- * data backup panel, and diagnostics panel into the multi-site kernel.
+ * page-world bridge, theme tokens, data backup panel, and diagnostics panel
+ * into the multi-site kernel.
  */
 export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPage>> = {
   id: 'facebook',
@@ -28,9 +28,6 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
   themeCss: facebookTheme,
   themeMapping: facebookThemeMapping,
   accountId: currentUserId,
-  // Keep Facebook's `<c_user>` prefix so existing user settings stay where
-  // they are; new sites use `siteStoragePrefix`.
-  storagePrefix: (accountId) => accountId,
   scrubPii: scrub,
   createPage,
   features,

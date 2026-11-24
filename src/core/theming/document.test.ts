@@ -249,7 +249,7 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     expect(css).toContain('@media (min-width: 800px) { .wide { padding: 8px; } }');
   });
 
-  it('re-hydrates secondary tokens when a background override flips theme polarity and migrates legacy flat v0 configs cleanly', () => {
+  it('re-hydrates secondary tokens on polarity flips, rejects non-v1 records cleanly, and reverts tweaked Studio Vibes on effect clear', () => {
     // Flip a dark preset to a light background override
     const flipped = resolveTheme(
       updateThemePalette(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'), {
@@ -264,7 +264,7 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     expect(flipped.palette?.surfaceAlt).not.toBe('#1c2536');
     expect(flipped.palette?.border).not.toBe('#243044');
 
-    // readThemeDocument preserves valid stored ThemeDocumentV1 and rejects corrupt ones cleanly
+    // readThemeDocument preserves valid stored ThemeDocumentV1 and defaults non-v1 / corrupt records cleanly
     const validDoc = parseThemeDocument({
       format: THEME_FILE_FORMAT,
       schemaVersion: 1,
@@ -289,63 +289,7 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     });
     expect(readCorruptV1).toEqual(DEFAULT_THEME_DOCUMENT);
 
-    // One-way migration from legacy pre-cutover flat ThemeConfig storage records
-    const migratedPreset = readThemeDocument({
-      preset: 'nord',
-      accent: '#ff0066',
-      background: '',
-      surface: '',
-      text: '',
-      font: 'serif',
-      customCss: '.legacy { opacity: 0.9; }',
-    });
-    expect(migratedPreset.format).toBe(THEME_FILE_FORMAT);
-    expect(migratedPreset.id).toBe('nord');
-    expect(migratedPreset.palette?.accent).toBe('#ff0066');
-    expect(migratedPreset.palette?.background).toBe('#2e3440');
-    expect(migratedPreset.typography).toEqual({ preset: 'serif' });
-    expect(migratedPreset.customCss).toBe('.legacy { opacity: 0.9; }');
-
-    // Legacy flat Studio Vibe config migrates to the matching Studio Vibe ThemeDocumentV1
-    const migratedVibe = readThemeDocument({
-      preset: 'terminal-phosphor',
-      font: 'mono',
-      effects: {
-        backdrop: 'digital-rain',
-        surface: 'glass',
-        click: 'matrix-burst',
-        rainIntro: 'rain-in',
-      },
-    });
-    expect(migratedVibe.id).toBe('enter-the-matrix');
-    expect(migratedVibe.meta.name).toBe('Enter the Matrix');
-    expect(migratedVibe.effects?.backdrop?.id).toBe('digital-rain');
-    expect(migratedVibe.typography).toEqual({ preset: 'mono' });
-
-    // Legacy flat config with an embedded imported document preserves author/name while dropping corrupt ones
-    const migratedEmbedded = readThemeDocument({
-      preset: 'custom',
-      accent: '',
-      font: 'default',
-      customCss: '',
-      document: validDoc,
-    });
-    expect(migratedEmbedded.meta.name).toBe('Saved Doc');
-    expect(migratedEmbedded.meta.author).toBe('Joe');
-
-    const migratedCorruptEmbedded = readThemeDocument({
-      preset: 'custom',
-      document: { format: 'wrong' },
-    });
-    expect(migratedCorruptEmbedded).toEqual(DEFAULT_THEME_DOCUMENT);
-
-    // Legacy v0 customCss is strictly sanitized (strips @import / url / expression).
-    const migratedUnsafeCss = readThemeDocument({
-      preset: 'midnight',
-      customCss: '@import url("https://evil.example/x.css"); .ok { border-radius: 4px; }',
-    });
-    expect(migratedUnsafeCss.customCss).toContain('.ok { border-radius: 4px; }');
-    expect(migratedUnsafeCss.customCss).not.toContain('evil.example');
+    expect(readThemeDocument({ preset: 'nord', font: 'serif' })).toEqual(DEFAULT_THEME_DOCUMENT);
 
     // Tweaking a Studio Vibe and then clearing effects (or manually turning all effects off)
     // still reverts vibe identity & vibe-owned font cleanly while preserving custom palette swatches.

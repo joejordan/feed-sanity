@@ -53,12 +53,12 @@ function makeController(): ThemeController & {
 }
 
 describe('appearancePanel & initSiteTheme', () => {
-  it('reads corrupt or partial saved theme values safely and migrates legacy flat configs', () => {
+  it('reads corrupt or non-v1 saved theme values safely', () => {
     expect(readThemeDocument(null)).toEqual(DEFAULT_THEME_DOCUMENT);
     expect(readThemeDocument('invalid')).toEqual(DEFAULT_THEME_DOCUMENT);
-    const migrated = readThemeDocument({ preset: 42, accent: '#123456', font: null });
-    expect(migrated.format).toBe(THEME_FILE_FORMAT);
-    expect(migrated.palette?.accent).toBe('#123456');
+    expect(readThemeDocument({ preset: 42, accent: '#123456', font: null })).toEqual(
+      DEFAULT_THEME_DOCUMENT,
+    );
   });
 
   it('applies presets instantly with live preview, clears preview on close, validates hex inline, and saves', async () => {

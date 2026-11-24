@@ -4,7 +4,6 @@ import type { GmailPage } from './feature';
 import { version } from '../../../package.json';
 import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
-import { siteStoragePrefix } from '../../core/site-storage';
 import { dataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
@@ -36,9 +35,8 @@ export const gmailSite: SiteAdapter<GmailPage, ReturnType<typeof createGmailPage
   matchesHost: isGmailHost,
   themeCss: gmailTheme,
   themeMapping: gmailThemeMapping,
-  themeEnvOptions: { includeIframes: true },
+  envOptions: { includeIframes: true },
   accountId: gmailAccountId,
-  storagePrefix: (accountId) => siteStoragePrefix('gmail', accountId),
   scrubPii: scrubGmailPii,
   createPage: createGmailPage,
   features: gmailFeatures,

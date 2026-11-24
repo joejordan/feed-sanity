@@ -13,6 +13,7 @@ import { createLogger } from './log';
 import { Options } from './options';
 import { SavedData } from './saved';
 import { createSiteSettings, SITES_STORAGE_KEY } from './site-settings';
+import { siteStoragePrefix } from './site-storage';
 import { createPreloadedStore, readStoreMany } from './storage';
 import { applyEarlyThemeCss, clearEarlyThemeStyle, writeEarlyThemeCss } from './theming';
 
@@ -40,12 +41,8 @@ export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory
   readonly themeMapping?: SiteThemeMapping;
   /** Optional `DomEnvironment` flags shared by this site's page services and theme propagation. */
   readonly envOptions?: { readonly pierceShadow?: boolean; readonly includeIframes?: boolean };
-  /** Legacy alias for `envOptions` when only theme propagation options were declared. */
-  readonly themeEnvOptions?: { readonly pierceShadow?: boolean; readonly includeIframes?: boolean };
   /** Identifies the signed-in account on this host (or `'anonymous'`). */
   readonly accountId: () => string;
-  /** Storage key prefix for this site and account. */
-  readonly storagePrefix: (accountId: string) => string;
   /** Strips site-specific personal identifiers (handles, slugs, post IDs) from diagnostics. */
   readonly scrubPii: (message: string) => string;
   /** Creates the site's page factory bound to saved data, page-world installer, shared `DomEnvironment`, and Options trigger. */
@@ -130,7 +127,7 @@ export async function startSite<P, F extends PageFactory<P>>(
   // one native `getMany` IPC round-trip when the platform supports it. If the
   // batched read rejects, fall back to `platform.store` directly so individual
   // consumers observe the real storage failure and refuse to overwrite data.
-  const bootPrefix = site.storagePrefix(site.accountId());
+  const bootPrefix = siteStoragePrefix(site.id, site.accountId());
   const bootKeys = [
     SITES_STORAGE_KEY,
     `${bootPrefix}/options`,
@@ -167,12 +164,10 @@ export async function startSite<P, F extends PageFactory<P>>(
     if (runtime) {
       return runtime;
     }
-    const prefix = bootPrefix;
-    const options = new Options(bootStore, `${prefix}/options`);
-    const data = new SavedData(bootStore, prefix);
+    const options = new Options(bootStore, `${bootPrefix}/options`);
+    const data = new SavedData(bootStore, bootPrefix);
     const env = createDomEnvironment({
       log: createLogger(`${site.id}-dom`),
-      ...site.themeEnvOptions,
       ...site.envOptions,
     });
     const theme = site.themeMapping
