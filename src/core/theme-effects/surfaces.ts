@@ -13,8 +13,10 @@ import type { ThemeEffectsConfig } from './model';
 import { OWN_ATTR } from '../surface';
 import { hexWithAlpha, splitSelectorList } from '../theme';
 import { formatRootSelectors, TEXT_INPUT_SELECTOR, wrapThemeLayer } from '../theming/types';
+import { THEME_EFFECT_BOUNDS } from './model';
 
 export const BACKDROP_OWN_VALUE = 'theme-backdrop';
+export const BACKDROP_SELECTOR = `[${OWN_ATTR}="${BACKDROP_OWN_VALUE}"]`;
 export const CLICK_FX_OWN_VALUE = 'theme-click-fx';
 
 const DEFAULT_POPUPS: readonly string[] = ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'];
@@ -29,7 +31,10 @@ export function resolveGlassMetrics(glassStrength: number): {
   readonly cardAlpha: number;
   readonly blurPx: number;
 } {
-  const clamped = Math.max(0, Math.min(0.65, glassStrength));
+  const clamped = Math.max(
+    THEME_EFFECT_BOUNDS.glassStrength.min,
+    Math.min(THEME_EFFECT_BOUNDS.glassStrength.max, glassStrength),
+  );
   const columnAlpha = Number((0.92 - clamped * 0.34).toFixed(2));
   const cardAlpha = Number((0.95 - clamped * 0.28).toFixed(2));
   const blurPx = Math.min(8, Math.round(4 + clamped * 6));
@@ -149,14 +154,13 @@ body {
   background-color: transparent !important;
   background-image: none !important;
 }
-[${OWN_ATTR}="${BACKDROP_OWN_VALUE}"] {
+${BACKDROP_SELECTOR} {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
   overflow: hidden;
   contain: strict;
-  opacity: ${effects.intensity};
   transition: opacity 220ms ease;
 }`;
 

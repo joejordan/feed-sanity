@@ -171,13 +171,18 @@ function AppearancePanelView({
   );
   const effectsActive = hasActiveEffects(effects);
 
-  const updateEffects = (patch: Partial<ThemeEffectsConfig>, toastLabel?: string): void => {
+  const buildNextEffectsConfig = (patch: Partial<ThemeEffectsConfig>): ThemeConfig => {
     const nextEffects: ThemeEffectsConfig = { ...effects, ...patch };
     const { effects: _prev, ...rest } = value;
-    const nextConfig: ThemeConfig = hasActiveEffects(nextEffects)
-      ? { ...rest, effects: nextEffects }
-      : rest;
-    applyEdit(nextConfig, toastLabel);
+    return hasActiveEffects(nextEffects) ? { ...rest, effects: nextEffects } : rest;
+  };
+
+  const previewEffects = (patch: Partial<ThemeEffectsConfig>): void => {
+    controller.preview(resolveTheme(buildNextEffectsConfig(patch)));
+  };
+
+  const updateEffects = (patch: Partial<ThemeEffectsConfig>, toastLabel?: string): void => {
+    applyEdit(buildNextEffectsConfig(patch), toastLabel);
   };
 
   const applyVibe = (vibe: StudioVibe): void => {
@@ -367,6 +372,7 @@ function AppearancePanelView({
       <CreativeStudioCard
         effects={effects}
         effectsActive={effectsActive}
+        onPreviewEffects={previewEffects}
         onUpdateEffects={updateEffects}
         onResetEffects={resetEffects}
       />

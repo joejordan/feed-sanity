@@ -219,6 +219,7 @@ export function samePalette(a: ThemePalette | null, b: ThemePalette | null): boo
     a.textMuted === b.textMuted &&
     a.border === b.border &&
     a.accent === b.accent &&
+    a.accentSecondary === b.accentSecondary &&
     a.accentText === b.accentText &&
     a.danger === b.danger
   );

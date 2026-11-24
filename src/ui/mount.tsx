@@ -30,12 +30,18 @@ const refreshMountedStyles = (): void => {
 
 /** Registers the active site's CSS token layer injected into every shadow root. */
 export function setSiteThemeCss(css: string): void {
+  if (css === siteThemeCss) {
+    return;
+  }
   siteThemeCss = css;
   refreshMountedStyles();
 }
 
 /** Applies or clears user-selected theme overrides across all active and future shadow roots. */
 export function setUserThemeCss(css: string): void {
+  if (css === userThemeCss) {
+    return;
+  }
   userThemeCss = css;
   refreshMountedStyles();
 }

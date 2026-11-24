@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   BackdropEffectId,
   ClickEffectId,
@@ -16,8 +17,11 @@ import {
   RAIN_LOOK_NAMES,
   STUDIO_VIBES,
   SURFACE_FINISH_OPTIONS,
+  THEME_EFFECT_BOUNDS,
 } from '../../core/theme-effects';
 import { Badge, SegmentedControl, SettingCard, SettingRow, Switch } from '../primitives';
+
+const SLIDER_COMMIT_DEBOUNCE_MS = 250;
 
 const RAIN_INTRO_LABELS: Record<RainIntro, string> = {
   filled: 'Already falling',
@@ -58,6 +62,166 @@ function RainSelect<T extends string>({
       </select>
     </label>
   );
+}
+
+type SliderField = keyof typeof THEME_EFFECT_BOUNDS;
+
+function EffectSlider({
+  field,
+  label,
+  ariaLabel,
+  value,
+  valueText,
+  onInput,
+  onDragStart,
+  onCommit,
+}: {
+  readonly field: SliderField;
+  readonly label: string;
+  readonly ariaLabel: string;
+  readonly value: number;
+  readonly valueText: string;
+  readonly onInput: (next: number) => void;
+  readonly onDragStart: () => void;
+  readonly onCommit: () => void;
+}) {
+  const { min, max } = THEME_EFFECT_BOUNDS[field];
+  return (
+    <label className="theme-slider-row">
+      <span className="theme-slider-meta">
+        <span>{label}</span>
+        <strong>{valueText}</strong>
+      </span>
+      <input
+        type="range"
+        className="theme-range"
+        aria-label={ariaLabel}
+        min={min}
+        max={max}
+        step={0.05}
+        value={value}
+        onPointerDown={onDragStart}
+        onInput={(event) => onInput(Number.parseFloat(event.currentTarget.value))}
+        onPointerUp={onCommit}
+        onPointerCancel={onCommit}
+        onKeyUp={onCommit}
+        onBlur={onCommit}
+      />
+    </label>
+  );
+}
+
+/**
+ * Buffers continuous range-slider drags into live `onPreview` calls without
+ * flooding storage writes, committing once on pointer release / blur / keyup
+ * (with a short fallback debounce for non-pointer input).
+ */
+function useEffectSliderDraft(
+  effects: ThemeEffectsConfig,
+  onPreviewEffects: ((patch: Partial<ThemeEffectsConfig>) => void) | undefined,
+  onUpdateEffects: (patch: Partial<ThemeEffectsConfig>, toastLabel?: string) => void,
+) {
+  const [sliderDraft, setSliderDraft] = useState<Partial<ThemeEffectsConfig> | null>(null);
+  const draftRef = useRef<Partial<ThemeEffectsConfig> | null>(null);
+  const lastCommittedRef = useRef<Partial<ThemeEffectsConfig> | null>(null);
+  const isDraggingRef = useRef(false);
+  const stopWindowDragRef = useRef<(() => void) | undefined>(undefined);
+  const prevEffectsRef = useRef(effects);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const onUpdateRef = useRef(onUpdateEffects);
+  onUpdateRef.current = onUpdateEffects;
+
+  const clearCommitTimer = useCallback((): void => {
+    if (commitTimerRef.current !== undefined) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = undefined;
+    }
+  }, []);
+
+  const detachWindowDrag = useCallback((): void => {
+    stopWindowDragRef.current?.();
+    stopWindowDragRef.current = undefined;
+  }, []);
+
+  const resetDraft = useCallback((): void => {
+    clearCommitTimer();
+    detachWindowDrag();
+    draftRef.current = null;
+    lastCommittedRef.current = null;
+    isDraggingRef.current = false;
+    setSliderDraft(null);
+  }, [clearCommitTimer, detachWindowDrag]);
+
+  useEffect(
+    () => () => {
+      clearCommitTimer();
+      detachWindowDrag();
+    },
+    [clearCommitTimer, detachWindowDrag],
+  );
+
+  useEffect(() => {
+    if (prevEffectsRef.current === effects) {
+      return;
+    }
+    prevEffectsRef.current = effects;
+    const committed = lastCommittedRef.current;
+    const matchesOwnCommit =
+      committed !== null &&
+      (Object.keys(committed) as Array<keyof ThemeEffectsConfig>).every(
+        (key) => effects[key] === committed[key],
+      );
+    if (draftRef.current && matchesOwnCommit) {
+      lastCommittedRef.current = null;
+      return;
+    }
+    resetDraft();
+  }, [effects, resetDraft]);
+
+  const commitDraft = useCallback((): void => {
+    clearCommitTimer();
+    detachWindowDrag();
+    isDraggingRef.current = false;
+    const pending = draftRef.current;
+    if (!pending) {
+      return;
+    }
+    draftRef.current = null;
+    lastCommittedRef.current = pending;
+    // Keep `sliderDraft` visible until async `saved.set` updates `effects` so the thumb never snaps back.
+    onUpdateRef.current(pending);
+  }, [clearCommitTimer, detachWindowDrag]);
+
+  const onDragStart = (): void => {
+    isDraggingRef.current = true;
+    clearCommitTimer();
+    detachWindowDrag();
+    const onRelease = (): void => commitDraft();
+    globalThis.addEventListener('pointerup', onRelease, { capture: true });
+    globalThis.addEventListener('pointercancel', onRelease, { capture: true });
+    stopWindowDragRef.current = () => {
+      globalThis.removeEventListener('pointerup', onRelease, { capture: true });
+      globalThis.removeEventListener('pointercancel', onRelease, { capture: true });
+    };
+  };
+
+  const handleInput = (patch: Partial<ThemeEffectsConfig>): void => {
+    if (!onPreviewEffects) {
+      onUpdateEffects(patch);
+      return;
+    }
+    const merged = { ...(draftRef.current ?? {}), ...patch };
+    draftRef.current = merged;
+    setSliderDraft(merged);
+    onPreviewEffects(merged);
+    clearCommitTimer();
+    if (!isDraggingRef.current) {
+      commitTimerRef.current = setTimeout(commitDraft, SLIDER_COMMIT_DEBOUNCE_MS);
+    }
+  };
+
+  const displayEffects: ThemeEffectsConfig = sliderDraft ? { ...effects, ...sliderDraft } : effects;
+  return { displayEffects, handleInput, onDragStart, commitDraft };
 }
 
 const RAIN_LOOK_LABELS: Record<RainLookName, string> = {
@@ -133,6 +297,7 @@ export function StudioVibesCard({ activeVibe, onApplyVibe }: StudioVibesCardProp
 export interface CreativeStudioCardProps {
   readonly effects: ThemeEffectsConfig;
   readonly effectsActive: boolean;
+  readonly onPreviewEffects?: (patch: Partial<ThemeEffectsConfig>) => void;
   readonly onUpdateEffects: (patch: Partial<ThemeEffectsConfig>, toastLabel?: string) => void;
   readonly onResetEffects: () => void;
 }
@@ -140,9 +305,16 @@ export interface CreativeStudioCardProps {
 export function CreativeStudioCard({
   effects,
   effectsActive,
+  onPreviewEffects,
   onUpdateEffects,
   onResetEffects,
 }: CreativeStudioCardProps) {
+  const { displayEffects, handleInput, onDragStart, commitDraft } = useEffectSliderDraft(
+    effects,
+    onPreviewEffects,
+    onUpdateEffects,
+  );
+
   return (
     <SettingCard
       title="Customize Effects"
@@ -216,84 +388,52 @@ export function CreativeStudioCard({
                 onChange={(rainIntro) => onUpdateEffects({ rainIntro })}
               />
             </div>
-            <label className="theme-slider-row">
-              <span className="theme-slider-meta">
-                <span>Rain density</span>
-                <strong>{Math.round(effects.rainDensity * 100)}%</strong>
-              </span>
-              <input
-                type="range"
-                className="theme-range"
-                aria-label="Rain density"
-                min={0.15}
-                max={0.9}
-                step={0.05}
-                value={effects.rainDensity}
-                onInput={(event) =>
-                  onUpdateEffects({ rainDensity: Number.parseFloat(event.currentTarget.value) })
-                }
-              />
-            </label>
+            <EffectSlider
+              field="rainDensity"
+              label="Rain density"
+              ariaLabel="Rain density"
+              value={displayEffects.rainDensity}
+              valueText={`${Math.round(displayEffects.rainDensity * 100)}%`}
+              onInput={(rainDensity) => handleInput({ rainDensity })}
+              onDragStart={onDragStart}
+              onCommit={commitDraft}
+            />
           </div>
         )}
 
         {effects.backdrop !== 'none' && (
           <div className="theme-tuner-box" role="group" aria-label="Background tuning">
             <div className="theme-slider-grid">
-              <label className="theme-slider-row">
-                <span className="theme-slider-meta">
-                  <span>Visibility</span>
-                  <strong>{Math.round(effects.intensity * 100)}%</strong>
-                </span>
-                <input
-                  type="range"
-                  className="theme-range"
-                  aria-label="Background visibility"
-                  min={0.15}
-                  max={1}
-                  step={0.05}
-                  value={effects.intensity}
-                  onInput={(event) =>
-                    onUpdateEffects({ intensity: Number.parseFloat(event.currentTarget.value) })
-                  }
-                />
-              </label>
-              <label className="theme-slider-row">
-                <span className="theme-slider-meta">
-                  <span>Motion speed</span>
-                  <strong>{effects.speed.toFixed(2).replace(/\.00$/, '')}×</strong>
-                </span>
-                <input
-                  type="range"
-                  className="theme-range"
-                  aria-label="Motion speed"
-                  min={0.25}
-                  max={2}
-                  step={0.05}
-                  value={effects.speed}
-                  onInput={(event) =>
-                    onUpdateEffects({ speed: Number.parseFloat(event.currentTarget.value) })
-                  }
-                />
-              </label>
-              <label className="theme-slider-row">
-                <span className="theme-slider-meta">
-                  <span>Card glass</span>
-                  <strong>{Math.round((effects.glassStrength / 0.65) * 100)}%</strong>
-                </span>
-                <input
-                  type="range"
-                  className="theme-range"
-                  aria-label="Card glass translucency"
-                  min={0}
-                  max={0.65}
-                  step={0.05}
-                  value={effects.glassStrength}
-                  onInput={(event) =>
-                    onUpdateEffects({ glassStrength: Number.parseFloat(event.currentTarget.value) })
-                  }
-                />
-              </label>
+              <EffectSlider
+                field="intensity"
+                label="Visibility"
+                ariaLabel="Background visibility"
+                value={displayEffects.intensity}
+                valueText={`${Math.round(displayEffects.intensity * 100)}%`}
+                onInput={(intensity) => handleInput({ intensity })}
+                onDragStart={onDragStart}
+                onCommit={commitDraft}
+              />
+              <EffectSlider
+                field="speed"
+                label="Motion speed"
+                ariaLabel="Motion speed"
+                value={displayEffects.speed}
+                valueText={`${displayEffects.speed.toFixed(2).replace(/\.00$/, '')}×`}
+                onInput={(speed) => handleInput({ speed })}
+                onDragStart={onDragStart}
+                onCommit={commitDraft}
+              />
+              <EffectSlider
+                field="glassStrength"
+                label="Card glass"
+                ariaLabel="Card glass translucency"
+                value={displayEffects.glassStrength}
+                valueText={`${Math.round((displayEffects.glassStrength / THEME_EFFECT_BOUNDS.glassStrength.max) * 100)}%`}
+                onInput={(glassStrength) => handleInput({ glassStrength })}
+                onDragStart={onDragStart}
+                onCommit={commitDraft}
+              />
             </div>
             <div className="theme-tuner-switches">
               <span className="theme-inline-toggle">

@@ -16,6 +16,8 @@ export interface EffectsLayerController {
     palette: ThemePalette | null,
     hostScheme: ThemeColorScheme,
   ) => void;
+  /** True when the live backdrop container is currently connected to the host document. */
+  isBackdropConnected: () => boolean;
   dispose: () => void;
 }
 
@@ -101,6 +103,7 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
         cascade: effects.interactive && Boolean(activeBackdrop?.burst),
       });
     },
+    isBackdropConnected: () => Boolean(backdropHost?.isConnected),
     dispose() {
       if (disposed) {
         return;

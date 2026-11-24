@@ -1,7 +1,16 @@
 import type { DomEnvironment } from '../dom-env';
 import type { Scope } from '../scope';
 import type { ThemeAuditReport, ThemeHealer } from '../theme';
-import type { ResolvedTheme, SiteThemeMapping, ThemeColorScheme, ThemePalette } from './types';
+import type { ThemeEffectsConfig } from '../theme-effects';
+import type {
+  ResolvedTheme,
+  SiteThemeMapping,
+  ThemeAmbientGlowSpec,
+  ThemeChromeConfig,
+  ThemeColorScheme,
+  ThemePalette,
+  ThemeRibbonSpec,
+} from './types';
 import { OWN_ATTR } from '../surface';
 import {
   auditThemeCoverage,
@@ -18,8 +27,130 @@ import { compileHostThemeCss, compileShadowThemeCss, compileUiThemeCss } from '.
 import { THEME_STYLE_ID } from './early-cache';
 
 const ADAPTIVE_STYLE_ID = 'feed_sanity_adaptive_theme';
+const SCHEME_RECHECK_DEBOUNCE_MS = 80;
+const SCHEME_ATTR_FILTER = ['class', 'style', 'data-theme', 'data-color-mode'];
 
 const isOwnShadowRoot = (shadow: ShadowRoot): boolean => isOwnUiElement(shadow.host);
+
+const hasAdaptiveTarget = (theme: ResolvedTheme | null): boolean =>
+  Boolean(theme?.palette || theme?.fontFamily);
+
+const hasActiveBackdrop = (theme: ResolvedTheme | null): boolean =>
+  Boolean(theme?.effects && theme.effects.backdrop !== 'none');
+
+function sameRibbon(a: ThemeRibbonSpec | undefined, b: ThemeRibbonSpec | undefined): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (
+    !a ||
+    !b ||
+    a.enabled !== b.enabled ||
+    a.angle !== b.angle ||
+    a.height !== b.height ||
+    a.position !== b.position ||
+    a.stops.length !== b.stops.length
+  ) {
+    return false;
+  }
+  return a.stops.every((stop, idx) => stop === b.stops[idx]);
+}
+
+function sameAmbientGlow(
+  a: ThemeAmbientGlowSpec | undefined,
+  b: ThemeAmbientGlowSpec | undefined,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!a || !b || a.enabled !== b.enabled || a.spots.length !== b.spots.length) {
+    return false;
+  }
+  return a.spots.every((s1, idx) => {
+    const s2 = b.spots[idx];
+    return (
+      s2 !== undefined &&
+      s1.color === s2.color &&
+      s1.alpha === s2.alpha &&
+      s1.x === s2.x &&
+      s1.y === s2.y &&
+      s1.radiusX === s2.radiusX &&
+      s1.radiusY === s2.radiusY
+    );
+  });
+}
+
+function sameChrome(a: ThemeChromeConfig | undefined, b: ThemeChromeConfig | undefined): boolean {
+  return (
+    a === b || (sameRibbon(a?.ribbon, b?.ribbon) && sameAmbientGlow(a?.ambientGlow, b?.ambientGlow))
+  );
+}
+
+function sameShadowRelevantTheme(prev: ResolvedTheme | null, next: ResolvedTheme | null): boolean {
+  return (
+    prev === next ||
+    (samePalette(prev?.palette ?? null, next?.palette ?? null) &&
+      (prev?.fontFamily ?? '') === (next?.fontFamily ?? '') &&
+      (prev?.customCss ?? '') === (next?.customCss ?? ''))
+  );
+}
+
+function sameCssRelevantTheme(prev: ResolvedTheme | null, next: ResolvedTheme | null): boolean {
+  if (!sameShadowRelevantTheme(prev, next) || !sameChrome(prev?.chrome, next?.chrome)) {
+    return false;
+  }
+  const prevBackdrop = hasActiveBackdrop(prev);
+  const nextBackdrop = hasActiveBackdrop(next);
+  if (prevBackdrop !== nextBackdrop) {
+    return false;
+  }
+  const prevSurface = prev?.effects?.surface ?? 'default';
+  const nextSurface = next?.effects?.surface ?? 'default';
+  if (prevSurface !== nextSurface) {
+    return false;
+  }
+  if (
+    (nextBackdrop || nextSurface === 'glass') &&
+    (prev?.effects?.glassStrength ?? 0) !== (next?.effects?.glassStrength ?? 0)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function sameEffectsConfig(
+  a: ThemeEffectsConfig | undefined,
+  b: ThemeEffectsConfig | undefined,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  return (
+    a.backdrop === b.backdrop &&
+    a.intensity === b.intensity &&
+    a.speed === b.speed &&
+    a.glassStrength === b.glassStrength &&
+    a.paused === b.paused &&
+    a.interactive === b.interactive &&
+    a.rainLook === b.rainLook &&
+    a.rainCharset === b.rainCharset &&
+    a.rainDensity === b.rainDensity &&
+    a.rainIntro === b.rainIntro &&
+    a.surface === b.surface &&
+    a.click === b.click
+  );
+}
+
+function readInlineSchemeStyle(el: Element | null): string {
+  if (!el || !('style' in el)) {
+    return '';
+  }
+  const s = (el as HTMLElement).style;
+  return `${s.backgroundColor}|${s.colorScheme}`;
+}
 
 export interface ThemeController {
   /** Applies the persisted user theme (or clears it when `null`). */
@@ -63,11 +194,16 @@ export function createThemeController(
   let detectedHostScheme: ThemeColorScheme | undefined;
   const dirtyRoots = new Set<Document | ShadowRoot>();
   let recompileTimer: ReturnType<typeof setTimeout> | undefined;
+  let schemeRecheckTimer: ReturnType<typeof setTimeout> | undefined;
+  let backdropHealQueued = false;
+  let stopBackdropWatch: (() => void) | undefined;
+  let schemeObserverActive = false;
   const linkLoadAbort = new AbortController();
 
   const styles = new Map<Document | ShadowRoot, HTMLStyleElement>();
   const adaptiveStyles = new Map<Document | ShadowRoot, HTMLStyleElement>();
   const iframeDocs = new Set<Document>();
+  const iframeCleanups = new Set<() => void>();
   const cleanups: Array<() => void> = [];
   const healer: ThemeHealer | undefined = adaptiveConfig
     ? createThemeHealer(env, env.scope, {
@@ -88,15 +224,23 @@ export function createThemeController(
 
   const disableThemeSheetsForMeasure = (includeShadowRoots: boolean): (() => void) => {
     const toggled: CSSStyleSheet[] = [];
-    const toggleRoot = (root: Document | ShadowRoot): void => {
-      for (const id of [THEME_STYLE_ID, ADAPTIVE_STYLE_ID, HEALER_STYLE_ID]) {
-        const el = root.querySelector(`#${id}`);
-        const sheet = el && el.localName === 'style' ? (el as HTMLStyleElement).sheet : null;
-        if (sheet && !sheet.disabled) {
-          sheet.disabled = true;
-          toggled.push(sheet);
-        }
+    const disableEl = (el: HTMLStyleElement | Element | null | undefined): void => {
+      const sheet = el && el.localName === 'style' ? (el as HTMLStyleElement).sheet : null;
+      if (sheet && !sheet.disabled) {
+        sheet.disabled = true;
+        toggled.push(sheet);
       }
+    };
+    const toggleRoot = (root: Document | ShadowRoot): void => {
+      const trackedUser = styles.get(root);
+      disableEl(trackedUser?.isConnected ? trackedUser : root.querySelector(`#${THEME_STYLE_ID}`));
+      const trackedAdaptive = adaptiveStyles.get(root);
+      disableEl(
+        trackedAdaptive?.isConnected
+          ? trackedAdaptive
+          : root.querySelector(`#${ADAPTIVE_STYLE_ID}`),
+      );
+      disableEl(root.querySelector(`#${HEALER_STYLE_ID}`));
     };
     toggleRoot(env.doc);
     if (includeShadowRoots) {
@@ -228,15 +372,14 @@ export function createThemeController(
     store.set(root, style);
   };
 
-  let lastAdaptivePalette: ThemePalette | null = null;
-  let lastAdaptiveFont: string | undefined;
-  let lastAdaptiveBackdrop = false;
-
-  const hasAdaptiveTarget = (theme: ResolvedTheme | null): boolean =>
-    Boolean(theme?.palette || theme?.fontFamily);
-
-  const hasActiveBackdrop = (theme: ResolvedTheme | null): boolean =>
-    Boolean(theme?.effects && theme.effects.backdrop !== 'none');
+  let hasRenderedCss = false;
+  let lastCssTheme: ResolvedTheme | null = null;
+  let lastCssScheme: ThemeColorScheme | undefined;
+  let lastAdaptiveScheme: ThemeColorScheme | undefined;
+  let hasSyncedEffects = false;
+  let lastEffectsConfig: ThemeEffectsConfig | undefined;
+  let lastEffectsPalette: ThemePalette | null = null;
+  let lastEffectsScheme: ThemeColorScheme | undefined;
 
   const syncAdaptiveForRoot = (
     root: Document | ShadowRoot,
@@ -313,6 +456,151 @@ export function createThemeController(
     }
   };
 
+  const syncEffectsIfNeeded = (
+    effects: ThemeEffectsConfig | undefined,
+    palette: ThemePalette | null,
+    scheme: ThemeColorScheme,
+    force = false,
+  ): void => {
+    const backdropActive = Boolean(effects && effects.backdrop !== 'none');
+    const unchanged =
+      !force &&
+      hasSyncedEffects &&
+      sameEffectsConfig(lastEffectsConfig, effects) &&
+      samePalette(lastEffectsPalette, palette) &&
+      lastEffectsScheme === scheme &&
+      (!backdropActive || effectsLayer.isBackdropConnected());
+    if (unchanged) {
+      return;
+    }
+    hasSyncedEffects = true;
+    lastEffectsConfig = effects;
+    lastEffectsPalette = palette;
+    lastEffectsScheme = scheme;
+    effectsLayer.sync(effects, palette, scheme);
+  };
+
+  // Self-heal if the host SPA (e.g. React/Shreddit re-hydration) detaches our live backdrop host.
+  // Subscribed ONLY while a live backdrop is active so Site Default / static themes pay zero cost.
+  const setBackdropWatcherActive = (active: boolean): void => {
+    if (!active) {
+      stopBackdropWatch?.();
+      stopBackdropWatch = undefined;
+      return;
+    }
+    if (stopBackdropWatch || disposed) {
+      return;
+    }
+    stopBackdropWatch = env.watcher.watchTree({
+      removed: () => {
+        if (disposed || backdropHealQueued || effectsLayer.isBackdropConnected()) {
+          return;
+        }
+        if (!hasActiveBackdrop(effectiveTheme())) {
+          return;
+        }
+        backdropHealQueued = true;
+        queueMicrotask(() => {
+          backdropHealQueued = false;
+          if (disposed || effectsLayer.isBackdropConnected()) {
+            return;
+          }
+          const latest = effectiveTheme();
+          if (!hasActiveBackdrop(latest)) {
+            return;
+          }
+          syncEffectsIfNeeded(latest?.effects, latest?.palette ?? null, getHostScheme(), true);
+        });
+      },
+    });
+  };
+  cleanups.push(() => setBackdropWatcherActive(false));
+
+  // Re-detect native host Dark/Light polarity when the OS color scheme or root theme
+  // attributes flip, ignoring noisy non-color inline style writes (e.g. modal `overflow: hidden`).
+  // Connected ONLY while a theme is active so Site Default stays zero-overhead.
+  const lastInlineSchemeStyles = new WeakMap<Element, string>();
+
+  const cancelSchemeRecheck = (): void => {
+    if (schemeRecheckTimer !== undefined) {
+      clearTimeout(schemeRecheckTimer);
+      schemeRecheckTimer = undefined;
+    }
+  };
+
+  const scheduleSchemeRecheck = (): void => {
+    if (disposed || !effectiveTheme() || !env.doc.body || schemeRecheckTimer !== undefined) {
+      return;
+    }
+    schemeRecheckTimer = setTimeout(() => {
+      schemeRecheckTimer = undefined;
+      if (disposed || !effectiveTheme() || !env.doc.body) {
+        return;
+      }
+      const measured = detectNativeHostScheme();
+      if (measured !== detectedHostScheme || measured !== lastCssScheme) {
+        detectedHostScheme = measured;
+        render();
+      }
+    }, SCHEME_RECHECK_DEBOUNCE_MS);
+  };
+
+  const schemeObserver =
+    typeof MutationObserver === 'function'
+      ? new MutationObserver((records) => {
+          for (const rec of records) {
+            if (rec.attributeName === 'style') {
+              const target = rec.target as Element;
+              const next = readInlineSchemeStyle(target);
+              if (next === lastInlineSchemeStyles.get(target)) {
+                continue;
+              }
+              lastInlineSchemeStyles.set(target, next);
+            }
+            scheduleSchemeRecheck();
+            return;
+          }
+        })
+      : undefined;
+
+  const observeRootForScheme = (rootEl: Element | null): void => {
+    if (!schemeObserver || !rootEl) {
+      return;
+    }
+    lastInlineSchemeStyles.set(rootEl, readInlineSchemeStyle(rootEl));
+    schemeObserver.observe(rootEl, { attributes: true, attributeFilter: SCHEME_ATTR_FILTER });
+  };
+
+  const setSchemeObserverActive = (active: boolean): void => {
+    if (!schemeObserver) {
+      return;
+    }
+    if (!active) {
+      if (schemeObserverActive) {
+        schemeObserverActive = false;
+        schemeObserver.disconnect();
+        cancelSchemeRecheck();
+      }
+      return;
+    }
+    if (!schemeObserverActive && !disposed) {
+      schemeObserverActive = true;
+      observeRootForScheme(env.doc.documentElement);
+      observeRootForScheme(env.doc.body);
+    }
+  };
+  cleanups.push(() => {
+    setSchemeObserverActive(false);
+    cancelSchemeRecheck();
+  });
+
+  const colorSchemeMedia = (env.doc.defaultView ?? globalThis).matchMedia?.(
+    '(prefers-color-scheme: dark)',
+  );
+  colorSchemeMedia?.addEventListener?.('change', scheduleSchemeRecheck, {
+    signal: linkLoadAbort.signal,
+  });
+
   const render = (): void => {
     if (disposed) {
       return;
@@ -321,49 +609,56 @@ export function createThemeController(
     const nextPalette = effective?.palette ?? null;
     const nextFont = effective?.fontFamily;
     const backdropActive = hasActiveBackdrop(effective);
+    const adaptiveTarget = hasAdaptiveTarget(effective);
+    if (!effective) {
+      detectedHostScheme = undefined;
+    }
+    setSchemeObserverActive(Boolean(effective));
+    setBackdropWatcherActive(backdropActive);
+
+    const currentScheme: ThemeColorScheme = effective ? getHostScheme() : 'dark';
     const adaptiveChanged =
-      !samePalette(nextPalette, lastAdaptivePalette) ||
-      nextFont !== lastAdaptiveFont ||
-      backdropActive !== lastAdaptiveBackdrop;
+      !hasRenderedCss ||
+      !samePalette(nextPalette, lastCssTheme?.palette ?? null) ||
+      nextFont !== lastCssTheme?.fontFamily ||
+      backdropActive !== hasActiveBackdrop(lastCssTheme) ||
+      (adaptiveTarget && currentScheme !== lastAdaptiveScheme);
+    const shadowChanged =
+      !hasRenderedCss || adaptiveChanged || !sameShadowRelevantTheme(lastCssTheme, effective);
+    const cssChanged =
+      adaptiveChanged ||
+      currentScheme !== lastCssScheme ||
+      !sameCssRelevantTheme(lastCssTheme, effective);
+
     if (adaptiveChanged) {
       cancelAdaptiveRecompile();
-      lastAdaptivePalette = nextPalette;
-      lastAdaptiveFont = nextFont;
-      lastAdaptiveBackdrop = backdropActive;
+      lastAdaptiveScheme = adaptiveTarget ? currentScheme : undefined;
     }
-    let resolvedScheme: ThemeColorScheme | undefined;
-    if (adaptiveConfig) {
-      if (nextPalette || nextFont) {
-        if (detectedHostScheme === undefined && env.doc.body) {
-          detectedHostScheme = detectNativeHostScheme();
-        }
-        if (adaptiveChanged) {
-          resolvedScheme = getHostScheme();
-        }
-      } else {
-        detectedHostScheme = undefined;
+
+    if (cssChanged) {
+      hasRenderedCss = true;
+      lastCssTheme = effective;
+      lastCssScheme = currentScheme;
+      hostCss = effective ? compileHostThemeCss(effective, mapping, currentScheme) : '';
+      if (shadowChanged) {
+        shadowCss = undefined;
       }
-    }
-    const currentScheme = resolvedScheme ?? (effective ? getHostScheme() : 'dark');
-    hostCss = effective ? compileHostThemeCss(effective, mapping, currentScheme) : '';
-    shadowCss = undefined;
-    const uiCss = effective ? compileUiThemeCss(effective) : '';
-    setUiThemeCss(uiCss);
-    syncRoot(env.doc, hostCss, adaptiveChanged, resolvedScheme);
-    if (env.shadowRoots.size > 0) {
-      const compiledShadow = getShadowCss();
-      for (const shadow of env.shadowRoots) {
-        if (!isOwnShadowRoot(shadow)) {
-          syncRoot(shadow, compiledShadow, adaptiveChanged, resolvedScheme);
+      const uiCss = effective ? compileUiThemeCss(effective) : '';
+      setUiThemeCss(uiCss);
+      const resolvedScheme = adaptiveChanged ? currentScheme : undefined;
+      forEachHostRoot((root) => {
+        if (root.nodeType === Node.DOCUMENT_NODE) {
+          syncRoot(root, hostCss, adaptiveChanged, resolvedScheme);
+        } else if (shadowChanged) {
+          syncRoot(root, getShadowCss(), adaptiveChanged, resolvedScheme);
         }
-      }
+      });
     }
-    for (const iframeDoc of iframeDocs) {
-      syncRoot(iframeDoc, hostCss, adaptiveChanged, resolvedScheme);
+    if (adaptiveChanged) {
+      healer?.setBackdropActive(backdropActive);
+      healer?.setPalette(nextPalette);
     }
-    healer?.setBackdropActive(backdropActive);
-    healer?.setPalette(nextPalette);
-    effectsLayer.sync(effective?.effects, nextPalette, currentScheme);
+    syncEffectsIfNeeded(effective?.effects, nextPalette, currentScheme);
   };
 
   const watchHead = (targetEnv: DomEnvironment): (() => void) | undefined => {
@@ -450,8 +745,11 @@ export function createThemeController(
       syncRoot(childEnv.doc, hostCss);
       const stopChildHead = watchHead(childEnv);
       if (stopChildHead) {
-        childEnv.scope.add(stopChildHead);
-        cleanups.push(stopChildHead);
+        iframeCleanups.add(stopChildHead);
+        childEnv.scope.add(() => {
+          iframeCleanups.delete(stopChildHead);
+          stopChildHead();
+        });
       }
       childEnv.scope.add(() => {
         iframeDocs.delete(childEnv.doc);
@@ -471,14 +769,26 @@ export function createThemeController(
   }
   if (!env.doc.body) {
     const stopBody = env.watcher.watch('body', {
-      added: () => {
+      added: (bodyEl) => {
         stopBody();
         if (disposed) {
           return;
         }
+        if (schemeObserverActive) {
+          observeRootForScheme(env.doc.documentElement);
+          observeRootForScheme(bodyEl);
+        }
         const effective = effectiveTheme();
-        if (effective?.effects) {
-          effectsLayer.sync(effective.effects, effective.palette, getHostScheme());
+        if (effective) {
+          const scheme = getHostScheme();
+          if (
+            scheme !== lastCssScheme ||
+            (hasAdaptiveTarget(effective) && scheme !== lastAdaptiveScheme)
+          ) {
+            render();
+          } else if (effective.effects) {
+            syncEffectsIfNeeded(effective.effects, effective.palette, scheme, true);
+          }
         }
       },
     });
@@ -553,8 +863,20 @@ export function createThemeController(
       disposed = true;
       hostCss = '';
       shadowCss = undefined;
+      hasRenderedCss = false;
+      hasSyncedEffects = false;
+      lastCssTheme = null;
+      lastCssScheme = undefined;
+      lastAdaptiveScheme = undefined;
+      lastEffectsConfig = undefined;
+      lastEffectsPalette = null;
+      lastEffectsScheme = undefined;
       cancelAdaptiveRecompile();
       linkLoadAbort.abort();
+      for (const stop of iframeCleanups) {
+        stop();
+      }
+      iframeCleanups.clear();
       for (const stop of cleanups.splice(0)) {
         stop();
       }

@@ -4,6 +4,8 @@ import { instagramThemeMapping } from '../sites/instagram/theme-mapping';
 import { xThemeMapping } from '../sites/x/theme-mapping';
 import { HOST_TAG, renderInShadow, setUserThemeCss } from '../ui/mount';
 import { createDomEnvironment } from './dom-env';
+import { samePalette } from './theme';
+import { BACKDROP_SELECTOR, DEFAULT_THEME_EFFECTS } from './theme-effects';
 import {
   applyEarlyThemeCss,
   BUILTIN_THEMES,
@@ -32,6 +34,8 @@ describe('first-class multi-site theming engine', () => {
   beforeEach(() => {
     document.head.innerHTML = '';
     document.body.innerHTML = '';
+    document.body.removeAttribute('style');
+    document.documentElement.removeAttribute('style');
     setUserThemeCss('');
   });
 
@@ -39,6 +43,8 @@ describe('first-class multi-site theming engine', () => {
     for (const stop of cleanups.splice(0).reverse()) {
       stop();
     }
+    document.body.removeAttribute('style');
+    document.documentElement.removeAttribute('style');
     setUserThemeCss('');
   });
 
@@ -423,5 +429,230 @@ describe('first-class multi-site theming engine', () => {
       customCss: 'a { color: #ff0000 !important; }',
     })!;
     expect(compileHostThemeCss(importantCustom, xThemeMapping)).toContain('@layer fs-user {');
+  });
+
+  it('compares accentSecondary in samePalette, skips CSS recompiles on canvas-only updates, self-heals detached backdrops, and tracks native scheme flips', async () => {
+    const base = BUILTIN_THEMES[0]!.palette;
+    expect(samePalette(base, { ...base })).toBe(true);
+    expect(samePalette(base, { ...base, accentSecondary: '#ec4899' })).toBe(false);
+
+    const env = createDomEnvironment({ pierceShadow: true });
+    cleanups.push(() => env.dispose());
+
+    const hostStyle = document.createElement('style');
+    hostStyle.textContent = '.surface-card { background-color: #ffffff; color: #111111; }';
+    document.head.append(hostStyle);
+    document.body.style.backgroundColor = 'rgb(255, 255, 255)';
+
+    const extraCss = vi.fn(() => '.curated { opacity: 1; }');
+    const setUiCss = vi.fn();
+    const controller = createThemeController(
+      env,
+      {
+        rootSelectors: [':root'],
+        extraCss,
+        adaptive: { enabled: true },
+      },
+      setUiCss,
+    );
+    cleanups.push(() => controller.dispose());
+
+    const initial = {
+      palette: base,
+      effects: {
+        ...DEFAULT_THEME_EFFECTS,
+        backdrop: 'aurora' as const,
+        surface: 'glass' as const,
+        glassStrength: 0.25,
+        intensity: 0.8,
+        speed: 1,
+      },
+    };
+    controller.apply(initial);
+    expect(extraCss).toHaveBeenCalledTimes(1);
+    expect(setUiCss).toHaveBeenCalledTimes(1);
+    const firstBackdrop = document.querySelector(BACKDROP_SELECTOR);
+    expect(firstBackdrop).not.toBeNull();
+
+    // Canvas-only updates (`speed`, `intensity`, `paused`, `click`, live-to-live backdrop switch)
+    // must NOT recompile host/UI CSS.
+    controller.preview({
+      ...initial,
+      effects: {
+        ...initial.effects,
+        backdrop: 'silk',
+        speed: 1.75,
+        intensity: 0.45,
+        paused: true,
+        click: 'spark',
+      },
+    });
+    expect(extraCss).toHaveBeenCalledTimes(1);
+    expect(setUiCss).toHaveBeenCalledTimes(1);
+    expect((firstBackdrop as HTMLElement).style.opacity).toBe('0.45');
+    expect(firstBackdrop?.getAttribute('data-fs-backdrop')).toBe('silk');
+
+    // Turning backdrop off (`silk` -> `none`) DOES recompile CSS.
+    controller.preview({
+      ...initial,
+      effects: { ...initial.effects, backdrop: 'none' },
+    });
+    expect(extraCss).toHaveBeenCalledTimes(2);
+
+    // CSS-affecting `glassStrength` update DOES recompile CSS.
+    controller.preview({
+      ...initial,
+      effects: { ...initial.effects, glassStrength: 0.5 },
+    });
+    expect(extraCss).toHaveBeenCalledTimes(3);
+    expect(setUiCss).toHaveBeenCalledTimes(3);
+    controller.clearPreview();
+    expect(extraCss).toHaveBeenCalledTimes(4);
+
+    // Self-healing backdrop: if the host SPA removes our backdrop div, controller remounts it automatically.
+    const currentBackdrop = document.querySelector(BACKDROP_SELECTOR)!;
+    currentBackdrop.remove();
+    await vi.waitFor(() => {
+      const healed = document.querySelector(BACKDROP_SELECTOR);
+      expect(healed).not.toBeNull();
+      expect(healed).not.toBe(currentBackdrop);
+    });
+
+    // Noisy non-color `body.style.overflow = 'hidden'` modal writes must NOT even invoke
+    // `detectNativeHostScheme` / `getComputedStyle` on root elements.
+    const computedSpy = vi.spyOn(globalThis, 'getComputedStyle');
+    const compilesBeforeModal = extraCss.mock.calls.length;
+    document.body.style.overflow = 'hidden';
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const rootStyleReads = computedSpy.mock.calls.filter(
+      ([el]) => el === document.body || el === document.documentElement,
+    );
+    expect(rootStyleReads).toHaveLength(0);
+    expect(extraCss.mock.calls.length).toBe(compilesBeforeModal);
+
+    // Flipping native host polarity (light -> dark) invalidates cached hostScheme and recompiles cleanly.
+    document.body.style.backgroundColor = 'rgb(0, 0, 0)';
+    await vi.waitFor(() => {
+      expect(extraCss.mock.calls.length).toBeGreaterThan(compilesBeforeModal);
+    });
+    computedSpy.mockRestore();
+
+    // Intentional teardown (`apply(null)`) removes the backdrop and does NOT self-heal it back.
+    controller.apply(null);
+    expect(document.querySelector(BACKDROP_SELECTOR)).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.querySelector(BACKDROP_SELECTOR)).toBeNull();
+  });
+
+  it('reconciles document_start dark body arrival, reacts to matchMedia prefers-color-scheme changes, and cleans up headless iframe watchers', async () => {
+    // 1. document_start pre-<body> apply reconciles hostScheme once dark <body> arrives.
+    const earlyDoc = document.implementation.createHTMLDocument('early');
+    earlyDoc.body.remove();
+    const earlyEnv = createDomEnvironment({ doc: earlyDoc });
+    cleanups.push(() => earlyEnv.dispose());
+    const earlyStyle = earlyDoc.createElement('style');
+    earlyStyle.textContent = '.card { background-color: #121212; color: #f0f0f0; }';
+    earlyDoc.head.append(earlyStyle);
+    const earlyController = createThemeController(
+      earlyEnv,
+      { rootSelectors: [':root'], adaptive: { enabled: true } },
+      vi.fn(),
+    );
+    cleanups.push(() => earlyController.dispose());
+
+    const warmPaper = BUILTIN_THEMES.find((t) => t.id === 'warm-paper')!.palette;
+    earlyController.apply({ palette: warmPaper });
+    // Before <body> exists, fallback scheme is 'light', so dark `.card` is treated as opposite-polarity and skipped.
+    expect(earlyDoc.querySelector('#feed_sanity_adaptive_theme')?.textContent ?? '').not.toContain(
+      '.card',
+    );
+
+    const darkBody = earlyDoc.createElement('body');
+    darkBody.style.backgroundColor = 'rgb(0, 0, 0)';
+    earlyDoc.documentElement.append(darkBody);
+    await vi.waitFor(() =>
+      expect(earlyDoc.querySelector('#feed_sanity_adaptive_theme')?.textContent).toContain('.card'),
+    );
+
+    // 2. matchMedia('(prefers-color-scheme: dark)') change listener triggers recompile & aborts on dispose.
+    let changeHandler: (() => void) | undefined;
+    let changeSignal: AbortSignal | undefined;
+    const matchMediaSpy = vi.spyOn(globalThis, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches: false,
+          media: query,
+          addEventListener: (
+            event: string,
+            cb: () => void,
+            opts?: { readonly signal?: AbortSignal },
+          ) => {
+            if (event === 'change') {
+              changeHandler = cb;
+              changeSignal = opts?.signal;
+            }
+          },
+          removeEventListener: () => undefined,
+        }) as unknown as MediaQueryList,
+    );
+    const mediaEnv = createDomEnvironment();
+    cleanups.push(() => mediaEnv.dispose());
+    const mediaExtraCss = vi.fn(() => '.media-test { opacity: 1; }');
+    const mediaController = createThemeController(
+      mediaEnv,
+      { rootSelectors: [':root'], extraCss: mediaExtraCss, adaptive: { enabled: true } },
+      vi.fn(),
+    );
+    cleanups.push(() => {
+      mediaController.dispose();
+      matchMediaSpy.mockRestore();
+    });
+
+    let mockedBg = 'rgb(255, 255, 255)';
+    const styleSpy = vi
+      .spyOn(globalThis, 'getComputedStyle')
+      .mockImplementation(
+        () => ({ backgroundColor: mockedBg, colorScheme: '' }) as unknown as CSSStyleDeclaration,
+      );
+    try {
+      mediaController.apply({ palette: warmPaper });
+      expect(mediaExtraCss).toHaveBeenCalledTimes(1);
+      expect(changeHandler).toBeDefined();
+
+      mockedBg = 'rgb(0, 0, 0)';
+      changeHandler?.();
+      await vi.waitFor(() => expect(mediaExtraCss).toHaveBeenCalledTimes(2));
+
+      mediaController.dispose();
+      expect(changeSignal?.aborted).toBe(true);
+    } finally {
+      styleSpy.mockRestore();
+    }
+
+    // 3. Headless iframe watchHead cleanup prevents leaks on early iframe removal & controller dispose.
+    const iframeEnv = createDomEnvironment({ includeIframes: true });
+    cleanups.push(() => iframeEnv.dispose());
+    const iframeController = createThemeController(iframeEnv, facebookThemeMapping, vi.fn());
+    cleanups.push(() => iframeController.dispose());
+    iframeController.apply({ palette: BUILTIN_THEMES[0]!.palette });
+
+    const headlessFrame = document.createElement('iframe');
+    const headlessDoc = document.implementation.createHTMLDocument('headless');
+    headlessDoc.documentElement.remove();
+    Object.defineProperty(headlessFrame, 'contentDocument', {
+      value: headlessDoc,
+      configurable: true,
+    });
+    document.body.append(headlessFrame);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    headlessFrame.remove();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Appending <head> after the iframe was removed must NOT inject theme CSS into the detached document.
+    const lateHtml = headlessDoc.createElement('html');
+    lateHtml.append(headlessDoc.createElement('head'));
+    headlessDoc.append(lateHtml);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(headlessDoc.querySelector('#feed_sanity_user_theme')).toBeNull();
   });
 });

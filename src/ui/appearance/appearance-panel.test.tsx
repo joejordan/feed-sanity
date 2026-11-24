@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/preact';
+import { cleanup, fireEvent, render, screen } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ThemeConfig, ThemeController } from '../../core/theming';
@@ -418,6 +418,30 @@ describe('appearancePanel & initSiteTheme', () => {
 
     // The click-effects copy promises calm, interactive-only feedback.
     expect(screen.getByText(/Selecting text stays quiet/)).toBeTruthy();
+
+    // Dragging a Studio slider live-previews immediately without writing mid-drag (even if paused >250ms),
+    // commits once when released anywhere on the window (even outside the slider hitbox), and ignores trailing blur.
+    const setSpy = vi.spyOn(saved, 'set');
+    controller.previewMock.mockClear();
+    const speedSlider = screen.getByRole<HTMLInputElement>('slider', { name: 'Motion speed' });
+    fireEvent.pointerDown(speedSlider);
+    fireEvent.input(speedSlider, { target: { value: '1.4' } });
+    fireEvent.input(speedSlider, { target: { value: '1.65' } });
+    expect(controller.previewMock).toHaveBeenCalledTimes(2);
+    await new Promise((resolve) => setTimeout(resolve, 290));
+    expect(setSpy).not.toHaveBeenCalled();
+
+    globalThis.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    fireEvent.blur(speedSlider);
+    await vi.waitFor(() => expect(saved.get().effects?.speed).toBe(1.65));
+    expect(setSpy).toHaveBeenCalledTimes(1);
+
+    // Non-pointer (keyboard) input commits automatically after the 250ms fallback debounce.
+    fireEvent.input(speedSlider, { target: { value: '1.25' } });
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(saved.get().effects?.speed).toBe(1.25));
+    expect(setSpy).toHaveBeenCalledTimes(2);
+    setSpy.mockRestore();
   });
 
   it('embeds External stylesheet inside the Custom CSS disclosure at the bottom of Appearance instead of a top-level card', async () => {

@@ -32,9 +32,11 @@ export {
   STUDIO_VIBES,
   SURFACE_FINISH_IDS,
   SURFACE_FINISH_OPTIONS,
+  THEME_EFFECT_BOUNDS,
 } from './model';
 export {
   BACKDROP_OWN_VALUE,
+  BACKDROP_SELECTOR,
   CLICK_FX_OWN_VALUE,
   compileBackdropRevealCss,
   compileSurfaceFinishCss,
