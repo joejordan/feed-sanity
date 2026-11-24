@@ -407,13 +407,31 @@ describe('x_video_speed feature', () => {
     fireEvent.click(applyBtn);
 
     expect(video.playbackRate).toBeCloseTo(1.42, 2);
-    expect(escKeys).toContain('Escape');
+    // Dispatches exactly one Escape event (never double-Escape closing an enclosing lightbox).
+    expect(escKeys.filter((k) => k === 'Escape')).toHaveLength(1);
     await vi.waitFor(async () => {
       expect(await store.get(`v2/x/777/${X_VIDEO_SPEED_KEY}`)).toEqual({
         rate: 1.42,
         custom: true,
       });
     });
+
+    // Invalid draft shows alert & disables Set; clearing draft falls back to active rate cleanly.
+    fireEvent.input(input, { target: { value: 'abc' } });
+    expect(applyBtn.disabled).toBe(true);
+    expect(shadow.querySelector('[role="alert"]')?.textContent).toContain('Enter a number');
+    fireEvent.input(input, { target: { value: '' } });
+    expect(applyBtn.disabled).toBe(false);
+    fireEvent.click(applyBtn);
+    expect(escKeys.filter((k) => k === 'Escape')).toHaveLength(2);
+
+    // Non-primary pointerdown (right-click) on a native speed option does NOT commit that speed,
+    // and a spurious host `1x` reset while menu is open is rejected back to 1.42x.
+    row125.dispatchEvent(new PointerEvent('pointerdown', { button: 2, bubbles: true }));
+    expect(video.playbackRate).toBeCloseTo(1.42, 2);
+    video.playbackRate = 1;
+    video.dispatchEvent(new Event('ratechange'));
+    expect(video.playbackRate).toBeCloseTo(1.42, 2);
 
     // Returning to parent gear popover (roleless div rows with "· 1.75x", separate "·" span,
     // or single inline text node) replaces X's native speed with our saved 1.42x cleanly.

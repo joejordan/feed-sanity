@@ -3,7 +3,7 @@ import { intercept } from '../../core/intercept';
 import { defineFeature } from '../../facebook/feature';
 import { STORY_ID, VIDEO_CONTROL, VIDEO_POST } from '../../facebook/selectors';
 import { storyCardOf, storyMenuOpen, storyPauseButton } from '../../facebook/stories';
-import { hasControlAt, pointIn } from '../video-layout';
+import { hasControlAt, isVideoInFullscreen, pointIn } from '../video-layout';
 import { PauseHolds } from './hold';
 
 /**
@@ -176,11 +176,7 @@ export default defineFeature({
         return undefined;
       }
       // Leave native fullscreen controls and scrubbers untouched.
-      const fs = document.fullscreenElement;
-      if (
-        fs &&
-        (fs === video.element || fs.contains(video.element) || video.element.contains(fs))
-      ) {
+      if (isVideoInFullscreen(video.element)) {
         return undefined;
       }
       const picture = video.element.getBoundingClientRect();

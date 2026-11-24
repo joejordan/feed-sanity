@@ -14,8 +14,8 @@ import type { Scope } from '../scope';
 import type { ThemePalette } from '../theming';
 import type { RgbaColor } from './color';
 import { parentAcrossShadows } from '../dom';
-import { addStyleAcrossRoots, OWN_ATTR } from '../surface';
-import { THEME_LAYER_ORDER } from '../theming/types';
+import { addStyleAcrossRoots, isOwnUiElement, OWN_ATTR, OWN_UI_TAG } from '../surface';
+import { withThemeLayerOrder, wrapThemeLayer } from '../theming/types';
 import {
   compositeOver,
   isNeutralColor,
@@ -29,7 +29,9 @@ export const HEAL_BG_ATTR = 'data-fs-heal-bg';
 export const HEAL_FG_ATTR = 'data-fs-heal-fg';
 export const HEAL_BORDER_ATTR = 'data-fs-heal-border';
 export const HEALER_STYLE_ID = 'feed_sanity_healer_theme';
-export const OWN_UI_TAG = 'feed-sanity-ui';
+export { isOwnUiElement, OWN_UI_TAG };
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** Non-visual and media lowercase tag names (`el.localName`) shared by healer and auditor. */
 export const NON_VISUAL_OR_MEDIA_TAGS: ReadonlySet<string> = new Set([
@@ -58,23 +60,7 @@ const HEAL_SKIP_TAGS = new Set([
   'source',
   'track',
   'hr',
-  // SVG subtrees (icons, heart-burst animations, spinners) never carry text/surface heals.
   'svg',
-  'path',
-  'g',
-  'circle',
-  'rect',
-  'line',
-  'polygon',
-  'polyline',
-  'ellipse',
-  'defs',
-  'clippath',
-  'use',
-  'mask',
-  'lineargradient',
-  'radialgradient',
-  'stop',
 ]);
 
 const INPUT_TAGS = new Set(['input', 'textarea', 'select']);
@@ -103,11 +89,6 @@ export interface ThemeHealer {
   /** Runs an immediate bounded healing pass across the current document + open Shadow Roots. */
   readonly healNow: () => number;
   readonly dispose: () => void;
-}
-
-/** True for Feed Sanity's own injected UI hosts and overlays. */
-export function isOwnUiElement(el: Element): boolean {
-  return el.localName === OWN_UI_TAG || el.hasAttribute(OWN_ATTR);
 }
 
 /** True when computed CSS hides `el` from visual rendering. */
@@ -205,19 +186,23 @@ const DARK_RGBA: RgbaColor = { r: 17, g: 17, b: 17, a: 1 };
 function buildHealerCss(palette: ThemePalette): string {
   // Single clean attribute selectors inside `@layer fs-healer` strictly outrank
   // `fs-finish`, `fs-reveal`, `fs-mapping`, and `fs-adaptive` without specificity hacks.
-  return `${THEME_LAYER_ORDER}
-@layer fs-healer {
-[${HEAL_BG_ATTR}="surface"] { background-color: ${palette.surface} !important; }
-[${HEAL_BG_ATTR}="surface-alt"] { background-color: ${palette.surfaceAlt} !important; }
-[${HEAL_FG_ATTR}="text"] { color: ${palette.text} !important; }
-[${HEAL_FG_ATTR}="muted"] { color: ${palette.textMuted} !important; }
-[${HEAL_FG_ATTR}="contrast-light"] { color: #ffffff !important; }
-[${HEAL_FG_ATTR}="contrast-dark"] { color: #111111 !important; }
-[${HEAL_BORDER_ATTR}="1"] { border-color: ${palette.border} !important; }
-}`;
+  return withThemeLayerOrder([
+    wrapThemeLayer(
+      'fs-healer',
+      [
+        `[${HEAL_BG_ATTR}="surface"] { background-color: ${palette.surface} !important; }`,
+        `[${HEAL_BG_ATTR}="surface-alt"] { background-color: ${palette.surfaceAlt} !important; }`,
+        `[${HEAL_FG_ATTR}="text"] { color: ${palette.text} !important; }`,
+        `[${HEAL_FG_ATTR}="muted"] { color: ${palette.textMuted} !important; }`,
+        `[${HEAL_FG_ATTR}="contrast-light"] { color: #ffffff !important; }`,
+        `[${HEAL_FG_ATTR}="contrast-dark"] { color: #111111 !important; }`,
+        `[${HEAL_BORDER_ATTR}="1"] { border-color: ${palette.border} !important; }`,
+      ].join('\n'),
+    ),
+  ]);
 }
 
-function samePalette(a: ThemePalette | null, b: ThemePalette | null): boolean {
+export function samePalette(a: ThemePalette | null, b: ThemePalette | null): boolean {
   if (a === b) {
     return true;
   }
@@ -289,7 +274,7 @@ export function createThemeHealer(
   };
 
   const isSelfExcluded = (el: Element): boolean => {
-    if (HEAL_SKIP_TAGS.has(el.localName) || isOwnUiElement(el)) {
+    if (el.namespaceURI === SVG_NS || HEAL_SKIP_TAGS.has(el.localName) || isOwnUiElement(el)) {
       return true;
     }
     if (mediaSelector) {
@@ -581,21 +566,24 @@ export function createThemeHealer(
     scheduledHandle = { kind: 'timeout', id: Number(setTimeout(() => flushSlice(), 16)) };
   };
 
-  scope.add(
-    env.watcher.watchTree({
-      added: (el) => {
-        if (!activePalette || isEntryExcluded(el) || pendingQueue.size >= MAX_PENDING_QUEUE) {
-          return;
-        }
-        if (el.childElementCount > 0 || el.shadowRoot) {
-          enqueueSubtree(el, 80);
-        } else {
-          pendingQueue.add(el);
-          scheduleFlush();
-        }
-      },
-    }),
-  );
+  const enqueueAddedElement = (el: Element): void => {
+    if (
+      !activePalette ||
+      disposed ||
+      pendingQueue.size >= MAX_PENDING_QUEUE ||
+      isEntryExcluded(el)
+    ) {
+      return;
+    }
+    if (el.childElementCount > 0 || el.shadowRoot) {
+      enqueueSubtree(el, 80);
+    } else {
+      pendingQueue.add(el);
+      scheduleFlush();
+    }
+  };
+
+  scope.add(env.watcher.watchTree({ added: enqueueAddedElement }));
 
   scope.add(
     env.onShadowRoot((shadow, rootScope) => {
@@ -611,24 +599,11 @@ export function createThemeHealer(
       if (!shadowWatcher) {
         return;
       }
-      const stopShadowWatch = shadowWatcher.watchTree({
-        added: (el) => {
-          if (!activePalette || disposed || pendingQueue.size >= MAX_PENDING_QUEUE) {
-            return;
-          }
-          if (isEntryExcluded(el)) {
-            return;
-          }
-          if (el.childElementCount > 0 || el.shadowRoot) {
-            enqueueSubtree(el, 80);
-          } else {
-            pendingQueue.add(el);
-            scheduleFlush();
-          }
-        },
-      });
-      rootScope.add(stopShadowWatch);
-      scope.add(stopShadowWatch);
+      const stopShadowWatch = shadowWatcher.watchTree({ added: enqueueAddedElement });
+      // Chain disposers so disconnecting a ShadowRoot immediately removes its cleanup
+      // from `scope` without retaining the ShadowRoot closure until full healer dispose.
+      const unbindScope = scope.add(stopShadowWatch);
+      rootScope.add(unbindScope);
     }),
   );
 

@@ -16,9 +16,9 @@
 //    unquoted braces, and isolates `::` pseudo-element rules.
 
 import type { ThemeColorScheme, ThemePalette } from '../theming';
-import type { OklchColor, PaintPropertyKind } from './color';
+import type { OklchColor, PaintPropertyKind, RgbaColor } from './color';
 import { OWN_ATTR } from '../surface';
-import { THEME_LAYER_ORDER } from '../theming/types';
+import { formatRootSelectors, withThemeLayerOrder, wrapThemeLayer } from '../theming/types';
 import {
   hexWithAlpha,
   isNeutralColor,
@@ -81,31 +81,43 @@ const PAINT_PROPERTY_MAP = new Map<string, PaintPropertyKind>(
 // falsely matching class names like `.canvas-shell` or `.video-feed`.
 const MEDIA_SELECTOR_HINT =
   /(?:^|[\s>+~(,])(?:video|img|picture|canvas|iframe)(?=$|[\s.#[:>+~),])/i;
-const ROOT_SELECTOR_HINT =
-  /(?:^|,)\s*(?::root|:host\b|html\b|body\b|\[data-theme\b|\.__fb-(?:dark|light)-mode\b|shreddit-app\b)/i;
 const PURE_ROOT_SELECTOR =
   /^(?::root|:host(?:\([^)]*\))?|html(?:\.[A-Za-z0-9_-]+|\[[^\]]+\])*|body(?:\.[A-Za-z0-9_-]+|\[[^\]]+\])*|\[data-theme(?:=[^\]]+)?\]|\.__fb-(?:dark|light)-mode)$/i;
 const HOST_PSEUDO_HINT = /:host(?:-context)?\b/i;
 const MAX_RULES_PER_ROOT = 4000;
+const FONT_EXCLUDE_CLAUSE = `:not(:where([${OWN_ATTR}], [${OWN_ATTR}] *, code, pre, kbd, samp, svg *))`;
 
-interface RawStyleEntry {
-  readonly selector: string;
-  readonly paint: ReadonlyArray<{
-    readonly prop: string;
-    readonly kind: PaintPropertyKind;
-    readonly raw: string;
-  }>;
+interface ParsedPaintDecl {
+  readonly prop: string;
+  readonly kind: PaintPropertyKind;
+  readonly color: RgbaColor;
+  readonly oklch: OklchColor;
+}
+
+interface ParsedRootVar {
+  readonly name: string;
+  readonly color: RgbaColor;
+  readonly oklch: OklchColor;
+  /** Optional polarity scope when declared exclusively on a dark/dim or light root selector. */
+  readonly scheme?: ThemeColorScheme;
+}
+
+interface ParsedStyleEntry {
+  readonly groupableRaw: readonly string[];
+  readonly isolated: readonly string[];
+  readonly paint: readonly ParsedPaintDecl[];
   readonly hasNonIconFont: boolean;
 }
 
 interface RawSheetExtraction {
   readonly ruleCount: number;
-  readonly rootVars: ReadonlyArray<{
-    readonly selector: string;
-    readonly name: string;
-    readonly value: string;
-  }>;
-  readonly entries: readonly RawStyleEntry[];
+  readonly inspectedCount: number;
+  readonly firstRule: CSSRule | undefined;
+  readonly lastRule: CSSRule | undefined;
+  readonly rootSelectorsKey: string;
+  readonly mediaConds: ReadonlyArray<readonly [string, boolean]>;
+  readonly rootVars: readonly ParsedRootVar[];
+  readonly entries: readonly ParsedStyleEntry[];
 }
 
 /** Per-stylesheet parsed extraction cache so lazy-loading one `<style>` never re-parses existing sheets. */
@@ -243,19 +255,12 @@ export function splitSelectorList(selector: string): string[] {
 
 function classifyCustomProperty(
   name: string,
-  rawValue: string,
+  color: RgbaColor,
+  oklch: OklchColor,
   hostScheme: ThemeColorScheme,
   palette: ThemePalette,
   brandOklch: readonly OklchColor[],
 ): string | null {
-  if (!SAFE_CUSTOM_PROP.test(name) || VAR_SKIP_HINT.test(name)) {
-    return null;
-  }
-  const color = parseCssColor(rawValue);
-  if (!color || color.a <= 0.005) {
-    return null;
-  }
-  const oklch = rgbToOklch(color);
   if (matchesBrandHue(color, brandOklch, oklch)) {
     return color.a < 0.99 ? hexWithAlpha(palette.accent, color.a) : palette.accent;
   }
@@ -293,13 +298,13 @@ function shouldSkipSelector(selector: string): boolean {
   );
 }
 
-interface GuardedSelectors {
-  readonly groupable: string[];
-  readonly isolated: string[];
+interface PartitionedSelectors {
+  readonly groupableRaw: readonly string[];
+  readonly isolated: readonly string[];
 }
 
-function guardSelector(selector: string, excludeClause: string): GuardedSelectors {
-  const groupable: string[] = [];
+function partitionSelectors(selector: string): PartitionedSelectors {
+  const groupableRaw: string[] = [];
   const isolated: string[] = [];
   for (const clean of splitSelectorList(selector)) {
     if (shouldSkipSelector(clean)) {
@@ -308,36 +313,25 @@ function guardSelector(selector: string, excludeClause: string): GuardedSelector
     // Keep pseudo-elements (`::before`, `::-moz-placeholder`, etc.) in isolated single
     // rules so an unsupported cross-browser vendor pseudo-element never invalidates a
     // grouped rule bucket, and never wrap `:host` in compound `:not(...)` clauses.
-    if (clean.includes('::')) {
-      isolated.push(clean);
-      continue;
-    }
-    if (HOST_PSEUDO_HINT.test(clean)) {
+    if (clean.includes('::') || HOST_PSEUDO_HINT.test(clean)) {
       isolated.push(clean);
       continue;
     }
     // Inside `@layer fs-adaptive`, Layer 1 already sits strictly below `fs-mapping`,
     // `fs-reveal`, `fs-finish`, `fs-healer`, and `fs-user` — no `:where(...)` wrapping
     // needed, preserving Blink/Gecko O(1) class/attribute RuleSet bucketing!
-    groupable.push(excludeClause ? `${clean}${excludeClause}` : clean);
+    groupableRaw.push(clean);
   }
-  return { groupable, isolated };
+  return { groupableRaw, isolated };
 }
 
 function mapPaintProperty(
-  prop: string,
-  kind: PaintPropertyKind,
-  raw: string,
+  { prop, kind, color, oklch }: ParsedPaintDecl,
   hostScheme: ThemeColorScheme,
   palette: ThemePalette,
   brandOklch: readonly OklchColor[],
   backdropActive: boolean,
 ): string | null {
-  const color = parseCssColor(raw);
-  if (!color || color.a <= 0.005) {
-    return null;
-  }
-  const oklch = rgbToOklch(color);
   let mapped: string | null = null;
   if (matchesBrandHue(color, brandOklch, oklch)) {
     mapped = color.a < 0.99 ? hexWithAlpha(palette.accent, color.a) : palette.accent;
@@ -358,111 +352,201 @@ function mapPaintProperty(
   return mapped ? `${prop}: ${mapped} !important;` : null;
 }
 
-function extractRawPaint(style: CSSStyleDeclaration): ReadonlyArray<{
-  readonly prop: string;
-  readonly kind: PaintPropertyKind;
-  readonly raw: string;
-}> {
-  const out: Array<{
-    readonly prop: string;
-    readonly kind: PaintPropertyKind;
-    readonly raw: string;
-  }> = [];
+function extractParsedPaintAndFont(
+  style: CSSStyleDeclaration,
+  selector: string,
+): { readonly paint: ParsedPaintDecl[]; readonly hasNonIconFont: boolean } {
+  const paint: ParsedPaintDecl[] = [];
+  let rawFont = '';
+  const pushPaint = (prop: string, kind: PaintPropertyKind): void => {
+    const raw = style.getPropertyValue(prop);
+    if (!raw) {
+      return;
+    }
+    const color = parseCssColor(raw);
+    if (color && color.a > 0.005) {
+      paint.push({ prop, kind, color, oklch: rgbToOklch(color) });
+    }
+  };
   if (style.length > 0 && style.length <= 4) {
-    for (const prop of Array.from(style)) {
-      const kind = PAINT_PROPERTY_MAP.get(prop);
-      if (!kind) {
+    for (let i = 0; i < style.length; i++) {
+      const prop = style.item(i);
+      if (prop === 'font-family') {
+        rawFont = style.getPropertyValue(prop).trim();
         continue;
       }
-      const raw = style.getPropertyValue(prop);
-      if (raw) {
-        out.push({ prop, kind, raw });
+      const kind = PAINT_PROPERTY_MAP.get(prop);
+      if (kind) {
+        pushPaint(prop, kind);
       }
     }
-    return out;
-  }
-  for (const { prop, kind } of PAINT_PROPERTIES) {
-    const raw = style.getPropertyValue(prop);
-    if (raw) {
-      out.push({ prop, kind, raw });
+  } else {
+    for (const { prop, kind } of PAINT_PROPERTIES) {
+      pushPaint(prop, kind);
     }
+    rawFont = style.getPropertyValue('font-family').trim();
   }
-  return out;
+  const hasNonIconFont =
+    rawFont.length > 0 && !ICON_OR_MONO_FONT_RE.test(rawFont) && !/\bicon\b/i.test(selector);
+  return { paint, hasNonIconFont };
 }
 
-function isRootVarSelector(
-  selector: string,
-  rootSelectors: readonly string[] | undefined,
-): boolean {
-  if (ROOT_SELECTOR_HINT.test(selector)) {
-    return true;
-  }
+function normalizeExtraRootSelectors(rootSelectors: readonly string[] | undefined): string[] {
   if (!rootSelectors || rootSelectors.length === 0) {
-    return false;
+    return [];
   }
-  for (const rootSel of rootSelectors) {
-    const trimmed = rootSel.trim();
-    if (trimmed && trimmed !== ':root' && selector.includes(trimmed)) {
-      return true;
+  const extra: string[] = [];
+  for (const sel of rootSelectors) {
+    const trimmed = sel.trim();
+    if (trimmed && trimmed !== ':root') {
+      extra.push(trimmed);
     }
   }
-  return false;
+  return extra;
+}
+
+const DARK_ROOT_TOKEN_RE = /(?:dark|dim)/i;
+const LIGHT_ROOT_TOKEN_RE = /light/i;
+
+/**
+ * Checks whether `selector` targets a pure document/theme root (never a descendant
+ * component selector like `.__fb-dark-mode .story-overlay`) and infers whether it is
+ * scoped exclusively to `'dark'`, `'light'`, or `'any'` polarity.
+ */
+function classifyRootVarSelector(
+  selector: string,
+  extraRootSelectors: ReadonlySet<string>,
+): { readonly isRoot: boolean; readonly scheme?: ThemeColorScheme } {
+  let hasMatch = false;
+  let hasDark = false;
+  let hasLight = false;
+  let hasNeutral = false;
+  for (const part of splitSelectorList(selector)) {
+    const clean = part.trim();
+    if (!clean) {
+      continue;
+    }
+    if (!PURE_ROOT_SELECTOR.test(clean) && !extraRootSelectors.has(clean)) {
+      continue;
+    }
+    hasMatch = true;
+    const dark = DARK_ROOT_TOKEN_RE.test(clean);
+    const light = LIGHT_ROOT_TOKEN_RE.test(clean);
+    if (dark && !light) {
+      hasDark = true;
+    } else if (light && !dark) {
+      hasLight = true;
+    } else {
+      hasNeutral = true;
+    }
+  }
+  if (!hasMatch) {
+    return { isRoot: false };
+  }
+  if (hasNeutral || (hasDark && hasLight)) {
+    return { isRoot: true };
+  }
+  return hasDark ? { isRoot: true, scheme: 'dark' } : { isRoot: true, scheme: 'light' };
+}
+
+function lastRuleOf(rules: CSSRuleList): CSSRule | undefined {
+  const lastIndex = rules.length - 1;
+  return lastIndex >= 0 ? rules[lastIndex] : undefined;
+}
+
+function isCacheValid(
+  cached: RawSheetExtraction,
+  rules: CSSRuleList,
+  rootSelectorsKey: string,
+  matchesMedia: (cond: string) => boolean,
+): boolean {
+  if (
+    cached.ruleCount !== rules.length ||
+    cached.rootSelectorsKey !== rootSelectorsKey ||
+    cached.firstRule !== rules[0] ||
+    cached.lastRule !== lastRuleOf(rules)
+  ) {
+    return false;
+  }
+  for (const [cond, wasMatch] of cached.mediaConds) {
+    if (matchesMedia(cond) !== wasMatch) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function extractSheet(
   sheet: CSSStyleSheet,
   rules: CSSRuleList,
   matchesMedia: (cond: string) => boolean,
-  rootSelectors: readonly string[] | undefined,
+  extraRootSelectors: ReadonlySet<string>,
+  rootSelectorsKey: string,
 ): RawSheetExtraction {
   const cached = sheetCache.get(sheet);
-  if (cached && cached.ruleCount === rules.length) {
+  if (cached && isCacheValid(cached, rules, rootSelectorsKey, matchesMedia)) {
     return cached;
   }
-  const rootVars: Array<{
-    readonly selector: string;
-    readonly name: string;
-    readonly value: string;
-  }> = [];
-  const entries: RawStyleEntry[] = [];
-  let inspected = 0;
+  const rootVars: ParsedRootVar[] = [];
+  const entries: ParsedStyleEntry[] = [];
+  const mediaConds: Array<readonly [string, boolean]> = [];
+  let inspectedCount = 0;
 
   const walk = (list: CSSRuleList): void => {
-    for (const rule of Array.from(list)) {
-      if (inspected >= MAX_RULES_PER_ROOT) {
+    for (const rule of list) {
+      if (inspectedCount >= MAX_RULES_PER_ROOT) {
         return;
       }
       if (rule.type === 1) {
-        inspected++;
+        inspectedCount++;
         const styleRule = rule as CSSStyleRule;
         const selector = styleRule.selectorText;
         if (!selector) {
           continue;
         }
         const style = styleRule.style;
-        if (isRootVarSelector(selector, rootSelectors)) {
-          for (const propName of Array.from(style)) {
-            if (!propName.startsWith('--')) {
+        const rootMatch = classifyRootVarSelector(selector, extraRootSelectors);
+        if (rootMatch.isRoot) {
+          for (let j = 0; j < style.length; j++) {
+            const propName = style.item(j);
+            if (
+              !propName.startsWith('--') ||
+              !SAFE_CUSTOM_PROP.test(propName) ||
+              VAR_SKIP_HINT.test(propName)
+            ) {
               continue;
             }
             const rawVal = style.getPropertyValue(propName).trim();
-            if (rawVal) {
-              rootVars.push({ selector, name: propName, value: rawVal });
+            if (!rawVal) {
+              continue;
+            }
+            const color = parseCssColor(rawVal);
+            if (color && color.a > 0.005) {
+              rootVars.push({
+                name: propName,
+                color,
+                oklch: rgbToOklch(color),
+                ...(rootMatch.scheme ? { scheme: rootMatch.scheme } : {}),
+              });
             }
           }
         }
-        const paint = extractRawPaint(style);
-        const rawFont = style.getPropertyValue('font-family').trim();
-        const hasNonIconFont =
-          rawFont.length > 0 && !ICON_OR_MONO_FONT_RE.test(rawFont) && !/\bicon\b/i.test(selector);
+        const { paint, hasNonIconFont } = extractParsedPaintAndFont(style, selector);
         if (paint.length > 0 || hasNonIconFont) {
-          entries.push({ selector, paint, hasNonIconFont });
+          const { groupableRaw, isolated } = partitionSelectors(selector);
+          if (groupableRaw.length > 0 || isolated.length > 0) {
+            entries.push({ groupableRaw, isolated, paint, hasNonIconFont });
+          }
         }
       } else if ('cssRules' in rule) {
         if (rule.type === 4) {
           const mediaRule = rule as CSSMediaRule;
           const cond = mediaRule.conditionText ?? mediaRule.media?.mediaText ?? '';
-          if (!matchesMedia(cond)) {
+          const matched = matchesMedia(cond);
+          if (cond) {
+            mediaConds.push([cond, matched]);
+          }
+          if (!matched) {
             continue;
           }
         }
@@ -476,7 +560,16 @@ function extractSheet(
   };
 
   walk(rules);
-  const extracted: RawSheetExtraction = { ruleCount: rules.length, rootVars, entries };
+  const extracted: RawSheetExtraction = {
+    ruleCount: rules.length,
+    inspectedCount,
+    firstRule: rules[0],
+    lastRule: lastRuleOf(rules),
+    rootSelectorsKey,
+    mediaConds,
+    rootVars,
+    entries,
+  };
   sheetCache.set(sheet, extracted);
   return extracted;
 }
@@ -501,6 +594,9 @@ export function compileAdaptiveRootCss(
   const mediaMatchesCache = new Map<string, boolean>();
   const skipIds = options.skipStyleIds;
   const backdropActive = options.backdropActive === true;
+  const extraRootList = normalizeExtraRootSelectors(options.rootSelectors);
+  const extraRootSelectors = new Set(extraRootList);
+  const rootSelectorsKey = extraRootList.join('\0');
   const brandOklch = (options.brandColors ?? [])
     .map((hex) => parseCssColor(hex))
     .filter((c): c is NonNullable<typeof c> => c !== null)
@@ -538,7 +634,44 @@ export function compileAdaptiveRootCss(
     return result;
   };
 
-  for (const sheet of collectStyleSheets(root, options.skipStyleIds)) {
+  const recordPaintEntry = (entry: ParsedStyleEntry, activePalette: ThemePalette): void => {
+    const decls: string[] = [];
+    for (const paintDecl of entry.paint) {
+      const mapped = mapPaintProperty(
+        paintDecl,
+        options.hostScheme,
+        activePalette,
+        brandOklch,
+        backdropActive,
+      );
+      if (mapped) {
+        decls.push(mapped);
+      }
+    }
+    if (decls.length === 0) {
+      return;
+    }
+    const block = decls.join(' ');
+    if (entry.groupableRaw.length > 0) {
+      let set = declToSelectors.get(block);
+      if (!set) {
+        set = new Set();
+        declToSelectors.set(block, set);
+      }
+      for (const sel of entry.groupableRaw) {
+        set.add(`${sel}${excludeClause}`);
+      }
+    }
+    for (const sel of entry.isolated) {
+      isolatedRules.add(`${sel} { ${block} }`);
+    }
+  };
+
+  let totalInspected = 0;
+  for (const sheet of collectStyleSheets(root, skipIds)) {
+    if (totalInspected >= MAX_RULES_PER_ROOT) {
+      break;
+    }
     if (isOwnStyleSheet(sheet, skipIds)) {
       continue;
     }
@@ -549,12 +682,23 @@ export function compileAdaptiveRootCss(
       // Cross-origin stylesheet: handled in real time by Layer 2 (`ThemeHealer`).
       continue;
     }
-    const extracted = extractSheet(sheet, rules, matchesMedia, options.rootSelectors);
+    const extracted = extractSheet(
+      sheet,
+      rules,
+      matchesMedia,
+      extraRootSelectors,
+      rootSelectorsKey,
+    );
+    totalInspected += extracted.inspectedCount;
     if (palette) {
-      for (const { name, value } of extracted.rootVars) {
+      for (const { name, color, oklch, scheme } of extracted.rootVars) {
+        if (scheme && scheme !== options.hostScheme) {
+          continue;
+        }
         const mappedVar = classifyCustomProperty(
           name,
-          value,
+          color,
+          oklch,
           options.hostScheme,
           palette,
           brandOklch,
@@ -566,46 +710,11 @@ export function compileAdaptiveRootCss(
     }
     for (const entry of extracted.entries) {
       if (palette && entry.paint.length > 0) {
-        const decls: string[] = [];
-        for (const { prop, kind, raw } of entry.paint) {
-          const mapped = mapPaintProperty(
-            prop,
-            kind,
-            raw,
-            options.hostScheme,
-            palette,
-            brandOklch,
-            backdropActive,
-          );
-          if (mapped) {
-            decls.push(mapped);
-          }
-        }
-        if (decls.length > 0) {
-          const { groupable, isolated } = guardSelector(entry.selector, excludeClause);
-          const block = decls.join(' ');
-          if (groupable.length > 0) {
-            let set = declToSelectors.get(block);
-            if (!set) {
-              set = new Set();
-              declToSelectors.set(block, set);
-            }
-            for (const sel of groupable) {
-              set.add(sel);
-            }
-          }
-          for (const sel of isolated) {
-            isolatedRules.add(`${sel} { ${block} }`);
-          }
-        }
+        recordPaintEntry(entry, palette);
       }
       if (fontFamily && entry.hasNonIconFont) {
-        const { groupable } = guardSelector(
-          entry.selector,
-          `:not(:where([${OWN_ATTR}], [${OWN_ATTR}] *, code, pre, kbd, samp, svg *))`,
-        );
-        for (const sel of groupable) {
-          fontSelectors.add(sel);
+        for (const sel of entry.groupableRaw) {
+          fontSelectors.add(`${sel}${FONT_EXCLUDE_CLAUSE}`);
         }
       }
     }
@@ -613,20 +722,10 @@ export function compileAdaptiveRootCss(
 
   const chunks: string[] = [];
   if (discoveredVars.size > 0) {
-    let varTarget: string;
-    if (isShadow) {
-      const shadowRoots = (options.rootSelectors ?? [':root']).map((sel) =>
-        sel.trim() === ':root' ? ':host' : sel,
-      );
-      if (!shadowRoots.includes(':host')) {
-        shadowRoots.unshift(':host');
-      }
-      varTarget = shadowRoots.join(', ');
-    } else if (options.rootSelectors && options.rootSelectors.length > 0) {
-      varTarget = options.rootSelectors.join(', ');
-    } else {
-      varTarget = ':root, [data-theme]';
-    }
+    const varTarget = formatRootSelectors(options.rootSelectors, {
+      shadow: isShadow,
+      fallback: ':root, [data-theme]',
+    });
     const lines = [...discoveredVars.entries()].map(([k, v]) => `  ${k}: ${v} !important;`);
     chunks.push(`${varTarget} {\n${lines.join('\n')}\n}`);
   }
@@ -642,5 +741,5 @@ export function compileAdaptiveRootCss(
   if (chunks.length === 0) {
     return '';
   }
-  return `${THEME_LAYER_ORDER}\n@layer fs-adaptive {\n${chunks.join('\n')}\n}`;
+  return withThemeLayerOrder([wrapThemeLayer('fs-adaptive', chunks.join('\n'))]);
 }

@@ -11,6 +11,53 @@ import type { ThemeEffectsConfig } from '../theme-effects/model';
 export const THEME_LAYER_ORDER =
   '@layer fs-user, fs-reveal-shell, fs-healer, fs-finish, fs-reveal, fs-mapping, fs-adaptive;';
 
+export type ThemeLayerName =
+  | 'fs-user'
+  | 'fs-reveal-shell'
+  | 'fs-healer'
+  | 'fs-finish'
+  | 'fs-reveal'
+  | 'fs-mapping'
+  | 'fs-adaptive';
+
+/** Wraps non-empty CSS rules in a named Feed Sanity cascade layer. */
+export function wrapThemeLayer(layer: ThemeLayerName, body: string): string {
+  const trimmed = body.trim();
+  return trimmed ? `@layer ${layer} {\n${trimmed}\n}` : '';
+}
+
+/** Prefixes non-empty layered CSS blocks with `THEME_LAYER_ORDER`. */
+export function withThemeLayerOrder(blocks: readonly string[]): string {
+  const nonEmpty = blocks.filter((b) => b.length > 0);
+  if (nonEmpty.length === 0) {
+    return '';
+  }
+  return `${THEME_LAYER_ORDER}\n\n${nonEmpty.join('\n\n')}`;
+}
+
+/**
+ * Formats site `rootSelectors` for either the light document or an open ShadowRoot
+ * (mapping `:root` -> `:host` and ensuring `:host` is present per CSS Scoping Level 1).
+ */
+export function formatRootSelectors(
+  rootSelectors: readonly string[] | undefined,
+  {
+    shadow = false,
+    fallback = ':root',
+  }: { readonly shadow?: boolean; readonly fallback?: string } = {},
+): string {
+  if (shadow) {
+    const mapped = (rootSelectors && rootSelectors.length > 0 ? rootSelectors : [':root']).map(
+      (sel) => (sel.trim() === ':root' ? ':host' : sel),
+    );
+    if (!mapped.includes(':host')) {
+      mapped.unshift(':host');
+    }
+    return mapped.join(', ');
+  }
+  return rootSelectors && rootSelectors.length > 0 ? rootSelectors.join(', ') : fallback;
+}
+
 /**
  * Text-entry `<input>` selector that deliberately excludes checkboxes, radios,
  * range sliders, switches, and buttons so painting input backgrounds never

@@ -2,12 +2,19 @@ import type { DomEnvironment } from './dom-env';
 import type { PageWatcher } from './page-watcher';
 import type { Scope } from './scope';
 import { addStyle, isShadowRoot } from './dom';
-import { pageWatcher } from './page-watcher';
+import { OWN_ATTR, pageWatcher } from './page-watcher';
 
 /** Attribute marking one of Facebook's elements that a feature is temporarily hiding. */
 export const HIDDEN_ATTR = 'data-feed-sanity-hidden';
-/** Attribute marking an element this project inserted into Facebook's DOM. */
-export const OWN_ATTR = 'data-feed-sanity';
+/** Attribute marking an element this project inserted into the host DOM. */
+export { OWN_ATTR };
+/** Custom element tag hosting Feed Sanity's own Shadow DOM UI. */
+export const OWN_UI_TAG = 'feed-sanity-ui';
+
+/** True for Feed Sanity's own injected UI hosts and overlays. */
+export function isOwnUiElement(el: Element): boolean {
+  return el.localName === OWN_UI_TAG || el.hasAttribute(OWN_ATTR);
+}
 
 const SURFACE_STYLE_ID = 'feed_sanity_surface';
 const SURFACE_HIDE_CSS = `[${HIDDEN_ATTR}="none"] { display: none !important; }`;

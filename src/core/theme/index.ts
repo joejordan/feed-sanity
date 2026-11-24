@@ -24,7 +24,7 @@ export {
   rgbaLuminance,
   rgbToOklch,
 } from './color';
-export { compileAdaptiveRootCss } from './compiler';
+export { compileAdaptiveRootCss, splitSelectorList } from './compiler';
 export {
   createThemeHealer,
   HEAL_BG_ATTR,
@@ -38,4 +38,5 @@ export {
   NON_VISUAL_OR_MEDIA_TAGS,
   OWN_UI_TAG,
   resolveEffectiveBackground,
+  samePalette,
 } from './healer';

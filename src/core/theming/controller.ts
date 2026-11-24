@@ -11,6 +11,7 @@ import {
   detectHostColorScheme,
   HEALER_STYLE_ID,
   isOwnUiElement,
+  samePalette,
 } from '../theme';
 import { createEffectsLayerController } from '../theme-effects';
 import { compileHostThemeCss, compileShadowThemeCss, compileUiThemeCss } from './compile';
@@ -29,6 +30,8 @@ export interface ThemeController {
   clearPreview: () => void;
   /** Currently active effective theme (preview if active, else saved). */
   current: () => ResolvedTheme | null;
+  /** Returns the most recently compiled host-document theme CSS (for early-cache sync). */
+  compiledHostCss?: () => string;
   /** Runs the Theme Coverage & Layout-Integrity Auditor against the live page. */
   audit?: () => ThemeAuditReport | null;
   /** Triggers an immediate self-healing pass across visible light DOM + open Shadow Roots. */
@@ -229,26 +232,11 @@ export function createThemeController(
   let lastAdaptiveFont: string | undefined;
   let lastAdaptiveBackdrop = false;
 
-  const samePaletteColors = (a: ThemePalette | null, b: ThemePalette | null): boolean => {
-    if (a === b) {
-      return true;
-    }
-    if (!a || !b) {
-      return false;
-    }
-    return (
-      a.colorScheme === b.colorScheme &&
-      a.background === b.background &&
-      a.surface === b.surface &&
-      a.surfaceAlt === b.surfaceAlt &&
-      a.text === b.text &&
-      a.textMuted === b.textMuted &&
-      a.border === b.border &&
-      a.accent === b.accent &&
-      a.accentText === b.accentText &&
-      a.danger === b.danger
-    );
-  };
+  const hasAdaptiveTarget = (theme: ResolvedTheme | null): boolean =>
+    Boolean(theme?.palette || theme?.fontFamily);
+
+  const hasActiveBackdrop = (theme: ResolvedTheme | null): boolean =>
+    Boolean(theme?.effects && theme.effects.backdrop !== 'none');
 
   const syncAdaptiveForRoot = (
     root: Document | ShadowRoot,
@@ -259,13 +247,13 @@ export function createThemeController(
     }
     dirtyRoots.delete(root);
     const effective = effectiveTheme();
-    const palette = effective?.palette ?? null;
-    const fontFamily = effective?.fontFamily;
-    if (!palette && !fontFamily) {
+    if (!hasAdaptiveTarget(effective)) {
       syncNamedRoot(root, ADAPTIVE_STYLE_ID, adaptiveStyles, '');
       return;
     }
-    const backdropActive = Boolean(effective?.effects && effective.effects.backdrop !== 'none');
+    const palette = effective?.palette ?? null;
+    const fontFamily = effective?.fontFamily;
+    const backdropActive = hasActiveBackdrop(effective);
     const css = compileAdaptiveRootCss(root, palette, {
       hostScheme: resolvedHostScheme ?? getHostScheme(),
       rootSelectors: mapping.rootSelectors,
@@ -288,7 +276,7 @@ export function createThemeController(
 
   const scheduleAdaptiveRecompile = (root: Document | ShadowRoot): void => {
     const effective = effectiveTheme();
-    if (!adaptiveConfig || disposed || (!effective?.palette && !effective?.fontFamily)) {
+    if (!adaptiveConfig || disposed || !hasAdaptiveTarget(effective)) {
       return;
     }
     dirtyRoots.add(root);
@@ -298,8 +286,7 @@ export function createThemeController(
     // Debounce bursts of lazy-loaded stylesheet chunks during scroll/navigation.
     recompileTimer = setTimeout(() => {
       recompileTimer = undefined;
-      const latest = effectiveTheme();
-      if (disposed || (!latest?.palette && !latest?.fontFamily)) {
+      if (disposed || !hasAdaptiveTarget(effectiveTheme())) {
         dirtyRoots.clear();
         return;
       }
@@ -333,9 +320,9 @@ export function createThemeController(
     const effective = effectiveTheme();
     const nextPalette = effective?.palette ?? null;
     const nextFont = effective?.fontFamily;
-    const backdropActive = Boolean(effective?.effects && effective.effects.backdrop !== 'none');
+    const backdropActive = hasActiveBackdrop(effective);
     const adaptiveChanged =
-      !samePaletteColors(nextPalette, lastAdaptivePalette) ||
+      !samePalette(nextPalette, lastAdaptivePalette) ||
       nextFont !== lastAdaptiveFont ||
       backdropActive !== lastAdaptiveBackdrop;
     if (adaptiveChanged) {
@@ -346,7 +333,7 @@ export function createThemeController(
     }
     let resolvedScheme: ThemeColorScheme | undefined;
     if (adaptiveConfig) {
-      if (nextPalette) {
+      if (nextPalette || nextFont) {
         if (detectedHostScheme === undefined && env.doc.body) {
           detectedHostScheme = detectNativeHostScheme();
         }
@@ -357,7 +344,7 @@ export function createThemeController(
         detectedHostScheme = undefined;
       }
     }
-    const currentScheme = resolvedScheme ?? getHostScheme();
+    const currentScheme = resolvedScheme ?? (effective ? getHostScheme() : 'dark');
     hostCss = effective ? compileHostThemeCss(effective, mapping, currentScheme) : '';
     shadowCss = undefined;
     const uiCss = effective ? compileUiThemeCss(effective) : '';
@@ -517,6 +504,12 @@ export function createThemeController(
       render();
     },
     current: effectiveTheme,
+    compiledHostCss: () => {
+      if (previewTheme === undefined) {
+        return hostCss;
+      }
+      return savedTheme ? compileHostThemeCss(savedTheme, mapping, getHostScheme()) : '';
+    },
     audit() {
       if (disposed) {
         return null;

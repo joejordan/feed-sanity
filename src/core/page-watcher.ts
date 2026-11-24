@@ -5,7 +5,9 @@ import { createLogger } from './log';
 
 /** Elements that never hold page content worth reacting to. */
 const SKIPPED_TAGS = /^(?:SCRIPT|STYLE)$/i;
-const OWN_ATTR = 'data-feed-sanity';
+/** Attribute marking an element this project inserted into the host DOM. */
+export const OWN_ATTR = 'data-feed-sanity';
+const EMPTY_ELEMENTS: Element[] = [];
 
 const isElement = (node: Node): node is Element => node.nodeType === Node.ELEMENT_NODE;
 
@@ -97,15 +99,25 @@ class Batch {
   /** The top element of each subtree added in the batch that is still in the page, each once. */
   get added(): Element[] {
     if (!this.#added) {
-      const added = new Set<Element>();
+      let first: Element | undefined;
+      let added: Set<Element> | undefined;
       for (const record of this.childList) {
         for (const node of record.addedNodes) {
           if (isElement(node) && node.isConnected && !node.hasAttribute(OWN_ATTR)) {
-            added.add(node);
+            if (!first) {
+              first = node;
+            } else if (node !== first) {
+              added ??= new Set([first]);
+              added.add(node);
+            }
           }
         }
       }
-      this.#added = [...added];
+      if (added) {
+        this.#added = [...added];
+      } else {
+        this.#added = first ? [first] : EMPTY_ELEMENTS;
+      }
     }
     return this.#added;
   }
@@ -161,14 +173,18 @@ class TreeSubscriber implements Subscriber {
   deliver({ childList }: Batch): void {
     const { added, removed } = this.#changes;
     for (const record of childList) {
-      for (const node of record.addedNodes) {
-        if (added && this.active && isWatched(node) && !node.hasAttribute(OWN_ATTR)) {
-          callSafely(this.#log, added, node);
+      if (added && record.addedNodes.length > 0) {
+        for (const node of record.addedNodes) {
+          if (this.active && isWatched(node) && !node.hasAttribute(OWN_ATTR)) {
+            callSafely(this.#log, added, node);
+          }
         }
       }
-      for (const node of record.removedNodes) {
-        if (removed && this.active && isWatched(node)) {
-          callSafely(this.#log, removed, node);
+      if (removed && record.removedNodes.length > 0) {
+        for (const node of record.removedNodes) {
+          if (this.active && isWatched(node)) {
+            callSafely(this.#log, removed, node);
+          }
         }
       }
     }

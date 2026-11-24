@@ -218,7 +218,21 @@ describe('core/theme/healer', () => {
     expect(shellWrap.hasAttribute(HEAL_BG_ATTR)).toBe(false);
     expect(innerCard.getAttribute(HEAL_BG_ATTR)).toBe('surface');
 
+    // Turning the Studio backdrop back off allows shell wrappers to heal again cleanly.
+    healer.setBackdropActive(false);
+    healer.healNow();
+    expect(shellWrap.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+
+    // Disposing the healer stops reacting to subsequent mutations in connected open ShadowRoots.
+    const shadowHost = document.createElement('div');
+    const shadow = shadowHost.attachShadow({ mode: 'open' });
+    document.body.append(shadowHost);
     scope.dispose();
+    const afterDispose = document.createElement('div');
+    afterDispose.style.cssText = 'background-color: rgb(255, 255, 255); color: rgb(20, 20, 20);';
+    afterDispose.textContent = 'Post-dispose node';
+    shadow.append(afterDispose);
+    expect(afterDispose.hasAttribute(HEAL_BG_ATTR)).toBe(false);
     env.dispose();
   });
 });

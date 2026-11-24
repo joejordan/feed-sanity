@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/preact';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FakeMedia } from '../../facebook/testing';
 import type { StripPlace } from './layout';
 import { Listeners } from '../../core/listeners';
@@ -21,7 +21,9 @@ describe('Scrubber', () => {
     moved = new Listeners(createLogger('test'));
   });
 
-  afterEach(cleanup);
+  afterEach(() => {
+    act(() => cleanup());
+  });
 
   /** Marks an element as the feature's `hider` does. */
   const hide = (element: Element) => {
@@ -274,5 +276,43 @@ describe('Scrubber', () => {
     expect(screen.queryByRole('slider')).not.toBeNull();
     Reflect.deleteProperty(document, 'fullscreenElement');
     player.remove();
+  });
+
+  it('shares a single fullscreenchange listener across scrubbers and cleans it up when the last unmounts', () => {
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
+    const { video: video2 } = fakeVideo({ duration: 30 });
+    const staticPlace = { get: () => AT_BOTTOM, subscribe: () => () => undefined };
+
+    const first = render(
+      <Scrubber video={video} place={staticPlace} hide={() => () => undefined} />,
+    );
+    const second = render(
+      <Scrubber video={video2} place={staticPlace} hide={() => () => undefined} />,
+    );
+
+    const fsAdds = () => addSpy.mock.calls.filter(([type]) => type === 'fullscreenchange').length;
+    const fsRemoves = () =>
+      removeSpy.mock.calls.filter(([type]) => type === 'fullscreenchange').length;
+    expect(fsAdds()).toBe(1);
+    expect(fsRemoves()).toBe(0);
+
+    // Unmounting one scrubber keeps the shared listener active for the remaining scrubber.
+    act(() => first.unmount());
+    expect(fsRemoves()).toBe(0);
+
+    // Unmounting the last scrubber detaches the document listener cleanly.
+    act(() => second.unmount());
+    expect(fsRemoves()).toBe(1);
+
+    // Mounting again re-subscribes cleanly.
+    const third = render(
+      <Scrubber video={video} place={staticPlace} hide={() => () => undefined} />,
+    );
+    expect(fsAdds()).toBe(2);
+    act(() => third.unmount());
+    expect(fsRemoves()).toBe(2);
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
   });
 });

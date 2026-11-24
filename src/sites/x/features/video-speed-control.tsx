@@ -66,7 +66,7 @@ export function CustomSpeedControl({ store, onConfirm }: CustomSpeedControlProps
   };
 
   const confirmAndClose = (): void => {
-    const finalRate = draft === null ? speed.rate : parseSpeedInput(draft);
+    const finalRate = draft === null || draft.trim() === '' ? speed.rate : parseSpeedInput(draft);
     if (finalRate === null) {
       return;
     }

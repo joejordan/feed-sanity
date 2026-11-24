@@ -2,13 +2,7 @@ import type { DomEnvironment } from '../../core/dom-env';
 import type { SavedData } from '../../core/saved';
 import type { SiteThemeMapping, ThemeController } from '../../core/theming';
 import type { OptionsPanel } from '../options-dialog/panel';
-import { detectHostColorScheme } from '../../core/theme';
-import {
-  compileHostThemeCss,
-  createThemeController,
-  resolveTheme,
-  writeEarlyThemeCss,
-} from '../../core/theming';
+import { createThemeController, resolveTheme, writeEarlyThemeCss } from '../../core/theming';
 import { setUserThemeCss } from '../mount';
 import { appearancePanel, readThemeConfig, THEME_DATA_KEY } from './appearance-panel';
 
@@ -48,11 +42,7 @@ export function initSiteTheme(
     if (!earlyCacheSiteId) {
       return;
     }
-    const hostScheme = effective?.palette?.colorScheme ?? detectHostColorScheme(env.doc);
-    writeEarlyThemeCss(
-      earlyCacheSiteId,
-      effective ? compileHostThemeCss(effective, mapping, hostScheme) : '',
-    );
+    writeEarlyThemeCss(earlyCacheSiteId, effective ? (controller.compiledHostCss?.() ?? '') : '');
   };
 
   const sync = (): void => {

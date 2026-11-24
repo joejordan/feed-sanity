@@ -112,7 +112,7 @@ interface DetectedSpeedMenu {
 
 interface SpeedMenuActivity {
   readonly isMenuOpen: () => boolean;
-  readonly recentlyInteracted: () => boolean;
+  readonly recentlyInteractedRate: () => number | null;
 }
 
 function extractVisibleText(root: Node): string {
@@ -201,6 +201,34 @@ function detectSpeedMenu(container: Element): DetectedSpeedMenu | null {
   );
 }
 
+const FALLBACK_TEXT_TAGS = new Set(['span', 'div', 'p', 'li', 'a']);
+const MAX_FALLBACK_MENU_NODES = 80;
+
+/** Collects up to `MAX_FALLBACK_MENU_NODES` candidate text elements, aborting early if exceeded. */
+function collectBoundedMenuNodes(container: Element): Element[] | null {
+  const matched: Element[] = [];
+  const stack: Element[] = [];
+  for (let c = container.lastElementChild; c; c = c.previousElementSibling) {
+    stack.push(c);
+  }
+  while (stack.length > 0) {
+    const el = stack.pop();
+    if (!el) {
+      continue;
+    }
+    if (FALLBACK_TEXT_TAGS.has(el.localName)) {
+      matched.push(el);
+      if (matched.length > MAX_FALLBACK_MENU_NODES) {
+        return null;
+      }
+    }
+    for (let c = el.lastElementChild; c; c = c.previousElementSibling) {
+      stack.push(c);
+    }
+  }
+  return matched;
+}
+
 function detectParentSpeedRows(container: Element): Element[] {
   const candidates: Array<{ el: Element }> = [];
   const seen = new Set<Element>();
@@ -218,40 +246,42 @@ function detectParentSpeedRows(container: Element): Element[] {
       addCandidate(el);
     }
   }
-  // Fallback for video settings popovers whose rows are plain clickable <div>s
-  // without ARIA menuitem/button roles or tabindex="0". Never scan tweet threads or
-  // large non-menu containers (video players, compose modals, Grok drawers).
   if (
-    candidates.length === 0 &&
-    container.childElementCount <= 16 &&
-    !container.querySelector(TWEET_ARTICLE_SELECTOR)
+    candidates.length > 0 ||
+    container.childElementCount > 16 ||
+    container.querySelector(TWEET_ARTICLE_SELECTOR)
   ) {
-    const allNodes = container.querySelectorAll('span, div, p, li, a');
-    if (allNodes.length <= 80) {
-      for (const el of allNodes) {
-        if (el.closest(`[${OWN_ATTR}]`) || el.childElementCount > 6) {
-          continue;
-        }
-        const text = extractVisibleText(el);
-        if (!PARENT_SPEED_LABEL_RE.test(text) && !PARENT_SPEED_ROW_RE.test(text)) {
-          continue;
-        }
-        let row: Element = el;
-        for (let depth = 0; depth < 3; depth++) {
-          const parent = row.parentElement;
-          if (
-            !parent ||
-            parent === container ||
-            parent.childElementCount > 12 ||
-            !PARENT_SPEED_ROW_RE.test(extractVisibleText(parent))
-          ) {
-            break;
-          }
-          row = parent;
-        }
-        addCandidate(row);
-      }
+    return keepInnermost(candidates).map((item) => item.el);
+  }
+  // Fallback for video settings popovers whose rows are plain clickable <div>s
+  // without ARIA menuitem/button roles or tabindex="0". Aborts early once
+  // > 80 nodes are seen so large non-menu subtrees are never walked completely.
+  const menuNodes = collectBoundedMenuNodes(container);
+  if (!menuNodes) {
+    return [];
+  }
+  for (const el of menuNodes) {
+    if (el.childElementCount > 6 || el.closest(`[${OWN_ATTR}]`)) {
+      continue;
     }
+    const text = extractVisibleText(el);
+    if (!PARENT_SPEED_LABEL_RE.test(text) && !PARENT_SPEED_ROW_RE.test(text)) {
+      continue;
+    }
+    let row: Element = el;
+    for (let depth = 0; depth < 3; depth++) {
+      const parent = row.parentElement;
+      if (
+        !parent ||
+        parent === container ||
+        parent.childElementCount > 12 ||
+        !PARENT_SPEED_ROW_RE.test(extractVisibleText(parent))
+      ) {
+        break;
+      }
+      row = parent;
+    }
+    addCandidate(row);
   }
   return keepInnermost(candidates).map((item) => item.el);
 }
@@ -317,14 +347,18 @@ function dismissSpeedMenu(menuContainer: Element, host: HTMLElement, doc: Docume
     cancelable: true,
     composed: true,
   };
-  menuContainer.dispatchEvent(new KeyboardEvent('keydown', escInit));
-  doc.dispatchEvent(new KeyboardEvent('keydown', escInit));
+  // Dispatch a single bubbling Escape so we never close an enclosing video lightbox/modal.
+  const escTarget = menuContainer.isConnected ? menuContainer : doc;
+  escTarget.dispatchEvent(new KeyboardEvent('keydown', escInit));
 
-  queueMicrotask(() => {
+  // Defer fallback past React's commit so we only click the layer's own mask if Escape
+  // did not dismiss the submenu.
+  setTimeout(() => {
     if (!host.isConnected) {
       return;
     }
-    const mask = doc.querySelector<HTMLElement>('#layers [data-testid="mask"]');
+    const layer = host.closest('#layers > *') ?? menuContainer.closest('#layers > *');
+    const mask = layer?.querySelector<HTMLElement>('[data-testid="mask"]');
     if (mask) {
       mask.click();
       return;
@@ -338,7 +372,7 @@ function dismissSpeedMenu(menuContainer: Element, host: HTMLElement, doc: Docume
     if (settingsBtn && !settingsBtn.closest(`[${OWN_ATTR}]`)) {
       settingsBtn.click();
     }
-  });
+  }, 0);
 }
 
 /**
@@ -537,12 +571,15 @@ function attachVideoSpeedEnforcer(
         if (event?.type === 'ratechange') {
           const nextRate = clampVideoSpeed(video.playbackRate);
           const differs = Math.abs(nextRate - speed.rate) > SPEED_EPSILON;
+          const interactedRate = menuActivity.recentlyInteractedRate();
+          const matchedInteraction =
+            interactedRate !== null && Math.abs(nextRate - interactedRate) <= SPEED_EPSILON;
           const userChangedNative =
             differs &&
-            (menuActivity.recentlyInteracted() ||
-              (menuActivity.isMenuOpen() && nextRate !== 1 && isNativeXSpeed(nextRate)));
+            isNativeXSpeed(nextRate) &&
+            (matchedInteraction || (menuActivity.isMenuOpen() && nextRate !== 1));
           if (userChangedNative) {
-            store.set({ rate: nextRate, custom: !isNativeXSpeed(nextRate) }, true);
+            store.set({ rate: nextRate, custom: false }, true);
             return;
           }
         }
@@ -584,6 +621,19 @@ function attachVideoSpeedEnforcer(
   };
 }
 
+function hasVideoOrMenuNode(nodes: NodeList): boolean {
+  for (const node of nodes) {
+    if (
+      node.nodeType === Node.ELEMENT_NODE &&
+      ((node as Element).matches(VIDEO_MENU_SCOPE_SELECTOR) ||
+        (node as Element).querySelector(VIDEO_MENU_SCOPE_SELECTOR) !== null)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isIgnorableMutation(records: readonly MutationRecord[]): boolean {
   for (const rec of records) {
     if (rec.type === 'characterData') {
@@ -599,21 +649,13 @@ function isIgnorableMutation(records: readonly MutationRecord[]): boolean {
       return false;
     }
     const targetEl = rec.target.nodeType === Node.ELEMENT_NODE ? (rec.target as Element) : null;
-    if (targetEl?.closest(TWEET_ARTICLE_SELECTOR) && !targetEl.closest(VIDEO_MENU_SCOPE_SELECTOR)) {
-      let addedVideoOrMenu = false;
-      for (const node of rec.addedNodes) {
-        if (
-          node.nodeType === Node.ELEMENT_NODE &&
-          ((node as Element).matches(VIDEO_MENU_SCOPE_SELECTOR) ||
-            (node as Element).querySelector(VIDEO_MENU_SCOPE_SELECTOR) !== null)
-        ) {
-          addedVideoOrMenu = true;
-          break;
-        }
-      }
-      if (!addedVideoOrMenu) {
-        continue;
-      }
+    if (
+      targetEl?.closest(TWEET_ARTICLE_SELECTOR) &&
+      !targetEl.closest(VIDEO_MENU_SCOPE_SELECTOR) &&
+      !hasVideoOrMenuNode(rec.addedNodes) &&
+      !hasVideoOrMenuNode(rec.removedNodes)
+    ) {
+      continue;
     }
     for (const node of rec.addedNodes) {
       if (node.nodeType !== Node.ELEMENT_NODE || !(node as Element).hasAttribute(OWN_ATTR)) {
@@ -650,6 +692,7 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
   const nativeBound = new WeakSet<Element>();
   const clickAbort = new AbortController();
   let lastMenuInteractionAt = 0;
+  let lastInteractedRate: number | null = null;
   scope.add(() => clickAbort.abort());
 
   const clearNativeItemDecorations = (items: readonly DetectedSpeedItem[]): void => {
@@ -796,13 +839,19 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
         parseNativeSpeedLabel(extractVisibleText(targetEl));
       if (currentRate !== null) {
         lastMenuInteractionAt = Date.now();
+        lastInteractedRate = currentRate;
         store.set({ rate: currentRate, custom: false }, true);
       }
     };
-    targetEl.addEventListener('pointerdown', applyNativeChoice, {
-      capture: true,
-      signal: clickAbort.signal,
-    });
+    targetEl.addEventListener(
+      'pointerdown',
+      (event) => {
+        if ((event as PointerEvent).button === 0) {
+          applyNativeChoice();
+        }
+      },
+      { capture: true, signal: clickAbort.signal },
+    );
     targetEl.addEventListener('click', applyNativeChoice, {
       capture: true,
       signal: clickAbort.signal,
@@ -988,7 +1037,8 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
 
   return {
     isMenuOpen: () => mountedByParent.size > 0,
-    recentlyInteracted: () => Date.now() - lastMenuInteractionAt < MENU_INTERACTION_WINDOW_MS,
+    recentlyInteractedRate: () =>
+      Date.now() - lastMenuInteractionAt < MENU_INTERACTION_WINDOW_MS ? lastInteractedRate : null,
   };
 }
 

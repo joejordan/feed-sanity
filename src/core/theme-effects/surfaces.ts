@@ -11,8 +11,8 @@ import type {
 } from '../theming/types';
 import type { ThemeEffectsConfig } from './model';
 import { OWN_ATTR } from '../surface';
-import { hexWithAlpha } from '../theme';
-import { TEXT_INPUT_SELECTOR } from '../theming/types';
+import { hexWithAlpha, splitSelectorList } from '../theme';
+import { formatRootSelectors, TEXT_INPUT_SELECTOR, wrapThemeLayer } from '../theming/types';
 
 export const BACKDROP_OWN_VALUE = 'theme-backdrop';
 export const CLICK_FX_OWN_VALUE = 'theme-click-fx';
@@ -37,17 +37,13 @@ export function resolveGlassMetrics(glassStrength: number): {
 }
 
 function compileDeclarativeReveal(
-  mapping: Pick<SiteThemeMapping, 'rootSelectors' | 'surfaces'>,
+  rootSelectors: readonly string[],
+  surfaces: SurfaceSelectors,
   palette: ThemePalette | null,
   baseBg: string,
   surfaceBg: string,
   metrics: { readonly columnAlpha: number; readonly cardAlpha: number; readonly blurPx: number },
-  enableBlur: boolean,
 ): { readonly shellCss: string; readonly revealCss: string } {
-  const surfaces = mapping.surfaces;
-  if (!surfaces) {
-    return { shellCss: '', revealCss: '' };
-  }
   const popupAlpha = Math.max(0.96, metrics.cardAlpha);
   const fullMetrics = { ...metrics, popupAlpha };
   const shellBlocks: string[] = [];
@@ -56,7 +52,7 @@ function compileDeclarativeReveal(
   // Bind `--fs-reveal-canvas` to transparent at the document root so Layer 1
   // canvas-tier backgrounds automatically reveal the Studio backdrop without
   // needing per-site RNW class blacklists or deep `:has()` chains.
-  const rootSel = mapping.rootSelectors.length > 0 ? mapping.rootSelectors.join(', ') : ':root';
+  const rootSel = formatRootSelectors(rootSelectors);
   const rootVars: Record<string, string> = {
     '--fs-reveal-canvas': 'transparent',
     ...(surfaces.revealCssVars ? surfaces.revealCssVars(palette, fullMetrics) : {}),
@@ -105,13 +101,11 @@ function compileDeclarativeReveal(
 
   if (surfaces.leafCards && surfaces.leafCards.length > 0) {
     const cardBg = hexWithAlpha(surfaceBg, metrics.cardAlpha);
-    const blurDecls = enableBlur
-      ? `\n  backdrop-filter: blur(${metrics.blurPx}px);\n  -webkit-backdrop-filter: blur(${metrics.blurPx}px);`
-      : '';
     // Re-bind `--fs-reveal-canvas: transparent` inside leafCards so nested rows
     // (e.g. "What's happening" trends) never paint opaque boxes over frosted cards.
+    // Glass `backdrop-filter: blur()` is owned solely by `compileSurfaceFinishCss` in `@layer fs-finish`.
     revealBlocks.push(
-      `${surfaces.leafCards.join(',\n')} {\n  --fs-reveal-canvas: transparent;\n  background-color: ${cardBg} !important;${blurDecls}\n}`,
+      `${surfaces.leafCards.join(',\n')} {\n  --fs-reveal-canvas: transparent;\n  background-color: ${cardBg} !important;\n}`,
     );
   }
 
@@ -171,18 +165,18 @@ body::after {
 
   if (mapping?.surfaces) {
     const { shellCss, revealCss } = compileDeclarativeReveal(
-      mapping,
+      mapping.rootSelectors,
+      mapping.surfaces,
       palette,
       baseBg,
       surfaceBg,
       metrics,
-      effects.surface === 'glass',
     );
     const blocks: string[] = [];
     if (shellCss) {
-      blocks.push(`@layer fs-reveal-shell {\n${shellCss}\n}`);
+      blocks.push(wrapThemeLayer('fs-reveal-shell', shellCss));
     }
-    blocks.push(`@layer fs-reveal {\n${genericReveal.trim()}\n\n${revealCss}\n}`);
+    blocks.push(wrapThemeLayer('fs-reveal', `${genericReveal.trim()}\n\n${revealCss}`));
     return blocks.join('\n\n');
   }
 
@@ -197,7 +191,7 @@ ${DEFAULT_POPUPS.join(', ')} {
   background-color: ${hexWithAlpha(surfaceBg, Math.max(0.96, metrics.cardAlpha))} !important;
 }`;
 
-  return `@layer fs-reveal {\n${genericReveal.trim()}\n\n${fallbackCards.trim()}\n}`;
+  return wrapThemeLayer('fs-reveal', `${genericReveal.trim()}\n\n${fallbackCards.trim()}`);
 }
 
 /**
@@ -221,17 +215,10 @@ export function compileSurfaceFinishCss(
   const border = palette?.border ?? (hostScheme === 'light' ? '#cbd5e1' : '#2b364d');
   const danger = palette?.danger ?? '#ec4899';
 
-  const leafList = surfaces?.leafCards ?? [];
-  const popupList =
-    surfaces?.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS;
-
-  const leafTargets = leafList.join(',\n');
-  const popupTargets = popupList.join(',\n');
-  const cardTargets = [leafTargets, popupTargets].filter(Boolean).join(',\n');
-  const ctaTargets = surfaces?.primaryCtas?.join(',\n') ?? '';
-  const feedCardTargets = surfaces?.feedCards?.join(',\n') ?? '';
-  const columnTargets = surfaces?.columns?.join(',\n') ?? '';
-  const searchTargets = surfaces?.searchContainers?.join(',\n') ?? '';
+  const leafTargets = surfaces?.leafCards?.join(',\n') ?? '';
+  const popupTargets = (
+    surfaces?.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS
+  ).join(',\n');
 
   if (effects.surface === 'glass') {
     const { cardAlpha, blurPx } = resolveGlassMetrics(Math.max(0.24, effects.glassStrength));
@@ -247,6 +234,9 @@ export function compileSurfaceFinishCss(
     );
     return blocks.join('\n\n');
   }
+
+  const cardTargets = [leafTargets, popupTargets].filter(Boolean).join(',\n');
+  const ctaTargets = surfaces?.primaryCtas?.join(',\n') ?? '';
 
   if (effects.surface === 'gradient') {
     const sheenA = hexWithAlpha(accent, hostScheme === 'light' ? 0.08 : 0.14);
@@ -267,9 +257,13 @@ export function compileSurfaceFinishCss(
     `${cardTargets} {\n  border-color: ${hexWithAlpha(accent, 0.45)} !important;\n  box-shadow: 0 0 0 1px ${hexWithAlpha(accent, 0.25)}, 0 0 18px ${hexWithAlpha(accent, 0.16)} !important;\n}`,
     `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${hexWithAlpha(accent, 0.5)}, 0 0 14px ${hexWithAlpha(accent, 0.28)} !important;\n}`,
   ];
-  if (feedCardTargets) {
+  const feedCardHoverTargets =
+    surfaces?.feedCards
+      ?.flatMap((entry) => splitSelectorList(entry).map((sel) => `${sel}:hover`))
+      .join(',\n') ?? '';
+  if (feedCardHoverTargets) {
     blocks.push(
-      `${feedCardTargets}:hover {\n  box-shadow: inset 2px 0 0 0 ${accent}, 0 0 16px ${hexWithAlpha(accent, 0.14)} !important;\n}`,
+      `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, 0 0 16px ${hexWithAlpha(accent, 0.14)} !important;\n}`,
     );
   }
   if (ctaTargets) {
@@ -277,11 +271,13 @@ export function compileSurfaceFinishCss(
       `${ctaTargets} {\n  box-shadow: 0 0 16px ${hexWithAlpha(accent, 0.48)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;\n}`,
     );
   }
+  const columnTargets = surfaces?.columns?.join(',\n') ?? '';
   if (columnTargets) {
     blocks.push(
       `${columnTargets} {\n  border-color: ${hexWithAlpha(accent, 0.3)} !important;\n  box-shadow: 0 0 24px ${hexWithAlpha(border, 0.24)} !important;\n}`,
     );
   }
+  const searchTargets = surfaces?.searchContainers?.join(',\n') ?? '';
   if (searchTargets) {
     blocks.push(
       `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${hexWithAlpha(accent, 0.4)} !important;\n}`,

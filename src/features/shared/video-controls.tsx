@@ -12,7 +12,7 @@ import { containsAcrossShadows } from '../../core/dom';
 import { intercept, isPlainPress, PRESS_EVENTS } from '../../core/intercept';
 import { OWN_ATTR } from '../../core/surface';
 import { PauseHolds } from '../video-click-pauses/hold';
-import { hasControlAt, measureControls, pointIn } from '../video-layout';
+import { hasControlAt, isVideoInFullscreen, measureControls, pointIn } from '../video-layout';
 import { overlayEachVideo } from '../video-overlay';
 import { AT_BOTTOM, placeStrip, samePlace } from '../video-scrubber/layout';
 import { Scrubber } from '../video-scrubber/scrubber';
@@ -137,13 +137,7 @@ export function createVideoControlsFeature<P extends VideoControlsPage>(
           }
           // Never hijack pointer events while the player is in fullscreen; host
           // players provide their own fullscreen scrubber and click controls.
-          const fs = page.doc.fullscreenElement;
-          if (
-            fs &&
-            (fs === video.element ||
-              containsAcrossShadows(fs, video.element) ||
-              containsAcrossShadows(video.element, fs))
-          ) {
+          if (isVideoInFullscreen(video.element, page.doc)) {
             return undefined;
           }
           const box = video.element.getBoundingClientRect();

@@ -318,20 +318,34 @@ export class Videos {
     if (own) {
       return own;
     }
-    // Collect connected tracked videos inside `within` (typically 0..5), then find
-    // the lowest ancestor of `element` within `within` that contains exactly one video
-    // via native `node.contains(videoEl)` instead of `querySelectorAll` at every level.
-    const candidates: Array<readonly [Element, TrackedVideo]> = [];
-    for (const entry of this.#videos) {
-      if (entry[0].isConnected && within.contains(entry[0])) {
-        candidates.push(entry);
-      }
-    }
-    if (candidates.length === 0) {
+    if (element === within || !within.contains(element)) {
       return undefined;
     }
+    // Fast-path: collect connected tracked videos inside `within` without allocating
+    // unless 2+ exist. When `within` holds a single video, return it in O(trackedVideos).
+    let first: readonly [Element, TrackedVideo] | undefined;
+    let candidates: Array<readonly [Element, TrackedVideo]> | undefined;
+    for (const entry of this.#videos) {
+      if (!entry[0].isConnected || !within.contains(entry[0])) {
+        continue;
+      }
+      if (first) {
+        candidates ??= [first];
+        candidates.push(entry);
+      } else {
+        first = entry;
+      }
+    }
+    if (!first) {
+      return undefined;
+    }
+    if (!candidates) {
+      return first[1];
+    }
+    // Multiple videos share `within`: find the lowest ancestor of `element` up to
+    // `within` containing exactly one tracked video via native `contains()`.
     let node = element.parentElement;
-    while (node && within.contains(node)) {
+    while (node) {
       let match: TrackedVideo | undefined;
       let count = 0;
       for (const [videoEl, tracked] of candidates) {

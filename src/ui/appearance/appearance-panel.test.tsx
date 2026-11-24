@@ -6,7 +6,13 @@ import { createDomEnvironment } from '../../core/dom-env';
 import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { inMemoryStore } from '../../core/testing';
-import { DEFAULT_THEME_CONFIG, resolveTheme, THEME_FONT_STACKS } from '../../core/theming';
+import {
+  DEFAULT_THEME_CONFIG,
+  readEarlyThemeCss,
+  resolveTheme,
+  THEME_FONT_STACKS,
+  writeEarlyThemeCss,
+} from '../../core/theming';
 import { facebookThemeMapping } from '../../sites/facebook/theme-mapping';
 import { setUserThemeCss } from '../mount';
 import { OptionsDialog } from '../options-dialog/options-dialog';
@@ -444,5 +450,35 @@ describe('appearancePanel & initSiteTheme', () => {
     // Clearing resets the saved URL cleanly.
     await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
     await vi.waitFor(() => expect(options.get('custom_stylesheet_url')).toBe(''));
+  });
+
+  it('syncs earlyCacheSiteId with the saved theme without leaking an active preview into sessionStorage', async () => {
+    const siteId = 'test-early-cache-preview';
+    writeEarlyThemeCss(siteId, '');
+    const env = createDomEnvironment({ doc: document });
+    const store = inMemoryStore();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    await saved.ready;
+
+    const runtime = initSiteTheme(env, data, facebookThemeMapping, { earlyCacheSiteId: siteId });
+    try {
+      // Save Catppuccin Mocha while previewing Site Default (`null`): sessionStorage must
+      // cache Catppuccin Mocha (`#1e1e2e`), NOT the null preview (`""`).
+      runtime.controller.preview(null);
+      await saved.set({ ...DEFAULT_THEME_CONFIG, preset: 'catppuccin-mocha' });
+      await vi.waitFor(() => expect(readEarlyThemeCss(siteId)).toContain('#1e1e2e'));
+
+      // Save Midnight Slate while previewing Warm Paper: sessionStorage must cache Midnight (`#0b0f17`).
+      const warmPaper = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'warm-paper' });
+      runtime.controller.preview(warmPaper);
+      await saved.set({ ...DEFAULT_THEME_CONFIG, preset: 'midnight' });
+      await vi.waitFor(() => expect(readEarlyThemeCss(siteId)).toContain('#0b0f17'));
+      expect(readEarlyThemeCss(siteId)).not.toContain('#f4efe6');
+    } finally {
+      runtime.dispose();
+      env.dispose();
+      writeEarlyThemeCss(siteId, '');
+    }
   });
 });

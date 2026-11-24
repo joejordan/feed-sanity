@@ -6,7 +6,12 @@ import {
   compileUiSurfaceCss,
 } from '../theme-effects';
 import { hexToRgbTriplet } from './color-utils';
-import { TEXT_INPUT_SELECTOR, THEME_LAYER_ORDER } from './types';
+import {
+  formatRootSelectors,
+  TEXT_INPUT_SELECTOR,
+  withThemeLayerOrder,
+  wrapThemeLayer,
+} from './types';
 
 function buildPaletteDeclarations(palette: ThemePalette, mapping: SiteThemeMapping): string[] {
   const decls: string[] = [`color-scheme: ${palette.colorScheme} !important;`];
@@ -53,8 +58,13 @@ function compileFontOverrideCss(fontFamily: string, target: 'host' | 'shadow'): 
   ].join('\n\n');
 }
 
-function wrapLayer(layer: string, body: string): string {
-  return body ? `@layer ${layer} {\n${body}\n}` : '';
+/**
+ * Routes user Custom CSS so both normal and `!important` declarations win:
+ * - Rules containing `!important` enter `@layer fs-user` (first layer, highest `!important` priority).
+ * - Rules without `!important` stay unlayered after all `@layer` blocks (highest normal priority).
+ */
+function formatUserCustomCss(customCss: string): string {
+  return /!important\b/i.test(customCss) ? wrapThemeLayer('fs-user', customCss) : customCss;
 }
 
 /** Compiles `theme` + `mapping` into layered host-document CSS. */
@@ -66,7 +76,7 @@ export function compileHostThemeCss(
   const mappingParts: string[] = [];
   if (theme.palette) {
     const decls = buildPaletteDeclarations(theme.palette, mapping);
-    const selectors = mapping.rootSelectors.length > 0 ? mapping.rootSelectors.join(', ') : ':root';
+    const selectors = formatRootSelectors(mapping.rootSelectors);
     mappingParts.push(`${selectors} {\n  ${decls.join('\n  ')}\n}`);
   }
   if (theme.fontFamily) {
@@ -82,7 +92,7 @@ export function compileHostThemeCss(
 
   const layers: string[] = [];
   if (mappingParts.length > 0) {
-    layers.push(wrapLayer('fs-mapping', mappingParts.join('\n\n')));
+    layers.push(wrapThemeLayer('fs-mapping', mappingParts.join('\n\n')));
   }
   if (theme.effects) {
     const revealCss = compileBackdropRevealCss(theme.palette, hostScheme, theme.effects, mapping);
@@ -96,16 +106,13 @@ export function compileHostThemeCss(
       mapping.surfaces,
     );
     if (finishCss) {
-      layers.push(wrapLayer('fs-finish', finishCss));
+      layers.push(wrapThemeLayer('fs-finish', finishCss));
     }
   }
   if (theme.customCss) {
-    layers.push(wrapLayer('fs-user', theme.customCss));
+    layers.push(formatUserCustomCss(theme.customCss));
   }
-  if (layers.length === 0) {
-    return '';
-  }
-  return `${THEME_LAYER_ORDER}\n\n${layers.join('\n\n')}`;
+  return withThemeLayerOrder(layers);
 }
 
 /**
@@ -117,13 +124,8 @@ export function compileShadowThemeCss(theme: ResolvedTheme, mapping: SiteThemeMa
   const mappingParts: string[] = [];
   if (theme.palette) {
     const decls = buildPaletteDeclarations(theme.palette, mapping);
-    const shadowSelectors = mapping.rootSelectors.map((sel) =>
-      sel.trim() === ':root' ? ':host' : sel,
-    );
-    if (!shadowSelectors.includes(':host')) {
-      shadowSelectors.unshift(':host');
-    }
-    mappingParts.push(`${shadowSelectors.join(', ')} {\n  ${decls.join('\n  ')}\n}`);
+    const selectors = formatRootSelectors(mapping.rootSelectors, { shadow: true });
+    mappingParts.push(`${selectors} {\n  ${decls.join('\n  ')}\n}`);
   }
   if (theme.fontFamily) {
     mappingParts.push(compileFontOverrideCss(theme.fontFamily, 'shadow'));
@@ -134,15 +136,12 @@ export function compileShadowThemeCss(theme: ResolvedTheme, mapping: SiteThemeMa
   }
   const layers: string[] = [];
   if (mappingParts.length > 0) {
-    layers.push(wrapLayer('fs-mapping', mappingParts.join('\n\n')));
+    layers.push(wrapThemeLayer('fs-mapping', mappingParts.join('\n\n')));
   }
   if (theme.customCss) {
-    layers.push(wrapLayer('fs-user', theme.customCss));
+    layers.push(formatUserCustomCss(theme.customCss));
   }
-  if (layers.length === 0) {
-    return '';
-  }
-  return `${THEME_LAYER_ORDER}\n\n${layers.join('\n\n')}`;
+  return withThemeLayerOrder(layers);
 }
 
 /** Compiles `theme` into Feed Sanity's own Shadow DOM `--fs-*` token overrides. */

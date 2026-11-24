@@ -33,6 +33,8 @@ const INK_BLOOM = 0.5;
 const MAX_FRAME_SECONDS = 0.05;
 const MAX_FPS = 30;
 const MIN_FRAME_MS = 1000 / MAX_FPS;
+/** Tolerance for 60Hz/120Hz `requestAnimationFrame` scheduling jitter. */
+const FRAME_JITTER_MS = 2;
 const MAX_CANVAS_PIXELS = 2_400_000;
 const FONT_STEPS_PER_PIXEL = 2;
 const WARP_FADE_RATE = 5;
@@ -67,7 +69,7 @@ class RainEngine {
   readonly #onFrame = (time: number): void => {
     this.#frame = 0;
     if (this.#running) {
-      if (this.#lastTime !== null && time - this.#lastTime < MIN_FRAME_MS - 2) {
+      if (this.#lastTime !== null && time - this.#lastTime < MIN_FRAME_MS - FRAME_JITTER_MS) {
         this.#invalidate();
         return;
       }
@@ -426,7 +428,10 @@ export function mountDigitalRain(
     'loadingdone',
     (event) => {
       const loaded = (event as FontFaceSetLoadEvent).fontfaces;
-      if (loaded && loaded.length > 0) {
+      if (loaded) {
+        if (loaded.length === 0) {
+          return;
+        }
         const wanted = settings.fontFamily.toLowerCase();
         const relevant = loaded.some((face) =>
           wanted.includes(face.family.replace(/^['"]|['"]$/g, '').toLowerCase()),
@@ -491,22 +496,35 @@ export function mountDigitalRain(
 
   // Backdrop canvases are fixed to the viewport (`inset: 0`), so use cached viewport
   // dimensions instead of forcing synchronous `getBoundingClientRect()` on every pointermove.
-  const report = (event: PointerEvent, tell: (x: number, y: number) => void): void => {
-    if (!settings.interactive || settings.paused || doc.hidden) {
+  const reportPointer = (event: PointerEvent, press: boolean): void => {
+    if (
+      !settings.interactive ||
+      settings.paused ||
+      doc.hidden ||
+      !visible ||
+      reducedMotion?.matches
+    ) {
       return;
     }
     const width = viewportWidth || win.innerWidth || 0;
     const height = viewportHeight || win.innerHeight || 0;
-    if (width > 0 && height > 0) {
-      tell(event.clientX / width, event.clientY / height);
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    const x = event.clientX / width;
+    const y = event.clientY / height;
+    if (press) {
+      engine.pointerPress(x, y);
+    } else {
+      engine.pointerMove(x, y);
     }
   };
   const onMove = (event: Event): void => {
-    report(event as PointerEvent, (x, y) => engine.pointerMove(x, y));
+    reportPointer(event as PointerEvent, false);
   };
   const onDown = (event: Event): void => {
     const pe = event as PointerEvent;
-    report(pe, (x, y) => (pe.button === 0 ? engine.pointerPress(x, y) : engine.pointerMove(x, y)));
+    reportPointer(pe, pe.button === 0);
   };
   const onLeave = (): void => engine.pointerLeave();
   const onUp = (event: Event): void => {

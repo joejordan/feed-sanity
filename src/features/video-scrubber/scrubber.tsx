@@ -2,40 +2,42 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { Watched } from '../../ui/watched';
 import type { StripPlace } from './layout';
 import type { MediaState } from './media';
-import { containsAcrossShadows } from '../../core/dom';
+import { isVideoInFullscreen } from '../video-layout';
 import { STRIP_HEIGHT } from './layout';
 import { formatTime, isSeekable, readMedia, Seeker, sameMedia, watchMedia } from './media';
 
+interface FullscreenSubscription {
+  readonly listeners: Set<() => void>;
+  readonly notify: () => void;
+}
+
 /** Single shared `fullscreenchange` subscription per Document across all mounted scrubbers. */
-const fullscreenSubscribers = new WeakMap<Document, Set<() => void>>();
+const fullscreenSubscribers = new WeakMap<Document, FullscreenSubscription>();
 
 function subscribeFullscreen(doc: Document, listener: () => void): () => void {
-  let set = fullscreenSubscribers.get(doc);
-  if (!set) {
-    set = new Set();
-    fullscreenSubscribers.set(doc, set);
+  let sub = fullscreenSubscribers.get(doc);
+  if (!sub) {
+    const listeners = new Set<() => void>();
     const notify = (): void => {
-      const current = fullscreenSubscribers.get(doc);
-      if (!current) {
-        return;
-      }
-      for (const fn of current) {
+      for (const fn of listeners) {
         fn();
       }
     };
+    sub = { listeners, notify };
+    fullscreenSubscribers.set(doc, sub);
     doc.addEventListener('fullscreenchange', notify);
   }
-  set.add(listener);
+  const activeSub = sub;
+  activeSub.listeners.add(listener);
   return () => {
-    set?.delete(listener);
+    activeSub.listeners.delete(listener);
+    if (activeSub.listeners.size === 0) {
+      doc.removeEventListener('fullscreenchange', activeSub.notify);
+      if (fullscreenSubscribers.get(doc) === activeSub) {
+        fullscreenSubscribers.delete(doc);
+      }
+    }
   };
-}
-
-function isVideoInFullscreen(video: HTMLVideoElement): boolean {
-  const fs = (video.ownerDocument ?? document).fullscreenElement;
-  return Boolean(
-    fs && (fs === video || containsAcrossShadows(fs, video) || containsAcrossShadows(video, fs)),
-  );
 }
 
 /** How far the arrow keys move the video, in seconds. */

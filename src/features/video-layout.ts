@@ -3,7 +3,7 @@
 
 import type { VideoControl } from '../capabilities';
 import type { Locator } from '../core/locator';
-import { isShadowRoot } from '../core/dom';
+import { containsAcrossShadows, isShadowRoot } from '../core/dom';
 import { OWN_ATTR } from '../core/surface';
 
 const OWN_SELECTOR = `[${OWN_ATTR}]`;
@@ -22,6 +22,17 @@ export interface ControlBox {
 
 export const overlaps = (a: Edges, b: Edges): boolean =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+/** True when `video` is currently inside (or is) the document's fullscreen element, piercing open Shadow DOM. */
+export function isVideoInFullscreen(
+  video: Element,
+  doc: Document = video.ownerDocument ?? document,
+): boolean {
+  const fs = doc.fullscreenElement;
+  return Boolean(
+    fs && (fs === video || containsAcrossShadows(fs, video) || containsAcrossShadows(video, fs)),
+  );
+}
 
 /** True when the point `x`, `y` is on `box`, edges included. */
 export const pointIn = (box: Edges, x: number, y: number): boolean =>

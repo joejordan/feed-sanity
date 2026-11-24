@@ -210,5 +210,21 @@ describe('Videos', () => {
     expect(videos.around(two)).toBeUndefined();
     expect(videos.around(two.querySelector('[role=presentation]') as Element)).toBe(added[1]);
     expect(videos.around(document.body)).toBeUndefined();
+
+    // Single-video fast-path within a scoped container & element-outside-within rejection.
+    expect(videos.around(layer, player)).toBe(added[0]);
+    expect(videos.around(layer, two)).toBeUndefined();
+
+    // Multi-video LCA: sibling inside shared 2-video container is ambiguous, while
+    // second player's presentation layer resolves to the second video.
+    const sharedSibling = document.createElement('span');
+    two.append(sharedSibling);
+    expect(videos.around(sharedSibling, two)).toBeUndefined();
+    const layersInTwo = two.querySelectorAll('[role=presentation]');
+    expect(videos.around(layersInTwo[1] as Element, two)).toBe(added[2]);
+
+    // Synchronously detached tracked video is skipped cleanly.
+    added[0]?.element.remove();
+    expect(videos.around(layer, player)).toBeUndefined();
   });
 });

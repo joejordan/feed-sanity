@@ -405,5 +405,23 @@ describe('first-class multi-site theming engine', () => {
     expect(compileHostThemeCss(prism, xThemeMapping)).toContain('linear-gradient(90deg, #ff3b8d');
     expect(compileHostThemeCss(prism, xThemeMapping)).not.toContain('background-attachment: fixed');
     expect(compileUiThemeCss(prism)).toContain('linear-gradient(90deg, #ff3b8d');
+
+    // Normal custom CSS stays unlayered so non-!important user rules beat layered rules;
+    // !important custom CSS enters @layer fs-user (highest !important priority).
+    const normalCustom = resolveTheme({
+      ...DEFAULT_THEME_CONFIG,
+      preset: 'midnight',
+      customCss: 'article { border-radius: 12px; }',
+    })!;
+    const normalCustomCss = compileHostThemeCss(normalCustom, xThemeMapping);
+    expect(normalCustomCss).not.toContain('@layer fs-user {');
+    expect(normalCustomCss.trim().endsWith('article { border-radius: 12px; }')).toBe(true);
+
+    const importantCustom = resolveTheme({
+      ...DEFAULT_THEME_CONFIG,
+      preset: 'midnight',
+      customCss: 'a { color: #ff0000 !important; }',
+    })!;
+    expect(compileHostThemeCss(importantCustom, xThemeMapping)).toContain('@layer fs-user {');
   });
 });

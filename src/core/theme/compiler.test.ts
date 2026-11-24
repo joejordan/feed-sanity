@@ -193,4 +193,77 @@ describe('core/theme/compiler', () => {
     expect(fontOnly).toContain('font-family: Georgia, serif !important;');
     expect(fontOnly).not.toContain('.canvas-shell');
   });
+
+  it('filters inactive polarity & descendant vars and invalidates sheetCache on rootSelectors, media, and rule mutations', () => {
+    const style = document.createElement('style');
+    style.textContent = `
+      .__fb-light-mode { --mode-surface: #ffffff; }
+      .__fb-dark-mode { --mode-surface: #18191a; --dark-only-bg: #242526; }
+      .__fb-dark-mode .story-overlay { --scoped-overlay-bg: #111111; }
+      @media (min-width: 900px) { .wide-panel { background-color: rgb(32, 35, 39); } }
+    `;
+    document.head.append(style);
+
+    let wideMatches = false;
+    const origMatchMedia = globalThis.matchMedia;
+    globalThis.matchMedia = ((query: string) => ({
+      matches: query.includes('900px') ? wideMatches : false,
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as typeof globalThis.matchMedia;
+
+    try {
+      // 1. In light hostScheme, opposite-polarity dark vars & descendant component vars are skipped.
+      const lightOut = compileAdaptiveRootCss(document, warmPaper, {
+        hostScheme: 'light',
+        rootSelectors: [':root', '.__fb-light-mode', '.__fb-dark-mode'],
+      });
+      expect(lightOut).toContain(`--mode-surface: ${warmPaper.background} !important;`);
+      expect(lightOut).not.toContain('--dark-only-bg');
+      expect(lightOut).not.toContain('--scoped-overlay-bg');
+      expect(lightOut).not.toContain('.wide-panel');
+
+      // 2. Flipping @media match invalidates sheetCache and emits `.wide-panel`.
+      wideMatches = true;
+      const wideOut = compileAdaptiveRootCss(document, warmPaper, {
+        hostScheme: 'dark',
+        rootSelectors: [':root', '.__fb-dark-mode'],
+      });
+      expect(wideOut).toContain('--dark-only-bg:');
+      expect(wideOut).toContain('.wide-panel');
+
+      // 3. Adding a custom root selector invalidates sheetCache on rootSelectorsKey change.
+      const customStyle = document.createElement('style');
+      customStyle.textContent = '.custom-theme-root { --custom-root-bg: #1a1a1a; }';
+      document.head.append(customStyle);
+      expect(
+        compileAdaptiveRootCss(document, warmPaper, {
+          hostScheme: 'dark',
+          rootSelectors: [':root'],
+        }),
+      ).not.toContain('--custom-root-bg');
+      expect(
+        compileAdaptiveRootCss(document, warmPaper, {
+          hostScheme: 'dark',
+          rootSelectors: [':root', '.custom-theme-root'],
+        }),
+      ).toContain('--custom-root-bg:');
+
+      // 4. Mutating rules via CSSOM insertRule invalidates sheetCache.
+      customStyle.sheet?.insertRule('.late-inserted { color: rgb(231, 233, 234); }', 1);
+      expect(
+        compileAdaptiveRootCss(document, warmPaper, {
+          hostScheme: 'dark',
+          rootSelectors: [':root', '.custom-theme-root'],
+        }),
+      ).toContain('.late-inserted');
+    } finally {
+      globalThis.matchMedia = origMatchMedia;
+    }
+  });
 });

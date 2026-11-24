@@ -7,7 +7,7 @@ import { callSafely, Listeners } from './listeners';
 import { createLogger } from './log';
 import { PageWatcher, pageWatcher } from './page-watcher';
 import { Scope } from './scope';
-import { hideElement, markElement, mountSlot, OWN_ATTR, whileOnRoute } from './surface';
+import { hideElement, isOwnUiElement, markElement, mountSlot, whileOnRoute } from './surface';
 
 export interface DomEnvironmentOptions {
   /** Root document to observe (defaults to `globalThis.document`). */
@@ -67,11 +67,6 @@ export interface DomEnvironment {
 const SHADOW_RESCAN_INTERVAL_MS = 150;
 const SHADOW_CANDIDATE_TTL_MS = 3000;
 const MAX_PENDING_SHADOW_CANDIDATES = 120;
-const OWN_UI_TAG = 'feed-sanity-ui';
-
-function isOwnUiHost(el: Element): boolean {
-  return el.localName === OWN_UI_TAG || el.hasAttribute(OWN_ATTR);
-}
 
 /**
  * Only custom elements (`*-*`) and empty mount-point containers (`div`/`section`/`aside`
@@ -79,7 +74,7 @@ function isOwnUiHost(el: Element): boolean {
  * Skipping already-populated layout divs prevents queuing thousands of RNW/StyleX wrappers.
  */
 function isShadowHostCandidate(el: Element): boolean {
-  if (el.shadowRoot || isOwnUiHost(el)) {
+  if (el.shadowRoot || isOwnUiElement(el)) {
     return false;
   }
   const tag = el.localName;
@@ -153,7 +148,7 @@ export function createDomEnvironment({
         pendingShadowCandidates.delete(candidate);
       }
     }
-    if (pendingShadowCandidates.size > 0 || urlScanPending) {
+    if (pendingShadowCandidates.size > 0) {
       armShadowRescan();
     }
   };
@@ -186,16 +181,13 @@ export function createDomEnvironment({
     if (!pierceShadow || envScope.disposed) {
       return;
     }
-    if (root.nodeType === Node.ELEMENT_NODE && isOwnUiHost(root as Element)) {
+    if (root.nodeType === Node.ELEMENT_NODE && isOwnUiElement(root as Element)) {
       return;
     }
     const shouldCollect = collectCandidates && !directShadowHookActive;
     const expiresAt = shouldCollect ? Date.now() + SHADOW_CANDIDATE_TTL_MS : 0;
     let queued = false;
     const visit = (el: Element): void => {
-      if (isOwnUiHost(el)) {
-        return;
-      }
       if (el.shadowRoot) {
         attachShadow(el.shadowRoot);
       } else if (
@@ -211,20 +203,20 @@ export function createDomEnvironment({
       visit(root as Element);
     }
     if (root.childElementCount > 0) {
-      // Walk direct children recursively rather than `querySelectorAll('*')` so
-      // own UI subtrees are pruned immediately without scanning their descendants.
-      const stack: Element[] = [...root.children];
+      // Walk descendants iteratively via linked sibling pointers (no live HTMLCollection
+      // allocation) so own UI subtrees are pruned immediately without scanning descendants.
+      const stack: Element[] = [];
+      for (let child = root.lastElementChild; child; child = child.previousElementSibling) {
+        stack.push(child);
+      }
       while (stack.length > 0) {
         const el = stack.pop();
-        if (!el || isOwnUiHost(el)) {
+        if (!el || isOwnUiElement(el)) {
           continue;
         }
         visit(el);
-        for (let i = el.children.length - 1; i >= 0; i--) {
-          const child = el.children[i];
-          if (child) {
-            stack.push(child);
-          }
+        for (let child = el.lastElementChild; child; child = child.previousElementSibling) {
+          stack.push(child);
         }
       }
     }
@@ -314,11 +306,16 @@ export function createDomEnvironment({
     scanShadowSubtree(doc, true);
     const onDirectShadowAttached = (event: Event): void => {
       directShadowHookActive = true;
+      urlScanPending = false;
       pendingShadowCandidates.clear();
+      if (shadowRescanTimer !== undefined) {
+        clearTimeout(shadowRescanTimer);
+        shadowRescanTimer = undefined;
+      }
       const target =
         (typeof event.composedPath === 'function' ? event.composedPath()[0] : undefined) ??
         event.target;
-      if (target instanceof Element && target.shadowRoot && !isOwnUiHost(target)) {
+      if (target instanceof Element && target.shadowRoot && !isOwnUiElement(target)) {
         attachShadow(target.shadowRoot);
       }
     };

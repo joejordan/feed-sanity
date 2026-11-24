@@ -7,6 +7,11 @@ const ALPHA_PERCENTS = [
 
 const IN_VIDEO = '[data-testid="videoComponent"] *, [data-testid="videoPlayer"] *';
 const NOT_IN_VIDEO = `:not(:where(${IN_VIDEO}))`;
+const RNW_CANVAS_SELECTORS = [
+  `.r-kemksi${NOT_IN_VIDEO}`,
+  `.r-yfoy6g${NOT_IN_VIDEO}`,
+  `.r-14lw9ot:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${IN_VIDEO}))`,
+] as const;
 
 const NEUTRAL_STEPS = [
   ['000', 0.96],
@@ -204,9 +209,7 @@ html, body, #react-root, header[role="banner"], main[role="main"] {
 /* Dark & light host canvas (Lights Out #000, Dim #15202b, Light #fff).
  * Uses --fs-reveal-canvas so Studio backdrops turn outer shells transparent
  * while #layers, form[role="search"], and popups stay opaque cleanly. */
-.r-kemksi${NOT_IN_VIDEO},
-.r-yfoy6g${NOT_IN_VIDEO},
-.r-14lw9ot:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${IN_VIDEO})),
+${RNW_CANVAS_SELECTORS.join(',\n')},
 div[style*="background-color: rgb(0, 0, 0)"]:not(:where(${IN_VIDEO}, [data-testid="mask"])),
 div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${IN_VIDEO}, [data-testid="mask"])) {
   background-color: var(--fs-reveal-canvas, ${p.background}) !important;
@@ -544,20 +547,20 @@ svg[data-testid="icon-verified"] {
   surfaces: {
     transparentShell: [
       '#react-root',
-      '#react-root > div:not(:where(#layers, [role="dialog"], [data-testid="sheetDialog"]))',
-      '#react-root > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [data-testid="sheetDialog"]))',
-      '#react-root > div:not(#layers) > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [data-testid="sheetDialog"]))',
+      '#react-root > div:not(:where(#layers, [role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"]))',
+      '#react-root > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"]))',
+      '#react-root > div:not(#layers) > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"]))',
       'header[role="banner"]',
-      'header[role="banner"] > div:not(:where([role="dialog"], [role="menu"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
-      'header[role="banner"] > div > div:not(:where([role="dialog"], [role="menu"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
-      'header[role="banner"] > div > div > div:not(:where([role="dialog"], [role="menu"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
+      'header[role="banner"] > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
+      'header[role="banner"] > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
+      'header[role="banner"] > div > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
       'main[role="main"]',
-      'main[role="main"] > div:not(:where([role="dialog"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
-      'main[role="main"] > div > div:not(:where([role="dialog"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
-      'main[role="main"] > div > div > div:not(:where([role="dialog"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
+      'main[role="main"] > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
+      'main[role="main"] > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
+      'main[role="main"] > div > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
       '[data-testid="sidebarColumn"]',
-      '[data-testid="sidebarColumn"] > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"]))',
-      '[data-testid="sidebarColumn"] > div > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"]))',
+      '[data-testid="sidebarColumn"] > div > div > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [id^="typeaheadDropdown"], [data-testid="typeaheadDropdown"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="news_sidebar"], .r-1867qdf))',
+      '[data-testid="sidebarColumn"] > div > div > div > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [id^="typeaheadDropdown"], [data-testid="typeaheadDropdown"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="news_sidebar"], .r-1867qdf))',
     ],
     columns: [
       '[data-testid="primaryColumn"]',
@@ -598,9 +601,7 @@ svg[data-testid="icon-verified"] {
 form[role="search"] {
   --fs-reveal-canvas: ${popBg};
 }
-.r-kemksi${NOT_IN_VIDEO},
-.r-yfoy6g${NOT_IN_VIDEO},
-.r-14lw9ot:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${IN_VIDEO})) {
+${RNW_CANVAS_SELECTORS.join(',\n')} {
   background-color: var(--fs-reveal-canvas, transparent) !important;
 }
 [data-testid="sidebarColumn"] section [data-testid="trend"],

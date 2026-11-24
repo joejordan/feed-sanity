@@ -758,6 +758,33 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(defaultSurfaceReveal).not.toContain('backdrop-filter');
     expect(resolveGlassMetrics(1).blurPx).toBeLessThanOrEqual(10);
 
+    // Site-agnostic surface finish slots handle comma-separated `feedCards` (each selector
+    // receives `:hover`), `primaryCtas`, `searchContainers`, and `glass` without `leafCards`.
+    const neonWithSurfaces = compileSurfaceFinishCss(
+      resolved.palette,
+      'dark',
+      { ...DEFAULT_THEME_EFFECTS, surface: 'neon' },
+      {
+        feedCards: ['article, [role="article"]'],
+        primaryCtas: ['button.compose'],
+        searchContainers: ['form[role="search"] > div'],
+        columns: ['main > .col'],
+      },
+    );
+    expect(neonWithSurfaces).toContain('article:hover,\n[role="article"]:hover');
+    expect(neonWithSurfaces).toContain('button.compose');
+    expect(neonWithSurfaces).toContain('form[role="search"] > div');
+    expect(neonWithSurfaces).toContain('main > .col');
+
+    const glassNoLeaves = compileSurfaceFinishCss(
+      resolved.palette,
+      'dark',
+      { ...DEFAULT_THEME_EFFECTS, surface: 'glass' },
+      { popups: ['[role="dialog"]'] },
+    );
+    expect(glassNoLeaves).not.toContain('backdrop-filter');
+    expect(glassNoLeaves).toContain('[role="dialog"]');
+
     const layer = createEffectsLayerController(document);
     cleanups.push(() => layer.dispose());
     layer.sync(resolved.effects, resolved.palette, 'dark');
