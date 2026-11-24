@@ -1,4 +1,8 @@
+import type { ThemePalette } from './types';
 import { parseCssColor, rgbaContrastRatio, rgbaLuminance } from '../theme';
+
+export const WCAG_AA_TEXT_CONTRAST = 4.5;
+export const WCAG_AA_ACCENT_CONTRAST = 3;
 
 const HEX6 = /^#([0-9a-f]{6})$/i;
 const HEX3 = /^#([0-9a-f]{3})$/i;
@@ -86,3 +90,78 @@ export function contrastRatio(a: string, b: string): number {
 /** Picks `#ffffff` or `#111111` for maximum contrast on top of `backgroundHex`. */
 export const contrastingText = (backgroundHex: string): string =>
   relativeLuminance(backgroundHex) > 0.42 ? '#111111' : '#ffffff';
+
+/** Returns the lower WCAG 2.1 contrast ratio of `text` against both `background` and `surface`. */
+export function minTextContrast(text: string, background: string, surface: string): number {
+  return Math.min(contrastRatio(text, background), contrastRatio(text, surface));
+}
+
+/** Picks `#ffffff` or `#111111` for the highest worst-case contrast across `background` and `surface`. */
+export function pickAccessibleText(background: string, surface: string): string {
+  const whiteMin = minTextContrast('#ffffff', background, surface);
+  const darkMin = minTextContrast('#111111', background, surface);
+  if (whiteMin === darkMin) {
+    return contrastingText(background);
+  }
+  return whiteMin > darkMin ? '#ffffff' : '#111111';
+}
+
+/**
+ * Deterministically hydrates omitted optional palette tokens (`surfaceAlt`, `textMuted`,
+ * `border`, `accentSecondary`, `accentText`, `danger`) from the 4 required hex tokens.
+ */
+export function hydratePalette(
+  raw: Partial<ThemePalette> &
+    Pick<ThemePalette, 'colorScheme' | 'background' | 'surface' | 'text' | 'accent'>,
+): ThemePalette {
+  const isLight = raw.colorScheme === 'light';
+  const background = normalizeHex(raw.background) ?? (isLight ? '#f4efe6' : '#0b0f17');
+  const surface = normalizeHex(raw.surface) ?? (isLight ? '#ffffff' : '#131926');
+  const text = normalizeHex(raw.text) ?? (isLight ? '#111111' : '#f8fafc');
+  const accent = normalizeHex(raw.accent) ?? (isLight ? '#1d4ed8' : '#3b82f6');
+
+  const surfaceAlt =
+    normalizeHex(raw.surfaceAlt ?? '') ??
+    mixHex(surface, isLight ? background : text, isLight ? 0.55 : 0.08);
+  const textMuted =
+    normalizeHex(raw.textMuted ?? '') ?? mixHex(text, surface, isLight ? 0.32 : 0.36);
+  const border = normalizeHex(raw.border ?? '') ?? mixHex(surface, text, isLight ? 0.16 : 0.14);
+  const accentText = normalizeHex(raw.accentText ?? '') ?? pickAccessibleText(accent, accent);
+  const danger = normalizeHex(raw.danger ?? '') ?? (isLight ? '#dc2626' : '#f87171');
+  const accentSecondary = normalizeHex(raw.accentSecondary ?? '') ?? undefined;
+
+  return {
+    colorScheme: raw.colorScheme,
+    background,
+    surface,
+    surfaceAlt,
+    text,
+    textMuted,
+    border,
+    accent,
+    ...(accentSecondary ? { accentSecondary } : {}),
+    accentText,
+    danger,
+  };
+}
+
+/** Returns custom swatches when provided, otherwise derives swatches from `palette`. */
+export function getPaletteSwatches(
+  palette: ThemePalette | null,
+  customSwatches?: readonly string[],
+  includeSecondaryAccent = false,
+): readonly string[] {
+  if (customSwatches && customSwatches.length >= 2) {
+    return customSwatches;
+  }
+  if (!palette) {
+    return [];
+  }
+  return [
+    palette.background,
+    palette.surface,
+    palette.text,
+    palette.accent,
+    ...(includeSecondaryAccent && palette.accentSecondary ? [palette.accentSecondary] : []),
+  ];
+}

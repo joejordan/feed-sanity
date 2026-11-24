@@ -149,9 +149,6 @@ body {
   background-color: transparent !important;
   background-image: none !important;
 }
-body::after {
-  display: none !important;
-}
 [${OWN_ATTR}="${BACKDROP_OWN_VALUE}"] {
   position: fixed;
   inset: 0;
@@ -213,7 +210,7 @@ export function compileSurfaceFinishCss(
   const alt = palette?.surfaceAlt ?? (hostScheme === 'light' ? '#f1f5f9' : '#1c2436');
   const text = palette?.text ?? (hostScheme === 'light' ? '#0f172a' : '#f8fafc');
   const border = palette?.border ?? (hostScheme === 'light' ? '#cbd5e1' : '#2b364d');
-  const danger = palette?.danger ?? '#ec4899';
+  const secondary = palette?.accentSecondary ?? palette?.danger ?? '#ec4899';
 
   const leafTargets = surfaces?.leafCards?.join(',\n') ?? '';
   const popupTargets = (
@@ -240,13 +237,13 @@ export function compileSurfaceFinishCss(
 
   if (effects.surface === 'gradient') {
     const sheenA = hexWithAlpha(accent, hostScheme === 'light' ? 0.08 : 0.14);
-    const sheenB = hexWithAlpha(danger, hostScheme === 'light' ? 0.05 : 0.1);
+    const sheenB = hexWithAlpha(secondary, hostScheme === 'light' ? 0.05 : 0.1);
     const blocks: string[] = [
       `${cardTargets} {\n  background-image: linear-gradient(145deg, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 48%, ${sheenB} 100%) !important;\n}`,
     ];
     if (ctaTargets) {
       blocks.push(
-        `${ctaTargets} {\n  background-image: linear-gradient(135deg, ${accent} 0%, ${danger} 100%) !important;\n}`,
+        `${ctaTargets} {\n  background-image: linear-gradient(135deg, ${accent} 0%, ${secondary} 100%) !important;\n}`,
       );
     }
     return blocks.join('\n\n');
@@ -295,12 +292,12 @@ export function compileUiSurfaceCss(
     return '';
   }
   const accent = palette?.accent ?? '#3b82f6';
-  const danger = palette?.danger ?? '#ec4899';
+  const secondary = palette?.accentSecondary ?? palette?.danger ?? '#ec4899';
   if (effects.surface === 'neon') {
     return `.dialog, .qp-root { box-shadow: 0 0 0 1px ${hexWithAlpha(accent, 0.45)}, 0 18px 48px ${hexWithAlpha(accent, 0.22)}; }`;
   }
   if (effects.surface === 'gradient') {
-    return `.dialog-main, .qp-body { background-image: linear-gradient(160deg, ${hexWithAlpha(accent, 0.08)} 0%, transparent 45%, ${hexWithAlpha(danger, 0.06)} 100%); }`;
+    return `.dialog-main, .qp-body { background-image: linear-gradient(160deg, ${hexWithAlpha(accent, 0.08)} 0%, transparent 45%, ${hexWithAlpha(secondary, 0.06)} 100%); }`;
   }
   return '';
 }

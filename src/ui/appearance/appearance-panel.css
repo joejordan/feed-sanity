@@ -495,3 +495,76 @@
   align-items: center;
   gap: 6px;
 }
+
+.theme-imported-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--fs-accent);
+  border-radius: 10px;
+  background: var(--fs-accent-surface);
+}
+
+.theme-imported-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.theme-transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-transfer-file-input {
+  display: none;
+}
+
+.theme-transfer-error {
+  padding: 9px 11px;
+  border: 1px solid rgb(220 38 38 / 45%);
+  border-radius: 8px;
+  background: rgb(220 38 38 / 10%);
+  color: var(--fs-text);
+  font-size: 12px;
+}
+
+.theme-transfer-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--fs-divider);
+  border-radius: 9px;
+  background: var(--fs-background);
+}
+
+.theme-transfer-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.theme-transfer-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.theme-transfer-css-optin {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--fs-text);
+  cursor: pointer;
+}

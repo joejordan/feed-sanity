@@ -8,9 +8,12 @@ import { inMemoryStore } from '../../core/testing';
 import { STUDIO_VIBES } from '../../core/theme-effects';
 import {
   applyStudioVibe,
+  applyThemeDocument,
   DEFAULT_THEME_CONFIG,
+  parseThemeDocument,
   readThemeConfig,
   THEME_DATA_KEY,
+  THEME_FILE_FORMAT,
 } from '../../core/theming';
 import { facebookSite } from '../../sites/facebook';
 import { gmailSite } from '../../sites/gmail';
@@ -271,5 +274,50 @@ describe('QuickPopup', () => {
         expect(detectActiveMode(cfg.modes, state, cfg.modeDefaults)).toBe(modeId);
       }
     }
+  });
+
+  it('shows imported .fstheme.json name in the Theme badge, unpresses built-in swatches, and supports Undo', async () => {
+    const parsed = parseThemeDocument({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      id: 'aurora-mist',
+      meta: { name: 'Aurora Mist' },
+      palette: {
+        colorScheme: 'dark',
+        background: '#09101d',
+        surface: '#111c30',
+        text: '#e2e8f0',
+        accent: '#38bdf8',
+      },
+    });
+    expect(parsed.ok).toBe(true);
+    const importedConfig = applyThemeDocument(DEFAULT_THEME_CONFIG, parsed.document!);
+
+    const store = inMemoryStore({
+      [`x/123/${THEME_DATA_KEY}`]: importedConfig,
+    });
+    renderXPopup(store);
+
+    await vi.waitFor(() => expect(screen.getByText('Aurora Mist')).toBeTruthy());
+    expect(
+      screen.getByRole('button', { name: 'Site Default theme' }).getAttribute('aria-pressed'),
+    ).toBe('false');
+    expect(
+      screen.getByRole('button', { name: 'Warm Paper theme' }).getAttribute('aria-pressed'),
+    ).toBe('false');
+
+    // Picking a Quick Theme replaces the imported document, and Undo restores it cleanly.
+    await userEvent.click(screen.getByRole('button', { name: 'Warm Paper theme' }));
+    await vi.waitFor(async () => {
+      const saved = readThemeConfig(await store.get(`x/123/${THEME_DATA_KEY}`));
+      expect(saved.preset).toBe('warm-paper');
+      expect(saved.document).toBeUndefined();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await vi.waitFor(async () => {
+      const saved = readThemeConfig(await store.get(`x/123/${THEME_DATA_KEY}`));
+      expect(saved.document?.meta.name).toBe('Aurora Mist');
+    });
   });
 });

@@ -1,4 +1,5 @@
 import type { ThemeEffectsConfig } from '../theme-effects/model';
+import type { ThemeDocumentV1 } from './document';
 
 /**
  * Deterministic CSS Cascade Layer order (CSS Cascading Level 5).
@@ -84,10 +85,50 @@ export interface ThemePalette {
   readonly border: string;
   /** Primary accent for links, active indicators, and primary buttons (`#rrggbb`). */
   readonly accent: string;
+  /** Optional secondary decorative accent for gradients and live scenes (falls back to `danger`). */
+  readonly accentSecondary?: string;
   /** Text rendered on top of `accent` fills (`#rrggbb`). */
   readonly accentText: string;
   /** Destructive / error indicator (`#rrggbb`). */
   readonly danger: string;
+}
+
+/** Declarative edge accent ribbon compiled safely onto host and Feed Sanity UI chrome. */
+export interface ThemeRibbonSpec {
+  readonly enabled: boolean;
+  /** 1..8 validated `#rrggbb` or `'transparent'` gradient stops. */
+  readonly stops: readonly string[];
+  /** Linear gradient angle in degrees (`0..360`, default `90`). */
+  readonly angle?: number;
+  /** Ribbon thickness in CSS pixels (`1..6`, default `3`). */
+  readonly height?: number;
+  readonly position?: 'top' | 'bottom';
+}
+
+/** One soft radial ambient glow spot rendered behind static themes (skipped when a live backdrop runs). */
+export interface ThemeAmbientGlowSpot {
+  readonly color: string;
+  /** Opacity (`0.02..0.3`). */
+  readonly alpha: number;
+  /** Horizontal center (`0..100` percent). */
+  readonly x: number;
+  /** Vertical center (`0..100` percent). */
+  readonly y: number;
+  /** Horizontal ellipse radius (`20..90` percent, default `60`). */
+  readonly radiusX?: number;
+  /** Vertical ellipse radius (`20..80` percent, default `42`). */
+  readonly radiusY?: number;
+}
+
+export interface ThemeAmbientGlowSpec {
+  readonly enabled: boolean;
+  readonly spots: readonly ThemeAmbientGlowSpot[];
+}
+
+/** Declarative visual niceties (ribbons, ambient glows) shared across built-in and exported themes. */
+export interface ThemeChromeConfig {
+  readonly ribbon?: ThemeRibbonSpec;
+  readonly ambientGlow?: ThemeAmbientGlowSpec;
 }
 
 /**
@@ -100,10 +141,8 @@ export interface ResolvedTheme {
   readonly palette: ThemePalette | null;
   readonly fontFamily?: string;
   readonly customCss?: string;
-  /** Optional ambient CSS contributed by a showpiece built-in preset (host document). */
-  readonly presetHostCss?: string;
-  /** Optional ambient CSS contributed by a showpiece built-in preset (Feed Sanity UI). */
-  readonly presetUiCss?: string;
+  /** Declarative chrome niceties (edge ribbon, static ambient glow). */
+  readonly chrome?: ThemeChromeConfig;
   /** Optional Creative Studio live backdrop, surface finish, and click effects. */
   readonly effects?: ThemeEffectsConfig;
 }
@@ -117,10 +156,8 @@ export interface ThemePreset {
   readonly swatches?: readonly string[];
   /** Optional CSS gradient shown on compact circular quick-theme swatches. */
   readonly swatchGradient?: string;
-  /** Optional ambient CSS layered on the host page (ribbon, soft radial backdrop, etc.). */
-  readonly hostCss?: string;
-  /** Optional ambient CSS layered inside Feed Sanity's own dialog & toolbar popup. */
-  readonly uiCss?: string;
+  /** Declarative chrome niceties (edge ribbon & soft static ambient glow). */
+  readonly chrome?: ThemeChromeConfig;
 }
 
 export const THEME_FONT_STACKS = {
@@ -133,6 +170,11 @@ export const THEME_FONT_STACKS = {
 
 export type ThemeFontId = keyof typeof THEME_FONT_STACKS;
 
+/** Type guard verifying `value` is a known built-in `ThemeFontId`. */
+export function isThemeFontId(value: unknown): value is ThemeFontId {
+  return typeof value === 'string' && Object.hasOwn(THEME_FONT_STACKS, value);
+}
+
 export interface ThemeConfig {
   readonly preset: string;
   readonly accent: string;
@@ -142,6 +184,8 @@ export interface ThemeConfig {
   readonly font: string;
   readonly customCss: string;
   readonly effects?: ThemeEffectsConfig;
+  /** Optional imported self-contained `.fstheme.json` theme document. */
+  readonly document?: ThemeDocumentV1;
 }
 
 export const DEFAULT_THEME_CONFIG: ThemeConfig = {

@@ -8,8 +8,10 @@ import { SavedData } from '../../core/saved';
 import { inMemoryStore } from '../../core/testing';
 import {
   DEFAULT_THEME_CONFIG,
+  MAX_THEME_FILE_BYTES,
   readEarlyThemeCss,
   resolveTheme,
+  THEME_FILE_FORMAT,
   THEME_FONT_STACKS,
   writeEarlyThemeCss,
 } from '../../core/theming';
@@ -494,6 +496,176 @@ describe('appearancePanel & initSiteTheme', () => {
       runtime.dispose();
       env.dispose();
       writeEarlyThemeCss(siteId, '');
+    }
+  });
+
+  it('previews, validates, fixes contrast, gates custom CSS opt-in, and applies imported .fstheme.json files', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    await userEvent.click(screen.getByRole('button', { name: /Import \/ Export theme/i }));
+
+    const sampleTheme = JSON.stringify({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      id: 'ocean-pulse',
+      meta: { name: 'Ocean Pulse', author: 'Joe', description: 'Deep sea palette with glass' },
+      palette: {
+        colorScheme: 'light',
+        background: '#ffffff',
+        surface: '#f8fafc',
+        text: '#d4d4d4',
+        accent: '#0284c7',
+      },
+      effects: {
+        backdrop: { id: 'aurora', intensity: 0.6 },
+        surface: { finish: 'glass', glassStrength: 0.4 },
+      },
+      customCss: '.custom-rule { letter-spacing: 0.01em; }',
+    });
+
+    const pasteArea = screen.getByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Paste theme JSON',
+    });
+    await userEvent.click(pasteArea);
+    await userEvent.paste(sampleTheme);
+    await userEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+
+    // Preview shows metadata, low-contrast warning, and unchecked custom CSS opt-in.
+    expect(screen.getByText('Ocean Pulse')).toBeTruthy();
+    expect(screen.getByText(/by Joe/)).toBeTruthy();
+    expect(screen.getByText(/Low text contrast/)).toBeTruthy();
+    const cssCheckbox = screen.getByRole<HTMLInputElement>('checkbox', {
+      name: /Include custom CSS/i,
+    });
+    expect(cssCheckbox.checked).toBe(false);
+
+    // One-click Fix contrast repairs the preview document before applying.
+    await userEvent.click(screen.getByRole('button', { name: 'Fix contrast' }));
+    expect(screen.queryByText(/Low text contrast/)).toBeNull();
+
+    // Apply without checking custom CSS: palette + effects apply, custom CSS stays excluded.
+    await userEvent.click(screen.getByRole('button', { name: 'Apply imported theme' }));
+    await vi.waitFor(() => {
+      expect(saved.get().document?.meta.name).toBe('Ocean Pulse');
+      expect(saved.get().document?.palette?.text).toBe('#111111');
+      expect(saved.get().effects?.backdrop).toBe('aurora');
+      expect(saved.get().customCss).toBe('');
+    });
+
+    // Active imported theme banner appears at the top of Appearance and can reset cleanly.
+    expect(screen.getByRole('region', { name: 'Active imported theme' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    await vi.waitFor(() => {
+      expect(saved.get().document).toBeUndefined();
+      expect(saved.get().preset).toBe('default');
+    });
+  });
+
+  it('supports custom CSS opt-in with preserved warnings, invalid/oversized file errors, Export, Copy JSON, and clearing imported font', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    await userEvent.click(screen.getByRole('button', { name: /Import \/ Export theme/i }));
+
+    // Invalid JSON shows role="alert" and hides Apply button.
+    const pasteArea = screen.getByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Paste theme JSON',
+    });
+    await userEvent.click(pasteArea);
+    await userEvent.paste('{broken');
+    await userEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+    expect(screen.getByRole('alert').textContent).toContain('Invalid JSON syntax');
+    expect(screen.queryByRole('button', { name: 'Apply imported theme' })).toBeNull();
+
+    // Oversized file is rejected before reading.
+    const fileInput = screen.getByLabelText<HTMLInputElement>('Import theme file');
+    const hugeFile = new File(['x'.repeat(MAX_THEME_FILE_BYTES + 1)], 'huge.fstheme.json', {
+      type: 'application/json',
+    });
+    await userEvent.upload(fileInput, hugeFile);
+    expect(screen.getByRole('alert').textContent).toContain('64 KB limit');
+
+    // Valid file upload with BOTH low contrast + stripped @import + customStack.
+    const fileJson = JSON.stringify({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      id: 'imported-studio',
+      meta: { name: 'Imported Studio' },
+      palette: {
+        colorScheme: 'light',
+        background: '#ffffff',
+        surface: '#f8fafc',
+        text: '#d4d4d4',
+        accent: '#0284c7',
+      },
+      typography: { customStack: '"IBM Plex Sans", sans-serif' },
+      customCss: '@import url("https://evil.example/x.css"); .keep { border-radius: 8px; }',
+    });
+    const validFile = new File([fileJson], 'imported-studio.fstheme.json', {
+      type: 'application/json',
+    });
+    await userEvent.upload(fileInput, validFile);
+
+    await vi.waitFor(() => expect(screen.getByText('Imported Studio')).toBeTruthy());
+    expect(screen.getByText(/Stripped 1 external\/unsafe CSS/)).toBeTruthy();
+
+    // Fix contrast removes the contrast warning while keeping the stripped-CSS warning visible.
+    await userEvent.click(screen.getByRole('button', { name: 'Fix contrast' }));
+    expect(screen.queryByText(/Low text contrast/)).toBeNull();
+    expect(screen.getByText(/Stripped 1 external\/unsafe CSS/)).toBeTruthy();
+
+    // Opt-in custom CSS and apply.
+    await userEvent.click(screen.getByRole('checkbox', { name: /Include custom CSS/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Apply imported theme' }));
+    await vi.waitFor(() => {
+      expect(saved.get().document?.meta.name).toBe('Imported Studio');
+      expect(saved.get().customCss).toContain('.keep { border-radius: 8px; }');
+      expect(saved.get().customCss).not.toContain('evil.example');
+    });
+
+    // Typography dropdown displays "Custom (imported)" and lets the user revert cleanly to Site default.
+    const fontSelect = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Typography' });
+    expect(fontSelect.value).toBe('__imported__');
+    await userEvent.selectOptions(fontSelect, 'default');
+    await vi.waitFor(() => {
+      expect(saved.get().font).toBe('default');
+      expect(saved.get().document?.typography?.customStack).toBeUndefined();
+    });
+
+    // Export triggers Blob download and Copy JSON writes canonical JSON to clipboard.
+    const createUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+    const revokeUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(globalThis.navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    try {
+      await userEvent.click(screen.getByRole('button', { name: /Export \.fstheme\.json/i }));
+      expect(createUrlSpy).toHaveBeenCalledTimes(1);
+      await userEvent.click(screen.getByRole('button', { name: 'Copy JSON' }));
+      await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(writeText.mock.calls[0]?.[0]).toContain('"format": "feed-sanity-theme"');
+    } finally {
+      createUrlSpy.mockRestore();
+      revokeUrlSpy.mockRestore();
     }
   });
 });

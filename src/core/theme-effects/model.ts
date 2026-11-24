@@ -81,6 +81,13 @@ export const DEFAULT_THEME_EFFECTS: ThemeEffectsConfig = {
   click: 'none',
 };
 
+export const THEME_EFFECT_BOUNDS = {
+  intensity: { min: 0.15, max: 1 },
+  speed: { min: 0.25, max: 2 },
+  glassStrength: { min: 0, max: 0.65 },
+  rainDensity: { min: 0.15, max: 0.9 },
+} as const;
+
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
@@ -101,15 +108,35 @@ export function readThemeEffectsConfig(raw: unknown): ThemeEffectsConfig {
   }
   return {
     backdrop: readEnum(raw.backdrop, BACKDROP_EFFECT_IDS, DEFAULT_THEME_EFFECTS.backdrop),
-    intensity: clampNumber(raw.intensity, 0.15, 1, DEFAULT_THEME_EFFECTS.intensity),
-    speed: clampNumber(raw.speed, 0.25, 2, DEFAULT_THEME_EFFECTS.speed),
-    glassStrength: clampNumber(raw.glassStrength, 0, 0.65, DEFAULT_THEME_EFFECTS.glassStrength),
+    intensity: clampNumber(
+      raw.intensity,
+      THEME_EFFECT_BOUNDS.intensity.min,
+      THEME_EFFECT_BOUNDS.intensity.max,
+      DEFAULT_THEME_EFFECTS.intensity,
+    ),
+    speed: clampNumber(
+      raw.speed,
+      THEME_EFFECT_BOUNDS.speed.min,
+      THEME_EFFECT_BOUNDS.speed.max,
+      DEFAULT_THEME_EFFECTS.speed,
+    ),
+    glassStrength: clampNumber(
+      raw.glassStrength,
+      THEME_EFFECT_BOUNDS.glassStrength.min,
+      THEME_EFFECT_BOUNDS.glassStrength.max,
+      DEFAULT_THEME_EFFECTS.glassStrength,
+    ),
     paused: typeof raw.paused === 'boolean' ? raw.paused : DEFAULT_THEME_EFFECTS.paused,
     interactive:
       typeof raw.interactive === 'boolean' ? raw.interactive : DEFAULT_THEME_EFFECTS.interactive,
     rainLook: readEnum(raw.rainLook, RAIN_LOOK_NAMES, DEFAULT_THEME_EFFECTS.rainLook),
     rainCharset: readEnum(raw.rainCharset, RAIN_CHARSET_NAMES, DEFAULT_THEME_EFFECTS.rainCharset),
-    rainDensity: clampNumber(raw.rainDensity, 0.15, 0.9, DEFAULT_THEME_EFFECTS.rainDensity),
+    rainDensity: clampNumber(
+      raw.rainDensity,
+      THEME_EFFECT_BOUNDS.rainDensity.min,
+      THEME_EFFECT_BOUNDS.rainDensity.max,
+      DEFAULT_THEME_EFFECTS.rainDensity,
+    ),
     rainIntro: readEnum(raw.rainIntro, RAIN_INTRO_NAMES, DEFAULT_THEME_EFFECTS.rainIntro),
     surface: readEnum(raw.surface, SURFACE_FINISH_IDS, DEFAULT_THEME_EFFECTS.surface),
     click: readEnum(raw.click, CLICK_EFFECT_IDS, DEFAULT_THEME_EFFECTS.click),

@@ -1,7 +1,12 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { SavedValue } from '../../core/saved';
 import type { StudioVibe, ThemeEffectsConfig } from '../../core/theme-effects';
-import type { THEME_FONT_STACKS, ThemeConfig, ThemeController } from '../../core/theming';
+import type {
+  THEME_FONT_STACKS,
+  ThemeConfig,
+  ThemeController,
+  ThemeDocumentV1,
+} from '../../core/theming';
 import type { OptionsPanel, PanelProps, PanelSearchItem } from '../options-dialog/panel';
 import type { AuditState } from './health-disclosure';
 import {
@@ -12,15 +17,18 @@ import {
 } from '../../core/theme-effects';
 import {
   applyStudioVibe,
+  applyThemeDocument,
   applyThemePreset,
   BUILTIN_THEMES,
   clearThemeEffects,
-  contrastingText,
-  contrastRatio,
   DEFAULT_THEME_CONFIG,
   findActiveStudioVibe,
+  getPaletteSwatches,
+  minTextContrast,
   normalizeHex,
+  pickAccessibleText,
   resolveTheme,
+  WCAG_AA_TEXT_CONTRAST,
 } from '../../core/theming';
 import { definePanel } from '../options-dialog/panel';
 import {
@@ -35,6 +43,7 @@ import css from './appearance-panel.css?inline';
 import { CustomCssDisclosure } from './custom-css-disclosure';
 import { ThemeHealthDisclosure } from './health-disclosure';
 import { CreativeStudioCard, StudioVibesCard } from './studio-section';
+import { downloadThemeConfigFile, ThemeTransferDisclosure } from './theme-transfer';
 
 export { readThemeConfig, THEME_DATA_KEY } from '../../core/theming';
 
@@ -63,20 +72,6 @@ const SCHEME_FILTERS = [
   { value: 'dark', label: 'Dark' },
   { value: 'light', label: 'Light' },
 ] as const;
-
-const WCAG_AA_CONTRAST = 4.5;
-
-function pickAccessibleText(background: string, surface: string): string {
-  const whiteMin = Math.min(
-    contrastRatio('#ffffff', background),
-    contrastRatio('#ffffff', surface),
-  );
-  const darkMin = Math.min(contrastRatio('#111111', background), contrastRatio('#111111', surface));
-  if (whiteMin === darkMin) {
-    return contrastingText(background);
-  }
-  return whiteMin > darkMin ? '#ffffff' : '#111111';
-}
 
 function formatScanTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
@@ -114,6 +109,7 @@ function AppearancePanelView({
 
   const hasCustomColors = Boolean(value.accent || value.background || value.surface || value.text);
   const [colorsOpen, setColorsOpen] = useState(hasCustomColors);
+  const [transferOpen, setTransferOpen] = useState(Boolean(value.document));
   const [cssOpen, setCssOpen] = useState(
     Boolean(value.customCss.trim() || savedExternalCssUrl.trim()),
   );
@@ -142,15 +138,10 @@ function AppearancePanelView({
   const effective = useMemo(() => resolveTheme(value)?.palette ?? null, [value]);
   const minContrast = useMemo(
     () =>
-      effective
-        ? Math.min(
-            contrastRatio(effective.text, effective.background),
-            contrastRatio(effective.text, effective.surface),
-          )
-        : null,
+      effective ? minTextContrast(effective.text, effective.background, effective.surface) : null,
     [effective],
   );
-  const lowContrast = minContrast !== null && minContrast < WCAG_AA_CONTRAST;
+  const lowContrast = minContrast !== null && minContrast < WCAG_AA_TEXT_CONTRAST;
 
   useEffect(() => {
     if (lowContrast) {
@@ -204,6 +195,13 @@ function AppearancePanelView({
     applyEdit(clearThemeEffects(value), 'Cleared studio effects');
   };
 
+  const handleImportDocument = (doc: ThemeDocumentV1, includeCustomCss: boolean): void => {
+    applyEdit(
+      applyThemeDocument(value, doc, { includeCustomCss }),
+      `Imported theme "${doc.meta.name}"`,
+    );
+  };
+
   const runAudit = (): void => {
     setHealthOpen(true);
     const report = controller.audit?.() ?? null;
@@ -249,8 +247,59 @@ function AppearancePanelView({
     colorsBadge = <Badge tone="accent">Customized</Badge>;
   }
 
+  const hasImportedCustomStack = Boolean(
+    value.font === 'default' && value.document?.typography?.customStack,
+  );
+  const selectFont = (nextFont: string): void => {
+    if (nextFont === '__imported__') {
+      return;
+    }
+    const fontLabel = FONT_LABELS[nextFont as keyof typeof FONT_LABELS] ?? nextFont;
+    let nextConfig: ThemeConfig = { ...value, font: nextFont };
+    if (value.document?.typography?.customStack) {
+      const { customStack: _dropped, ...restTypo } = value.document.typography;
+      const { typography: _oldTypo, ...restDoc } = value.document;
+      nextConfig = {
+        ...nextConfig,
+        document: Object.keys(restTypo).length > 0 ? { ...restDoc, typography: restTypo } : restDoc,
+      };
+    }
+    applyEdit(nextConfig, `Typography set to ${fontLabel}`);
+  };
+
   return (
     <section className="theme-panel">
+      {value.document && (
+        <div className="theme-imported-banner" role="region" aria-label="Active imported theme">
+          <div className="theme-imported-info">
+            <Badge tone="accent">Imported</Badge>
+            <strong className="theme-card-name">{value.document.meta.name}</strong>
+            {value.document.meta.author && (
+              <span className="theme-studio-hint">by {value.document.meta.author}</span>
+            )}
+          </div>
+          <div className="theme-audit-buttons">
+            <button
+              type="button"
+              className="theme-inline-reset"
+              onClick={() => {
+                const filename = downloadThemeConfigFile(value);
+                notify?.(`Exported ${filename}`);
+              }}
+            >
+              Export
+            </button>
+            <button
+              type="button"
+              className="theme-inline-reset"
+              onClick={() => applyEdit({ ...DEFAULT_THEME_CONFIG }, 'Cleared imported theme')}
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+      )}
+
       <StudioVibesCard activeVibe={activeVibe} onApplyVibe={applyVibe} />
 
       <SettingCard
@@ -298,14 +347,7 @@ function AppearancePanelView({
                 onClick={() => selectColorTheme(preset.id, preset.name)}
               >
                 <span className="theme-swatches" aria-hidden="true">
-                  {(
-                    preset.swatches ?? [
-                      preset.palette.background,
-                      preset.palette.surface,
-                      preset.palette.text,
-                      preset.palette.accent,
-                    ]
-                  ).map((color, idx) => (
+                  {getPaletteSwatches(preset.palette, preset.swatches).map((color, idx) => (
                     <span
                       // biome-ignore lint/suspicious/noArrayIndexKey: static preset swatch palette
                       key={idx}
@@ -339,13 +381,10 @@ function AppearancePanelView({
             id={fontId}
             className="field"
             aria-label="Typography"
-            value={value.font}
-            onChange={(event) => {
-              const nextFont = event.currentTarget.value;
-              const fontLabel = FONT_LABELS[nextFont as keyof typeof FONT_LABELS] ?? nextFont;
-              update({ font: nextFont }, `Typography set to ${fontLabel}`);
-            }}
+            value={hasImportedCustomStack ? '__imported__' : value.font}
+            onChange={(event) => selectFont(event.currentTarget.value)}
           >
+            {hasImportedCustomStack && <option value="__imported__">Custom (imported)</option>}
             {(Object.keys(FONT_LABELS) as Array<keyof typeof FONT_LABELS>).map((id) => (
               <option key={id} value={id}>
                 {FONT_LABELS[id]}
@@ -410,6 +449,14 @@ function AppearancePanelView({
           </div>
         </Disclosure>
 
+        <ThemeTransferDisclosure
+          open={transferOpen}
+          onToggle={() => setTransferOpen((open) => !open)}
+          config={value}
+          onImport={handleImportDocument}
+          {...(notify ? { notify } : {})}
+        />
+
         {effective && controller.audit && (
           <ThemeHealthDisclosure
             open={healthOpen}
@@ -468,6 +515,12 @@ export function appearancePanel(
         title: 'Typography / Site font',
         description: 'Change the font family across this site and Feed Sanity controls.',
         keywords: ['font', 'serif', 'mono', 'rounded', 'sans'],
+      },
+      {
+        id: 'import-export-theme',
+        title: 'Import / Export theme (.fstheme.json)',
+        description: 'Export your active theme to a single file or import a shared .fstheme.json.',
+        keywords: ['import', 'export', 'share', 'json', 'fstheme', 'backup', 'file'],
       },
       {
         id: 'custom-css',

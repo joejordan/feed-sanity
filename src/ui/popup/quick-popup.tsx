@@ -542,10 +542,12 @@ export function QuickPopup({
     });
   };
 
-  const activeThemeName =
-    theme.preset && theme.preset !== 'default'
-      ? (findThemePreset(theme.preset)?.name ?? 'Custom')
-      : 'Site Default';
+  let activeThemeName = 'Site Default';
+  if (theme.document) {
+    activeThemeName = theme.document.meta.name;
+  } else if (theme.preset && theme.preset !== 'default') {
+    activeThemeName = findThemePreset(theme.preset)?.name ?? 'Custom';
+  }
   const effectsActive = hasActiveEffects(theme.effects);
   const activeVibe = findActiveStudioVibe(theme);
   const activeEffects = effectsActive ? readThemeEffectsConfig(theme.effects) : null;
@@ -784,7 +786,9 @@ export function QuickPopup({
               className="qp-swatch-btn"
               title="Site Default"
               aria-label="Site Default theme"
-              aria-pressed={!effectsActive && (!theme.preset || theme.preset === 'default')}
+              aria-pressed={
+                !effectsActive && !theme.document && (!theme.preset || theme.preset === 'default')
+              }
               onClick={() => applyQuickTheme('default')}
             >
               <span className="qp-swatch-fill qp-swatch-default" aria-hidden="true" />
@@ -796,7 +800,7 @@ export function QuickPopup({
                 className="qp-swatch-btn"
                 title={preset.name}
                 aria-label={`${preset.name} theme`}
-                aria-pressed={!effectsActive && theme.preset === preset.id}
+                aria-pressed={!effectsActive && !theme.document && theme.preset === preset.id}
                 onClick={() => applyQuickTheme(preset.id)}
               >
                 <span

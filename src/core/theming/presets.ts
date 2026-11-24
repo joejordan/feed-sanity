@@ -1,24 +1,5 @@
 import type { ThemePreset } from './types';
 
-function ambientPresetCss({
-  ribbon,
-  glow,
-  height = 3,
-  uiPrefix = '',
-}: {
-  readonly ribbon: string;
-  readonly glow: string;
-  readonly height?: number;
-  readonly uiPrefix?: string;
-}): Pick<ThemePreset, 'hostCss' | 'uiCss'> {
-  const hostCss = [
-    `body::before { content: ""; position: fixed; inset: 0 0 auto 0; height: ${height}px; pointer-events: none; z-index: 2147483640; background: ${ribbon}; }`,
-    `body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1; background-image: ${glow}; }`,
-  ].join('\n');
-  const uiRibbon = `.dialog::before, .qp-root::before { content: ""; position: absolute; inset: 0 0 auto 0; height: ${height}px; pointer-events: none; z-index: 50; background: ${ribbon}; }`;
-  return { hostCss, uiCss: uiPrefix ? `${uiPrefix}\n${uiRibbon}` : uiRibbon };
-}
-
 export const BUILTIN_THEMES: readonly ThemePreset[] = [
   {
     id: 'midnight',
@@ -220,18 +201,28 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       textMuted: '#b7b0d8',
       border: '#322b5c',
       accent: '#c084fc',
+      accentSecondary: '#28d7ff',
       accentText: '#090814',
       danger: '#fb7185',
     },
     swatches: ['#ff3b8d', '#ff9e2c', '#ffe600', '#22e58b', '#28d7ff', '#8b5cf6'],
     swatchGradient:
       'conic-gradient(from 0deg, #ff3b8d, #ff9e2c, #ffe600, #22e58b, #28d7ff, #8b5cf6, #ff3b8d)',
-    ...ambientPresetCss({
-      ribbon:
-        'linear-gradient(90deg, #ff3b8d, #ff9e2c, #ffe600, #22e58b, #28d7ff, #8b5cf6, #ff3b8d)',
-      glow: 'radial-gradient(ellipse 65% 42% at 12% 0%, rgb(255 59 141 / 14%), transparent 62%), radial-gradient(ellipse 60% 42% at 88% 0%, rgb(40 215 255 / 14%), transparent 62%), radial-gradient(ellipse 55% 38% at 50% 100%, rgb(139 92 246 / 12%), transparent 65%)',
-      uiPrefix: '.dialog, .qp-root { box-shadow: inset 0 3px 0 0 transparent; }',
-    }),
+    chrome: {
+      ribbon: {
+        enabled: true,
+        stops: ['#ff3b8d', '#ff9e2c', '#ffe600', '#22e58b', '#28d7ff', '#8b5cf6', '#ff3b8d'],
+        height: 3,
+      },
+      ambientGlow: {
+        enabled: true,
+        spots: [
+          { color: '#ff3b8d', alpha: 0.14, x: 12, y: 0, radiusX: 65, radiusY: 42 },
+          { color: '#28d7ff', alpha: 0.14, x: 88, y: 0, radiusX: 60, radiusY: 42 },
+          { color: '#8b5cf6', alpha: 0.12, x: 50, y: 100, radiusX: 55, radiusY: 38 },
+        ],
+      },
+    },
   },
   {
     id: 'pastel-prism',
@@ -247,17 +238,28 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       textMuted: '#614d80',
       border: '#dccbf7',
       accent: '#c026d3',
+      accentSecondary: '#60a5fa',
       accentText: '#ffffff',
       danger: '#e11d48',
     },
     swatches: ['#ff7eb3', '#ffb86c', '#ffe87c', '#5ce1c6', '#60a5fa', '#c084fc'],
     swatchGradient:
       'conic-gradient(from 0deg, #ff7eb3, #ffb86c, #ffe87c, #5ce1c6, #60a5fa, #c084fc, #ff7eb3)',
-    ...ambientPresetCss({
-      ribbon:
-        'linear-gradient(90deg, #ff7eb3, #ffb86c, #ffe87c, #5ce1c6, #60a5fa, #c084fc, #ff7eb3)',
-      glow: 'radial-gradient(ellipse 65% 45% at 15% 0%, rgb(255 126 179 / 16%), transparent 60%), radial-gradient(ellipse 65% 45% at 85% 0%, rgb(96 165 250 / 16%), transparent 60%), radial-gradient(ellipse 55% 40% at 50% 100%, rgb(92 225 198 / 14%), transparent 65%)',
-    }),
+    chrome: {
+      ribbon: {
+        enabled: true,
+        stops: ['#ff7eb3', '#ffb86c', '#ffe87c', '#5ce1c6', '#60a5fa', '#c084fc', '#ff7eb3'],
+        height: 3,
+      },
+      ambientGlow: {
+        enabled: true,
+        spots: [
+          { color: '#ff7eb3', alpha: 0.16, x: 15, y: 0, radiusX: 65, radiusY: 45 },
+          { color: '#60a5fa', alpha: 0.16, x: 85, y: 0, radiusX: 65, radiusY: 45 },
+          { color: '#5ce1c6', alpha: 0.14, x: 50, y: 100, radiusX: 55, radiusY: 40 },
+        ],
+      },
+    },
   },
   {
     id: 'cyber-neon',
@@ -272,16 +274,26 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       textMuted: '#8ca8d6',
       border: '#243566',
       accent: '#00f0ff',
+      accentSecondary: '#ff2a85',
       accentText: '#04121b',
       danger: '#ff2a85',
     },
     swatches: ['#060913', '#00f0ff', '#7c3aed', '#ff2a85'],
     swatchGradient: 'linear-gradient(135deg, #00f0ff 0%, #7c3aed 52%, #ff2a85 100%)',
-    ...ambientPresetCss({
-      height: 2,
-      ribbon: 'linear-gradient(90deg, #00f0ff, #7c3aed, #ff2a85)',
-      glow: 'radial-gradient(ellipse 60% 40% at 10% 0%, rgb(0 240 255 / 12%), transparent 60%), radial-gradient(ellipse 60% 40% at 90% 0%, rgb(255 42 133 / 12%), transparent 60%)',
-    }),
+    chrome: {
+      ribbon: {
+        enabled: true,
+        stops: ['#00f0ff', '#7c3aed', '#ff2a85'],
+        height: 2,
+      },
+      ambientGlow: {
+        enabled: true,
+        spots: [
+          { color: '#00f0ff', alpha: 0.12, x: 10, y: 0, radiusX: 60, radiusY: 40 },
+          { color: '#ff2a85', alpha: 0.12, x: 90, y: 0, radiusX: 60, radiusY: 40 },
+        ],
+      },
+    },
   },
   {
     id: 'sunset-vapor',
@@ -296,15 +308,26 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       textMuted: '#d4adc9',
       border: '#4c2966',
       accent: '#ff6b4a',
+      accentSecondary: '#ff4d8d',
       accentText: '#1a0905',
       danger: '#ff4d8d',
     },
     swatches: ['#140a1d', '#ff4d8d', '#ff6b4a', '#ffb800'],
     swatchGradient: 'linear-gradient(135deg, #ff4d8d 0%, #ff6b4a 55%, #ffb800 100%)',
-    ...ambientPresetCss({
-      ribbon: 'linear-gradient(90deg, #ff4d8d, #ff6b4a, #ffb800)',
-      glow: 'radial-gradient(ellipse 70% 42% at 50% 0%, rgb(255 107 74 / 15%), transparent 62%), radial-gradient(ellipse 50% 35% at 85% 10%, rgb(255 77 141 / 12%), transparent 60%)',
-    }),
+    chrome: {
+      ribbon: {
+        enabled: true,
+        stops: ['#ff4d8d', '#ff6b4a', '#ffb800'],
+        height: 3,
+      },
+      ambientGlow: {
+        enabled: true,
+        spots: [
+          { color: '#ff6b4a', alpha: 0.15, x: 50, y: 0, radiusX: 70, radiusY: 42 },
+          { color: '#ff4d8d', alpha: 0.12, x: 85, y: 10, radiusX: 50, radiusY: 35 },
+        ],
+      },
+    },
   },
   {
     id: 'terminal-phosphor',
@@ -319,15 +342,22 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       textMuted: '#63b87c',
       border: '#194524',
       accent: '#22c55e',
+      accentSecondary: '#10b981',
       accentText: '#031207',
       danger: '#fb7185',
     },
     swatches: ['#040c06', '#0e2514', '#22c55e', '#b6f7c8'],
-    ...ambientPresetCss({
-      height: 2,
-      ribbon: 'linear-gradient(90deg, transparent, #22c55e, transparent)',
-      glow: 'radial-gradient(ellipse 65% 40% at 50% 0%, rgb(34 197 94 / 11%), transparent 65%)',
-    }),
+    chrome: {
+      ribbon: {
+        enabled: true,
+        stops: ['transparent', '#22c55e', 'transparent'],
+        height: 2,
+      },
+      ambientGlow: {
+        enabled: true,
+        spots: [{ color: '#22c55e', alpha: 0.11, x: 50, y: 0, radiusX: 65, radiusY: 40 }],
+      },
+    },
   },
 ];
 

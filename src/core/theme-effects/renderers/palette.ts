@@ -12,7 +12,7 @@ export type Rgb = readonly [number, number, number];
 export interface ScenePalette {
   readonly scheme: ThemeColorScheme;
   readonly accent: Rgb;
-  /** Secondary accent (the palette's `danger` tone). */
+  /** Secondary decorative accent (`palette.accentSecondary`, falling back to `palette.danger`). */
   readonly alt: Rgb;
   readonly text: Rgb;
   readonly background: Rgb;
@@ -110,7 +110,7 @@ export function resolveScenePalette(ctx: BackdropContext): ScenePalette {
   const base = FALLBACK_COLORS[scheme];
   const p = ctx.palette;
   const accent = toRgb(p?.accent, base.accent);
-  const alt = toRgb(p?.danger, base.alt);
+  const alt = toRgb(p?.accentSecondary ?? p?.danger, base.alt);
   const text = toRgb(p?.text, base.text);
   const background = toRgb(p?.background, base.background);
   const surface = toRgb(p?.surface, base.surface);
