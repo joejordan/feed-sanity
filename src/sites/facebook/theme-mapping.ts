@@ -55,7 +55,13 @@ export const facebookThemeMapping: SiteThemeMapping = {
   extraCss: (p) =>
     `body { background-color: ${p.background} !important; color: ${p.text} !important; }`,
   surfaces: {
-    transparentShell: ['[id^="mount_0_0"]', '[role="main"]'],
+    transparentShell: [
+      '[id^="mount_0_0"]',
+      '[id^="mount_0_0"] div:has([role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[role="main"]',
+      '[role="main"] div:has([role="feed"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[role="feed"]',
+    ],
     popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
     revealCssVars: (p, { cardAlpha, popupAlpha }) => {
       const surface = p?.surface ?? '#18191a';
@@ -63,6 +69,9 @@ export const facebookThemeMapping: SiteThemeMapping = {
         '--web-wash': 'transparent',
         '--wash': 'transparent',
         '--base-wash': 'transparent',
+        '--card-background-wash': 'transparent',
+        '--messenger-application-background': 'transparent',
+        '--nav-bar-background-gradient-wash': 'transparent',
         '--card-background': hexWithAlpha(surface, cardAlpha),
         '--surface-background': hexWithAlpha(surface, cardAlpha),
         '--nav-bar-background': hexWithAlpha(surface, Math.max(0.92, cardAlpha)),

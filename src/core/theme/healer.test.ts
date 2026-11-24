@@ -171,4 +171,42 @@ describe('core/theme/healer', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('never stamps opaque heal backgrounds on transparentShell wrappers while a Studio backdrop is active and strips stale shell heals', () => {
+    const darkPalette = findThemePreset('sunset-vapor')!.palette;
+    document.body.innerHTML = `
+      <div id="react-root">
+        <div id="shell-wrap" style="background-color: rgb(255, 255, 255);">
+          <div id="inner-card" style="background-color: rgb(255, 255, 255);">Card</div>
+        </div>
+      </div>
+    `;
+
+    const env = createDomEnvironment();
+    const scope = new Scope();
+    const healer = createThemeHealer(env, scope, {
+      transparentShellSelectors: ['#react-root', '#react-root > div'],
+    });
+
+    // Without a Studio backdrop, the white wrapper gets healed as usual.
+    healer.setPalette(darkPalette);
+    healer.healNow();
+    const shellWrap = document.querySelector('#shell-wrap') as HTMLElement;
+    const innerCard = document.querySelector('#inner-card') as HTMLElement;
+    expect(shellWrap.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+    expect(innerCard.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+
+    // Enabling a Studio backdrop strips stale HEAL_BG_ATTR from transparentShell wrappers
+    // and keeps them clear on subsequent heal passes while cards stay healed.
+    healer.setBackdropActive(true);
+    expect(shellWrap.hasAttribute(HEAL_BG_ATTR)).toBe(false);
+    expect(innerCard.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+
+    healer.healNow();
+    expect(shellWrap.hasAttribute(HEAL_BG_ATTR)).toBe(false);
+    expect(innerCard.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+
+    scope.dispose();
+    env.dispose();
+  });
 });

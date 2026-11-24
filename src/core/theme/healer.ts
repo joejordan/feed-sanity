@@ -74,11 +74,14 @@ const BORDER_SIDES = [
 
 export interface ThemeHealerOptions {
   readonly mediaPreserveSelectors?: readonly string[];
+  readonly transparentShellSelectors?: readonly string[];
 }
 
 export interface ThemeHealer {
   /** Updates the active palette (or clears all healing when `null`). */
   readonly setPalette: (palette: ThemePalette | null) => void;
+  /** Suppresses opaque background healing on transparent page-shell wrappers while a Studio backdrop is active. */
+  readonly setBackdropActive: (active: boolean) => void;
   /** Runs an immediate bounded healing pass across the current document + open Shadow Roots. */
   readonly healNow: () => number;
   readonly dispose: () => void;
@@ -241,8 +244,10 @@ export function createThemeHealer(
   const healedElements = new Set<Element>();
   const pendingQueue = new Set<Element>();
   const mediaSelector = options.mediaPreserveSelectors?.join(', ') ?? '';
+  const shellSelectors = options.transparentShellSelectors ?? [];
 
   let activePalette: ThemePalette | null = null;
+  let backdropActive = false;
   let paletteBgRgba: RgbaColor = { r: 255, g: 255, b: 255, a: 1 };
   let paletteSurfaceRgba: RgbaColor = { r: 255, g: 255, b: 255, a: 1 };
   let paletteSurfaceAltRgba: RgbaColor = { r: 245, g: 245, b: 245, a: 1 };
@@ -251,6 +256,22 @@ export function createThemeHealer(
   let removeStyle: (() => void) | undefined;
   let scheduledHandle: { readonly kind: 'idle' | 'timeout'; readonly id: number } | undefined;
   let disposed = false;
+
+  const isTransparentShell = (el: Element): boolean => {
+    if (!backdropActive || shellSelectors.length === 0) {
+      return false;
+    }
+    for (const sel of shellSelectors) {
+      try {
+        if (el.matches(sel)) {
+          return true;
+        }
+      } catch {
+        // Ignore selectors unsupported by non-browser test DOM engines (e.g. `:has()`).
+      }
+    }
+    return false;
+  };
 
   const isSelfExcluded = (el: Element): boolean => {
     if (HEAL_SKIP_TAGS.has(el.localName) || isOwnUiElement(el)) {
@@ -347,6 +368,7 @@ export function createThemeHealer(
     let bgRole: 'surface' | 'surface-alt' | undefined;
     if (
       bg &&
+      !isTransparentShell(el) &&
       isOppositePolarityNeutral(bg, palette.colorScheme) &&
       !isIntentionalInvertedPill(el, bg, fg)
     ) {
@@ -683,6 +705,21 @@ export function createThemeHealer(
           visitedShadows.add(shadow);
           enqueueSubtree(shadow, 100, visitedShadows);
         }
+      }
+    },
+    setBackdropActive(active) {
+      if (disposed || backdropActive === active) {
+        return;
+      }
+      backdropActive = active;
+      if (active) {
+        for (const el of healedElements) {
+          if (el.isConnected && el.hasAttribute(HEAL_BG_ATTR) && isTransparentShell(el)) {
+            el.removeAttribute(HEAL_BG_ATTR);
+          }
+        }
+      } else if (activePalette && env.doc.body) {
+        enqueueSubtree(env.doc.body, 160);
       }
     },
     healNow,

@@ -719,7 +719,15 @@ describe('Creative Theme & Effects Studio engine', () => {
     const fbCss = compileHostThemeCss(resolved, facebookThemeMapping, 'dark');
     expect(fbCss).not.toContain('body > :not(');
     expect(fbCss).toContain('--popover-background:');
+    expect(fbCss).toContain('--card-background-wash: transparent !important;');
+    expect(fbCss).toContain('[id^="mount_0_0"] div:has([role="main"])');
     expect(fbCss).not.toMatch(/\[role="banner"\][^}]*backdrop-filter/s);
+
+    // Intermediate root wrappers on X (Dim/Lights Out/Light) and healer overrides stay transparent.
+    expect(xCss).toContain('#react-root > div:not(');
+    expect(xCss).toContain('#react-root div:has(main[role="main"])');
+    expect(xCss).toContain('.r-yfoy6g');
+    expect(xCss).toContain('[data-fs-heal-bg]');
 
     const layer = createEffectsLayerController(document);
     cleanups.push(() => layer.dispose());

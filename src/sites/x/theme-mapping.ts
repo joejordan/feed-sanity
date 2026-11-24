@@ -540,12 +540,17 @@ svg[data-testid="icon-verified"] {
   surfaces: {
     transparentShell: [
       '#react-root',
+      '#react-root > div:not(:where(#layers, [role="dialog"], [data-testid="sheetDialog"]))',
+      '#react-root > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [data-testid="sheetDialog"]))',
+      '#react-root > div:not(#layers) > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [data-testid="sheetDialog"]))',
+      '#react-root div:has(main[role="main"]):not(:where(#layers, #layers *, [role="dialog"], [data-testid="sheetDialog"]))',
       'header[role="banner"]',
+      'header[role="banner"] div:has(nav[role="navigation"]):not(:where([role="dialog"], [role="menu"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
       'main[role="main"]',
+      'main[role="main"] div:has([data-testid="primaryColumn"]):not(:where([role="dialog"], [data-testid="sheetDialog"]))',
       '[data-testid="sidebarColumn"]',
       '[data-testid="sidebarColumn"] > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"]))',
       '[data-testid="sidebarColumn"] > div > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"]))',
-      '#react-root > div > div > div',
     ],
     columns: [
       '[data-testid="primaryColumn"]',
@@ -599,11 +604,16 @@ svg[data-testid="icon-verified"] {
         '[data-testid="GrokDrawerHeader"] *',
         '[data-testid="chat-drawer-main"]',
         '[data-testid="chat-drawer-main"] *',
+        '[data-testid="mask"]',
         IN_VIDEO,
       ].join(', ');
       return `
 #react-root .r-kemksi:not(:where(${keepOpaque})),
-#react-root .r-14lw9ot:not(:where(button, [role="button"], ${keepOpaque})) {
+#react-root .r-yfoy6g:not(:where(${keepOpaque})),
+#react-root .r-14lw9ot:not(:where(button, [role="button"], ${keepOpaque})),
+#react-root div[style*="background-color: rgb(0, 0, 0)"]:not(:where(${keepOpaque})),
+#react-root div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${keepOpaque})),
+#react-root div[style*="background-color: rgb(255, 255, 255)"]:not(:where(button, [role="button"], ${keepOpaque})) {
   background-color: transparent !important;
 }`.trim();
     },

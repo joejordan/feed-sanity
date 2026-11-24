@@ -67,7 +67,12 @@ export function createThemeController(
   const iframeDocs = new Set<Document>();
   const cleanups: Array<() => void> = [];
   const healer: ThemeHealer | undefined = adaptiveConfig
-    ? createThemeHealer(env, env.scope, mediaOpt)
+    ? createThemeHealer(env, env.scope, {
+        ...mediaOpt,
+        ...(mapping.surfaces?.transparentShell
+          ? { transparentShellSelectors: mapping.surfaces.transparentShell }
+          : {}),
+      })
     : undefined;
   if (healer) {
     cleanups.push(() => healer.dispose());
@@ -351,6 +356,8 @@ export function createThemeController(
     for (const iframeDoc of iframeDocs) {
       syncRoot(iframeDoc, hostCss, paletteChanged, resolvedScheme);
     }
+    const backdropActive = Boolean(effective?.effects && effective.effects.backdrop !== 'none');
+    healer?.setBackdropActive(backdropActive);
     healer?.setPalette(nextPalette);
     effectsLayer.sync(effective?.effects, nextPalette, currentScheme);
   };

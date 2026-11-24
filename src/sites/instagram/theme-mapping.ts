@@ -47,7 +47,12 @@ export const instagramThemeMapping: SiteThemeMapping = {
   extraCss: (p) =>
     `html, body { background-color: ${p.background} !important; color: ${p.text} !important; }`,
   surfaces: {
-    transparentShell: ['[id^="mount_0_0"]', 'section', 'main[role="main"]'],
+    transparentShell: [
+      '[id^="mount_0_0"]',
+      '[id^="mount_0_0"] div:has(main[role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      'section',
+      'main[role="main"]',
+    ],
     columns: ['main[role="main"] > div'],
     columnAlphaScale: 0.75,
     softSurfaces: ['article', 'nav'],

@@ -71,8 +71,22 @@ function compileDeclarativeReveal(
   }
 
   if (surfaces.transparentShell && surfaces.transparentShell.length > 0) {
+    const shell = surfaces.transparentShell;
+    const healOverride = `:is(${shell.join(', ')})[data-fs-heal-bg][data-fs-heal-bg][data-fs-heal-bg][data-fs-heal-bg][data-fs-heal-bg]`;
+    const basicShell = shell.filter((sel) => !sel.includes(':has('));
+    const hasShell = shell.filter((sel) => sel.includes(':has('));
+    if (basicShell.length > 0) {
+      blocks.push(
+        `${basicShell.join(',\n')} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
+      );
+    }
+    if (hasShell.length > 0) {
+      blocks.push(
+        `${hasShell.join(',\n')} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
+      );
+    }
     blocks.push(
-      `${surfaces.transparentShell.join(',\n')} {\n  background-color: transparent !important;\n}`,
+      `${healOverride} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
     );
   }
 
@@ -134,6 +148,7 @@ export function compileBackdropRevealCss(
 html {
   background-color: ${baseBg} !important;
 }
+:root body,
 body {
   background-color: transparent !important;
   background-image: none !important;
