@@ -513,4 +513,64 @@ describe('x_video_speed feature', () => {
 
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('decorates a [role="menu"] gear popover with trailing-middot or inline speed rows without entering a MutationObserver loop', async () => {
+    const { platform, store } = fakePlatform({
+      [`v2/x/777/${X_VIDEO_SPEED_KEY}`]: { rate: 1.42, custom: true },
+    });
+    storesToStop.push(store);
+    expect(await startSite(xSite, platform)).toEqual([]);
+
+    const dropdown = document.createElement('div');
+    dropdown.setAttribute('role', 'menu');
+    dropdown.setAttribute('data-testid', 'Dropdown');
+    dropdown.innerHTML = `
+      <div role="menuitem" id="row-trailing-dot">
+        <span>Playback speed · </span><span class="native-val">1.75x</span>
+      </div>
+      <div role="menuitem" id="row-inline-text">
+        <span>Playback speed · 1.75x</span>
+      </div>
+      <div role="menuitem" id="row-adjacent"><span>Playback speed</span><span class="native-val">Normal</span></div>
+      <div role="menuitem"><span>Video quality · Auto (1080p)</span></div>
+      <div role="menuitem"><span>Download video</span></div>
+    `;
+    const spy = vi.spyOn(dropdown, 'querySelectorAll');
+    document.body.append(dropdown);
+
+    await vi.waitFor(() => {
+      expect(
+        dropdown.querySelector('#row-trailing-dot [data-feed-sanity="x-speed-parent-value"]')
+          ?.textContent,
+      ).toBe(' · 1.42x');
+      expect(
+        dropdown.querySelector('#row-inline-text [data-feed-sanity="x-speed-parent-value"]')
+          ?.textContent,
+      ).toBe(' · 1.42x');
+      expect(
+        dropdown.querySelector('#row-adjacent [data-feed-sanity="x-speed-parent-value"]')
+          ?.textContent,
+      ).toBe(' · 1.42x');
+    });
+
+    expect(
+      dropdown
+        .querySelector('#row-trailing-dot .native-val')
+        ?.getAttribute('data-fs-speed-native-hidden'),
+    ).toBe('true');
+    expect(
+      dropdown
+        .querySelector('#row-adjacent .native-val')
+        ?.getAttribute('data-fs-speed-native-hidden'),
+    ).toBe('true');
+    expect(dropdown.querySelector('#row-trailing-dot > span')?.textContent).toBe(
+      'Playback speed · 1.42x',
+    );
+
+    // Wait briefly and verify zero self-triggering MutationObserver oscillation/freeze.
+    const callsAfterSettle = spy.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 40));
+    expect(spy.mock.calls.length).toBe(callsAfterSettle);
+    expect(callsAfterSettle).toBeLessThan(20);
+  });
 });

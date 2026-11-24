@@ -118,11 +118,11 @@ export function resolveBackingSize(
   };
 }
 
-/** A full-viewport, non-interactive canvas for backdrop layers. */
+/** A full-viewport, non-interactive canvas promoted to its own compositor layer. */
 export function createSceneCanvas(doc: Document): HTMLCanvasElement {
   const canvas = doc.createElement('canvas');
   canvas.style.cssText =
-    'position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;';
+    'position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;will-change:transform;transform:translateZ(0);';
   return canvas;
 }
 

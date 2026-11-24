@@ -68,6 +68,7 @@ const MAX_NODES_PER_SLICE = 80;
 const MAX_PENDING_QUEUE = 1000;
 const MAX_HEALED_BEFORE_PRUNE = 400;
 const MAX_SLICE_MS = 4;
+const MUTATION_HEAL_DELAY_MS = 120;
 
 const BORDER_SIDES = [
   ['borderTopWidth', 'borderTopColor'],
@@ -486,11 +487,12 @@ export function createThemeHealer(
   const enqueueSubtree = (
     root: ParentNode,
     limit = 160,
-    visitedShadows?: Set<ShadowRoot>,
+    opts?: { readonly visitedShadows?: Set<ShadowRoot>; readonly delayMs?: number },
   ): void => {
     if (!activePalette || disposed || pendingQueue.size >= MAX_PENDING_QUEUE) {
       return;
     }
+    const visitedShadows = opts?.visitedShadows;
     let added = 0;
     const visit = (node: ParentNode): void => {
       if (added >= limit || pendingQueue.size >= MAX_PENDING_QUEUE) {
@@ -518,7 +520,7 @@ export function createThemeHealer(
       }
     };
     visit(root);
-    scheduleFlush();
+    scheduleFlush(opts?.delayMs);
   };
 
   const flushSlice = (deadline?: IdleDeadline): void => {
@@ -552,8 +554,20 @@ export function createThemeHealer(
     }
   };
 
-  const scheduleFlush = (): void => {
-    if (scheduledHandle !== undefined || disposed || !activePalette) {
+  const scheduleFlush = (delayMs = 0): void => {
+    if (scheduledHandle !== undefined || disposed || !activePalette || pendingQueue.size === 0) {
+      return;
+    }
+    if (delayMs > 0) {
+      scheduledHandle = {
+        kind: 'timeout',
+        id: Number(
+          setTimeout(() => {
+            scheduledHandle = undefined;
+            scheduleFlush();
+          }, delayMs),
+        ),
+      };
       return;
     }
     if (typeof globalThis.requestIdleCallback === 'function') {
@@ -575,11 +589,13 @@ export function createThemeHealer(
     ) {
       return;
     }
+    // Defer mutation-driven `getComputedStyle` healing briefly so short
+    // click/heart micro-animations finish smoothly without synchronous style recalc.
     if (el.childElementCount > 0 || el.shadowRoot) {
-      enqueueSubtree(el, 80);
+      enqueueSubtree(el, 80, { delayMs: MUTATION_HEAL_DELAY_MS });
     } else {
       pendingQueue.add(el);
-      scheduleFlush();
+      scheduleFlush(MUTATION_HEAL_DELAY_MS);
     }
   };
 
@@ -682,7 +698,7 @@ export function createThemeHealer(
       });
       const visitedShadows = new Set<ShadowRoot>();
       if (env.doc.body) {
-        enqueueSubtree(env.doc.body, 250, visitedShadows);
+        enqueueSubtree(env.doc.body, 250, { visitedShadows });
       }
       for (const shadow of env.shadowRoots) {
         if (
@@ -691,7 +707,7 @@ export function createThemeHealer(
           !visitedShadows.has(shadow)
         ) {
           visitedShadows.add(shadow);
-          enqueueSubtree(shadow, 100, visitedShadows);
+          enqueueSubtree(shadow, 100, { visitedShadows });
         }
       }
     },

@@ -41,6 +41,10 @@ export {
 const SAVE_DEBOUNCE_MS = 160;
 const SPEED_EPSILON = 0.005;
 const MENU_INTERACTION_WINDOW_MS = 500;
+const MENU_BURST_WINDOW_MS = 500;
+const MENU_BURST_LIMIT = 8;
+const MENU_BURST_BACKOFF_MS = 100;
+const OWN_ATTR_SELECTOR = `[${OWN_ATTR}]`;
 const MENU_CONTAINER_SELECTOR = [
   '[role="menu"]',
   '[role="listbox"]',
@@ -61,12 +65,11 @@ const DOT_SEP = '[·•∙⋅‧\\-–—:/|]';
 const NATIVE_SPEED_TOKEN =
   '(?:normal(?:\\s*\\(\\s*1(?:\\.0+)?\\s*[x×]\\s*\\))?|\\d+(?:\\.\\d+)?\\s*[x×](?:\\s*\\(\\s*normal\\s*\\))?)';
 const PARENT_SPEED_ROW_RE = new RegExp(
-  `^playback\\s+speed(?:\\s*${DOT_SEP}?\\s*${NATIVE_SPEED_TOKEN})?$`,
+  `^playback\\s+speed(?:\\s*${DOT_SEP}(?:\\s*${NATIVE_SPEED_TOKEN})?|\\s*${NATIVE_SPEED_TOKEN})?$`,
   'i',
 );
-const PARENT_SPEED_LABEL_RE = new RegExp(`^playback\\s+speed(?:\\s*${DOT_SEP})?$`, 'i');
 const PARENT_SPEED_INLINE_RE = new RegExp(
-  `^(playback\\s+speed)(?:\\s*${DOT_SEP}\\s*(?:${NATIVE_SPEED_TOKEN})?|\\s+${NATIVE_SPEED_TOKEN})$`,
+  `^(playback\\s+speed)(?:\\s*${DOT_SEP}(?:\\s*${NATIVE_SPEED_TOKEN})?|\\s+${NATIVE_SPEED_TOKEN})$`,
   'i',
 );
 const NATIVE_SPEED_VALUE_RE = new RegExp(`^(?:${DOT_SEP}|\\s)*${NATIVE_SPEED_TOKEN}$`, 'i');
@@ -265,7 +268,7 @@ function detectParentSpeedRows(container: Element): Element[] {
       continue;
     }
     const text = extractVisibleText(el);
-    if (!PARENT_SPEED_LABEL_RE.test(text) && !PARENT_SPEED_ROW_RE.test(text)) {
+    if (!PARENT_SPEED_ROW_RE.test(text)) {
       continue;
     }
     let row: Element = el;
@@ -293,7 +296,7 @@ function findPlaybackSpeedLabelHost(rowEl: Element): Element {
       continue;
     }
     const text = extractVisibleText(child);
-    if (PARENT_SPEED_LABEL_RE.test(text) || PARENT_SPEED_INLINE_RE.test(text)) {
+    if (PARENT_SPEED_ROW_RE.test(text)) {
       deepest = child;
     }
   }
@@ -636,22 +639,28 @@ function hasVideoOrMenuNode(nodes: NodeList): boolean {
 
 function isIgnorableMutation(records: readonly MutationRecord[]): boolean {
   for (const rec of records) {
+    const scopeEl =
+      rec.target.nodeType === Node.ELEMENT_NODE
+        ? (rec.target as Element)
+        : rec.target.parentElement;
+    // Ignore any mutation inside our own injected UI/badge nodes (such as updating
+    // `entry.badge.textContent`, which inserts a Text node under `entry.badge`).
+    if (scopeEl?.closest(OWN_ATTR_SELECTOR)) {
+      continue;
+    }
+    const inUnrelatedTweet =
+      Boolean(scopeEl?.closest(TWEET_ARTICLE_SELECTOR)) &&
+      !scopeEl?.closest(VIDEO_MENU_SCOPE_SELECTOR);
     if (rec.type === 'characterData') {
-      const parent = rec.target.parentElement;
-      if (parent?.closest(`[${OWN_ATTR}]`)) {
-        continue;
-      }
       // Comment/timeline tweet updates (e.g. clicking Like on /photo/1 replies)
       // outside any video player or menu popover cannot affect video speed menus.
-      if (parent?.closest(TWEET_ARTICLE_SELECTOR) && !parent.closest(VIDEO_MENU_SCOPE_SELECTOR)) {
+      if (inUnrelatedTweet) {
         continue;
       }
       return false;
     }
-    const targetEl = rec.target.nodeType === Node.ELEMENT_NODE ? (rec.target as Element) : null;
     if (
-      targetEl?.closest(TWEET_ARTICLE_SELECTOR) &&
-      !targetEl.closest(VIDEO_MENU_SCOPE_SELECTOR) &&
+      inUnrelatedTweet &&
       !hasVideoOrMenuNode(rec.addedNodes) &&
       !hasVideoOrMenuNode(rec.removedNodes)
     ) {
@@ -759,7 +768,9 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
       parentRows.set(rowEl, entry);
     }
     for (const nativeValueEl of findNativeSpeedValueElements(rowEl)) {
-      nativeValueEl.setAttribute(NATIVE_HIDDEN_ATTR, 'true');
+      if (nativeValueEl.getAttribute(NATIVE_HIDDEN_ATTR) !== 'true') {
+        nativeValueEl.setAttribute(NATIVE_HIDDEN_ATTR, 'true');
+      }
       entry.hiddenNodes.add(nativeValueEl);
     }
     const labelHost = findPlaybackSpeedLabelHost(rowEl);
@@ -976,19 +987,45 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
       syncNativeSpeedItems(items);
     };
 
-    let syncScheduled = false;
-    const scheduleSync = (): void => {
-      if (syncScheduled || scope.disposed) {
-        return;
-      }
-      syncScheduled = true;
-      queueMicrotask(() => {
-        syncScheduled = false;
+    let syncTimer: ReturnType<typeof setTimeout> | undefined;
+    let observer: MutationObserver | undefined;
+    let burstCount = 0;
+    let burstWindowStart = 0;
+
+    const runSync = (): void => {
+      try {
         syncMenu();
-      });
+      } finally {
+        // Discard any mutations caused by our own badge/attribute/text updates so
+        // `syncMenu` can never trigger a self-feeding MutationObserver loop.
+        observer?.takeRecords();
+      }
     };
 
-    const observer = new MutationObserver((records) => {
+    const scheduleSync = (): void => {
+      if (syncTimer !== undefined || scope.disposed) {
+        return;
+      }
+      const now = Date.now();
+      if (now - burstWindowStart > MENU_BURST_WINDOW_MS) {
+        burstWindowStart = now;
+        burstCount = 0;
+      }
+      burstCount++;
+      // Yield via a macrotask (`setTimeout`) rather than `queueMicrotask` so menu
+      // observers can never starve input/paint or freeze the tab. Back off if the
+      // host mutates continuously inside a popover.
+      const delay = burstCount > MENU_BURST_LIMIT ? MENU_BURST_BACKOFF_MS : 0;
+      syncTimer = setTimeout(() => {
+        syncTimer = undefined;
+        runSync();
+      }, delay);
+    };
+
+    observer = new MutationObserver((records) => {
+      if (syncTimer !== undefined || scope.disposed) {
+        return;
+      }
       if (!isIgnorableMutation(records)) {
         scheduleSync();
       }
@@ -1005,10 +1042,14 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
         ? { childList: true, subtree: true, characterData: true }
         : { childList: true, subtree: true },
     );
-    syncMenu();
+    runSync();
 
     menuCleanups.set(menu, () => {
-      observer.disconnect();
+      if (syncTimer !== undefined) {
+        clearTimeout(syncTimer);
+        syncTimer = undefined;
+      }
+      observer?.disconnect();
       teardownOwnedMenu();
       teardownOwnedRows();
       menuCleanups.delete(menu);

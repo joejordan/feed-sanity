@@ -422,6 +422,9 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
       await expect(page.locator('[data-feed-sanity="x-speed-parent-value"]')).toHaveText(
         ' · 1.17x',
       );
+      await expect(
+        page.locator('#x-video-settings-popover [data-fs-speed-native-hidden="true"]'),
+      ).toHaveText('Normal');
 
       // 3. Reload the page and mount a fresh video: saved `1.17x` speed must be remembered!
       await page.reload();
@@ -527,6 +530,27 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
       await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'vice-horizon');
       await expect(backdrop.locator('canvas')).toBeVisible();
       await expect(backdrop.locator('canvas')).toHaveAttribute('data-fs-renderer', 'canvas2d');
+
+      // Opening X's video gear popover (`[role="menu"]` with inline `Playback speed · 1.75x`)
+      // must update the speed badge cleanly without freezing the page via a MutationObserver loop.
+      await page.evaluate(() => {
+        const layers = document.querySelector('#layers')!;
+        const gearMenu = document.createElement('div');
+        gearMenu.id = 'x-video-gear-popover';
+        gearMenu.setAttribute('role', 'menu');
+        gearMenu.setAttribute('data-testid', 'Dropdown');
+        const row = document.createElement('div');
+        row.setAttribute('role', 'menuitem');
+        const label = document.createElement('span');
+        label.textContent = 'Playback speed · 1.75x';
+        row.append(label);
+        gearMenu.append(row);
+        layers.append(gearMenu);
+      });
+      await expect(
+        page.locator('#x-video-gear-popover [data-feed-sanity="x-speed-parent-value"]'),
+      ).toHaveText(' · 1.17x');
+      await page.evaluate(() => document.querySelector('#x-video-gear-popover')?.remove());
 
       // Velvet Silk: satin shader on WebGL, or its Canvas 2D fallback on GPU-less runners.
       // Either way a live canvas renders (never the static CSS wash) and the old one is gone.

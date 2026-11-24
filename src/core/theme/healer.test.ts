@@ -127,8 +127,7 @@ describe('core/theme/healer', () => {
     latePopup.textContent = 'Late shadow card';
     shadow.append(latePopup);
 
-    await new Promise((r) => setTimeout(r, 40));
-    expect(latePopup.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+    await vi.waitFor(() => expect(latePopup.getAttribute(HEAL_BG_ATTR)).toBe('surface'));
 
     // 2. When an element already has `data-fs-heal-bg="surface"` yet computed bg stays white
     //    (e.g. inline `!important`), descendant text heals against the true white backdrop (`contrast-dark`).
@@ -234,5 +233,59 @@ describe('core/theme/healer', () => {
     shadow.append(afterDispose);
     expect(afterDispose.hasAttribute(HEAL_BG_ATTR)).toBe(false);
     env.dispose();
+  });
+
+  it('defers mutation-driven healing briefly (~120ms) and cancels pending deferral on dispose', async () => {
+    vi.useFakeTimers();
+    const reqIdle = vi.fn((cb: IdleRequestCallback) => {
+      cb({ didTimeout: false, timeRemaining: () => 16 });
+      return 1;
+    });
+    const cancelIdle = vi.fn();
+    vi.stubGlobal('requestIdleCallback', reqIdle);
+    vi.stubGlobal('cancelIdleCallback', cancelIdle);
+
+    try {
+      const darkPalette = findThemePreset('midnight')!.palette;
+      const env = createDomEnvironment();
+      const scope = new Scope();
+      const healer = createThemeHealer(env, scope);
+
+      healer.setPalette(darkPalette);
+      reqIdle.mockClear();
+
+      // Appending a new node must NOT trigger immediate synchronous/next-tick healing.
+      const added = document.createElement('div');
+      added.style.cssText = 'background-color: rgb(255, 255, 255); color: rgb(20, 20, 20);';
+      added.textContent = 'Dynamic popup';
+      document.body.append(added);
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(80);
+      expect(reqIdle).not.toHaveBeenCalled();
+      expect(added.hasAttribute(HEAL_BG_ATTR)).toBe(false);
+
+      // Once the 120ms deferral window elapses, healing runs.
+      await vi.advanceTimersByTimeAsync(50);
+      expect(reqIdle).toHaveBeenCalledTimes(1);
+      expect(added.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+
+      // Disposing during the deferral window cancels the pending timeout cleanly.
+      reqIdle.mockClear();
+      const cancelled = document.createElement('div');
+      cancelled.style.cssText = 'background-color: rgb(255, 255, 255); color: rgb(20, 20, 20);';
+      cancelled.textContent = 'Cancelled before heal';
+      document.body.append(cancelled);
+      await Promise.resolve();
+
+      scope.dispose();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(reqIdle).not.toHaveBeenCalled();
+      expect(cancelled.hasAttribute(HEAL_BG_ATTR)).toBe(false);
+      env.dispose();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 });

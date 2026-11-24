@@ -336,23 +336,6 @@ function bokehSprite(doc: Document, color: Rgb): HTMLCanvasElement | null {
   ]);
 }
 
-function noiseTile(doc: Document, rand: RandomSource): HTMLCanvasElement | null {
-  const tile = createLayer(doc, 96, 96);
-  if (!tile || typeof tile.g.createImageData !== 'function') {
-    return null;
-  }
-  const image = tile.g.createImageData(96, 96);
-  for (let i = 0; i < image.data.length; i += 4) {
-    const v = Math.floor(rand() * 256);
-    image.data[i] = v;
-    image.data[i + 1] = v;
-    image.data[i + 2] = v;
-    image.data[i + 3] = 255;
-  }
-  tile.g.putImageData(image, 0, 0);
-  return tile.canvas;
-}
-
 /** Everything that depends only on the viewport, rebuilt on resize. */
 interface ViceFrame {
   readonly horizonY: number;
@@ -500,14 +483,16 @@ const createViceCanvas: SceneFactory = (canvas) => {
   let skyline: Skyline | null = null;
   let clouds: CloudBank[] = [];
   let palms: Palm[] = [];
-  // Palms sway slowly, so each margin strip is re-rendered at half the frame rate
-  // (left and right on alternating frames) and blitted every frame.
-  let palmStrips: { readonly left: Layer; readonly right: Layer; readonly width: number } | null =
-    null;
-  let palmFrame = 0;
+  // Pre-rendered palm silhouette strips built once on resize (zero per-frame Bezier
+  // rasterization) with outer/bottom bleed and gently swayed via a shear transform on blit.
+  let palmStrips: {
+    readonly left: Layer;
+    readonly right: Layer;
+    readonly width: number;
+    readonly bleedX: number;
+    readonly bleedY: number;
+  } | null = null;
   const bokeh = [AMBER, PINK, GOLD].map((color) => bokehSprite(doc, color));
-  const grain = noiseTile(doc, createRandom(seed ^ 0x55));
-  const noise = grain ? c.createPattern(grain, 'repeat') : null;
   let drift = 0;
   let sliceClock = 0;
 
@@ -540,8 +525,9 @@ const createViceCanvas: SceneFactory = (canvas) => {
 
   const scene: Scene = {
     kind: 'canvas2d',
-    maxPixelRatio: 1.5,
-    maxPixels: 2_600_000,
+    renderScale: 0.75,
+    maxPixelRatio: 1.25,
+    maxPixels: 1_200_000,
     resize(view) {
       const rand = createRandom(seed);
       const w = view.cssWidth;
@@ -549,12 +535,31 @@ const createViceCanvas: SceneFactory = (canvas) => {
       frame = buildFrame(c, doc, view);
       skyline = buildSkyline(doc, rand, w, h, view.pixelRatio);
       clouds = buildClouds(doc, rand, w, h * HORIZON);
-      palms = buildPalms(rand, w, h);
+      const builtPalms = buildPalms(rand, w, h);
       const stripW = Math.ceil(w * PALM_STRIP);
-      const left = createLayer(doc, stripW, h, view.pixelRatio);
-      const right = createLayer(doc, stripW, h, view.pixelRatio);
-      palmStrips = left && right ? { left, right, width: stripW } : null;
-      palmFrame = 0;
+      // Outer horizontal and bottom bleed so pointer parallax + shear sway never
+      // expose a clipped offscreen edge or lift palm trunks off the viewport bottom.
+      const bleedX = Math.ceil(24 + h * 0.015);
+      const bleedY = 16;
+      const left = createLayer(doc, stripW + bleedX, h + bleedY, view.pixelRatio);
+      const right = createLayer(doc, stripW + bleedX, h + bleedY, view.pixelRatio);
+      if (left && right) {
+        for (const [strip, offsetX, onLeft] of [
+          [left, -bleedX, true],
+          [right, w - stripW, false],
+        ] as const) {
+          for (const palm of builtPalms) {
+            if (palm.baseX < w / 2 === onLeft) {
+              drawPalm(strip.g, palm, 0, 0, -offsetX, 0);
+            }
+          }
+        }
+        palmStrips = { left, right, width: stripW, bleedX, bleedY };
+        palms = [];
+      } else {
+        palmStrips = null;
+        palms = builtPalms;
+      }
     },
     render({ view, time, dt, pointer }) {
       if (!frame) {
@@ -762,46 +767,29 @@ const createViceCanvas: SceneFactory = (canvas) => {
       c.fillRect(0, horizonY - 1, w, 4);
       c.globalCompositeOperation = 'source-over';
 
-      // 8. Palms framing only the outer margins.
+      // 8. Palms framing only the outer margins (cached strips swayed via shear transform).
       const sway = Math.sin(time * 0.55) * 0.6 + Math.sin(time * 1.13 + 1) * 0.4;
-      const paintPalms = (target: CanvasRenderingContext2D, offsetX: number, onLeft: boolean) => {
+      if (palmStrips) {
+        const { left, right, width, bleedX, bleedY } = palmStrips;
+        const shear = sway * 0.012;
+        const shiftX = -px * 24;
+        const shiftY = -py * 6;
+        c.setTransform(ratio, 0, shear * ratio, ratio, shiftX * ratio, (h + shiftY) * ratio);
+        c.drawImage(left.canvas, -bleedX, -h, width + bleedX, h + bleedY);
+        c.drawImage(right.canvas, w - width, -h, width + bleedX, h + bleedY);
+        c.setTransform(ratio, 0, 0, ratio, 0, 0);
+      } else {
         for (const palm of palms) {
-          if (palm.baseX < w / 2 !== onLeft) {
-            continue;
-          }
           const depth = palm.back ? 18 : 28;
           drawPalm(
-            target,
+            c,
             palm,
             sway * (palm.back ? 0.7 : 1),
             time,
-            -px * depth - offsetX,
+            -px * depth,
             -py * (palm.back ? 4 : 7),
           );
         }
-      };
-      if (palmStrips) {
-        const { left, right, width } = palmStrips;
-        // Alternate sides so each frame carries at most half the palm work.
-        const strips: Array<readonly [Layer, number, boolean]> = [];
-        if (dt === 0 || palmFrame % 2 === 0) {
-          strips.push([left, 0, true]);
-        }
-        if (dt === 0 || palmFrame % 2 === 1) {
-          strips.push([right, w - width, false]);
-        }
-        for (const [strip, offsetX, onLeft] of strips) {
-          strip.g.setTransform(1, 0, 0, 1, 0, 0);
-          strip.g.clearRect(0, 0, strip.canvas.width, strip.canvas.height);
-          strip.g.setTransform(ratio, 0, 0, ratio, 0, 0);
-          paintPalms(strip.g, offsetX, onLeft);
-        }
-        palmFrame += 1;
-        c.drawImage(left.canvas, 0, 0, width, h);
-        c.drawImage(right.canvas, w - width, 0, width, h);
-      } else {
-        paintPalms(c, 0, true);
-        paintPalms(c, 0, false);
       }
 
       // 9. Warm bokeh motes.
@@ -828,14 +816,7 @@ const createViceCanvas: SceneFactory = (canvas) => {
       }
       c.globalAlpha = 1;
 
-      // 10. Film grain dither (kills gradient banding) and a soft lens vignette.
-      if (noise) {
-        c.globalCompositeOperation = 'overlay';
-        c.globalAlpha = 0.05;
-        c.fillStyle = noise;
-        c.fillRect(0, 0, w, h);
-        c.globalAlpha = 1;
-      }
+      // 10. Soft lens vignette.
       c.globalCompositeOperation = 'source-over';
       c.fillStyle = frame.vignette;
       c.fillRect(0, 0, w, h);
@@ -855,6 +836,6 @@ function viceCss(): string {
 export const VICE_HORIZON_SCENE: SceneSpec = {
   factories: [createViceCanvas],
   cssFallback: viceCss,
-  fps: 30,
+  fps: 20,
   startTime: 3.2,
 };
