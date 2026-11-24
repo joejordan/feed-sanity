@@ -70,6 +70,9 @@ export class PauseHolds {
 
   /** Notes a press or a key press by the person, which may be what starts a video. */
   gesture(event: Event): void {
+    if (this.#held.size === 0) {
+      return;
+    }
     const target =
       (typeof event.composedPath === 'function' ? event.composedPath()[0] : undefined) ??
       event.target;

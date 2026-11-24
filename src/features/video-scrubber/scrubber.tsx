@@ -2,8 +2,41 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { Watched } from '../../ui/watched';
 import type { StripPlace } from './layout';
 import type { MediaState } from './media';
+import { containsAcrossShadows } from '../../core/dom';
 import { STRIP_HEIGHT } from './layout';
 import { formatTime, isSeekable, readMedia, Seeker, sameMedia, watchMedia } from './media';
+
+/** Single shared `fullscreenchange` subscription per Document across all mounted scrubbers. */
+const fullscreenSubscribers = new WeakMap<Document, Set<() => void>>();
+
+function subscribeFullscreen(doc: Document, listener: () => void): () => void {
+  let set = fullscreenSubscribers.get(doc);
+  if (!set) {
+    set = new Set();
+    fullscreenSubscribers.set(doc, set);
+    const notify = (): void => {
+      const current = fullscreenSubscribers.get(doc);
+      if (!current) {
+        return;
+      }
+      for (const fn of current) {
+        fn();
+      }
+    };
+    doc.addEventListener('fullscreenchange', notify);
+  }
+  set.add(listener);
+  return () => {
+    set?.delete(listener);
+  };
+}
+
+function isVideoInFullscreen(video: HTMLVideoElement): boolean {
+  const fs = (video.ownerDocument ?? document).fullscreenElement;
+  return Boolean(
+    fs && (fs === video || containsAcrossShadows(fs, video) || containsAcrossShadows(video, fs)),
+  );
+}
 
 /** How far the arrow keys move the video, in seconds. */
 const KEY_STEP = 5;
@@ -79,22 +112,15 @@ export function Scrubber({ video, place, hide }: ScrubberProps) {
   const [pointer, setPointer] = useState<number | null>(null);
   /** The time being dragged to. */
   const [dragTime, setDragTime] = useState<number | null>(null);
-  const [inFullscreen, setInFullscreen] = useState(() => {
-    const fs = video.ownerDocument?.fullscreenElement ?? null;
-    return Boolean(fs && (fs === video || fs.contains(video) || video.contains(fs)));
-  });
+  const [inFullscreen, setInFullscreen] = useState(() => isVideoInFullscreen(video));
 
   useEffect(() => () => seeker.dispose(), [seeker]);
 
   useEffect(() => {
     const doc = video.ownerDocument ?? document;
-    const syncFullscreen = (): void => {
-      const fs = doc.fullscreenElement;
-      setInFullscreen(Boolean(fs && (fs === video || fs.contains(video) || video.contains(fs))));
-    };
+    const syncFullscreen = (): void => setInFullscreen(isVideoInFullscreen(video));
     syncFullscreen();
-    doc.addEventListener('fullscreenchange', syncFullscreen);
-    return () => doc.removeEventListener('fullscreenchange', syncFullscreen);
+    return subscribeFullscreen(doc, syncFullscreen);
   }, [video]);
 
   // Facebook can give the same element another video. What was going on

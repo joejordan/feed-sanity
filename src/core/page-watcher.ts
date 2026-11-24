@@ -5,6 +5,7 @@ import { createLogger } from './log';
 
 /** Elements that never hold page content worth reacting to. */
 const SKIPPED_TAGS = /^(?:SCRIPT|STYLE)$/i;
+const OWN_ATTR = 'data-feed-sanity';
 
 const isElement = (node: Node): node is Element => node.nodeType === Node.ELEMENT_NODE;
 
@@ -30,7 +31,17 @@ function selectorQuery(selector: string): Query {
     ...root.querySelectorAll<E>(selector),
   ];
   const matches = (element: Element): boolean => element.matches(selector);
-  return { all, matches, probe: (root) => [...(matches(root) ? [root] : []), ...all(root)] };
+  return {
+    all,
+    matches,
+    probe: (root) => {
+      const hit = matches(root);
+      if (root.childElementCount === 0) {
+        return hit ? [root] : [];
+      }
+      return hit ? [root, ...all(root)] : all(root);
+    },
+  };
 }
 
 export interface WatchHandlers {
@@ -89,7 +100,7 @@ class Batch {
       const added = new Set<Element>();
       for (const record of this.childList) {
         for (const node of record.addedNodes) {
-          if (isElement(node) && node.isConnected) {
+          if (isElement(node) && node.isConnected && !node.hasAttribute(OWN_ATTR)) {
             added.add(node);
           }
         }
@@ -151,7 +162,7 @@ class TreeSubscriber implements Subscriber {
     const { added, removed } = this.#changes;
     for (const record of childList) {
       for (const node of record.addedNodes) {
-        if (added && this.active && isWatched(node)) {
+        if (added && this.active && isWatched(node) && !node.hasAttribute(OWN_ATTR)) {
           callSafely(this.#log, added, node);
         }
       }
@@ -206,7 +217,7 @@ class SelectorSubscriber implements Subscriber {
   }
 
   deliver(batch: Batch): void {
-    if (this.attributes.size > 0) {
+    if (this.attributes.size > 0 && batch.attributes.size > 0) {
       for (const [element, names] of batch.attributes) {
         this.#attributesChanged(element, names);
       }
@@ -218,7 +229,11 @@ class SelectorSubscriber implements Subscriber {
         }
       }
     }
-    for (const top of batch.added) {
+    const added = batch.added;
+    if (added.length === 0) {
+      return;
+    }
+    for (const top of added) {
       // One lookup per subtree, so a locator that falls back picks one strategy for all of it.
       for (const element of this.#query.probe(top)) {
         this.enter(element);

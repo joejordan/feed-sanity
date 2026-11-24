@@ -98,17 +98,18 @@ export function mountClickEffects(
   let palette: ThemePalette | null = null;
   let cascadeEnabled = false;
   let overlay: HTMLDivElement | null = null;
+  let particleRoot: ParentNode | null = null;
   let disposed = false;
   const abort = new AbortController();
   const reducedMotion = doc.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)');
   const prefersReducedMotion = (): boolean => reducedMotion?.matches ?? false;
 
-  const ensureOverlay = (): HTMLDivElement | null => {
+  const ensureOverlay = (): ParentNode | null => {
     if (disposed) {
       return null;
     }
-    if (overlay?.isConnected) {
-      return overlay;
+    if (overlay?.isConnected && particleRoot) {
+      return particleRoot;
     }
     const target = doc.documentElement ?? doc.body;
     if (!target) {
@@ -119,13 +120,18 @@ export function mountClickEffects(
     overlay.setAttribute('aria-hidden', 'true');
     overlay.style.cssText =
       'position:fixed;inset:0;z-index:2147483645;pointer-events:none;overflow:hidden;contain:strict;';
+    // Isolate particles in a Shadow Root so spawning/removing click effects never
+    // triggers light-DOM MutationObservers or host stylesheet recalculations.
+    particleRoot =
+      typeof overlay.attachShadow === 'function' ? overlay.attachShadow({ mode: 'open' }) : overlay;
     target.append(overlay);
-    return overlay;
+    return particleRoot;
   };
 
   const removeOverlay = (): void => {
     overlay?.remove();
     overlay = null;
+    particleRoot = null;
   };
 
   const cascade = (x: number, y: number): void => {
@@ -135,7 +141,7 @@ export function mountClickEffects(
     }
   };
 
-  const particle = (host: HTMLElement, css: string): HTMLSpanElement => {
+  const particle = (host: ParentNode, css: string): HTMLSpanElement => {
     const el = doc.createElement('span');
     el.style.cssText = `position:absolute;pointer-events:none;will-change:transform,opacity;${css}`;
     host.append(el);

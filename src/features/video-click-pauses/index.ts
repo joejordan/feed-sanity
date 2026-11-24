@@ -172,6 +172,9 @@ export default defineFeature({
       if (video?.surface !== 'feed') {
         return undefined;
       }
+      if (video.container && !video.container.contains(target)) {
+        return undefined;
+      }
       // Leave native fullscreen controls and scrubbers untouched.
       const fs = document.fullscreenElement;
       if (

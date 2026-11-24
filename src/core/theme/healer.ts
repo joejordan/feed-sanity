@@ -57,6 +57,23 @@ const HEAL_SKIP_TAGS = new Set([
   'source',
   'track',
   'hr',
+  // SVG subtrees (icons, heart-burst animations, spinners) never carry text/surface heals.
+  'svg',
+  'path',
+  'g',
+  'circle',
+  'rect',
+  'line',
+  'polygon',
+  'polyline',
+  'ellipse',
+  'defs',
+  'clippath',
+  'use',
+  'mask',
+  'lineargradient',
+  'radialgradient',
+  'stop',
 ]);
 
 const INPUT_TAGS = new Set(['input', 'textarea', 'select']);
@@ -559,7 +576,7 @@ export function createThemeHealer(
     if (typeof globalThis.requestIdleCallback === 'function') {
       scheduledHandle = {
         kind: 'idle',
-        id: globalThis.requestIdleCallback((deadline) => flushSlice(deadline), { timeout: 120 }),
+        id: globalThis.requestIdleCallback((deadline) => flushSlice(deadline), { timeout: 400 }),
       };
       return;
     }
@@ -590,32 +607,30 @@ export function createThemeHealer(
       if (activePalette) {
         enqueueSubtree(shadow, 100);
       }
-      const shadowObserver = new MutationObserver((records) => {
-        if (!activePalette || disposed || pendingQueue.size >= MAX_PENDING_QUEUE) {
-          return;
-        }
-        for (const rec of records) {
-          for (const node of rec.addedNodes) {
-            if (node.nodeType !== Node.ELEMENT_NODE) {
-              continue;
-            }
-            const el = node as Element;
-            if (isEntryExcluded(el)) {
-              continue;
-            }
-            if (el.childElementCount > 0 || el.shadowRoot) {
-              enqueueSubtree(el, 80);
-            } else {
-              pendingQueue.add(el);
-              scheduleFlush();
-            }
+      // Reuse DomEnvironment's existing per-ShadowRoot PageWatcher instead of creating
+      // a duplicate MutationObserver on every open ShadowRoot.
+      const shadowWatcher = env.shadowWatcherOf(shadow);
+      if (!shadowWatcher) {
+        return;
+      }
+      const stopShadowWatch = shadowWatcher.watchTree({
+        added: (el) => {
+          if (!activePalette || disposed || pendingQueue.size >= MAX_PENDING_QUEUE) {
+            return;
           }
-        }
+          if (isEntryExcluded(el)) {
+            return;
+          }
+          if (el.childElementCount > 0 || el.shadowRoot) {
+            enqueueSubtree(el, 80);
+          } else {
+            pendingQueue.add(el);
+            scheduleFlush();
+          }
+        },
       });
-      shadowObserver.observe(shadow, { childList: true, subtree: true });
-      const stopShadowObserver = (): void => shadowObserver.disconnect();
-      rootScope.add(stopShadowObserver);
-      scope.add(stopShadowObserver);
+      rootScope.add(stopShadowWatch);
+      scope.add(stopShadowWatch);
     }),
   );
 

@@ -219,30 +219,38 @@ function detectParentSpeedRows(container: Element): Element[] {
     }
   }
   // Fallback for video settings popovers whose rows are plain clickable <div>s
-  // without ARIA menuitem/button roles or tabindex="0". Never scan tweet threads.
-  if (candidates.length === 0 && !container.querySelector(TWEET_ARTICLE_SELECTOR)) {
-    for (const el of container.querySelectorAll('span, div, p, li, a')) {
-      if (el.closest(`[${OWN_ATTR}]`) || el.childElementCount > 6) {
-        continue;
-      }
-      const text = extractVisibleText(el);
-      if (!PARENT_SPEED_LABEL_RE.test(text) && !PARENT_SPEED_ROW_RE.test(text)) {
-        continue;
-      }
-      let row: Element = el;
-      for (let depth = 0; depth < 3; depth++) {
-        const parent = row.parentElement;
-        if (
-          !parent ||
-          parent === container ||
-          parent.childElementCount > 12 ||
-          !PARENT_SPEED_ROW_RE.test(extractVisibleText(parent))
-        ) {
-          break;
+  // without ARIA menuitem/button roles or tabindex="0". Never scan tweet threads or
+  // large non-menu containers (video players, compose modals, Grok drawers).
+  if (
+    candidates.length === 0 &&
+    container.childElementCount <= 16 &&
+    !container.querySelector(TWEET_ARTICLE_SELECTOR)
+  ) {
+    const allNodes = container.querySelectorAll('span, div, p, li, a');
+    if (allNodes.length <= 80) {
+      for (const el of allNodes) {
+        if (el.closest(`[${OWN_ATTR}]`) || el.childElementCount > 6) {
+          continue;
         }
-        row = parent;
+        const text = extractVisibleText(el);
+        if (!PARENT_SPEED_LABEL_RE.test(text) && !PARENT_SPEED_ROW_RE.test(text)) {
+          continue;
+        }
+        let row: Element = el;
+        for (let depth = 0; depth < 3; depth++) {
+          const parent = row.parentElement;
+          if (
+            !parent ||
+            parent === container ||
+            parent.childElementCount > 12 ||
+            !PARENT_SPEED_ROW_RE.test(extractVisibleText(parent))
+          ) {
+            break;
+          }
+          row = parent;
+        }
+        addCandidate(row);
       }
-      addCandidate(row);
     }
   }
   return keepInnermost(candidates).map((item) => item.el);
@@ -936,7 +944,18 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
         scheduleSync();
       }
     });
-    observer.observe(menu, { childList: true, subtree: true, characterData: true });
+    // Only watch `characterData` on real menu/dropdown popovers — NEVER on
+    // `[data-testid="videoPlayer"]` or `#layers > *`, where video timecode ticks
+    // (`0:01 -> 0:02`) and compose-modal keystrokes would fire constantly.
+    const isSmallPopover = menu.matches(
+      '[role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="sheetDialog"]',
+    );
+    observer.observe(
+      menu,
+      isSmallPopover
+        ? { childList: true, subtree: true, characterData: true }
+        : { childList: true, subtree: true },
+    );
     syncMenu();
 
     menuCleanups.set(menu, () => {

@@ -63,11 +63,16 @@ export function installAttachShadowHook(
   };
 }
 
+/** Cross-world DOM event dispatched on an element that just attached an open ShadowRoot. */
+export const SHADOW_ATTACHED_EVENT = 'feed-sanity:shadow-attached';
+
 /**
  * Installs `installAttachShadowHook` and coalesces synchronous open Shadow Root
- * attachments into one microtask callback (`onBatch(count)`). Returns an
- * idempotent teardown function that restores `Element.prototype.attachShadow`
- * and cancels any pending microtask notification.
+ * attachments into one microtask callback (`onBatch(count)`). Also dispatches a
+ * bubbling, composed `SHADOW_ATTACHED_EVENT` directly on each connected `host`
+ * so isolated-world `DomEnvironment` receives the exact host in O(1) without
+ * scanning the document. Returns an idempotent teardown function that restores
+ * `Element.prototype.attachShadow` and cancels any pending microtask notification.
  */
 export function watchOpenShadowAttachments(
   onBatch: (count: number) => void,
@@ -76,9 +81,16 @@ export function watchOpenShadowAttachments(
   let pendingCount = 0;
   let disposed = false;
 
-  const remove = installAttachShadowHook(({ mode }) => {
+  const remove = installAttachShadowHook(({ host: target, mode }) => {
     if (mode !== 'open' || disposed) {
       return;
+    }
+    if (target.isConnected && typeof target.dispatchEvent === 'function') {
+      try {
+        target.dispatchEvent(new Event(SHADOW_ATTACHED_EVENT, { bubbles: true, composed: true }));
+      } catch {
+        // Ignore exotic non-EventTarget hosts.
+      }
     }
     pendingCount++;
     if (pendingCount === 1) {

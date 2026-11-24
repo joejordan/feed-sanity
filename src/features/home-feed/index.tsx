@@ -383,21 +383,33 @@ export default defineFeature({
     };
     scope.add(onUrlChange(syncHomeActive));
 
-    featurePage.watch(
-      featurePage.locate(TOP_BAR_HOME),
-      {
-        added: (link) => {
-          homeLinks.add(link);
-          syncHomeActive();
-        },
-        removed: (link) => {
-          homeLinks.delete(link);
-          syncHomeActive();
-        },
-        changed: () => syncHomeActive(),
+    // Observe `aria-current` directly on the 1-2 matched Home links instead of enabling
+    // document-wide `attributes: true` mode on the shared PageWatcher.
+    const homeAttrObservers = new Map<Element, MutationObserver>();
+    scope.add(() => {
+      for (const obs of homeAttrObservers.values()) {
+        obs.disconnect();
+      }
+      homeAttrObservers.clear();
+    });
+
+    featurePage.watch(featurePage.locate(TOP_BAR_HOME), {
+      added: (link) => {
+        homeLinks.add(link);
+        if (!homeAttrObservers.has(link)) {
+          const obs = new MutationObserver(() => syncHomeActive());
+          obs.observe(link, { attributes: true, attributeFilter: ['aria-current'] });
+          homeAttrObservers.set(link, obs);
+        }
+        syncHomeActive();
       },
-      { attributes: ['aria-current'] },
-    );
+      removed: (link) => {
+        homeLinks.delete(link);
+        homeAttrObservers.get(link)?.disconnect();
+        homeAttrObservers.delete(link);
+        syncHomeActive();
+      },
+    });
 
     /**
      * Suppresses Facebook's plain "Home" tooltip whenever a custom Home feed is
@@ -544,9 +556,24 @@ export default defineFeature({
         },
       });
 
-      addEventListener('resize', syncFallback);
+      // Coalesce window resize checks behind `requestAnimationFrame` instead of calling
+      // `getBoundingClientRect()` synchronously on every resize event.
+      let resizeRaf = 0;
+      const onResize = (): void => {
+        if (resizeRaf === 0) {
+          resizeRaf = requestAnimationFrame(() => {
+            resizeRaf = 0;
+            syncFallback();
+          });
+        }
+      };
+      addEventListener('resize', onResize, { passive: true });
       menuScope.add(() => {
-        removeEventListener('resize', syncFallback);
+        removeEventListener('resize', onResize);
+        if (resizeRaf !== 0) {
+          cancelAnimationFrame(resizeRaf);
+          resizeRaf = 0;
+        }
         for (const unmount of homeOverlays.values()) {
           unmount();
         }

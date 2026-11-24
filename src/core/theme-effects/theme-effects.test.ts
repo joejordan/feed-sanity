@@ -204,8 +204,10 @@ function stubReducedMotion(): void {
 const backdropHost = (): Element | null =>
   document.querySelector(`[data-feed-sanity="${BACKDROP_OWN_VALUE}"]`);
 
-const clickParticles = (): number =>
-  document.querySelector(`[data-feed-sanity="${CLICK_FX_OWN_VALUE}"]`)?.childElementCount ?? 0;
+const clickParticles = (): number => {
+  const host = document.querySelector(`[data-feed-sanity="${CLICK_FX_OWN_VALUE}"]`);
+  return (host?.shadowRoot ?? host)?.childElementCount ?? 0;
+};
 
 /** Dispatches a primary-button pointer or mouse event that crosses shadow roots. */
 function fire(el: Element, type: 'pointerdown' | 'click', clientX = 50, clientY = 40): void {
@@ -544,12 +546,16 @@ describe('Creative Theme & Effects Studio engine', () => {
     const bursts: Array<[number, number]> = [];
     const fx = mountClickEffects(document, (x, y) => bursts.push([x, y]));
     cleanups.push(() => fx.destroy());
-    const overlay = (): Element | null =>
+    const overlayHost = (): Element | null =>
       document.querySelector(`[data-feed-sanity="${CLICK_FX_OWN_VALUE}"]`);
+    const overlay = (): ParentNode | null => {
+      const host = overlayHost();
+      return host ? (host.shadowRoot ?? host) : null;
+    };
 
     fx.setEffect('spark', null);
     fx.triggerAt(120, 80);
-    expect(overlay()).not.toBeNull();
+    expect(overlayHost()).not.toBeNull();
     expect(overlay()?.childElementCount).toBe(8);
     const spark = overlay()?.firstElementChild as HTMLElement;
     expect(spark.style.width).toBe('5px');
@@ -580,7 +586,7 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(bursts.length).toBe(1);
 
     fx.setEffect('none', null);
-    expect(overlay()).toBeNull();
+    expect(overlayHost()).toBeNull();
   });
 
   it('gates click particles to interactive targets, but lets Glyphs cascade Matrix Rain anywhere', () => {

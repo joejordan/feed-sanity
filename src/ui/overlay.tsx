@@ -199,10 +199,17 @@ function hasNonOwnAfter(host: Element): boolean {
 }
 
 function enclosingParentMutated(parent: Element): boolean {
-  for (const mutated of mutatedParents) {
-    if (mutated !== parent && mutated.contains(parent)) {
+  if (mutatedParents.size === 0) {
+    return false;
+  }
+  // Walk up ancestors from `parent` (O(depth) Set lookups) rather than calling
+  // `mutated.contains(parent)` across every mutated parent on the page.
+  let cur = parent.parentElement;
+  while (cur) {
+    if (mutatedParents.has(cur)) {
       return true;
     }
+    cur = cur.parentElement;
   }
   return false;
 }

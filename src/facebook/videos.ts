@@ -315,23 +315,25 @@ export class Videos {
       return undefined;
     }
     const own = this.#videos.get(element);
-    // What the tracked videos were found by, so an override of the locator applies here too.
-    const selector = this.#locate(VIDEO).selector();
-    if (own || !selector) {
+    if (own) {
       return own;
     }
-    let node = element.parentElement;
-    while (node && within.contains(node)) {
-      const videos = node.querySelectorAll(selector);
-      if (videos.length > 0) {
-        const video = videos.length === 1 ? videos[0] : undefined;
-        return video && this.#videos.get(video);
+    // Check tracked video containers directly in O(trackedVideos) instead of running
+    // `querySelectorAll('video')` at every ancestor div up to `within`.
+    let singleWithin: TrackedVideo | undefined;
+    let countWithin = 0;
+    for (const [videoEl, tracked] of this.#videos) {
+      if (!videoEl.isConnected) {
+        continue;
       }
-      if (node === within) {
-        break;
+      if (tracked.container && tracked.container.contains(element) && within.contains(videoEl)) {
+        return tracked;
       }
-      node = node.parentElement;
+      if (within.contains(videoEl)) {
+        countWithin++;
+        singleWithin = countWithin === 1 ? tracked : undefined;
+      }
     }
-    return undefined;
+    return singleWithin;
   }
 }

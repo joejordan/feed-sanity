@@ -31,7 +31,9 @@ const BACK_OPACITY = 1.3;
 const BACK_BLOOM = 0.6;
 const INK_BLOOM = 0.5;
 const MAX_FRAME_SECONDS = 0.05;
-const MAX_CANVAS_PIXELS = 3840 * 2160;
+const MAX_FPS = 30;
+const MIN_FRAME_MS = 1000 / MAX_FPS;
+const MAX_CANVAS_PIXELS = 2_400_000;
 const FONT_STEPS_PER_PIXEL = 2;
 const WARP_FADE_RATE = 5;
 const WARP_FOLLOW_RATE = 16;
@@ -65,6 +67,10 @@ class RainEngine {
   readonly #onFrame = (time: number): void => {
     this.#frame = 0;
     if (this.#running) {
+      if (this.#lastTime !== null && time - this.#lastTime < MIN_FRAME_MS - 2) {
+        this.#invalidate();
+        return;
+      }
       const elapsed = this.#lastTime === null ? 0 : (time - this.#lastTime) / 1000;
       this.#lastTime = time;
       this.#step(clamp(elapsed, 0, MAX_FRAME_SECONDS));
@@ -416,10 +422,30 @@ export function mountDigitalRain(
       fonts.load(font, settings.charset).catch(() => undefined);
     }
   };
-  fonts?.addEventListener('loadingdone', () => engine.invalidateGlyphs(), { signal });
+  fonts?.addEventListener(
+    'loadingdone',
+    (event) => {
+      const loaded = (event as FontFaceSetLoadEvent).fontfaces;
+      if (loaded && loaded.length > 0) {
+        const wanted = settings.fontFamily.toLowerCase();
+        const relevant = loaded.some((face) =>
+          wanted.includes(face.family.replace(/^['"]|['"]$/g, '').toLowerCase()),
+        );
+        if (!relevant) {
+          return;
+        }
+      }
+      engine.invalidateGlyphs();
+    },
+    { signal },
+  );
   requestFont();
 
+  let viewportWidth = 0;
+  let viewportHeight = 0;
   const measure = (width: number, height: number, measuredRatio?: number): void => {
+    viewportWidth = width;
+    viewportHeight = height;
     const pixelRatio = measuredRatio ?? (win.devicePixelRatio || 1);
     engine.setViewport({ width, height, pixelRatio });
   };
@@ -463,10 +489,16 @@ export function mountDigitalRain(
     intersectionObserver.observe(canvas);
   }
 
+  // Backdrop canvases are fixed to the viewport (`inset: 0`), so use cached viewport
+  // dimensions instead of forcing synchronous `getBoundingClientRect()` on every pointermove.
   const report = (event: PointerEvent, tell: (x: number, y: number) => void): void => {
-    const { left, top, width, height } = canvas.getBoundingClientRect();
+    if (!settings.interactive || settings.paused || doc.hidden) {
+      return;
+    }
+    const width = viewportWidth || win.innerWidth || 0;
+    const height = viewportHeight || win.innerHeight || 0;
     if (width > 0 && height > 0) {
-      tell((event.clientX - left) / width, (event.clientY - top) / height);
+      tell(event.clientX / width, event.clientY / height);
     }
   };
   const onMove = (event: Event): void => {

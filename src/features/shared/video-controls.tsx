@@ -8,6 +8,7 @@ import type { Locate, LocatorSpec } from '../../core/locator';
 import type { OptionSpec } from '../../core/options';
 import type { Scope } from '../../core/scope';
 import { defineCapabilityFeature } from '../../capabilities';
+import { containsAcrossShadows } from '../../core/dom';
 import { intercept, isPlainPress, PRESS_EVENTS } from '../../core/intercept';
 import { OWN_ATTR } from '../../core/surface';
 import { PauseHolds } from '../video-click-pauses/hold';
@@ -129,12 +130,19 @@ export function createVideoControlsFeature<P extends VideoControlsPage>(
           if (!video || video.surface !== clickSurface) {
             return undefined;
           }
+          // Clicking Like/Retweet/Reply/author outside the video player container
+          // should never force synchronous `getBoundingClientRect()` layout.
+          if (video.container && !containsAcrossShadows(video.container, target)) {
+            return undefined;
+          }
           // Never hijack pointer events while the player is in fullscreen; host
           // players provide their own fullscreen scrubber and click controls.
           const fs = page.doc.fullscreenElement;
           if (
             fs &&
-            (fs === video.element || fs.contains(video.element) || video.element.contains(fs))
+            (fs === video.element ||
+              containsAcrossShadows(fs, video.element) ||
+              containsAcrossShadows(video.element, fs))
           ) {
             return undefined;
           }

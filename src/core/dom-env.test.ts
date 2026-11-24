@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SHADOW_ATTACHED_EVENT } from '../engines/shadow';
 import { createDomEnvironment } from './dom-env';
 import { concealPending } from './surface';
 
@@ -267,6 +268,21 @@ describe('createDomEnvironment', () => {
     shadow.append(c);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(seen).toEqual([a]);
+    env.dispose();
+  });
+
+  it('discovers open ShadowRoots in O(1) via SHADOW_ATTACHED_EVENT without full-document polling', () => {
+    const env = createDomEnvironment({ pierceShadow: true });
+    const seen: ShadowRoot[] = [];
+    env.onShadowRoot((root) => seen.push(root));
+
+    const host = document.createElement('article');
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    host.dispatchEvent(new Event(SHADOW_ATTACHED_EVENT, { bubbles: true, composed: true }));
+
+    expect(seen).toEqual([shadow]);
+    expect(env.shadowRoots.has(shadow)).toBe(true);
     env.dispose();
   });
 });

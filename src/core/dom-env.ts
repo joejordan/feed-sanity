@@ -1,6 +1,7 @@
 import type { Logger } from './log';
 import type { Watch, WatchHandlers } from './page-watcher';
 import type { SlotPlacement } from './surface';
+import { SHADOW_ATTACHED_EVENT } from '../engines/shadow';
 import { addStyle } from './dom';
 import { callSafely, Listeners } from './listeners';
 import { createLogger } from './log';
@@ -53,6 +54,8 @@ export interface DomEnvironment {
   watch: PageWatcher['watch'];
   /** Subscribes to open `ShadowRoot`s discovered inside `doc` (when `pierceShadow` is enabled). */
   onShadowRoot: (listener: (root: ShadowRoot, rootScope: Scope) => void) => () => void;
+  /** Returns the shared `PageWatcher` owned by this environment for a discovered `ShadowRoot`. */
+  shadowWatcherOf: (root: ShadowRoot) => PageWatcher | undefined;
   /** Immediately scans `doc` and discovered Shadow Roots for newly attached open Shadow Roots. */
   scanShadowRoots: () => void;
   /** Subscribes to same-origin `<iframe>` child environments (when `includeIframes` is enabled). */
@@ -63,18 +66,27 @@ export interface DomEnvironment {
 
 const SHADOW_RESCAN_INTERVAL_MS = 150;
 const SHADOW_CANDIDATE_TTL_MS = 3000;
+const MAX_PENDING_SHADOW_CANDIDATES = 120;
 const OWN_UI_TAG = 'feed-sanity-ui';
 
 function isOwnUiHost(el: Element): boolean {
   return el.localName === OWN_UI_TAG || el.hasAttribute(OWN_ATTR);
 }
 
+/**
+ * Only custom elements (`*-*`) and empty mount-point containers (`div`/`section`/`aside`
+ * with zero children) are plausible asynchronous Shadow DOM hosts before `attachShadow()`.
+ * Skipping already-populated layout divs prevents queuing thousands of RNW/StyleX wrappers.
+ */
 function isShadowHostCandidate(el: Element): boolean {
   if (el.shadowRoot || isOwnUiHost(el)) {
     return false;
   }
   const tag = el.localName;
-  return tag === 'div' || tag === 'section' || tag === 'aside' || tag.includes('-');
+  if (tag.includes('-')) {
+    return true;
+  }
+  return el.childElementCount === 0 && (tag === 'div' || tag === 'section' || tag === 'aside');
 }
 
 /**
@@ -99,7 +111,8 @@ export function createDomEnvironment({
   // `attachShadow()` does not emit a document MutationObserver record.
   const pendingShadowCandidates = new Map<Element, number>();
   let shadowRescanTimer: ReturnType<typeof setTimeout> | undefined;
-  let wholeDocScanUntil = 0;
+  let urlScanPending = false;
+  let directShadowHookActive = false;
 
   const iframeEnvs = new Map<HTMLIFrameElement, DomEnvironment>();
   const iframeLoadRemovers = new Map<HTMLIFrameElement, () => void>();
@@ -120,10 +133,11 @@ export function createDomEnvironment({
       return;
     }
     const now = Date.now();
-    if (now < wholeDocScanUntil) {
-      scanShadowSubtree(doc);
-    } else {
-      wholeDocScanUntil = 0;
+    if (urlScanPending) {
+      urlScanPending = false;
+      if (!directShadowHookActive) {
+        scanShadowSubtree(doc);
+      }
     }
     for (const [candidate, expiresAt] of pendingShadowCandidates) {
       if (!candidate.isConnected) {
@@ -139,7 +153,7 @@ export function createDomEnvironment({
         pendingShadowCandidates.delete(candidate);
       }
     }
-    if (pendingShadowCandidates.size > 0 || wholeDocScanUntil > now) {
+    if (pendingShadowCandidates.size > 0 || urlScanPending) {
       armShadowRescan();
     }
   };
@@ -172,7 +186,11 @@ export function createDomEnvironment({
     if (!pierceShadow || envScope.disposed) {
       return;
     }
-    const expiresAt = collectCandidates ? Date.now() + SHADOW_CANDIDATE_TTL_MS : 0;
+    if (root.nodeType === Node.ELEMENT_NODE && isOwnUiHost(root as Element)) {
+      return;
+    }
+    const shouldCollect = collectCandidates && !directShadowHookActive;
+    const expiresAt = shouldCollect ? Date.now() + SHADOW_CANDIDATE_TTL_MS : 0;
     let queued = false;
     const visit = (el: Element): void => {
       if (isOwnUiHost(el)) {
@@ -180,7 +198,11 @@ export function createDomEnvironment({
       }
       if (el.shadowRoot) {
         attachShadow(el.shadowRoot);
-      } else if (collectCandidates && isShadowHostCandidate(el)) {
+      } else if (
+        shouldCollect &&
+        pendingShadowCandidates.size < MAX_PENDING_SHADOW_CANDIDATES &&
+        isShadowHostCandidate(el)
+      ) {
         pendingShadowCandidates.set(el, expiresAt);
         queued = true;
       }
@@ -189,8 +211,21 @@ export function createDomEnvironment({
       visit(root as Element);
     }
     if (root.childElementCount > 0) {
-      for (const el of root.querySelectorAll('*')) {
+      // Walk direct children recursively rather than `querySelectorAll('*')` so
+      // own UI subtrees are pruned immediately without scanning their descendants.
+      const stack: Element[] = [...root.children];
+      while (stack.length > 0) {
+        const el = stack.pop();
+        if (!el || isOwnUiHost(el)) {
+          continue;
+        }
         visit(el);
+        for (let i = el.children.length - 1; i >= 0; i--) {
+          const child = el.children[i];
+          if (child) {
+            stack.push(child);
+          }
+        }
       }
     }
     if (queued) {
@@ -277,10 +312,26 @@ export function createDomEnvironment({
 
   if (pierceShadow) {
     scanShadowSubtree(doc, true);
+    const onDirectShadowAttached = (event: Event): void => {
+      directShadowHookActive = true;
+      pendingShadowCandidates.clear();
+      const target =
+        (typeof event.composedPath === 'function' ? event.composedPath()[0] : undefined) ??
+        event.target;
+      if (target instanceof Element && target.shadowRoot && !isOwnUiHost(target)) {
+        attachShadow(target.shadowRoot);
+      }
+    };
+    doc.addEventListener(SHADOW_ATTACHED_EVENT, onDirectShadowAttached, { capture: true });
+    envScope.add(() =>
+      doc.removeEventListener(SHADOW_ATTACHED_EVENT, onDirectShadowAttached, { capture: true }),
+    );
     envScope.add(
       watcher.onUrlChange(() => {
-        wholeDocScanUntil = Date.now() + SHADOW_CANDIDATE_TTL_MS;
-        armShadowRescan();
+        if (!directShadowHookActive) {
+          urlScanPending = true;
+          armShadowRescan();
+        }
       }),
     );
   }
@@ -316,7 +367,7 @@ export function createDomEnvironment({
       clearTimeout(shadowRescanTimer);
       shadowRescanTimer = undefined;
     }
-    wholeDocScanUntil = 0;
+    urlScanPending = false;
     pendingShadowCandidates.clear();
     for (const removeLoad of iframeLoadRemovers.values()) {
       removeLoad();
@@ -468,6 +519,7 @@ export function createDomEnvironment({
     },
     watch,
     onShadowRoot,
+    shadowWatcherOf: (root) => shadowWatchers.get(root),
     scanShadowRoots() {
       if (!pierceShadow || envScope.disposed) {
         return;

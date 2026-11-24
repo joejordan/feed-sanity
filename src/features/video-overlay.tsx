@@ -40,6 +40,8 @@ export interface VideoOverlayOptions<T, V extends OverlayVideo = Video> {
  * The overlay goes when its video leaves the page, and every one goes when
  * `scope` is disposed.
  */
+const POINTER_MEASURE_COOLDOWN_MS = 250;
+
 export function overlayEachVideo<T, V extends OverlayVideo = Video>(
   { page, scope, log }: { page: { videos: VideoOverlaySource<V> }; scope: Scope; log: Logger },
   { css, initial, measure, same, render }: VideoOverlayOptions<T, V>,
@@ -71,15 +73,23 @@ export function overlayEachVideo<T, V extends OverlayVideo = Video>(
   scope.add(
     page.videos.onAdd((video) => {
       let place = initial;
+      let lastEnterAt = -POINTER_MEASURE_COOLDOWN_MS;
       const moved = new Listeners(log);
       const ui = render(video, { get: () => place, subscribe: (listener) => moved.add(listener) });
       /** The container the pointer is listened for on. */
       let entered: Element | null = null;
-      const enter = (): void => shown.get(video)?.measure();
+      const enter = (): void => {
+        const now = performance.now();
+        if (now - lastEnterAt < POINTER_MEASURE_COOLDOWN_MS) {
+          return;
+        }
+        lastEnterAt = now;
+        shown.get(video)?.measure();
+      };
       const follow = (container: Element | null): void => {
         if (container !== entered) {
           entered?.removeEventListener('pointerenter', enter);
-          container?.addEventListener('pointerenter', enter);
+          container?.addEventListener('pointerenter', enter, { passive: true });
           entered = container;
         }
       };

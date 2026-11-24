@@ -71,7 +71,11 @@ export function addStyle(
 
 /** The elements matching `selector` in `root`, including `root` itself. */
 export function probe(root: Element, selector: string): Element[] {
-  return [...(root.matches(selector) ? [root] : []), ...root.querySelectorAll(selector)];
+  const self = root.matches(selector);
+  if (root.childElementCount === 0) {
+    return self ? [root] : [];
+  }
+  return self ? [root, ...root.querySelectorAll(selector)] : [...root.querySelectorAll(selector)];
 }
 
 /** True when `node` is a `ShadowRoot` (works across realms/DOM implementations). */
