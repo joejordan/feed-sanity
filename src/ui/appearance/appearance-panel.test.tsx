@@ -361,4 +361,39 @@ describe('appearancePanel & initSiteTheme', () => {
       expect(saved.get().effects).toBeUndefined();
     });
   });
+
+  it('applies the Velvet Silk vibe and lets the Silk backdrop be picked on its own', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+    const velvet = screen.getByRole('button', { name: /Velvet Silk/i });
+    await userEvent.click(velvet);
+    await vi.waitFor(() => {
+      expect(saved.get().preset).toBe('crimson-velvet');
+      expect(saved.get().effects?.backdrop).toBe('silk');
+      expect(saved.get().effects?.surface).toBe('glass');
+      expect(saved.get().effects?.click).toBe('ripple');
+    });
+    expect(velvet.getAttribute('aria-pressed')).toBe('true');
+
+    // Silk is also a standalone background chip: switch away, then back.
+    await userEvent.click(screen.getByRole('button', { name: /^Aurora/ }));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop).toBe('aurora'));
+    const silkChip = screen.getByRole('button', { name: /^Silk/ });
+    await userEvent.click(silkChip);
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop).toBe('silk'));
+    expect(silkChip.getAttribute('aria-pressed')).toBe('true');
+
+    // The click-effects copy promises calm, interactive-only feedback.
+    expect(screen.getByText(/Selecting text stays quiet/)).toBeTruthy();
+  });
 });

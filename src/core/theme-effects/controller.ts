@@ -44,6 +44,11 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
     if (backdropHost?.isConnected) {
       return backdropHost;
     }
+    // The page detached our host: the live backdrop went with it, so remount it
+    // in the fresh host instead of updating a renderer nobody can see.
+    if (backdropHost) {
+      teardownBackdrop();
+    }
     const target = doc.body ?? doc.documentElement;
     if (!target) {
       return null;
@@ -57,35 +62,44 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
     return backdropHost;
   };
 
+  const syncBackdrop = (
+    effects: ThemeEffectsConfig,
+    palette: ThemePalette | null,
+    hostScheme: ThemeColorScheme,
+  ): void => {
+    if (effects.backdrop === 'none') {
+      teardownBackdrop();
+      return;
+    }
+    const host = ensureBackdropHost();
+    if (!host) {
+      return;
+    }
+    host.style.opacity = String(effects.intensity);
+    host.dataset.fsBackdrop = effects.backdrop;
+
+    const ctx = { doc, container: host, palette, hostScheme, effects };
+    if (activeBackdrop && activeBackdropId === effects.backdrop) {
+      activeBackdrop.update(ctx);
+      return;
+    }
+    activeBackdrop?.destroy();
+    activeBackdrop = BACKDROP_REGISTRY[effects.backdrop].mount(ctx);
+    activeBackdropId = effects.backdrop;
+  };
+
   return {
     sync(rawEffects, palette, hostScheme) {
       if (disposed) {
         return;
       }
       const effects = rawEffects ?? DEFAULT_THEME_EFFECTS;
-      clickFx.setEffect(effects.click, palette);
-
-      if (effects.backdrop === 'none') {
-        teardownBackdrop();
-        return;
-      }
-
-      const host = ensureBackdropHost();
-      if (!host) {
-        return;
-      }
-      host.style.opacity = String(effects.intensity);
-      host.dataset.fsBackdrop = effects.backdrop;
-
-      const ctx = { doc, container: host, palette, hostScheme, effects };
-      if (activeBackdrop && activeBackdropId === effects.backdrop) {
-        activeBackdrop.update(ctx);
-        return;
-      }
-      activeBackdrop?.destroy();
-      const plugin = BACKDROP_REGISTRY[effects.backdrop];
-      activeBackdrop = plugin.mount(ctx);
-      activeBackdropId = effects.backdrop;
+      syncBackdrop(effects, palette, hostScheme);
+      // Clicks may cascade the backdrop only when it reacts to bursts (Matrix Rain)
+      // and the user keeps pointer reactions on.
+      clickFx.setEffect(effects.click, palette, {
+        cascade: effects.interactive && Boolean(activeBackdrop?.burst),
+      });
     },
     dispose() {
       if (disposed) {

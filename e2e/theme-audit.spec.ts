@@ -457,6 +457,18 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
       await studioDialog.getByRole('button', { name: /Vice City VI/i }).click();
       await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'vice-horizon');
       await expect(backdrop.locator('canvas')).toBeVisible();
+      await expect(backdrop.locator('canvas')).toHaveAttribute('data-fs-renderer', 'canvas2d');
+
+      // Velvet Silk: satin shader on WebGL, or its Canvas 2D fallback on GPU-less runners.
+      // Either way a live canvas renders (never the static CSS wash) and the old one is gone.
+      await studioDialog.getByRole('button', { name: /Velvet Silk/i }).click();
+      await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'silk');
+      await expect(backdrop.locator('canvas')).toHaveCount(1);
+      await expect(backdrop.locator('canvas')).toBeVisible();
+      await expect(backdrop.locator('canvas')).toHaveAttribute(
+        'data-fs-renderer',
+        /^(webgl|canvas2d)$/,
+      );
 
       // Reset to site default tears down the backdrop with zero DOM residue.
       await studioDialog.getByRole('button', { name: 'Reset to site default' }).click();

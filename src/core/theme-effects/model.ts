@@ -11,6 +11,7 @@ export const BACKDROP_EFFECT_IDS = [
   'digital-rain',
   'vice-horizon',
   'aurora',
+  'silk',
   'starfield',
   'cyber-grid',
   'prism-beams',
@@ -63,9 +64,9 @@ export interface ThemeEffectsConfig {
 
 export const DEFAULT_THEME_EFFECTS: ThemeEffectsConfig = {
   backdrop: 'none',
-  intensity: 0.78,
+  intensity: 0.8,
   speed: 1,
-  glassStrength: 0.24,
+  glassStrength: 0.22,
   paused: false,
   interactive: true,
   rainLook: 'theme',
@@ -140,38 +141,51 @@ export const BACKDROP_OPTIONS: readonly BackdropOptionMeta[] = [
   {
     id: 'vice-horizon',
     name: 'Vice Horizon',
-    tagline: 'GTA VI sunset, neon water & palms',
-    preview: 'linear-gradient(180deg, #1b0b2e 0%, #a21c5e 52%, #ff6b4a 82%, #ffb800 100%)',
+    tagline: 'GTA VI dusk, Deco skyline, ocean & palms',
+    preview:
+      'radial-gradient(circle at 50% 62%, #ffd056 0 16%, transparent 17%), linear-gradient(180deg, #1f0e45 0%, #5a1a62 38%, #f0625a 60%, #ffa24f 66%, #3a1252 67%, #080411 100%)',
   },
   {
     id: 'aurora',
     name: 'Aurora',
-    tagline: 'Flowing northern lights glow',
-    preview: 'linear-gradient(135deg, #0b1026 0%, #22e58b 45%, #28d7ff 72%, #8b5cf6 100%)',
+    tagline: 'Billowing northern-lights curtains',
+    preview:
+      'radial-gradient(ellipse 80% 60% at 30% 0%, #22e58b 0%, transparent 70%), radial-gradient(ellipse 70% 60% at 80% 10%, #8b5cf6 0%, transparent 70%), #0b1026',
+  },
+  {
+    id: 'silk',
+    name: 'Silk',
+    tagline: 'Slow liquid satin folds in your palette',
+    preview:
+      'linear-gradient(128deg, #12060b 0%, #6d1430 32%, #e48aa0 47%, #8f1d3a 58%, #2a0a14 100%)',
   },
   {
     id: 'starfield',
     name: 'Constellations',
-    tagline: 'Parallax stars linked to your cursor',
-    preview: 'radial-gradient(circle at 30% 30%, #60a5fa 0%, #1e1b4b 48%, #050814 100%)',
+    tagline: 'Deep stars, shooting stars & cursor links',
+    preview:
+      'radial-gradient(1.5px 1.5px at 22% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 60%, #fff, transparent), radial-gradient(circle at 25% 25%, #1e3a8a 0%, #050814 70%)',
   },
   {
     id: 'cyber-grid',
     name: 'Cyber Grid',
-    tagline: 'Synthwave 3D horizon grid',
-    preview: 'linear-gradient(180deg, #070b1a 0%, #3b0764 55%, #00f0ff 100%)',
+    tagline: 'Outrun perspective grid & horizon glow',
+    preview:
+      'repeating-linear-gradient(90deg, transparent 0 14px, rgb(0 240 255 / 45%) 14px 15px), linear-gradient(180deg, #070b1a 0%, #3b0764 55%, #ff2a85 56%, #070b1a 57%)',
   },
   {
     id: 'prism-beams',
     name: 'Prism Beams',
-    tagline: 'Sweeping volumetric light rays',
-    preview: 'linear-gradient(125deg, #090814 0%, #ff3b8d 38%, #c084fc 66%, #28d7ff 100%)',
+    tagline: 'Volumetric light rays & drifting dust',
+    preview:
+      'conic-gradient(from 150deg at 50% -10%, transparent 0deg, #28d7ff 12deg, transparent 22deg, #c084fc 32deg, transparent 44deg, #ff3b8d 56deg, transparent 66deg), #090814',
   },
   {
     id: 'dot-spotlight',
     name: 'Dot Spotlight',
-    tagline: 'Cursor-lit architectural dot grid',
-    preview: 'radial-gradient(circle at 50% 45%, #3b82f6 0%, #111827 72%)',
+    tagline: 'Architectural dots lit by your cursor',
+    preview:
+      'radial-gradient(circle at 50% 45%, rgb(59 130 246 / 55%) 0%, transparent 60%), radial-gradient(rgb(255 255 255 / 35%) 1px, transparent 1.4px) 0 0 / 8px 8px, #111827',
   },
 ];
 
@@ -209,7 +223,8 @@ export interface StudioVibe {
 
 /**
  * Curated one-click Studio Vibes combining palette, live backdrop, surface finish,
- * and click feedback so users immediately feel inspired and fearless experimenting.
+ * and click feedback. Each is calibrated so the backdrop shines in the page
+ * gutters while reading columns stay crisp, opaque enough for all-day use.
  */
 export const STUDIO_VIBES: readonly StudioVibe[] = [
   {
@@ -223,10 +238,10 @@ export const STUDIO_VIBES: readonly StudioVibe[] = [
       backdrop: 'digital-rain',
       rainLook: 'phosphor',
       rainCharset: 'matrix',
-      rainDensity: 0.48,
-      intensity: 0.82,
+      rainDensity: 0.46,
+      intensity: 0.8,
       speed: 1,
-      glassStrength: 0.28,
+      glassStrength: 0.26,
       surface: 'glass',
       click: 'matrix-burst',
       paused: false,
@@ -236,30 +251,12 @@ export const STUDIO_VIBES: readonly StudioVibe[] = [
   {
     id: 'vice-city-vi',
     name: 'Vice City VI',
-    tagline: 'GTA VI sunset, neon palms & golden sparks',
+    tagline: 'Sliced sunset, Deco skyline, palms & sparks',
     preset: 'sunset-vapor',
-    swatch: 'linear-gradient(135deg, #1b0b2e 0%, #ff4d8d 48%, #ff6b4a 78%, #ffb800 100%)',
+    swatch: 'linear-gradient(135deg, #1f0e45 0%, #b3306c 45%, #ff6b4a 75%, #ffc46b 100%)',
     effects: {
       backdrop: 'vice-horizon',
-      intensity: 0.88,
-      speed: 0.95,
-      glassStrength: 0.26,
-      surface: 'gradient',
-      click: 'spark',
-      paused: false,
-      interactive: true,
-    },
-  },
-  {
-    id: 'prism-dream',
-    name: 'Prism Dream',
-    tagline: 'Rainbow aurora glow, gradient cards & sparks',
-    preset: 'prism-aurora',
-    swatch:
-      'linear-gradient(135deg, #ff3b8d 0%, #ffe600 33%, #22e58b 62%, #28d7ff 82%, #8b5cf6 100%)',
-    effects: {
-      backdrop: 'aurora',
-      intensity: 0.82,
+      intensity: 0.92,
       speed: 0.9,
       glassStrength: 0.24,
       surface: 'gradient',
@@ -269,16 +266,52 @@ export const STUDIO_VIBES: readonly StudioVibe[] = [
     },
   },
   {
+    id: 'prism-dream',
+    name: 'Prism Dream',
+    tagline: 'Aurora curtains, gradient cards & sparks',
+    preset: 'prism-aurora',
+    swatch:
+      'linear-gradient(135deg, #ff3b8d 0%, #ffe600 33%, #22e58b 62%, #28d7ff 82%, #8b5cf6 100%)',
+    effects: {
+      backdrop: 'aurora',
+      intensity: 0.85,
+      speed: 0.85,
+      glassStrength: 0.24,
+      surface: 'gradient',
+      click: 'spark',
+      paused: false,
+      interactive: true,
+    },
+  },
+  {
+    id: 'velvet-silk',
+    name: 'Velvet Silk',
+    tagline: 'Liquid satin folds, frosted glass & ripples',
+    preset: 'crimson-velvet',
+    swatch:
+      'linear-gradient(128deg, #12060b 0%, #6d1430 34%, #e48aa0 50%, #8f1d3a 62%, #1c1016 100%)',
+    effects: {
+      backdrop: 'silk',
+      intensity: 0.85,
+      speed: 0.8,
+      glassStrength: 0.26,
+      surface: 'glass',
+      click: 'ripple',
+      paused: false,
+      interactive: true,
+    },
+  },
+  {
     id: 'night-city',
     name: 'Night City Grid',
-    tagline: 'Cyberpunk horizon grid, neon rims & ripples',
+    tagline: 'Outrun horizon grid, neon rims & ripples',
     preset: 'cyber-neon',
     swatch: 'linear-gradient(135deg, #060913 0%, #00f0ff 50%, #ff2a85 100%)',
     effects: {
       backdrop: 'cyber-grid',
-      intensity: 0.8,
+      intensity: 0.82,
       speed: 1,
-      glassStrength: 0.24,
+      glassStrength: 0.22,
       surface: 'neon',
       click: 'ripple',
       paused: false,
@@ -288,12 +321,12 @@ export const STUDIO_VIBES: readonly StudioVibe[] = [
   {
     id: 'deep-space',
     name: 'Deep Space',
-    tagline: 'Interactive star constellations & aura glow',
+    tagline: 'Shooting stars, constellations & soft glow',
     preset: 'midnight',
     swatch: 'linear-gradient(135deg, #0b0f17 0%, #1e3a8a 58%, #60a5fa 100%)',
     effects: {
       backdrop: 'starfield',
-      intensity: 0.84,
+      intensity: 0.9,
       speed: 0.85,
       glassStrength: 0.26,
       surface: 'glass',
@@ -305,17 +338,17 @@ export const STUDIO_VIBES: readonly StudioVibe[] = [
   {
     id: 'studio-blueprint',
     name: 'Blueprint Studio',
-    tagline: 'Daylight cobalt ink rain & crisp dot focus',
+    tagline: 'Daylight cobalt ink rain & crisp ripples',
     preset: 'royal-cobalt',
     swatch: 'linear-gradient(135deg, #ebf0fa 0%, #93c5fd 55%, #1d4ed8 100%)',
     effects: {
       backdrop: 'digital-rain',
       rainLook: 'blueprint',
       rainCharset: 'binary',
-      rainDensity: 0.34,
-      intensity: 0.65,
+      rainDensity: 0.32,
+      intensity: 0.6,
       speed: 0.8,
-      glassStrength: 0.2,
+      glassStrength: 0.18,
       surface: 'glass',
       click: 'ripple',
       paused: false,

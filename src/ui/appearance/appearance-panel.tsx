@@ -362,7 +362,7 @@ function AppearancePanelView({
           <div className="theme-studio-subhead">
             <span className="theme-studio-label">Live background</span>
             <span className="theme-studio-hint">
-              Pauses off-screen and respects reduced-motion settings automatically.
+              Pauses in background tabs and follows your reduced-motion setting.
             </span>
           </div>
           <div className="theme-backdrop-grid" role="group" aria-label="Live background effect">
@@ -550,7 +550,7 @@ function AppearancePanelView({
 
         <SettingRow
           title="Click effects"
-          description="Playful accent feedback whenever you click buttons or posts."
+          description="A subtle accent touch on buttons, links, and tabs. Selecting text stays quiet."
         >
           <SegmentedControl
             ariaLabel="Click effects"
@@ -854,8 +854,22 @@ export function appearancePanel(
       {
         id: 'creative-studio',
         title: 'Creative Studio (Backgrounds, Glass, Gradients & Click FX)',
-        description: 'Add Matrix Rain, Vice City sunset, Aurora, glass cards, and click sparks.',
-        keywords: ['matrix', 'gta', 'vice', 'rain', 'aurora', 'glass', 'gradient', 'neon', 'click'],
+        description:
+          'Add Matrix Rain, Vice City sunset, Aurora, Silk, glass cards, and click sparks.',
+        keywords: [
+          'matrix',
+          'gta',
+          'vice',
+          'rain',
+          'aurora',
+          'silk',
+          'stars',
+          'grid',
+          'glass',
+          'gradient',
+          'neon',
+          'click',
+        ],
       },
       ...STUDIO_VIBES.map((vibe) => ({
         id: `vibe:${vibe.id}`,

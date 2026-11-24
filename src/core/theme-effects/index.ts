@@ -1,5 +1,5 @@
 export type { BackdropContext, BackdropInstance, BackdropPlugin } from './backdrops';
-export type { ClickEffectsController } from './click-fx';
+export type { ClickEffectOptions, ClickEffectsController } from './click-fx';
 export type { EffectsLayerController } from './controller';
 export type { RainCharsetName } from './digital-rain/charsets';
 export type { DigitalRainInstance, MountDigitalRainOptions } from './digital-rain/mount';
