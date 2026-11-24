@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import type { BackdropEffectId } from './index';
 import { facebookThemeMapping } from '../../sites/facebook/theme-mapping';
+import { gmailThemeMapping } from '../../sites/gmail/theme-mapping';
+import { instagramThemeMapping } from '../../sites/instagram/theme-mapping';
+import { redditThemeMapping } from '../../sites/reddit/theme-mapping';
 import { xThemeMapping } from '../../sites/x/theme-mapping';
 import { createDomEnvironment } from '../dom-env';
 import {
@@ -722,5 +725,82 @@ describe('Creative Theme & Effects Studio engine', () => {
     cleanups.push(() => layer.dispose());
     layer.sync(resolved.effects, resolved.palette, 'dark');
     expect((backdropHost() as HTMLElement | null)?.style.zIndex).toBe('-1');
+  });
+
+  it('enforces stacking and popup opacity invariants across every site mapping and every Studio Vibe', () => {
+    const allSites = [
+      ['facebook', facebookThemeMapping],
+      ['x', xThemeMapping],
+      ['instagram', instagramThemeMapping],
+      ['reddit', redditThemeMapping],
+      ['gmail', gmailThemeMapping],
+    ] as const;
+
+    const forbiddenBackdropTargets = [
+      '[data-testid="primaryColumn"]',
+      '[role="banner"]',
+      '[role="dialog"]',
+      '[role="menu"]',
+      '[role="listbox"]',
+      '[data-testid="Dropdown"]',
+      '[data-testid="HoverCard"]',
+    ];
+
+    // Parse top-level CSS rule blocks (`selector { body }`) to inspect every declaration cleanly.
+    const parseRules = (css: string): Array<{ selector: string; body: string }> => {
+      const rules: Array<{ selector: string; body: string }> = [];
+      for (const match of css.matchAll(/([^{}]+)\{([^{}]+)\}/g)) {
+        const selector = (match[1] ?? '').trim();
+        const body = (match[2] ?? '').trim();
+        if (selector && body) {
+          rules.push({ selector, body });
+        }
+      }
+      return rules;
+    };
+
+    for (const [siteName, mapping] of allSites) {
+      expect(mapping.surfaces, `${siteName} should declare centralized surfaces`).toBeDefined();
+      for (const vibe of STUDIO_VIBES) {
+        const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_CONFIG, vibe))!;
+        const css = compileHostThemeCss(resolved, mapping, 'dark');
+
+        // Invariant 1: Never inject a body-child stacking/position trap.
+        expect(css, `${siteName}/${vibe.id}`).not.toContain('body > :not(');
+
+        const rules = parseRules(css);
+
+        // Invariant 2: Never apply `backdrop-filter` to landmarks, columns, banners, or popups.
+        for (const rule of rules) {
+          if (!/backdrop-filter\s*:/i.test(rule.body)) {
+            continue;
+          }
+          for (const forbidden of forbiddenBackdropTargets) {
+            expect(
+              rule.selector.includes(forbidden),
+              `${siteName}/${vibe.id}: forbidden backdrop-filter on ${forbidden} in "${rule.selector}"`,
+            ).toBe(false);
+          }
+        }
+
+        // Invariant 3: Every declared popup selector receives a high-opacity (>= 0.95) background fill.
+        const popupRules = rules.filter((r) =>
+          (mapping.surfaces?.popups ?? []).some((p) => r.selector.includes(p)),
+        );
+        expect(
+          popupRules.length,
+          `${siteName}/${vibe.id}: missing opaque popup background rule`,
+        ).toBeGreaterThan(0);
+        for (const rule of popupRules) {
+          const alphaMatch = /background-color:\s*rgb\([^/]+\/\s*([0-9.]+)\)/i.exec(rule.body);
+          if (alphaMatch?.[1]) {
+            expect(
+              Number.parseFloat(alphaMatch[1]),
+              `${siteName}/${vibe.id}: popup alpha too low in "${rule.selector}"`,
+            ).toBeGreaterThanOrEqual(0.95);
+          }
+        }
+      }
+    }
   });
 });

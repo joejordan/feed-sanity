@@ -1,13 +1,34 @@
 // Compiles site-safe backdrop reveal CSS (translucent page gutters + readable
-// frosted glass feed columns) and Surface Finishes (Glass, Gradient Sheen, Neon Edge).
+// feed columns) and Surface Finishes (Glass, Gradient Sheen, Neon Edge) from
+// one declarative `SurfaceSelectors` contract so no site ever creates
+// stacking-context or `backdrop-filter` traps on ancestors or popups.
 
-import type { ThemeColorScheme, ThemePalette } from '../theming';
+import type {
+  SiteThemeMapping,
+  SurfaceSelectors,
+  ThemeColorScheme,
+  ThemePalette,
+} from '../theming/types';
 import type { ThemeEffectsConfig } from './model';
 import { OWN_ATTR } from '../surface';
 import { hexWithAlpha } from '../theme';
 
 export const BACKDROP_OWN_VALUE = 'theme-backdrop';
 export const CLICK_FX_OWN_VALUE = 'theme-click-fx';
+
+const DEFAULT_LEAF_CARDS: readonly string[] = [
+  '[data-testid="sidebarColumn"] section',
+  '[data-testid="sidebarColumn"] aside',
+];
+
+const DEFAULT_POPUPS: readonly string[] = [
+  '[role="dialog"]',
+  '[role="menu"]',
+  '[role="listbox"]',
+  '[id^="typeaheadDropdown"]',
+  '[data-testid="Dropdown"]',
+  '[data-testid="HoverCard"]',
+];
 
 /**
  * Computes safe surface alpha values from `glassStrength` (`0..0.65`) so text
@@ -25,6 +46,71 @@ export function resolveGlassMetrics(glassStrength: number): {
   return { columnAlpha, cardAlpha, blurPx };
 }
 
+function compileDeclarativeReveal(
+  mapping: Pick<SiteThemeMapping, 'rootSelectors' | 'surfaces'>,
+  palette: ThemePalette | null,
+  baseBg: string,
+  surfaceBg: string,
+  metrics: { readonly columnAlpha: number; readonly cardAlpha: number; readonly blurPx: number },
+): string {
+  const surfaces = mapping.surfaces;
+  if (!surfaces) {
+    return '';
+  }
+  const popupAlpha = Math.max(0.96, metrics.cardAlpha);
+  const fullMetrics = { ...metrics, popupAlpha };
+  const blocks: string[] = [];
+
+  if (surfaces.revealCssVars) {
+    const vars = surfaces.revealCssVars(palette, fullMetrics);
+    const decls = Object.entries(vars).map(([name, val]) => `  ${name}: ${val} !important;`);
+    if (decls.length > 0) {
+      const rootSel = mapping.rootSelectors.length > 0 ? mapping.rootSelectors.join(', ') : ':root';
+      blocks.push(`${rootSel} {\n${decls.join('\n')}\n}`);
+    }
+  }
+
+  if (surfaces.transparentShell && surfaces.transparentShell.length > 0) {
+    blocks.push(
+      `${surfaces.transparentShell.join(',\n')} {\n  background-color: transparent !important;\n}`,
+    );
+  }
+
+  if (surfaces.extraRevealCss) {
+    const extra = surfaces.extraRevealCss(palette, fullMetrics).trim();
+    if (extra) {
+      blocks.push(extra);
+    }
+  }
+
+  if (surfaces.columns && surfaces.columns.length > 0) {
+    const scale = surfaces.columnAlphaScale ?? 1;
+    const colAlpha = Number(Math.max(0.5, Math.min(1, metrics.columnAlpha * scale)).toFixed(2));
+    blocks.push(
+      `${surfaces.columns.join(',\n')} {\n  background-color: ${hexWithAlpha(baseBg, colAlpha)} !important;\n}`,
+    );
+  }
+
+  if (surfaces.softSurfaces && surfaces.softSurfaces.length > 0) {
+    blocks.push(
+      `${surfaces.softSurfaces.join(',\n')} {\n  background-color: ${hexWithAlpha(surfaceBg, metrics.cardAlpha)} !important;\n}`,
+    );
+  }
+
+  if (surfaces.leafCards && surfaces.leafCards.length > 0) {
+    blocks.push(
+      `${surfaces.leafCards.join(',\n')} {\n  background-color: ${hexWithAlpha(surfaceBg, metrics.cardAlpha)} !important;\n  backdrop-filter: blur(${metrics.blurPx}px);\n  -webkit-backdrop-filter: blur(${metrics.blurPx}px);\n}`,
+    );
+  }
+
+  const popups = surfaces.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS;
+  blocks.push(
+    `${popups.join(',\n')} {\n  background-color: ${hexWithAlpha(surfaceBg, popupAlpha)} !important;\n}`,
+  );
+
+  return blocks.join('\n\n');
+}
+
 /**
  * Compiles CSS that layers the active backdrop cleanly at `z-index: -1` behind
  * the host application while making outer canvas wrappers transparent so live
@@ -35,10 +121,7 @@ export function compileBackdropRevealCss(
   palette: ThemePalette | null,
   hostScheme: ThemeColorScheme,
   effects: ThemeEffectsConfig,
-  siteRevealCss?: (
-    palette: ThemePalette | null,
-    metrics: { readonly columnAlpha: number; readonly cardAlpha: number; readonly blurPx: number },
-  ) => string,
+  mapping?: Pick<SiteThemeMapping, 'rootSelectors' | 'surfaces' | 'backdropRevealCss'>,
 ): string {
   if (effects.backdrop === 'none') {
     return '';
@@ -46,7 +129,6 @@ export function compileBackdropRevealCss(
   const metrics = resolveGlassMetrics(effects.glassStrength);
   const baseBg = palette?.background ?? (hostScheme === 'light' ? '#f8fafc' : '#06090f');
   const surfaceBg = palette?.surface ?? (hostScheme === 'light' ? '#ffffff' : '#111622');
-  const siteCustom = siteRevealCss?.(palette, metrics).trim();
 
   const genericReveal = `
 html {
@@ -67,14 +149,18 @@ body {
   transition: opacity 220ms ease;
 }`;
 
-  const fallbackCards = siteCustom
-    ? siteCustom
+  const siteCss = mapping?.surfaces
+    ? compileDeclarativeReveal(mapping, palette, baseBg, surfaceBg, metrics)
+    : mapping?.backdropRevealCss?.(palette, metrics).trim();
+
+  const fallbackCards = siteCss
+    ? siteCss
     : `
 main, [role="main"], article {
   background-color: ${hexWithAlpha(surfaceBg, metrics.cardAlpha)} !important;
 }
-[role="dialog"], [role="menu"], [role="listbox"] {
-  background-color: ${hexWithAlpha(surfaceBg, Math.max(0.95, metrics.cardAlpha))} !important;
+${DEFAULT_POPUPS.join(', ')} {
+  background-color: ${hexWithAlpha(surfaceBg, Math.max(0.96, metrics.cardAlpha))} !important;
 }`;
 
   return [genericReveal.trim(), fallbackCards.trim()].filter(Boolean).join('\n\n');
@@ -82,13 +168,15 @@ main, [role="main"], article {
 
 /**
  * Compiles optional Surface Finish enhancements (`glass`, `gradient`, `neon`)
- * onto host cards, sidebars, headers, dialogs, and buttons while preserving
- * exact layout geometry (using box-shadow/background-image, never changing box sizes).
+ * onto host cards, sidebars, dialogs, and buttons while preserving exact layout
+ * geometry (using box-shadow/background-image, never changing box sizes) and
+ * never placing `backdrop-filter` on popups or large ancestor containers.
  */
 export function compileSurfaceFinishCss(
   palette: ThemePalette | null,
   hostScheme: ThemeColorScheme,
   effects: ThemeEffectsConfig,
+  surfaces?: SurfaceSelectors,
 ): string {
   if (effects.surface === 'default') {
     return '';
@@ -100,10 +188,13 @@ export function compileSurfaceFinishCss(
   const border = palette?.border ?? (hostScheme === 'light' ? '#cbd5e1' : '#2b364d');
   const danger = palette?.danger ?? '#ec4899';
 
-  const leafCardTargets =
-    ':where([data-testid="sidebarColumn"] section, [data-testid="sidebarColumn"] aside, shreddit-post)';
-  const popupTargets =
-    ':where([role="dialog"], [role="menu"], [role="listbox"], [id^="typeaheadDropdown"], [data-testid="Dropdown"], [data-testid="HoverCard"])';
+  const leafList =
+    surfaces?.leafCards && surfaces.leafCards.length > 0 ? surfaces.leafCards : DEFAULT_LEAF_CARDS;
+  const popupList =
+    surfaces?.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS;
+
+  const leafCardTargets = `:where(${leafList.join(', ')})`;
+  const popupTargets = `:where(${popupList.join(', ')})`;
   const cardTargets = `${leafCardTargets}, ${popupTargets}`;
 
   if (effects.surface === 'glass') {
@@ -117,7 +208,7 @@ ${leafCardTargets} {
   box-shadow: inset 0 1px 0 0 ${highlight}, 0 8px 28px rgb(0 0 0 / 18%) !important;
 }
 ${popupTargets} {
-  background-color: ${hexWithAlpha(surface, Math.max(0.95, cardAlpha))} !important;
+  background-color: ${hexWithAlpha(surface, Math.max(0.96, cardAlpha))} !important;
   box-shadow: inset 0 1px 0 0 ${highlight}, 0 10px 32px rgb(0 0 0 / 26%) !important;
 }`.trim();
   }

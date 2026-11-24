@@ -89,20 +89,15 @@ header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
   background-color: ${hexWithAlpha(p.accent, 0.28)} !important;
 }
 `.trim(),
-  backdropRevealCss: (p, { cardAlpha }) => {
-    const surface = p?.surface ?? '#131926';
-    return `
-shreddit-app,
-main,
-reddit-header-large {
-  background-color: transparent !important;
-}
-header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
-  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
-}
-[role="dialog"], [role="menu"], [role="listbox"] {
-  background-color: ${hexWithAlpha(surface, Math.max(0.96, cardAlpha))} !important;
-}
-`.trim();
+  surfaces: {
+    transparentShell: ['shreddit-app', 'main', 'reddit-header-large'],
+    softSurfaces: [
+      'header',
+      'nav',
+      '#left-sidebar-container',
+      '#right-sidebar-container',
+      'shreddit-post',
+    ],
+    popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
   },
 };

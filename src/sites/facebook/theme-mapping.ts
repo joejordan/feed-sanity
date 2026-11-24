@@ -54,23 +54,20 @@ export const facebookThemeMapping: SiteThemeMapping = {
   },
   extraCss: (p) =>
     `body { background-color: ${p.background} !important; color: ${p.text} !important; }`,
-  backdropRevealCss: (p, { cardAlpha }) => {
-    const surface = p?.surface ?? '#18191a';
-    const popupAlpha = Math.max(0.96, cardAlpha);
-    return `
-:root, .__fb-dark-mode, .__fb-light-mode {
-  --web-wash: transparent !important;
-  --wash: transparent !important;
-  --base-wash: transparent !important;
-  --card-background: ${hexWithAlpha(surface, cardAlpha)} !important;
-  --surface-background: ${hexWithAlpha(surface, cardAlpha)} !important;
-  --nav-bar-background: ${hexWithAlpha(surface, Math.max(0.92, cardAlpha))} !important;
-  --popover-background: ${hexWithAlpha(surface, popupAlpha)} !important;
-}
-[id^="mount_0_0"],
-[role="main"] {
-  background-color: transparent !important;
-}
-`.trim();
+  surfaces: {
+    transparentShell: ['[id^="mount_0_0"]', '[role="main"]'],
+    popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
+    revealCssVars: (p, { cardAlpha, popupAlpha }) => {
+      const surface = p?.surface ?? '#18191a';
+      return {
+        '--web-wash': 'transparent',
+        '--wash': 'transparent',
+        '--base-wash': 'transparent',
+        '--card-background': hexWithAlpha(surface, cardAlpha),
+        '--surface-background': hexWithAlpha(surface, cardAlpha),
+        '--nav-bar-background': hexWithAlpha(surface, Math.max(0.92, cardAlpha)),
+        '--popover-background': hexWithAlpha(surface, popupAlpha),
+      };
+    },
   },
 };

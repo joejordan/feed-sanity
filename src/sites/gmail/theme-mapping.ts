@@ -96,23 +96,9 @@ div[role="menu"] * {
   background-color: ${hexWithAlpha(p.accent, 0.28)} !important;
 }
 `.trim(),
-  backdropRevealCss: (p, { cardAlpha }) => {
-    const surface = p?.surface ?? '#131926';
-    return `
-div.wl,
-header[role="banner"],
-div[role="navigation"] {
-  background-color: transparent !important;
-}
-div.nH:has(> div[role="main"]),
-div[role="main"] {
-  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
-}
-div[role="dialog"],
-div[role="menu"],
-div[role="listbox"] {
-  background-color: ${hexWithAlpha(surface, Math.max(0.96, cardAlpha))} !important;
-}
-`.trim();
+  surfaces: {
+    transparentShell: ['div.wl', 'header[role="banner"]', 'div[role="navigation"]'],
+    softSurfaces: ['div.nH:has(> div[role="main"])', 'div[role="main"]'],
+    popups: ['div[role="dialog"]', 'div[role="menu"]', 'div[role="listbox"]'],
   },
 };

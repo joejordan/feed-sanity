@@ -1,5 +1,4 @@
 import type { SiteThemeMapping } from '../../core/theming';
-import { hexWithAlpha } from '../../core/theming';
 
 /** Maps Feed Sanity's semantic `ThemePalette` onto Instagram's `--ig-*` RGB-triplet custom properties. */
 export const instagramThemeMapping: SiteThemeMapping = {
@@ -47,24 +46,11 @@ export const instagramThemeMapping: SiteThemeMapping = {
   },
   extraCss: (p) =>
     `html, body { background-color: ${p.background} !important; color: ${p.text} !important; }`,
-  backdropRevealCss: (p, { columnAlpha, cardAlpha }) => {
-    const bg = p?.background ?? '#05080f';
-    const surface = p?.surface ?? '#12151f';
-    return `
-[id^="mount_0_0"],
-section,
-main[role="main"] {
-  background-color: transparent !important;
-}
-article, nav {
-  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
-}
-[role="dialog"], [role="menu"] {
-  background-color: ${hexWithAlpha(surface, Math.max(0.96, cardAlpha))} !important;
-}
-main[role="main"] > div {
-  background-color: ${hexWithAlpha(bg, columnAlpha * 0.75)} !important;
-}
-`.trim();
+  surfaces: {
+    transparentShell: ['[id^="mount_0_0"]', 'section', 'main[role="main"]'],
+    columns: ['main[role="main"] > div'],
+    columnAlphaScale: 0.75,
+    softSurfaces: ['article', 'nav'],
+    popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
   },
 };

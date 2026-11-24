@@ -537,81 +537,75 @@ svg[data-testid="icon-verified"] {
   background-color: ${hexWithAlpha(p.accent, 0.28)} !important;
 }
 `.trim(),
-  backdropRevealCss: (p, { columnAlpha, cardAlpha, blurPx }) => {
-    const bg = p?.background ?? '#05080f';
-    const surface = p?.surface ?? '#111622';
-    const popupAlpha = Math.max(0.96, cardAlpha);
-    const keepOpaque = [
-      '#layers',
-      '#layers *',
-      'form[role="search"]',
-      'form[role="search"] *',
+  surfaces: {
+    transparentShell: [
+      '#react-root',
+      'header[role="banner"]',
+      'main[role="main"]',
+      '[data-testid="sidebarColumn"]',
+      '[data-testid="sidebarColumn"] > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"]))',
+      '[data-testid="sidebarColumn"] > div > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"]))',
+      '#react-root > div > div > div',
+    ],
+    columns: [
       '[data-testid="primaryColumn"]',
-      '[data-testid="primaryColumn"] *',
+      '[data-testid="primaryColumn"] [data-testid="toolBar"]',
+    ],
+    leafCards: [
+      '[data-testid="sidebarColumn"] section',
+      '[data-testid="sidebarColumn"] aside[role="complementary"]',
+      '[data-testid="sidebarColumn"] [data-testid="news_sidebar"]',
+      '[data-testid="sidebarColumn"] .r-1867qdf.r-1kqtdi0',
+      '[data-testid="sidebarColumn"] .r-1867qdf.r-1phboty',
+    ],
+    popups: [
       '[role="dialog"]',
-      '[role="dialog"] *',
       '[data-testid="sheetDialog"]',
-      '[data-testid="sheetDialog"] *',
       '[role="menu"]',
-      '[role="menu"] *',
       '[role="listbox"]',
-      '[role="listbox"] *',
       '[id^="typeaheadDropdown"]',
-      '[id^="typeaheadDropdown"] *',
       '[data-testid="typeaheadDropdown"]',
-      '[data-testid="typeaheadDropdown"] *',
+      'form[role="search"] :is([role="listbox"], [id^="typeaheadDropdown"], [data-testid="typeaheadDropdown"])',
+      'form[role="search"] :has(> [role="listbox"], > [id^="typeaheadDropdown"], > [data-testid="typeaheadDropdown"])',
+      '#layers :is([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"])',
       '[data-testid="Dropdown"]',
-      '[data-testid="Dropdown"] *',
       '[data-testid="HoverCard"]',
-      '[data-testid="HoverCard"] *',
-      '[data-testid="GrokDrawerHeader"]',
-      '[data-testid="GrokDrawerHeader"] *',
-      '[data-testid="chat-drawer-main"]',
-      '[data-testid="chat-drawer-main"] *',
-      IN_VIDEO,
-    ].join(', ');
-    return `
-#react-root,
-header[role="banner"],
-main[role="main"],
-[data-testid="sidebarColumn"],
-[data-testid="sidebarColumn"] > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"])),
-[data-testid="sidebarColumn"] > div > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"])) {
-  background-color: transparent !important;
-}
-#react-root > div > div > div {
-  background-color: transparent !important;
-}
+    ],
+    extraRevealCss: () => {
+      const keepOpaque = [
+        '#layers',
+        '#layers *',
+        'form[role="search"]',
+        'form[role="search"] *',
+        '[data-testid="primaryColumn"]',
+        '[data-testid="primaryColumn"] *',
+        '[role="dialog"]',
+        '[role="dialog"] *',
+        '[data-testid="sheetDialog"]',
+        '[data-testid="sheetDialog"] *',
+        '[role="menu"]',
+        '[role="menu"] *',
+        '[role="listbox"]',
+        '[role="listbox"] *',
+        '[id^="typeaheadDropdown"]',
+        '[id^="typeaheadDropdown"] *',
+        '[data-testid="typeaheadDropdown"]',
+        '[data-testid="typeaheadDropdown"] *',
+        '[data-testid="Dropdown"]',
+        '[data-testid="Dropdown"] *',
+        '[data-testid="HoverCard"]',
+        '[data-testid="HoverCard"] *',
+        '[data-testid="GrokDrawerHeader"]',
+        '[data-testid="GrokDrawerHeader"] *',
+        '[data-testid="chat-drawer-main"]',
+        '[data-testid="chat-drawer-main"] *',
+        IN_VIDEO,
+      ].join(', ');
+      return `
 #react-root .r-kemksi:not(:where(${keepOpaque})),
 #react-root .r-14lw9ot:not(:where(button, [role="button"], ${keepOpaque})) {
   background-color: transparent !important;
-}
-[data-testid="primaryColumn"],
-[data-testid="primaryColumn"] [data-testid="toolBar"] {
-  background-color: ${hexWithAlpha(bg, columnAlpha)} !important;
-}
-[data-testid="sidebarColumn"] section,
-[data-testid="sidebarColumn"] aside[role="complementary"],
-[data-testid="sidebarColumn"] [data-testid="news_sidebar"],
-[data-testid="sidebarColumn"] .r-1867qdf.r-1kqtdi0,
-[data-testid="sidebarColumn"] .r-1867qdf.r-1phboty {
-  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
-  backdrop-filter: blur(${blurPx}px);
-  -webkit-backdrop-filter: blur(${blurPx}px);
-}
-[role="dialog"],
-[data-testid="sheetDialog"],
-[role="menu"],
-[role="listbox"],
-[id^="typeaheadDropdown"],
-[data-testid="typeaheadDropdown"],
-form[role="search"] :is([role="listbox"], [id^="typeaheadDropdown"], [data-testid="typeaheadDropdown"]),
-form[role="search"] :has(> [role="listbox"], > [id^="typeaheadDropdown"], > [data-testid="typeaheadDropdown"]),
-#layers :is([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"]),
-[data-testid="Dropdown"],
-[data-testid="HoverCard"] {
-  background-color: ${hexWithAlpha(surface, popupAlpha)} !important;
-}
-`.trim();
+}`.trim();
+    },
   },
 };
