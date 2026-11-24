@@ -51,13 +51,15 @@ export const instagramThemeMapping: SiteThemeMapping = {
       '[id^="mount_0_0"]',
       '[id^="mount_0_0"] > div:has(main[role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
       '[id^="mount_0_0"] > div > div:has(main[role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
-      '[id^="mount_0_0"] > div > div > div:has(main[role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
-      'section',
+      'section:has(> main[role="main"])',
       'main[role="main"]',
     ],
     columns: ['main[role="main"] > div'],
     columnAlphaScale: 0.75,
     softSurfaces: ['article', 'nav'],
     popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
+    revealCssVars: () => ({
+      '--web-wash': 'transparent',
+    }),
   },
 };

@@ -18,6 +18,7 @@
 import type { ThemeColorScheme, ThemePalette } from '../theming';
 import type { OklchColor, PaintPropertyKind } from './color';
 import { OWN_ATTR } from '../surface';
+import { THEME_LAYER_ORDER } from '../theming/types';
 import {
   hexWithAlpha,
   isNeutralColor,
@@ -30,23 +31,32 @@ import {
 export interface AdaptiveCompilerOptions {
   /** Host site's native color scheme (`'dark' | 'light'`) measured prior to theming. */
   readonly hostScheme: ThemeColorScheme;
+  /** Site root/theme selectors where host custom properties live (e.g. `[':root', '.__fb-dark-mode']`). */
+  readonly rootSelectors?: readonly string[];
   /** Optional site brand hex colors (e.g. `['#1d9bf0']`) to remap to `palette.accent`. */
   readonly brandColors?: readonly string[];
   /** Selectors whose subtrees must never be recolored (video players, media viewers). */
   readonly mediaPreserveSelectors?: readonly string[];
   /** Optional extra style element IDs to skip (all `feed_sanity_*` IDs are always skipped). */
   readonly skipStyleIds?: ReadonlySet<string>;
+  /** When true, canvas-tier backgrounds bind to `var(--fs-reveal-canvas, ...)` for live Studio backdrops. */
+  readonly backdropActive?: boolean;
+  /** Optional user typography stack compiled onto host rules that explicitly declare a non-icon `font-family`. */
+  readonly fontFamily?: string;
 }
 
 const SAFE_CUSTOM_PROP = /^--[A-Za-z0-9_-]+$/;
 const VAR_BG_HINT =
   /(?:^|[-_])(?:bg|background|surface|canvas|card|modal|sheet|popover|tray|wash|panel)(?:$|[-_])/i;
-const VAR_FG_HINT = /(?:^|[-_])(?:fg|text|content|ink|icon|label|heading|title|tone)(?:$|[-_])/i;
+const VAR_FG_HINT =
+  /(?:^|[-_])(?:fg|foreground|text|content|ink|icon|label|heading|title|tone|spinner)(?:$|[-_])/i;
 const VAR_BORDER_HINT =
   /(?:^|[-_])(?:border|divider|stroke|outline|hairline|separator|ring)(?:$|[-_])/i;
-const VAR_BRAND_HINT = /(?:^|[-_])(?:brand|accent|primary[-_]?btn|link)(?:$|[-_])/i;
+const VAR_BRAND_HINT = /(?:^|[-_])(?:brand|accent|primary[-_]?btn|link|blue)(?:$|[-_])/i;
 const VAR_SKIP_HINT =
   /(?:^|[-_])(?:fs|feed[-_]?sanity|danger|error|warn|success|green|red|yellow|gold|verified|shadow)(?:$|[-_])/i;
+const ICON_OR_MONO_FONT_RE =
+  /\b(?:icon|icons|symbol|symbols|fontawesome|icomoon|octicon|glyph|mono|monospace|courier|consolas|menlo|fira\s*code|jetbrains)\b/i;
 
 const PAINT_PROPERTIES: ReadonlyArray<{
   readonly prop: string;
@@ -67,12 +77,39 @@ const PAINT_PROPERTY_MAP = new Map<string, PaintPropertyKind>(
   PAINT_PROPERTIES.map(({ prop, kind }) => [prop, kind]),
 );
 
-const MEDIA_SELECTOR_HINT = /\b(?:video|img|picture|canvas|iframe)\b/i;
-const ROOT_SELECTOR_HINT = /(?:^|,)\s*(?::root|:host\b|html\b|body\b|\[data-theme\b)/i;
+// Match media element type selectors (`video.player`, `div > img`, `canvas`) without
+// falsely matching class names like `.canvas-shell` or `.video-feed`.
+const MEDIA_SELECTOR_HINT =
+  /(?:^|[\s>+~(,])(?:video|img|picture|canvas|iframe)(?=$|[\s.#[:>+~),])/i;
+const ROOT_SELECTOR_HINT =
+  /(?:^|,)\s*(?::root|:host\b|html\b|body\b|\[data-theme\b|\.__fb-(?:dark|light)-mode\b|shreddit-app\b)/i;
 const PURE_ROOT_SELECTOR =
-  /^(?::root|:host(?:\([^)]*\))?|html(?:\.[A-Za-z0-9_-]+|\[[^\]]+\])*|body(?:\.[A-Za-z0-9_-]+|\[[^\]]+\])*|\[data-theme(?:=[^\]]+)?\])$/i;
+  /^(?::root|:host(?:\([^)]*\))?|html(?:\.[A-Za-z0-9_-]+|\[[^\]]+\])*|body(?:\.[A-Za-z0-9_-]+|\[[^\]]+\])*|\[data-theme(?:=[^\]]+)?\]|\.__fb-(?:dark|light)-mode)$/i;
 const HOST_PSEUDO_HINT = /:host(?:-context)?\b/i;
 const MAX_RULES_PER_ROOT = 4000;
+
+interface RawStyleEntry {
+  readonly selector: string;
+  readonly paint: ReadonlyArray<{
+    readonly prop: string;
+    readonly kind: PaintPropertyKind;
+    readonly raw: string;
+  }>;
+  readonly hasNonIconFont: boolean;
+}
+
+interface RawSheetExtraction {
+  readonly ruleCount: number;
+  readonly rootVars: ReadonlyArray<{
+    readonly selector: string;
+    readonly name: string;
+    readonly value: string;
+  }>;
+  readonly entries: readonly RawStyleEntry[];
+}
+
+/** Per-stylesheet parsed extraction cache so lazy-loading one `<style>` never re-parses existing sheets. */
+const sheetCache = new WeakMap<CSSStyleSheet, RawSheetExtraction>();
 
 function isOwnStyleElement(el: Element, skipIds: ReadonlySet<string> | undefined): boolean {
   if (el.hasAttribute(OWN_ATTR)) {
@@ -219,23 +256,26 @@ function classifyCustomProperty(
     return null;
   }
   const oklch = rgbToOklch(color);
-  if (
-    matchesBrandHue(color, brandOklch, oklch) &&
-    (VAR_BRAND_HINT.test(name) || !VAR_BORDER_HINT.test(name))
-  ) {
+  if (matchesBrandHue(color, brandOklch, oklch)) {
     return color.a < 0.99 ? hexWithAlpha(palette.accent, color.a) : palette.accent;
   }
   if (!isNeutralColor(color, 0.045, oklch)) {
     return null;
   }
-  if (VAR_BORDER_HINT.test(name)) {
-    return mapHostNeutralToPalette(color, hostScheme, 'border', palette, oklch);
-  }
+  // Check foreground & background roles BEFORE border so compound tokens like
+  // `--progress-ring-neutral-foreground` / `--progress-ring-neutral-background`
+  // classify accurately rather than matching `ring` as a border token.
   if (VAR_FG_HINT.test(name)) {
     return mapHostNeutralToPalette(color, hostScheme, 'text', palette, oklch);
   }
   if (VAR_BG_HINT.test(name)) {
     return mapHostNeutralToPalette(color, hostScheme, 'background', palette, oklch);
+  }
+  if (VAR_BORDER_HINT.test(name)) {
+    return mapHostNeutralToPalette(color, hostScheme, 'border', palette, oklch);
+  }
+  if (VAR_BRAND_HINT.test(name)) {
+    return color.a < 0.99 ? hexWithAlpha(palette.accent, color.a) : palette.accent;
   }
   return null;
 }
@@ -267,7 +307,7 @@ function guardSelector(selector: string, excludeClause: string): GuardedSelector
     }
     // Keep pseudo-elements (`::before`, `::-moz-placeholder`, etc.) in isolated single
     // rules so an unsupported cross-browser vendor pseudo-element never invalidates a
-    // grouped rule bucket, and never wrap `:host` inside `:where(...)` (forbidden by CSS Scoping).
+    // grouped rule bucket, and never wrap `:host` in compound `:not(...)` clauses.
     if (clean.includes('::')) {
       isolated.push(clean);
       continue;
@@ -276,8 +316,10 @@ function guardSelector(selector: string, excludeClause: string): GuardedSelector
       isolated.push(clean);
       continue;
     }
-    const lowSpec = `:where(${clean})`;
-    groupable.push(excludeClause ? `${lowSpec}${excludeClause}` : lowSpec);
+    // Inside `@layer fs-adaptive`, Layer 1 already sits strictly below `fs-mapping`,
+    // `fs-reveal`, `fs-finish`, `fs-healer`, and `fs-user` — no `:where(...)` wrapping
+    // needed, preserving Blink/Gecko O(1) class/attribute RuleSet bucketing!
+    groupable.push(excludeClause ? `${clean}${excludeClause}` : clean);
   }
   return { groupable, isolated };
 }
@@ -289,6 +331,7 @@ function mapPaintProperty(
   hostScheme: ThemeColorScheme,
   palette: ThemePalette,
   brandOklch: readonly OklchColor[],
+  backdropActive: boolean,
 ): string | null {
   const color = parseCssColor(raw);
   if (!color || color.a <= 0.005) {
@@ -300,66 +343,164 @@ function mapPaintProperty(
     mapped = color.a < 0.99 ? hexWithAlpha(palette.accent, color.a) : palette.accent;
   } else if (isNeutralColor(color, 0.045, oklch)) {
     mapped = mapHostNeutralToPalette(color, hostScheme, kind, palette, oklch);
+    // When a Studio backdrop is active, bind opaque canvas-tier backgrounds to
+    // `--fs-reveal-canvas` so outer shell wrappers turn transparent automatically
+    // while reading columns, cards, and popups re-bind `--fs-reveal-canvas` cleanly.
+    if (
+      backdropActive &&
+      kind === 'background' &&
+      color.a >= 0.99 &&
+      mapped === palette.background
+    ) {
+      mapped = `var(--fs-reveal-canvas, ${palette.background})`;
+    }
   }
   return mapped ? `${prop}: ${mapped} !important;` : null;
 }
 
-function compileRuleStyle(
-  style: CSSStyleDeclaration,
-  hostScheme: ThemeColorScheme,
-  palette: ThemePalette,
-  brandOklch: readonly OklchColor[],
-): string[] {
-  const decls: string[] = [];
-  // Fast path for atomic 1–4 declaration classes (`.r-*`, StyleX, Tailwind): only
-  // inspect declared properties instead of probing all 9 paint slots.
+function extractRawPaint(style: CSSStyleDeclaration): ReadonlyArray<{
+  readonly prop: string;
+  readonly kind: PaintPropertyKind;
+  readonly raw: string;
+}> {
+  const out: Array<{
+    readonly prop: string;
+    readonly kind: PaintPropertyKind;
+    readonly raw: string;
+  }> = [];
   if (style.length > 0 && style.length <= 4) {
     for (const prop of Array.from(style)) {
       const kind = PAINT_PROPERTY_MAP.get(prop);
       if (!kind) {
         continue;
       }
-      const mapped = mapPaintProperty(
-        prop,
-        kind,
-        style.getPropertyValue(prop),
-        hostScheme,
-        palette,
-        brandOklch,
-      );
-      if (mapped) {
-        decls.push(mapped);
+      const raw = style.getPropertyValue(prop);
+      if (raw) {
+        out.push({ prop, kind, raw });
       }
     }
-    return decls;
+    return out;
   }
   for (const { prop, kind } of PAINT_PROPERTIES) {
     const raw = style.getPropertyValue(prop);
-    if (!raw) {
-      continue;
-    }
-    const mapped = mapPaintProperty(prop, kind, raw, hostScheme, palette, brandOklch);
-    if (mapped) {
-      decls.push(mapped);
+    if (raw) {
+      out.push({ prop, kind, raw });
     }
   }
-  return decls;
+  return out;
+}
+
+function isRootVarSelector(
+  selector: string,
+  rootSelectors: readonly string[] | undefined,
+): boolean {
+  if (ROOT_SELECTOR_HINT.test(selector)) {
+    return true;
+  }
+  if (!rootSelectors || rootSelectors.length === 0) {
+    return false;
+  }
+  for (const rootSel of rootSelectors) {
+    const trimmed = rootSel.trim();
+    if (trimmed && trimmed !== ':root' && selector.includes(trimmed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function extractSheet(
+  sheet: CSSStyleSheet,
+  rules: CSSRuleList,
+  matchesMedia: (cond: string) => boolean,
+  rootSelectors: readonly string[] | undefined,
+): RawSheetExtraction {
+  const cached = sheetCache.get(sheet);
+  if (cached && cached.ruleCount === rules.length) {
+    return cached;
+  }
+  const rootVars: Array<{
+    readonly selector: string;
+    readonly name: string;
+    readonly value: string;
+  }> = [];
+  const entries: RawStyleEntry[] = [];
+  let inspected = 0;
+
+  const walk = (list: CSSRuleList): void => {
+    for (const rule of Array.from(list)) {
+      if (inspected >= MAX_RULES_PER_ROOT) {
+        return;
+      }
+      if (rule.type === 1) {
+        inspected++;
+        const styleRule = rule as CSSStyleRule;
+        const selector = styleRule.selectorText;
+        if (!selector) {
+          continue;
+        }
+        const style = styleRule.style;
+        if (isRootVarSelector(selector, rootSelectors)) {
+          for (const propName of Array.from(style)) {
+            if (!propName.startsWith('--')) {
+              continue;
+            }
+            const rawVal = style.getPropertyValue(propName).trim();
+            if (rawVal) {
+              rootVars.push({ selector, name: propName, value: rawVal });
+            }
+          }
+        }
+        const paint = extractRawPaint(style);
+        const rawFont = style.getPropertyValue('font-family').trim();
+        const hasNonIconFont =
+          rawFont.length > 0 && !ICON_OR_MONO_FONT_RE.test(rawFont) && !/\bicon\b/i.test(selector);
+        if (paint.length > 0 || hasNonIconFont) {
+          entries.push({ selector, paint, hasNonIconFont });
+        }
+      } else if ('cssRules' in rule) {
+        if (rule.type === 4) {
+          const mediaRule = rule as CSSMediaRule;
+          const cond = mediaRule.conditionText ?? mediaRule.media?.mediaText ?? '';
+          if (!matchesMedia(cond)) {
+            continue;
+          }
+        }
+        try {
+          walk((rule as CSSGroupingRule).cssRules);
+        } catch {
+          // Ignore inaccessible nested rule lists.
+        }
+      }
+    }
+  };
+
+  walk(rules);
+  const extracted: RawSheetExtraction = { ruleCount: rules.length, rootVars, entries };
+  sheetCache.set(sheet, extracted);
+  return extracted;
 }
 
 /**
  * Inspects accessible author stylesheets in `root` (`Document` or open
  * `ShadowRoot`) and compiles paint-only CSS overrides for discovered neutral
- * custom properties and atomic/component color rules.
+ * custom properties, atomic/component color rules, and explicit host typography
+ * rules inside `@layer fs-adaptive`.
  */
 export function compileAdaptiveRootCss(
   root: Document | ShadowRoot,
-  palette: ThemePalette,
+  palette: ThemePalette | null,
   options: AdaptiveCompilerOptions,
 ): string {
+  const fontFamily = options.fontFamily?.trim() || undefined;
+  if (!palette && !fontFamily) {
+    return '';
+  }
   const isShadow = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE;
   const win = isShadow ? root.ownerDocument?.defaultView : (root as Document).defaultView;
   const mediaMatchesCache = new Map<string, boolean>();
   const skipIds = options.skipStyleIds;
+  const backdropActive = options.backdropActive === true;
   const brandOklch = (options.brandColors ?? [])
     .map((hex) => parseCssColor(hex))
     .filter((c): c is NonNullable<typeof c> => c !== null)
@@ -378,7 +519,7 @@ export function compileAdaptiveRootCss(
   const discoveredVars = new Map<string, string>();
   const declToSelectors = new Map<string, Set<string>>();
   const isolatedRules = new Set<string>();
-  let inspectedRules = 0;
+  const fontSelectors = new Set<string>();
 
   const matchesMedia = (cond: string): boolean => {
     if (!cond) {
@@ -397,79 +538,6 @@ export function compileAdaptiveRootCss(
     return result;
   };
 
-  const walkRules = (rules: CSSRuleList): void => {
-    for (const rule of Array.from(rules)) {
-      if (inspectedRules >= MAX_RULES_PER_ROOT) {
-        return;
-      }
-      // CSSRule.STYLE_RULE === 1
-      if (rule.type === 1) {
-        inspectedRules++;
-        const styleRule = rule as CSSStyleRule;
-        const selector = styleRule.selectorText;
-        if (!selector) {
-          continue;
-        }
-        const style = styleRule.style;
-
-        // 1. Discover custom properties declared on root/theme/host rules.
-        if (ROOT_SELECTOR_HINT.test(selector)) {
-          for (const propName of Array.from(style)) {
-            if (!propName.startsWith('--')) {
-              continue;
-            }
-            const rawVal = style.getPropertyValue(propName).trim();
-            const mappedVar = classifyCustomProperty(
-              propName,
-              rawVal,
-              options.hostScheme,
-              palette,
-              brandOklch,
-            );
-            if (mappedVar) {
-              discoveredVars.set(propName, mappedVar);
-            }
-          }
-        }
-
-        // 2. Compile paint-only overrides for non-pure-root selectors (including
-        //    root-prefixed descendant rules like `html.theme-dark .card`).
-        const decls = compileRuleStyle(style, options.hostScheme, palette, brandOklch);
-        if (decls.length === 0) {
-          continue;
-        }
-        const { groupable, isolated } = guardSelector(selector, excludeClause);
-        const block = decls.join(' ');
-        if (groupable.length > 0) {
-          let set = declToSelectors.get(block);
-          if (!set) {
-            set = new Set();
-            declToSelectors.set(block, set);
-          }
-          for (const sel of groupable) {
-            set.add(sel);
-          }
-        }
-        for (const sel of isolated) {
-          isolatedRules.add(`${sel} { ${block} }`);
-        }
-      } else if ('cssRules' in rule) {
-        if (rule.type === 4) {
-          const mediaRule = rule as CSSMediaRule;
-          const cond = mediaRule.conditionText ?? mediaRule.media?.mediaText ?? '';
-          if (!matchesMedia(cond)) {
-            continue;
-          }
-        }
-        try {
-          walkRules((rule as CSSGroupingRule).cssRules);
-        } catch {
-          // Ignore inaccessible nested rule lists.
-        }
-      }
-    }
-  };
-
   for (const sheet of collectStyleSheets(root, options.skipStyleIds)) {
     if (isOwnStyleSheet(sheet, skipIds)) {
       continue;
@@ -481,12 +549,84 @@ export function compileAdaptiveRootCss(
       // Cross-origin stylesheet: handled in real time by Layer 2 (`ThemeHealer`).
       continue;
     }
-    walkRules(rules);
+    const extracted = extractSheet(sheet, rules, matchesMedia, options.rootSelectors);
+    if (palette) {
+      for (const { name, value } of extracted.rootVars) {
+        const mappedVar = classifyCustomProperty(
+          name,
+          value,
+          options.hostScheme,
+          palette,
+          brandOklch,
+        );
+        if (mappedVar) {
+          discoveredVars.set(name, mappedVar);
+        }
+      }
+    }
+    for (const entry of extracted.entries) {
+      if (palette && entry.paint.length > 0) {
+        const decls: string[] = [];
+        for (const { prop, kind, raw } of entry.paint) {
+          const mapped = mapPaintProperty(
+            prop,
+            kind,
+            raw,
+            options.hostScheme,
+            palette,
+            brandOklch,
+            backdropActive,
+          );
+          if (mapped) {
+            decls.push(mapped);
+          }
+        }
+        if (decls.length > 0) {
+          const { groupable, isolated } = guardSelector(entry.selector, excludeClause);
+          const block = decls.join(' ');
+          if (groupable.length > 0) {
+            let set = declToSelectors.get(block);
+            if (!set) {
+              set = new Set();
+              declToSelectors.set(block, set);
+            }
+            for (const sel of groupable) {
+              set.add(sel);
+            }
+          }
+          for (const sel of isolated) {
+            isolatedRules.add(`${sel} { ${block} }`);
+          }
+        }
+      }
+      if (fontFamily && entry.hasNonIconFont) {
+        const { groupable } = guardSelector(
+          entry.selector,
+          `:not(:where([${OWN_ATTR}], [${OWN_ATTR}] *, code, pre, kbd, samp, svg *))`,
+        );
+        for (const sel of groupable) {
+          fontSelectors.add(sel);
+        }
+      }
+    }
   }
 
   const chunks: string[] = [];
   if (discoveredVars.size > 0) {
-    const varTarget = isShadow ? ':host' : ':root, [data-theme]';
+    let varTarget: string;
+    if (isShadow) {
+      const shadowRoots = (options.rootSelectors ?? [':root']).map((sel) =>
+        sel.trim() === ':root' ? ':host' : sel,
+      );
+      if (!shadowRoots.includes(':host')) {
+        shadowRoots.unshift(':host');
+      }
+      varTarget = shadowRoots.join(', ');
+    } else if (options.rootSelectors && options.rootSelectors.length > 0) {
+      varTarget = options.rootSelectors.join(', ');
+    } else {
+      varTarget = ':root, [data-theme]';
+    }
     const lines = [...discoveredVars.entries()].map(([k, v]) => `  ${k}: ${v} !important;`);
     chunks.push(`${varTarget} {\n${lines.join('\n')}\n}`);
   }
@@ -496,5 +636,11 @@ export function compileAdaptiveRootCss(
   for (const rule of isolatedRules) {
     chunks.push(rule);
   }
-  return chunks.join('\n');
+  if (fontFamily && fontSelectors.size > 0) {
+    chunks.push(`${[...fontSelectors].join(', ')} { font-family: ${fontFamily} !important; }`);
+  }
+  if (chunks.length === 0) {
+    return '';
+  }
+  return `${THEME_LAYER_ORDER}\n@layer fs-adaptive {\n${chunks.join('\n')}\n}`;
 }

@@ -226,6 +226,8 @@ export function createThemeController(
   };
 
   let lastAdaptivePalette: ThemePalette | null = null;
+  let lastAdaptiveFont: string | undefined;
+  let lastAdaptiveBackdrop = false;
 
   const samePaletteColors = (a: ThemePalette | null, b: ThemePalette | null): boolean => {
     if (a === b) {
@@ -256,13 +258,19 @@ export function createThemeController(
       return;
     }
     dirtyRoots.delete(root);
-    const palette = effectiveTheme()?.palette ?? null;
-    if (!palette) {
+    const effective = effectiveTheme();
+    const palette = effective?.palette ?? null;
+    const fontFamily = effective?.fontFamily;
+    if (!palette && !fontFamily) {
       syncNamedRoot(root, ADAPTIVE_STYLE_ID, adaptiveStyles, '');
       return;
     }
+    const backdropActive = Boolean(effective?.effects && effective.effects.backdrop !== 'none');
     const css = compileAdaptiveRootCss(root, palette, {
       hostScheme: resolvedHostScheme ?? getHostScheme(),
+      rootSelectors: mapping.rootSelectors,
+      backdropActive,
+      ...(fontFamily ? { fontFamily } : {}),
       ...(adaptiveConfig.brandColors ? { brandColors: adaptiveConfig.brandColors } : {}),
       ...mediaOpt,
     });
@@ -279,16 +287,19 @@ export function createThemeController(
   };
 
   const scheduleAdaptiveRecompile = (root: Document | ShadowRoot): void => {
-    if (!adaptiveConfig || disposed || !effectiveTheme()?.palette) {
+    const effective = effectiveTheme();
+    if (!adaptiveConfig || disposed || (!effective?.palette && !effective?.fontFamily)) {
       return;
     }
     dirtyRoots.add(root);
     if (recompileTimer !== undefined) {
       return;
     }
+    // Debounce bursts of lazy-loaded stylesheet chunks during scroll/navigation.
     recompileTimer = setTimeout(() => {
       recompileTimer = undefined;
-      if (disposed || !effectiveTheme()?.palette) {
+      const latest = effectiveTheme();
+      if (disposed || (!latest?.palette && !latest?.fontFamily)) {
         dirtyRoots.clear();
         return;
       }
@@ -300,7 +311,7 @@ export function createThemeController(
           syncAdaptiveForRoot(dirty, scheme);
         }
       }
-    }, 0);
+    }, 100);
   };
 
   const syncRoot = (
@@ -321,10 +332,17 @@ export function createThemeController(
     }
     const effective = effectiveTheme();
     const nextPalette = effective?.palette ?? null;
-    const paletteChanged = !samePaletteColors(nextPalette, lastAdaptivePalette);
-    if (paletteChanged) {
+    const nextFont = effective?.fontFamily;
+    const backdropActive = Boolean(effective?.effects && effective.effects.backdrop !== 'none');
+    const adaptiveChanged =
+      !samePaletteColors(nextPalette, lastAdaptivePalette) ||
+      nextFont !== lastAdaptiveFont ||
+      backdropActive !== lastAdaptiveBackdrop;
+    if (adaptiveChanged) {
       cancelAdaptiveRecompile();
       lastAdaptivePalette = nextPalette;
+      lastAdaptiveFont = nextFont;
+      lastAdaptiveBackdrop = backdropActive;
     }
     let resolvedScheme: ThemeColorScheme | undefined;
     if (adaptiveConfig) {
@@ -332,7 +350,7 @@ export function createThemeController(
         if (detectedHostScheme === undefined && env.doc.body) {
           detectedHostScheme = detectNativeHostScheme();
         }
-        if (paletteChanged) {
+        if (adaptiveChanged) {
           resolvedScheme = getHostScheme();
         }
       } else {
@@ -344,19 +362,18 @@ export function createThemeController(
     shadowCss = undefined;
     const uiCss = effective ? compileUiThemeCss(effective) : '';
     setUiThemeCss(uiCss);
-    syncRoot(env.doc, hostCss, paletteChanged, resolvedScheme);
+    syncRoot(env.doc, hostCss, adaptiveChanged, resolvedScheme);
     if (env.shadowRoots.size > 0) {
       const compiledShadow = getShadowCss();
       for (const shadow of env.shadowRoots) {
         if (!isOwnShadowRoot(shadow)) {
-          syncRoot(shadow, compiledShadow, paletteChanged, resolvedScheme);
+          syncRoot(shadow, compiledShadow, adaptiveChanged, resolvedScheme);
         }
       }
     }
     for (const iframeDoc of iframeDocs) {
-      syncRoot(iframeDoc, hostCss, paletteChanged, resolvedScheme);
+      syncRoot(iframeDoc, hostCss, adaptiveChanged, resolvedScheme);
     }
-    const backdropActive = Boolean(effective?.effects && effective.effects.backdrop !== 'none');
     healer?.setBackdropActive(backdropActive);
     healer?.setPalette(nextPalette);
     effectsLayer.sync(effective?.effects, nextPalette, currentScheme);

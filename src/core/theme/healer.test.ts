@@ -89,10 +89,22 @@ describe('core/theme/healer', () => {
     expect(healed).toBeGreaterThanOrEqual(2);
     expect(document.querySelector('#bad-text')?.getAttribute(HEAL_FG_ATTR)).toBe('contrast-dark');
     expect(document.querySelector('#bad-link')?.getAttribute(HEAL_FG_ATTR)).toBe('contrast-dark');
-    // Boosted specificity selector guarantees healer rules override site-mapping `!important` rules.
-    expect(document.querySelector(`#${HEALER_STYLE_ID}`)?.textContent).toContain(
-      `[${HEAL_FG_ATTR}="contrast-dark"][${HEAL_FG_ATTR}]`,
-    );
+    // Native `@layer fs-healer` beats site-mapping `!important` rules cleanly without repeated-attribute hacks.
+    const healerCss = document.querySelector(`#${HEALER_STYLE_ID}`)?.textContent ?? '';
+    expect(healerCss).toContain('@layer fs-healer');
+    expect(healerCss).toContain(`[${HEAL_FG_ATTR}="contrast-dark"]`);
+    expect(healerCss).not.toContain(`[${HEAL_FG_ATTR}="contrast-dark"][${HEAL_FG_ATTR}]`);
+
+    // SVG icon nodes are skipped cleanly and never stamped with heal attributes.
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    svg.setAttribute('style', 'color: #fef08a; background-color: #111111;');
+    svg.append(path);
+    document.body.append(svg);
+    healer.healNow();
+    expect(svg.hasAttribute(HEAL_BG_ATTR)).toBe(false);
+    expect(svg.hasAttribute(HEAL_FG_ATTR)).toBe(false);
+    expect(path.hasAttribute(HEAL_FG_ATTR)).toBe(false);
 
     scope.dispose();
     env.dispose();

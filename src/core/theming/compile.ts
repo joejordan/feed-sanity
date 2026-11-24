@@ -1,5 +1,4 @@
 import type { ResolvedTheme, SiteThemeMapping, ThemeColorScheme, ThemePalette } from './types';
-import { OWN_ATTR } from '../surface';
 import { hexWithAlpha } from '../theme';
 import {
   compileBackdropRevealCss,
@@ -7,6 +6,7 @@ import {
   compileUiSurfaceCss,
 } from '../theme-effects';
 import { hexToRgbTriplet } from './color-utils';
+import { TEXT_INPUT_SELECTOR, THEME_LAYER_ORDER } from './types';
 
 function buildPaletteDeclarations(palette: ThemePalette, mapping: SiteThemeMapping): string[] {
   const decls: string[] = [`color-scheme: ${palette.colorScheme} !important;`];
@@ -23,11 +23,6 @@ function buildPaletteDeclarations(palette: ThemePalette, mapping: SiteThemeMappi
   return decls;
 }
 
-const FONT_TEXT_ELEMENTS =
-  'p, span, div, a, li, td, th, dt, dd, label, legend, h1, h2, h3, h4, h5, h6, button, input, textarea, select, option, blockquote, figcaption, summary, article, section, main, nav, header, footer, aside';
-
-const FONT_EXCLUDE_SELECTORS = `[${OWN_ATTR}], [${OWN_ATTR}] *, code, pre, kbd, samp, code *, pre *, [class*="icon" i], [class*="material-symbols" i], svg *`;
-
 const HOST_FONT_VARS = [
   '--font-family-default',
   '--font-family-apple',
@@ -38,47 +33,61 @@ const HOST_FONT_VARS = [
   '--font-body',
 ] as const;
 
+/**
+ * Sets typography via CSS custom properties + document/form inheritance rather than
+ * a 33-tag universal selector bomb. Explicit host stylesheet `font-family` overrides
+ * are compiled selectively per-rule by Layer 1 (`compileAdaptiveRootCss`).
+ */
 function compileFontOverrideCss(fontFamily: string, target: 'host' | 'shadow'): string {
   const varDecls = HOST_FONT_VARS.map((v) => `${v}: ${fontFamily} !important;`).join('\n  ');
   if (target === 'shadow') {
     return [
       `:host {\n  font-family: ${fontFamily} !important;\n  ${varDecls}\n}`,
-      `:where(${FONT_TEXT_ELEMENTS}):not(:where(${FONT_EXCLUDE_SELECTORS})) {\n  font-family: ${fontFamily} !important;\n}`,
+      `${TEXT_INPUT_SELECTOR}, textarea, select, button {\n  font-family: inherit;\n}`,
     ].join('\n\n');
   }
   return [
     `:root {\n  ${varDecls}\n}`,
     `html, body {\n  font-family: ${fontFamily} !important;\n}`,
-    `body :where(${FONT_TEXT_ELEMENTS}):not(:where(${FONT_EXCLUDE_SELECTORS})) {\n  font-family: ${fontFamily} !important;\n}`,
+    `${TEXT_INPUT_SELECTOR}, textarea, select, button {\n  font-family: inherit;\n}`,
   ].join('\n\n');
 }
 
-/** Compiles `theme` + `mapping` into host-document CSS. */
+function wrapLayer(layer: string, body: string): string {
+  return body ? `@layer ${layer} {\n${body}\n}` : '';
+}
+
+/** Compiles `theme` + `mapping` into layered host-document CSS. */
 export function compileHostThemeCss(
   theme: ResolvedTheme,
   mapping: SiteThemeMapping,
   hostScheme: ThemeColorScheme = theme.palette?.colorScheme ?? 'dark',
 ): string {
-  const parts: string[] = [];
+  const mappingParts: string[] = [];
   if (theme.palette) {
     const decls = buildPaletteDeclarations(theme.palette, mapping);
     const selectors = mapping.rootSelectors.length > 0 ? mapping.rootSelectors.join(', ') : ':root';
-    parts.push(`${selectors} {\n  ${decls.join('\n  ')}\n}`);
+    mappingParts.push(`${selectors} {\n  ${decls.join('\n  ')}\n}`);
   }
   if (theme.fontFamily) {
-    parts.push(compileFontOverrideCss(theme.fontFamily, 'host'));
+    mappingParts.push(compileFontOverrideCss(theme.fontFamily, 'host'));
   }
   const extra = theme.palette ? mapping.extraCss?.(theme.palette).trim() : undefined;
   if (extra) {
-    parts.push(extra);
+    mappingParts.push(extra);
   }
   if (theme.presetHostCss) {
-    parts.push(theme.presetHostCss);
+    mappingParts.push(theme.presetHostCss);
+  }
+
+  const layers: string[] = [];
+  if (mappingParts.length > 0) {
+    layers.push(wrapLayer('fs-mapping', mappingParts.join('\n\n')));
   }
   if (theme.effects) {
     const revealCss = compileBackdropRevealCss(theme.palette, hostScheme, theme.effects, mapping);
     if (revealCss) {
-      parts.push(revealCss);
+      layers.push(revealCss);
     }
     const finishCss = compileSurfaceFinishCss(
       theme.palette,
@@ -87,13 +96,16 @@ export function compileHostThemeCss(
       mapping.surfaces,
     );
     if (finishCss) {
-      parts.push(finishCss);
+      layers.push(wrapLayer('fs-finish', finishCss));
     }
   }
   if (theme.customCss) {
-    parts.push(theme.customCss);
+    layers.push(wrapLayer('fs-user', theme.customCss));
   }
-  return parts.join('\n\n');
+  if (layers.length === 0) {
+    return '';
+  }
+  return `${THEME_LAYER_ORDER}\n\n${layers.join('\n\n')}`;
 }
 
 /**
@@ -102,7 +114,7 @@ export function compileHostThemeCss(
  * `:root` never matches inside a Shadow Tree per CSS Scoping Level 1.
  */
 export function compileShadowThemeCss(theme: ResolvedTheme, mapping: SiteThemeMapping): string {
-  const parts: string[] = [];
+  const mappingParts: string[] = [];
   if (theme.palette) {
     const decls = buildPaletteDeclarations(theme.palette, mapping);
     const shadowSelectors = mapping.rootSelectors.map((sel) =>
@@ -111,19 +123,26 @@ export function compileShadowThemeCss(theme: ResolvedTheme, mapping: SiteThemeMa
     if (!shadowSelectors.includes(':host')) {
       shadowSelectors.unshift(':host');
     }
-    parts.push(`${shadowSelectors.join(', ')} {\n  ${decls.join('\n  ')}\n}`);
+    mappingParts.push(`${shadowSelectors.join(', ')} {\n  ${decls.join('\n  ')}\n}`);
   }
   if (theme.fontFamily) {
-    parts.push(compileFontOverrideCss(theme.fontFamily, 'shadow'));
+    mappingParts.push(compileFontOverrideCss(theme.fontFamily, 'shadow'));
   }
   const shadowExtra = theme.palette ? mapping.shadowExtraCss?.(theme.palette).trim() : undefined;
   if (shadowExtra) {
-    parts.push(shadowExtra);
+    mappingParts.push(shadowExtra);
+  }
+  const layers: string[] = [];
+  if (mappingParts.length > 0) {
+    layers.push(wrapLayer('fs-mapping', mappingParts.join('\n\n')));
   }
   if (theme.customCss) {
-    parts.push(theme.customCss);
+    layers.push(wrapLayer('fs-user', theme.customCss));
   }
-  return parts.join('\n\n');
+  if (layers.length === 0) {
+    return '';
+  }
+  return `${THEME_LAYER_ORDER}\n\n${layers.join('\n\n')}`;
 }
 
 /** Compiles `theme` into Feed Sanity's own Shadow DOM `--fs-*` token overrides. */

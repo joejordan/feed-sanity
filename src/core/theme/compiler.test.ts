@@ -124,12 +124,73 @@ describe('core/theme/compiler', () => {
     expect(compiled).not.toContain('.own-rule');
     // Root-prefixed descendant rule compiled.
     expect(compiled).toContain('html.theme-dark .scoped-card');
-    // Functional pseudo-class `:is(.alpha, .beta)` stayed intact (not split on inner comma).
-    expect(compiled).toContain(':where(:is(.alpha, .beta))');
+    // Functional pseudo-class `:is(.alpha, .beta)` stayed intact inside `@layer fs-adaptive`
+    // without `:where(...)` wrapping so browsers can hash-bucket selectors in O(1).
+    expect(compiled).toContain('@layer fs-adaptive');
+    expect(compiled).toContain(':is(.alpha, .beta)');
+    expect(compiled).not.toContain(':where(:is(.alpha, .beta))');
     // Translucent brand wash preserved alpha (`12%`).
     expect(compiled).toContain('rgb(180 83 9 / 12%) !important;');
     // Vendor pseudo-element stayed isolated in its own rule line (not merged with other selectors).
     const mozLine = compiled.split('\n').find((line) => line.includes('::-moz-placeholder'));
     expect(mozLine?.startsWith('input::-moz-placeholder {')).toBe(true);
+  });
+
+  it('discovers non-:root theme tokens, honors foreground/background precedence over ring, binds backdrop canvas vars, and compiles targeted host fonts', () => {
+    const style = document.createElement('style');
+    style.textContent = `
+      .__fb-dark-mode {
+        --progress-ring-neutral-foreground: #e7e9ea;
+        --progress-ring-neutral-background: #202327;
+        --focus-ring-color: #2f3336;
+      }
+      .canvas-shell {
+        background-color: rgb(0, 0, 0);
+      }
+      .tweet-copy {
+        font-family: "TwitterChirp", -apple-system, sans-serif;
+      }
+      .icon-glyph {
+        font-family: "Material Symbols Outlined", sans-serif;
+      }
+      .code-block {
+        font-family: ui-monospace, SFMono-Regular, monospace;
+      }
+    `;
+    document.head.append(style);
+
+    const compiled = compileAdaptiveRootCss(document, warmPaper, {
+      hostScheme: 'dark',
+      rootSelectors: [':root', '.__fb-dark-mode'],
+      backdropActive: true,
+      fontFamily: 'Georgia, serif',
+    });
+
+    // Non-:root theme root (.__fb-dark-mode) tokens discovered and accurately classified.
+    expect(compiled).toContain(`--progress-ring-neutral-foreground: ${warmPaper.text} !important;`);
+    expect(compiled).toContain(
+      `--progress-ring-neutral-background: ${warmPaper.surface} !important;`,
+    );
+    expect(compiled).toContain(`--focus-ring-color: ${warmPaper.border} !important;`);
+
+    // Opaque canvas-tier backgrounds bind through `--fs-reveal-canvas` when a backdrop is active.
+    expect(compiled).toContain(
+      `background-color: var(--fs-reveal-canvas, ${warmPaper.background}) !important;`,
+    );
+
+    // Targeted host font overrides remap body/UI copy while preserving icon and monospace fonts.
+    expect(compiled).toContain('.tweet-copy');
+    expect(compiled).toContain('font-family: Georgia, serif !important;');
+    expect(compiled).not.toContain('.icon-glyph');
+    expect(compiled).not.toContain('.code-block');
+
+    // Font-only compile (palette === null) still emits targeted host font overrides cleanly.
+    const fontOnly = compileAdaptiveRootCss(document, null, {
+      hostScheme: 'dark',
+      fontFamily: 'Georgia, serif',
+    });
+    expect(fontOnly).toContain('.tweet-copy');
+    expect(fontOnly).toContain('font-family: Georgia, serif !important;');
+    expect(fontOnly).not.toContain('.canvas-shell');
   });
 });

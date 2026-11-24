@@ -318,22 +318,39 @@ export class Videos {
     if (own) {
       return own;
     }
-    // Check tracked video containers directly in O(trackedVideos) instead of running
-    // `querySelectorAll('video')` at every ancestor div up to `within`.
-    let singleWithin: TrackedVideo | undefined;
-    let countWithin = 0;
-    for (const [videoEl, tracked] of this.#videos) {
-      if (!videoEl.isConnected) {
-        continue;
-      }
-      if (tracked.container && tracked.container.contains(element) && within.contains(videoEl)) {
-        return tracked;
-      }
-      if (within.contains(videoEl)) {
-        countWithin++;
-        singleWithin = countWithin === 1 ? tracked : undefined;
+    // Collect connected tracked videos inside `within` (typically 0..5), then find
+    // the lowest ancestor of `element` within `within` that contains exactly one video
+    // via native `node.contains(videoEl)` instead of `querySelectorAll` at every level.
+    const candidates: Array<readonly [Element, TrackedVideo]> = [];
+    for (const entry of this.#videos) {
+      if (entry[0].isConnected && within.contains(entry[0])) {
+        candidates.push(entry);
       }
     }
-    return singleWithin;
+    if (candidates.length === 0) {
+      return undefined;
+    }
+    let node = element.parentElement;
+    while (node && within.contains(node)) {
+      let match: TrackedVideo | undefined;
+      let count = 0;
+      for (const [videoEl, tracked] of candidates) {
+        if (node.contains(videoEl)) {
+          count++;
+          match = tracked;
+          if (count > 1) {
+            return undefined;
+          }
+        }
+      }
+      if (count === 1) {
+        return match;
+      }
+      if (node === within) {
+        break;
+      }
+      node = node.parentElement;
+    }
+    return undefined;
   }
 }

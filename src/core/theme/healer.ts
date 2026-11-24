@@ -15,6 +15,7 @@ import type { ThemePalette } from '../theming';
 import type { RgbaColor } from './color';
 import { parentAcrossShadows } from '../dom';
 import { addStyleAcrossRoots, OWN_ATTR } from '../surface';
+import { THEME_LAYER_ORDER } from '../theming/types';
 import {
   compositeOver,
   isNeutralColor,
@@ -201,22 +202,19 @@ export function resolveEffectiveBackground(
 const WHITE_RGBA: RgbaColor = { r: 255, g: 255, b: 255, a: 1 };
 const DARK_RGBA: RgbaColor = { r: 17, g: 17, b: 17, a: 1 };
 
-function boostAttrSelector(attr: string, value: string): string {
-  // Repeat attribute selector to reach `(0, 5, 0)` specificity so Layer 2 contrast
-  // and polarity healing reliably wins over site-mapping `!important` rules.
-  return `[${attr}="${value}"][${attr}][${attr}][${attr}][${attr}]`;
-}
-
 function buildHealerCss(palette: ThemePalette): string {
-  return `
-${boostAttrSelector(HEAL_BG_ATTR, 'surface')} { background-color: ${palette.surface} !important; }
-${boostAttrSelector(HEAL_BG_ATTR, 'surface-alt')} { background-color: ${palette.surfaceAlt} !important; }
-${boostAttrSelector(HEAL_FG_ATTR, 'text')} { color: ${palette.text} !important; }
-${boostAttrSelector(HEAL_FG_ATTR, 'muted')} { color: ${palette.textMuted} !important; }
-${boostAttrSelector(HEAL_FG_ATTR, 'contrast-light')} { color: #ffffff !important; }
-${boostAttrSelector(HEAL_FG_ATTR, 'contrast-dark')} { color: #111111 !important; }
-${boostAttrSelector(HEAL_BORDER_ATTR, '1')} { border-color: ${palette.border} !important; }
-`.trim();
+  // Single clean attribute selectors inside `@layer fs-healer` strictly outrank
+  // `fs-finish`, `fs-reveal`, `fs-mapping`, and `fs-adaptive` without specificity hacks.
+  return `${THEME_LAYER_ORDER}
+@layer fs-healer {
+[${HEAL_BG_ATTR}="surface"] { background-color: ${palette.surface} !important; }
+[${HEAL_BG_ATTR}="surface-alt"] { background-color: ${palette.surfaceAlt} !important; }
+[${HEAL_FG_ATTR}="text"] { color: ${palette.text} !important; }
+[${HEAL_FG_ATTR}="muted"] { color: ${palette.textMuted} !important; }
+[${HEAL_FG_ATTR}="contrast-light"] { color: #ffffff !important; }
+[${HEAL_FG_ATTR}="contrast-dark"] { color: #111111 !important; }
+[${HEAL_BORDER_ATTR}="1"] { border-color: ${palette.border} !important; }
+}`;
 }
 
 function samePalette(a: ThemePalette | null, b: ThemePalette | null): boolean {

@@ -1,5 +1,5 @@
 import type { SiteThemeMapping } from '../../core/theming';
-import { hexWithAlpha } from '../../core/theming';
+import { hexWithAlpha, TEXT_INPUT_SELECTOR } from '../../core/theming';
 
 /**
  * Maps Feed Sanity's semantic `ThemePalette` onto Gmail's Material 3 / Closure
@@ -39,7 +39,7 @@ div[role="navigation"] span {
 }
 header[role="banner"] form[role="search"],
 form[role="search"],
-form[role="search"] input {
+form[role="search"] ${TEXT_INPUT_SELECTOR} {
   background-color: ${p.surfaceAlt} !important;
   color: ${p.text} !important;
   border-color: ${p.border} !important;
@@ -88,8 +88,8 @@ div[role="menu"] {
   color: ${p.text} !important;
   border-color: ${p.border} !important;
 }
-div[role="dialog"] *,
-div[role="menu"] * {
+div[role="dialog"] :is(h1, h2, h3, label, span, a, button, svg):not([contenteditable="true"] *),
+div[role="menu"] :is([role="menuitem"], span, a, svg) {
   color: ${p.text} !important;
 }
 ::selection {
@@ -99,6 +99,7 @@ div[role="menu"] * {
   surfaces: {
     transparentShell: ['div.wl', 'header[role="banner"]', 'div[role="navigation"]'],
     softSurfaces: ['div.nH:has(> div[role="main"])', 'div[role="main"]'],
+    primaryCtas: ['div[role="button"][gh="cm"]'],
     popups: ['div[role="dialog"]', 'div[role="menu"]', 'div[role="listbox"]'],
   },
 };

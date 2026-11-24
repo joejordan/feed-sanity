@@ -387,10 +387,15 @@ describe('first-class multi-site theming engine', () => {
 
     const serifOnly = resolveTheme({ ...DEFAULT_THEME_CONFIG, font: 'serif' })!;
     const hostCss = compileHostThemeCss(serifOnly, xThemeMapping);
+    expect(hostCss).toContain(
+      '@layer fs-user, fs-reveal-shell, fs-healer, fs-finish, fs-reveal, fs-mapping, fs-adaptive;',
+    );
+    expect(hostCss).toContain('@layer fs-mapping');
     expect(hostCss).toContain('--x-font-sans: Georgia');
-    expect(hostCss).toContain('body :where(p, span, div');
-    expect(hostCss).toContain(':not(:where([data-feed-sanity]');
-    expect(hostCss).toContain('code, pre, kbd, samp');
+    expect(hostCss).toContain('html, body {\n  font-family: Georgia');
+    expect(hostCss).toContain('font-family: inherit;');
+    expect(hostCss).not.toContain('body :where(p, span, div');
+    expect(hostCss).not.toContain('[class*="icon" i]');
 
     const shadowCss = compileShadowThemeCss(serifOnly, xThemeMapping);
     expect(shadowCss).toContain(':host {\n  font-family: Georgia');
@@ -398,6 +403,7 @@ describe('first-class multi-site theming engine', () => {
 
     const prism = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'prism-aurora' })!;
     expect(compileHostThemeCss(prism, xThemeMapping)).toContain('linear-gradient(90deg, #ff3b8d');
+    expect(compileHostThemeCss(prism, xThemeMapping)).not.toContain('background-attachment: fixed');
     expect(compileUiThemeCss(prism)).toContain('linear-gradient(90deg, #ff3b8d');
   });
 });

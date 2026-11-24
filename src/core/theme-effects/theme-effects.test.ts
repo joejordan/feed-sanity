@@ -734,16 +734,29 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(fbCss).not.toMatch(/\[role="banner"\][^}]*backdrop-filter/s);
 
     // Intermediate root wrappers on X (Dim/Lights Out/Light), What's happening trend rows,
-    // and dialog toggle switches stay clean (no opaque blocks over backdrops or switches,
-    // and zero unbounded descendant `:has()` invalidation traps on `#react-root`).
+    // and dialog toggle switches stay clean via `@layer fs-reveal-shell` + `--fs-reveal-canvas`
+    // (no opaque blocks over backdrops or switches, zero unbounded `:has()` or 5x attr hacks).
+    expect(xCss).toContain('@layer fs-reveal-shell');
+    expect(xCss).toContain('--fs-reveal-canvas: transparent !important;');
     expect(xCss).toContain('#react-root > div:not(');
     expect(xCss).toContain('main[role="main"] > div:not(');
     expect(xCss).not.toContain('#react-root div:has(');
     expect(xCss).toContain('.r-yfoy6g');
-    expect(xCss).toContain('[data-fs-heal-bg]');
+    expect(xCss).not.toContain('[data-fs-heal-bg]');
+    expect(xCss).not.toContain(':where(button, [role="button"]):hover');
     expect(xCss).toContain('[data-testid="sidebarColumn"] section [data-testid="trend"]');
     expect(xCss).toContain('[role="dialog"] input:not([type="checkbox"]');
     expect(xCss).not.toContain('[role="dialog"] input,');
+
+    // `backdrop-filter: blur()` is reserved strictly for `surface: 'glass'` and capped <= 10px.
+    const defaultSurfaceReveal = compileBackdropRevealCss(
+      resolved.palette,
+      'dark',
+      { ...DEFAULT_THEME_EFFECTS, ...resolved.effects, surface: 'default' },
+      xThemeMapping,
+    );
+    expect(defaultSurfaceReveal).not.toContain('backdrop-filter');
+    expect(resolveGlassMetrics(1).blurPx).toBeLessThanOrEqual(10);
 
     const layer = createEffectsLayerController(document);
     cleanups.push(() => layer.dispose());

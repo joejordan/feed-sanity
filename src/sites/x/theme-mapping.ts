@@ -1,5 +1,5 @@
 import type { SiteThemeMapping, ThemePalette } from '../../core/theming';
-import { hexToHslTriplet, hexWithAlpha, mixHex } from '../../core/theming';
+import { hexToHslTriplet, hexWithAlpha, mixHex, TEXT_INPUT_SELECTOR } from '../../core/theming';
 
 const ALPHA_PERCENTS = [
   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 30, 40, 50, 60, 70, 80, 85, 90, 95, 100,
@@ -7,8 +7,6 @@ const ALPHA_PERCENTS = [
 
 const IN_VIDEO = '[data-testid="videoComponent"] *, [data-testid="videoPlayer"] *';
 const NOT_IN_VIDEO = `:not(:where(${IN_VIDEO}))`;
-const TEXT_INPUT =
-  'input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"], [type="submit"], [type="button"], [role="switch"])';
 
 const NEUTRAL_STEPS = [
   ['000', 0.96],
@@ -203,12 +201,15 @@ html, body, #react-root, header[role="banner"], main[role="main"] {
 }
 
 /* === 3. React Native Web dark & light canvas/surface/border/text atomic palette === */
-/* Dark host canvas (Lights Out #000 + Dim #15202b) */
+/* Dark & light host canvas (Lights Out #000, Dim #15202b, Light #fff).
+ * Uses --fs-reveal-canvas so Studio backdrops turn outer shells transparent
+ * while #layers, form[role="search"], and popups stay opaque cleanly. */
 .r-kemksi${NOT_IN_VIDEO},
+.r-yfoy6g${NOT_IN_VIDEO},
 .r-14lw9ot:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${IN_VIDEO})),
 div[style*="background-color: rgb(0, 0, 0)"]:not(:where(${IN_VIDEO}, [data-testid="mask"])),
 div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${IN_VIDEO}, [data-testid="mask"])) {
-  background-color: ${p.background} !important;
+  background-color: var(--fs-reveal-canvas, ${p.background}) !important;
 }
 /* Light-mode host surface buttons using .r-14lw9ot so dark themes keep readable contrast */
 :where(html[style*="color-scheme: light"]) :where(button, [role="button"]).r-14lw9ot {
@@ -451,10 +452,10 @@ button[aria-label="Manage timelines"] svg,
 /* Search inputs, comboboxes, poll inputs, and schedule selects inside dialogs/popovers.
  * Never paint checkbox/radio/switch inputs (X overlays transparent <input type="checkbox">
  * controls on top of toggle switches, e.g. Snooze Topics). */
-[role="dialog"] ${TEXT_INPUT},
+[role="dialog"] ${TEXT_INPUT_SELECTOR},
 [role="dialog"] select,
 [role="dialog"] textarea,
-[data-testid="HoverCard"] ${TEXT_INPUT},
+[data-testid="HoverCard"] ${TEXT_INPUT_SELECTOR},
 [data-testid="HoverCard"] [role="combobox"] > div,
 [role="dialog"] [role="combobox"] > div,
 [data-testid="attachments"] > div {
@@ -527,7 +528,7 @@ svg[data-testid="icon-verified"] {
   color: ${p.text};
   scrollbar-color: ${p.border} ${p.background};
 }
-:where(${TEXT_INPUT}, textarea, select, [contenteditable="true"]) {
+:where(${TEXT_INPUT_SELECTOR}, textarea, select, [contenteditable="true"]) {
   background-color: ${p.surfaceAlt} !important;
   border-color: ${p.border} !important;
   color: ${p.text} !important;
@@ -582,45 +583,26 @@ svg[data-testid="icon-verified"] {
       '[data-testid="Dropdown"]',
       '[data-testid="HoverCard"]',
     ],
-    extraRevealCss: (p) => {
+    primaryCtas: [
+      '[data-testid="SideNav_NewTweet_Button"]',
+      '[data-testid="tweetButtonInline"]',
+      '[data-testid="tweetButton"]',
+    ],
+    feedCards: ['article[data-testid="tweet"]'],
+    searchContainers: ['[data-testid="sidebarColumn"] form[role="search"] > div > div'],
+    extraRevealCss: (p, { popupAlpha }) => {
       const hoverTint = hexWithAlpha(p?.text ?? '#ffffff', 0.06);
-      const keepOpaque = [
-        '#layers',
-        '#layers *',
-        'form[role="search"]',
-        'form[role="search"] *',
-        '[data-testid="primaryColumn"]',
-        '[data-testid="primaryColumn"] *',
-        '[role="dialog"]',
-        '[role="dialog"] *',
-        '[data-testid="sheetDialog"]',
-        '[data-testid="sheetDialog"] *',
-        '[role="menu"]',
-        '[role="menu"] *',
-        '[role="listbox"]',
-        '[role="listbox"] *',
-        '[id^="typeaheadDropdown"]',
-        '[id^="typeaheadDropdown"] *',
-        '[data-testid="typeaheadDropdown"]',
-        '[data-testid="typeaheadDropdown"] *',
-        '[data-testid="Dropdown"]',
-        '[data-testid="Dropdown"] *',
-        '[data-testid="HoverCard"]',
-        '[data-testid="HoverCard"] *',
-        '[data-testid="GrokDrawerHeader"]',
-        '[data-testid="GrokDrawerHeader"] *',
-        '[data-testid="chat-drawer-main"]',
-        '[data-testid="chat-drawer-main"] *',
-        '[data-testid="mask"]',
-        IN_VIDEO,
-      ].join(', ');
+      const popBg = hexWithAlpha(p?.surface ?? '#111622', popupAlpha);
       return `
-#react-root .r-kemksi:not(:where(${keepOpaque})),
-#react-root .r-yfoy6g:not(:where(${keepOpaque})),
-#react-root .r-14lw9ot:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${keepOpaque})),
-#react-root div[style*="background-color: rgb(0, 0, 0)"]:not(:where(${keepOpaque})),
-#react-root div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${keepOpaque})),
-#react-root div[style*="background-color: rgb(255, 255, 255)"]:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${keepOpaque})),
+#layers,
+form[role="search"] {
+  --fs-reveal-canvas: ${popBg};
+}
+.r-kemksi${NOT_IN_VIDEO},
+.r-yfoy6g${NOT_IN_VIDEO},
+.r-14lw9ot:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${IN_VIDEO})) {
+  background-color: var(--fs-reveal-canvas, transparent) !important;
+}
 [data-testid="sidebarColumn"] section [data-testid="trend"],
 [data-testid="sidebarColumn"] section [data-testid="cellInnerDiv"],
 [data-testid="sidebarColumn"] section [data-testid="cellInnerDiv"] > div {

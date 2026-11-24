@@ -12,27 +12,17 @@ import type {
 import type { ThemeEffectsConfig } from './model';
 import { OWN_ATTR } from '../surface';
 import { hexWithAlpha } from '../theme';
+import { TEXT_INPUT_SELECTOR } from '../theming/types';
 
 export const BACKDROP_OWN_VALUE = 'theme-backdrop';
 export const CLICK_FX_OWN_VALUE = 'theme-click-fx';
 
-const DEFAULT_LEAF_CARDS: readonly string[] = [
-  '[data-testid="sidebarColumn"] section',
-  '[data-testid="sidebarColumn"] aside',
-];
-
-const DEFAULT_POPUPS: readonly string[] = [
-  '[role="dialog"]',
-  '[role="menu"]',
-  '[role="listbox"]',
-  '[id^="typeaheadDropdown"]',
-  '[data-testid="Dropdown"]',
-  '[data-testid="HoverCard"]',
-];
+const DEFAULT_POPUPS: readonly string[] = ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'];
 
 /**
  * Computes safe surface alpha values from `glassStrength` (`0..0.65`) so text
  * on cards and reading columns ALWAYS maintains high contrast over live backdrops.
+ * Blur radius is capped at `10px` to keep 30fps compositing lightweight.
  */
 export function resolveGlassMetrics(glassStrength: number): {
   readonly columnAlpha: number;
@@ -42,7 +32,7 @@ export function resolveGlassMetrics(glassStrength: number): {
   const clamped = Math.max(0, Math.min(0.65, glassStrength));
   const columnAlpha = Number((0.92 - clamped * 0.34).toFixed(2));
   const cardAlpha = Number((0.95 - clamped * 0.28).toFixed(2));
-  const blurPx = Math.round(6 + clamped * 18);
+  const blurPx = Math.min(10, Math.round(5 + clamped * 8));
   return { columnAlpha, cardAlpha, blurPx };
 }
 
@@ -52,84 +42,96 @@ function compileDeclarativeReveal(
   baseBg: string,
   surfaceBg: string,
   metrics: { readonly columnAlpha: number; readonly cardAlpha: number; readonly blurPx: number },
-): string {
+  enableBlur: boolean,
+): { readonly shellCss: string; readonly revealCss: string } {
   const surfaces = mapping.surfaces;
   if (!surfaces) {
-    return '';
+    return { shellCss: '', revealCss: '' };
   }
   const popupAlpha = Math.max(0.96, metrics.cardAlpha);
   const fullMetrics = { ...metrics, popupAlpha };
-  const blocks: string[] = [];
+  const shellBlocks: string[] = [];
+  const revealBlocks: string[] = [];
 
-  if (surfaces.revealCssVars) {
-    const vars = surfaces.revealCssVars(palette, fullMetrics);
-    const decls = Object.entries(vars).map(([name, val]) => `  ${name}: ${val} !important;`);
-    if (decls.length > 0) {
-      const rootSel = mapping.rootSelectors.length > 0 ? mapping.rootSelectors.join(', ') : ':root';
-      blocks.push(`${rootSel} {\n${decls.join('\n')}\n}`);
-    }
-  }
+  // Bind `--fs-reveal-canvas` to transparent at the document root so Layer 1
+  // canvas-tier backgrounds automatically reveal the Studio backdrop without
+  // needing per-site RNW class blacklists or deep `:has()` chains.
+  const rootSel = mapping.rootSelectors.length > 0 ? mapping.rootSelectors.join(', ') : ':root';
+  const rootVars: Record<string, string> = {
+    '--fs-reveal-canvas': 'transparent',
+    ...(surfaces.revealCssVars ? surfaces.revealCssVars(palette, fullMetrics) : {}),
+  };
+  const varDecls = Object.entries(rootVars).map(([name, val]) => `  ${name}: ${val} !important;`);
+  revealBlocks.push(`${rootSel} {\n${varDecls.join('\n')}\n}`);
 
   if (surfaces.transparentShell && surfaces.transparentShell.length > 0) {
     const shell = surfaces.transparentShell;
-    const healOverride = `:is(${shell.join(', ')})[data-fs-heal-bg][data-fs-heal-bg][data-fs-heal-bg][data-fs-heal-bg][data-fs-heal-bg]`;
     const basicShell = shell.filter((sel) => !sel.includes(':has('));
     const hasShell = shell.filter((sel) => sel.includes(':has('));
     if (basicShell.length > 0) {
-      blocks.push(
+      shellBlocks.push(
         `${basicShell.join(',\n')} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
       );
     }
     if (hasShell.length > 0) {
-      blocks.push(
+      shellBlocks.push(
         `${hasShell.join(',\n')} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
       );
     }
-    blocks.push(
-      `${healOverride} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
-    );
   }
 
   if (surfaces.extraRevealCss) {
     const extra = surfaces.extraRevealCss(palette, fullMetrics).trim();
     if (extra) {
-      blocks.push(extra);
+      revealBlocks.push(extra);
     }
   }
 
   if (surfaces.columns && surfaces.columns.length > 0) {
     const scale = surfaces.columnAlphaScale ?? 1;
     const colAlpha = Number(Math.max(0.5, Math.min(1, metrics.columnAlpha * scale)).toFixed(2));
-    blocks.push(
-      `${surfaces.columns.join(',\n')} {\n  background-color: ${hexWithAlpha(baseBg, colAlpha)} !important;\n}`,
+    const colBg = hexWithAlpha(baseBg, colAlpha);
+    revealBlocks.push(
+      `${surfaces.columns.join(',\n')} {\n  --fs-reveal-canvas: transparent;\n  background-color: ${colBg} !important;\n}`,
     );
   }
 
   if (surfaces.softSurfaces && surfaces.softSurfaces.length > 0) {
-    blocks.push(
-      `${surfaces.softSurfaces.join(',\n')} {\n  background-color: ${hexWithAlpha(surfaceBg, metrics.cardAlpha)} !important;\n}`,
+    const softBg = hexWithAlpha(surfaceBg, metrics.cardAlpha);
+    revealBlocks.push(
+      `${surfaces.softSurfaces.join(',\n')} {\n  --fs-reveal-canvas: transparent;\n  background-color: ${softBg} !important;\n}`,
     );
   }
 
   if (surfaces.leafCards && surfaces.leafCards.length > 0) {
-    blocks.push(
-      `${surfaces.leafCards.join(',\n')} {\n  background-color: ${hexWithAlpha(surfaceBg, metrics.cardAlpha)} !important;\n  backdrop-filter: blur(${metrics.blurPx}px);\n  -webkit-backdrop-filter: blur(${metrics.blurPx}px);\n}`,
+    const cardBg = hexWithAlpha(surfaceBg, metrics.cardAlpha);
+    const blurDecls = enableBlur
+      ? `\n  backdrop-filter: blur(${metrics.blurPx}px);\n  -webkit-backdrop-filter: blur(${metrics.blurPx}px);`
+      : '';
+    // Re-bind `--fs-reveal-canvas: transparent` inside leafCards so nested rows
+    // (e.g. "What's happening" trends) never paint opaque boxes over frosted cards.
+    revealBlocks.push(
+      `${surfaces.leafCards.join(',\n')} {\n  --fs-reveal-canvas: transparent;\n  background-color: ${cardBg} !important;${blurDecls}\n}`,
     );
   }
 
   const popups = surfaces.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS;
-  blocks.push(
-    `${popups.join(',\n')} {\n  background-color: ${hexWithAlpha(surfaceBg, popupAlpha)} !important;\n}`,
+  const popBg = hexWithAlpha(surfaceBg, popupAlpha);
+  revealBlocks.push(
+    `${popups.join(',\n')} {\n  --fs-reveal-canvas: ${popBg};\n  background-color: ${popBg} !important;\n}`,
   );
 
-  return blocks.join('\n\n');
+  return {
+    shellCss: shellBlocks.join('\n\n'),
+    revealCss: revealBlocks.join('\n\n'),
+  };
 }
 
 /**
- * Compiles CSS that layers the active backdrop cleanly at `z-index: -1` behind
- * the host application while making outer canvas wrappers transparent so live
- * backgrounds (Matrix Rain, Vice Horizon, Aurora, Constellations, etc.) shine
- * dramatically through margins and gently behind frosted cards.
+ * Compiles layered CSS (`@layer fs-reveal-shell` + `@layer fs-reveal`) that
+ * positions the live backdrop at `z-index: -1` behind the host application while
+ * making outer canvas wrappers transparent and keeping reading columns, cards,
+ * and popups readable.
  */
 export function compileBackdropRevealCss(
   palette: ThemePalette | null,
@@ -153,6 +155,9 @@ body {
   background-color: transparent !important;
   background-image: none !important;
 }
+body::after {
+  display: none !important;
+}
 [${OWN_ATTR}="${BACKDROP_OWN_VALUE}"] {
   position: fixed;
   inset: 0;
@@ -164,12 +169,26 @@ body {
   transition: opacity 220ms ease;
 }`;
 
-  const siteCss = mapping?.surfaces
-    ? compileDeclarativeReveal(mapping, palette, baseBg, surfaceBg, metrics)
-    : mapping?.backdropRevealCss?.(palette, metrics).trim();
+  if (mapping?.surfaces) {
+    const { shellCss, revealCss } = compileDeclarativeReveal(
+      mapping,
+      palette,
+      baseBg,
+      surfaceBg,
+      metrics,
+      effects.surface === 'glass',
+    );
+    const blocks: string[] = [];
+    if (shellCss) {
+      blocks.push(`@layer fs-reveal-shell {\n${shellCss}\n}`);
+    }
+    blocks.push(`@layer fs-reveal {\n${genericReveal.trim()}\n\n${revealCss}\n}`);
+    return blocks.join('\n\n');
+  }
 
-  const fallbackCards = siteCss
-    ? siteCss
+  const legacySiteCss = mapping?.backdropRevealCss?.(palette, metrics).trim();
+  const fallbackCards = legacySiteCss
+    ? legacySiteCss
     : `
 main, [role="main"], article {
   background-color: ${hexWithAlpha(surfaceBg, metrics.cardAlpha)} !important;
@@ -178,14 +197,13 @@ ${DEFAULT_POPUPS.join(', ')} {
   background-color: ${hexWithAlpha(surfaceBg, Math.max(0.96, metrics.cardAlpha))} !important;
 }`;
 
-  return [genericReveal.trim(), fallbackCards.trim()].filter(Boolean).join('\n\n');
+  return `@layer fs-reveal {\n${genericReveal.trim()}\n\n${fallbackCards.trim()}\n}`;
 }
 
 /**
- * Compiles optional Surface Finish enhancements (`glass`, `gradient`, `neon`)
- * onto host cards, sidebars, dialogs, and buttons while preserving exact layout
- * geometry (using box-shadow/background-image, never changing box sizes) and
- * never placing `backdrop-filter` on popups or large ancestor containers.
+ * Compiles site-agnostic Surface Finish enhancements (`glass`, `gradient`, `neon`)
+ * emitted into `@layer fs-finish` so finishes cleanly outrank `fs-reveal` and
+ * `fs-mapping` without `:where(...)` specificity loss or hardcoded site selectors.
  */
 export function compileSurfaceFinishCss(
   palette: ThemePalette | null,
@@ -203,69 +221,73 @@ export function compileSurfaceFinishCss(
   const border = palette?.border ?? (hostScheme === 'light' ? '#cbd5e1' : '#2b364d');
   const danger = palette?.danger ?? '#ec4899';
 
-  const leafList =
-    surfaces?.leafCards && surfaces.leafCards.length > 0 ? surfaces.leafCards : DEFAULT_LEAF_CARDS;
+  const leafList = surfaces?.leafCards ?? [];
   const popupList =
     surfaces?.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS;
 
-  const leafCardTargets = `:where(${leafList.join(', ')})`;
-  const popupTargets = `:where(${popupList.join(', ')})`;
-  const cardTargets = `${leafCardTargets}, ${popupTargets}`;
+  const leafTargets = leafList.join(',\n');
+  const popupTargets = popupList.join(',\n');
+  const cardTargets = [leafTargets, popupTargets].filter(Boolean).join(',\n');
+  const ctaTargets = surfaces?.primaryCtas?.join(',\n') ?? '';
+  const feedCardTargets = surfaces?.feedCards?.join(',\n') ?? '';
+  const columnTargets = surfaces?.columns?.join(',\n') ?? '';
+  const searchTargets = surfaces?.searchContainers?.join(',\n') ?? '';
 
   if (effects.surface === 'glass') {
     const { cardAlpha, blurPx } = resolveGlassMetrics(Math.max(0.24, effects.glassStrength));
     const highlight = hexWithAlpha(text, hostScheme === 'light' ? 0.14 : 0.08);
-    return `
-${leafCardTargets} {
-  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;
-  backdrop-filter: blur(${blurPx}px) saturate(135%) !important;
-  -webkit-backdrop-filter: blur(${blurPx}px) saturate(135%) !important;
-  box-shadow: inset 0 1px 0 0 ${highlight}, 0 8px 28px rgb(0 0 0 / 18%) !important;
-}
-${popupTargets} {
-  background-color: ${hexWithAlpha(surface, Math.max(0.96, cardAlpha))} !important;
-  box-shadow: inset 0 1px 0 0 ${highlight}, 0 10px 32px rgb(0 0 0 / 26%) !important;
-}`.trim();
+    const blocks: string[] = [];
+    if (leafTargets) {
+      blocks.push(
+        `${leafTargets} {\n  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;\n  backdrop-filter: blur(${blurPx}px) saturate(125%) !important;\n  -webkit-backdrop-filter: blur(${blurPx}px) saturate(125%) !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 8px 24px rgb(0 0 0 / 18%) !important;\n}`,
+      );
+    }
+    blocks.push(
+      `${popupTargets} {\n  background-color: ${hexWithAlpha(surface, Math.max(0.96, cardAlpha))} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 10px 28px rgb(0 0 0 / 26%) !important;\n}`,
+    );
+    return blocks.join('\n\n');
   }
 
   if (effects.surface === 'gradient') {
     const sheenA = hexWithAlpha(accent, hostScheme === 'light' ? 0.08 : 0.14);
     const sheenB = hexWithAlpha(danger, hostScheme === 'light' ? 0.05 : 0.1);
-    return `
-${cardTargets} {
-  background-image: linear-gradient(145deg, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 48%, ${sheenB} 100%) !important;
-}
-:where([data-testid="SideNav_NewTweet_Button"], [data-testid="tweetButtonInline"], [data-testid="tweetButton"], div[role="button"][gh="cm"]) {
-  background-image: linear-gradient(135deg, ${accent} 0%, ${danger} 100%) !important;
-}
-:where(button, [role="button"]):hover {
-  background-image: linear-gradient(135deg, ${hexWithAlpha(accent, 0.12)}, transparent 80%);
-}`.trim();
+    const blocks: string[] = [
+      `${cardTargets} {\n  background-image: linear-gradient(145deg, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 48%, ${sheenB} 100%) !important;\n}`,
+    ];
+    if (ctaTargets) {
+      blocks.push(
+        `${ctaTargets} {\n  background-image: linear-gradient(135deg, ${accent} 0%, ${danger} 100%) !important;\n}`,
+      );
+    }
+    return blocks.join('\n\n');
   }
 
   // 'neon'
-  return `
-${cardTargets} {
-  border-color: ${hexWithAlpha(accent, 0.45)} !important;
-  box-shadow: 0 0 0 1px ${hexWithAlpha(accent, 0.25)}, 0 0 18px ${hexWithAlpha(accent, 0.16)} !important;
-}
-:where(article[data-testid="tweet"], shreddit-post):hover {
-  box-shadow: inset 2px 0 0 0 ${accent}, 0 0 16px ${hexWithAlpha(accent, 0.14)} !important;
-}
-:where([data-testid="SideNav_NewTweet_Button"], [data-testid="tweetButtonInline"], [data-testid="tweetButton"], div[role="button"][gh="cm"]) {
-  box-shadow: 0 0 16px ${hexWithAlpha(accent, 0.48)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;
-}
-:where([data-testid="primaryColumn"]) {
-  border-color: ${hexWithAlpha(accent, 0.3)} !important;
-  box-shadow: 0 0 28px ${hexWithAlpha(border, 0.25)} !important;
-}
-:where(input, textarea):focus-visible {
-  box-shadow: 0 0 0 2px ${hexWithAlpha(accent, 0.5)}, 0 0 14px ${hexWithAlpha(accent, 0.28)} !important;
-}
-:where([data-testid="sidebarColumn"] form[role="search"] > div > div) {
-  background-color: ${hexWithAlpha(alt, 0.9)} !important;
-  border-color: ${hexWithAlpha(accent, 0.4)} !important;
-}`.trim();
+  const blocks: string[] = [
+    `${cardTargets} {\n  border-color: ${hexWithAlpha(accent, 0.45)} !important;\n  box-shadow: 0 0 0 1px ${hexWithAlpha(accent, 0.25)}, 0 0 18px ${hexWithAlpha(accent, 0.16)} !important;\n}`,
+    `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${hexWithAlpha(accent, 0.5)}, 0 0 14px ${hexWithAlpha(accent, 0.28)} !important;\n}`,
+  ];
+  if (feedCardTargets) {
+    blocks.push(
+      `${feedCardTargets}:hover {\n  box-shadow: inset 2px 0 0 0 ${accent}, 0 0 16px ${hexWithAlpha(accent, 0.14)} !important;\n}`,
+    );
+  }
+  if (ctaTargets) {
+    blocks.push(
+      `${ctaTargets} {\n  box-shadow: 0 0 16px ${hexWithAlpha(accent, 0.48)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;\n}`,
+    );
+  }
+  if (columnTargets) {
+    blocks.push(
+      `${columnTargets} {\n  border-color: ${hexWithAlpha(accent, 0.3)} !important;\n  box-shadow: 0 0 24px ${hexWithAlpha(border, 0.24)} !important;\n}`,
+    );
+  }
+  if (searchTargets) {
+    blocks.push(
+      `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${hexWithAlpha(accent, 0.4)} !important;\n}`,
+    );
+  }
+  return blocks.join('\n\n');
 }
 
 /** Subtle matching surface finish polish inside Feed Sanity's own Shadow DOM UI. */

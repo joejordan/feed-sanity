@@ -1,5 +1,5 @@
 import type { SiteThemeMapping } from '../../core/theming';
-import { hexWithAlpha } from '../../core/theming';
+import { hexWithAlpha, TEXT_INPUT_SELECTOR } from '../../core/theming';
 
 /**
  * Maps Feed Sanity's semantic `ThemePalette` onto Reddit Shreddit's CSS custom
@@ -76,7 +76,7 @@ header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
 :where(a, .subreddit-link) {
   color: ${p.accent};
 }
-:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"], [type="submit"], [type="button"], [role="switch"]), textarea, select) {
+:where(${TEXT_INPUT_SELECTOR}, textarea, select) {
   background-color: ${p.surfaceAlt} !important;
   border-color: ${p.border} !important;
   color: ${p.text} !important;
@@ -104,6 +104,7 @@ header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
       '#right-sidebar-container',
       'shreddit-post',
     ],
+    feedCards: ['shreddit-post'],
     popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
   },
 };

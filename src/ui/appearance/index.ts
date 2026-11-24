@@ -2,6 +2,7 @@ import type { DomEnvironment } from '../../core/dom-env';
 import type { SavedData } from '../../core/saved';
 import type { SiteThemeMapping, ThemeController } from '../../core/theming';
 import type { OptionsPanel } from '../options-dialog/panel';
+import { detectHostColorScheme } from '../../core/theme';
 import {
   compileHostThemeCss,
   createThemeController,
@@ -47,7 +48,11 @@ export function initSiteTheme(
     if (!earlyCacheSiteId) {
       return;
     }
-    writeEarlyThemeCss(earlyCacheSiteId, effective ? compileHostThemeCss(effective, mapping) : '');
+    const hostScheme = effective?.palette?.colorScheme ?? detectHostColorScheme(env.doc);
+    writeEarlyThemeCss(
+      earlyCacheSiteId,
+      effective ? compileHostThemeCss(effective, mapping, hostScheme) : '',
+    );
   };
 
   const sync = (): void => {

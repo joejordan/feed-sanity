@@ -1,5 +1,24 @@
 import type { ThemeEffectsConfig } from '../theme-effects/model';
 
+/**
+ * Deterministic CSS Cascade Layer order (CSS Cascading Level 5).
+ * Because `!important` layer precedence runs earliest -> highest, declaring this
+ * exact header in every injected stylesheet guarantees strict precedence
+ * regardless of selector specificity or stylesheet insertion order:
+ *   user custom CSS > backdrop transparent shell > contrast healer >
+ *   surface finishes > backdrop reveal > curated site mapping > Layer 1 adaptive.
+ */
+export const THEME_LAYER_ORDER =
+  '@layer fs-user, fs-reveal-shell, fs-healer, fs-finish, fs-reveal, fs-mapping, fs-adaptive;';
+
+/**
+ * Text-entry `<input>` selector that deliberately excludes checkboxes, radios,
+ * range sliders, switches, and buttons so painting input backgrounds never
+ * obscures transparent host switch/checkbox overlays (e.g. X Snooze Topics).
+ */
+export const TEXT_INPUT_SELECTOR =
+  'input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"], [type="submit"], [type="button"], [role="switch"])';
+
 export type ThemeColorScheme = 'dark' | 'light';
 
 export interface ThemePalette {
@@ -118,6 +137,12 @@ export interface SurfaceSelectors {
   readonly softSurfaces?: readonly string[];
   /** Popups, menus, dialogs, listboxes, and portals kept crisp at `>= 0.96` opacity (never `backdrop-filter`). */
   readonly popups?: readonly string[];
+  /** Primary accent CTA buttons eligible for gradient/neon surface finishes. */
+  readonly primaryCtas?: readonly string[];
+  /** Feed post cards eligible for subtle neon hover accents. */
+  readonly feedCards?: readonly string[];
+  /** Search bar pill/containers styled under neon focus/surface finishes. */
+  readonly searchContainers?: readonly string[];
   /** Optional site CSS custom property overrides applied during active backdrops. */
   readonly revealCssVars?: (
     palette: ThemePalette | null,
