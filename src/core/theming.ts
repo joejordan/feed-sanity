@@ -59,11 +59,13 @@ export {
   type ThemeController,
 } from './theming/controller';
 export {
+  analyzeThemeDocument,
   autoFixDocumentContrast,
   configEffectsToDocument,
   DIGITAL_RAIN_PARAM_SPECS,
   documentEffectsToConfig,
   type EffectParamSpec,
+  type EffectParamValues,
   MAX_CUSTOM_CSS_BYTES,
   MAX_THEME_FILE_BYTES,
   parseThemeDocument,
@@ -75,11 +77,13 @@ export {
   THEME_FILE_EXTENSION,
   THEME_FILE_FORMAT,
   THEME_SCHEMA_VERSION,
+  type ThemeCapabilities,
   type ThemeDocumentEffects,
   type ThemeDocumentMeta,
   type ThemeDocumentTypography,
   type ThemeDocumentV1,
   type ThemeParseResult,
+  type ThemeTrustTier,
   themeParseFailure,
 } from './theming/document';
 export {

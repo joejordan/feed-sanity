@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import type { BackdropEffectId } from './index';
+import type { BackdropEffectId, EffectParamSpec } from './index';
 import { facebookThemeMapping } from '../../sites/facebook/theme-mapping';
 import { gmailThemeMapping } from '../../sites/gmail/theme-mapping';
 import { instagramThemeMapping } from '../../sites/instagram/theme-mapping';
@@ -32,10 +32,14 @@ import {
   createEffectsLayerController,
   DEFAULT_THEME_EFFECTS,
   hasActiveEffects,
+  mergeEffectsPatch,
   mountClickEffects,
   readThemeEffectsConfig,
+  resolveEffectParams,
   resolveGlassMetrics,
   STUDIO_VIBES,
+  sameEffectParams,
+  validateEffectParams,
 } from './index';
 import { resolveBackingSize } from './renderers/scene-host';
 
@@ -47,12 +51,17 @@ type GlMode = 'none' | 'ok' | 'fail-compile';
 
 interface CanvasStubs {
   readonly calls2d: string[];
+  readonly fillTexts: string[];
   readonly glCalls: string[];
   readonly loseContext: Mock<() => void>;
 }
 
 /** A permissive 2D context: every method is a recorded no-op. */
-function fake2dContext(calls: string[], canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+function fake2dContext(
+  calls: string[],
+  fillTexts: string[],
+  canvas: HTMLCanvasElement,
+): CanvasRenderingContext2D {
   const store: Record<string | symbol, unknown> = { canvas };
   const gradient = { addColorStop: () => undefined };
   const handler: ProxyHandler<Record<string | symbol, unknown>> = {
@@ -65,6 +74,9 @@ function fake2dContext(calls: string[], canvas: HTMLCanvasElement): CanvasRender
       }
       return (...args: unknown[]) => {
         calls.push(prop);
+        if (prop === 'fillText' && typeof args[0] === 'string') {
+          fillTexts.push(args[0]);
+        }
         if (prop === 'createLinearGradient' || prop === 'createRadialGradient') {
           return gradient;
         }
@@ -139,6 +151,7 @@ function fakeWebGlContext(
 function installCanvasStubs(options: { webgl: GlMode; twoD: boolean }): CanvasStubs {
   const stubs: CanvasStubs = {
     calls2d: [],
+    fillTexts: [],
     glCalls: [],
     loseContext: vi.fn<() => void>(),
   };
@@ -152,7 +165,7 @@ function installCanvasStubs(options: { webgl: GlMode; twoD: boolean }): CanvasSt
         : fakeWebGlContext(stubs.glCalls, stubs.loseContext, options.webgl === 'ok');
     }
     if (type === '2d' && options.twoD) {
-      return fake2dContext(stubs.calls2d, this);
+      return fake2dContext(stubs.calls2d, stubs.fillTexts, this);
     }
     return null;
   } as typeof HTMLCanvasElement.prototype.getContext);
@@ -241,7 +254,7 @@ describe('Creative Theme & Effects Studio engine', () => {
     vi.unstubAllGlobals();
   });
 
-  it('validates, clamps, and safely defaults ThemeEffectsConfig', () => {
+  it('validates, clamps, and safely defaults ThemeEffectsConfig and plugin backdropParams', () => {
     expect(readThemeEffectsConfig(null)).toEqual(DEFAULT_THEME_EFFECTS);
     expect(hasActiveEffects(DEFAULT_THEME_EFFECTS)).toBe(false);
 
@@ -250,9 +263,13 @@ describe('Creative Theme & Effects Studio engine', () => {
       intensity: 99,
       speed: 0.01,
       glassStrength: 5,
-      rainDensity: -3,
-      rainLook: 'phosphor',
-      rainCharset: 'binary',
+      backdropParams: {
+        look: 'phosphor',
+        charset: 'binary',
+        density: -3,
+        intro: 'rain-in',
+        customGlyphs: '❄\u0007❅❆*·',
+      },
       surface: 'neon',
       click: 'spark',
       paused: true,
@@ -265,22 +282,24 @@ describe('Creative Theme & Effects Studio engine', () => {
       glassStrength: 0.65,
       paused: true,
       interactive: false,
-      rainLook: 'phosphor',
-      rainCharset: 'binary',
-      rainDensity: 0.15,
-      rainIntro: 'filled',
+      backdropParams: {
+        look: 'phosphor',
+        charset: 'binary',
+        density: 0.15,
+        intro: 'rain-in',
+        customGlyphs: '❄❅❆*·',
+      },
       surface: 'neon',
       click: 'spark',
     });
     expect(hasActiveEffects(parsed)).toBe(true);
 
-    // Invalid enum values fall back cleanly without crashing.
+    // Invalid enum values fall back cleanly without crashing, and non-param backdrops strip stale params.
     const invalid = readThemeEffectsConfig({
       backdrop: 'invalid',
       surface: 'bogus',
       click: 'nope',
-      rainLook: 'unknown',
-      rainCharset: 'emoji-bomb',
+      backdropParams: { look: 'unknown', charset: 'emoji-bomb' },
     });
     expect(invalid).toEqual(DEFAULT_THEME_EFFECTS);
   });
@@ -1033,5 +1052,85 @@ describe('Creative Theme & Effects Studio engine', () => {
     cleanups.push(() => pausedRain.destroy());
     frames.flush(1300);
     expect(stubs.calls2d).toContain('drawImage');
+  });
+
+  it('routes digital-rain backdropParams.customGlyphs to Canvas 2D fillText and updates live', () => {
+    const stubs = installCanvasStubs({ webgl: 'none', twoD: true });
+    const frames = installFrameDriver();
+    const layer = createEffectsLayerController(document);
+    cleanups.push(() => layer.dispose());
+
+    layer.sync(
+      {
+        ...DEFAULT_THEME_EFFECTS,
+        backdrop: 'digital-rain',
+        backdropParams: { look: 'glacier', customGlyphs: '❄❅' },
+      },
+      null,
+      'dark',
+    );
+    frames.flush(16);
+    expect(stubs.fillTexts).toContain('❄');
+    expect(stubs.fillTexts).toContain('❅');
+
+    stubs.fillTexts.length = 0;
+    layer.sync(
+      {
+        ...DEFAULT_THEME_EFFECTS,
+        backdrop: 'digital-rain',
+        backdropParams: { look: 'glacier', customGlyphs: '⚡★' },
+      },
+      null,
+      'dark',
+    );
+    frames.flush(48);
+    expect(stubs.fillTexts).toContain('⚡');
+    expect(stubs.fillTexts).toContain('★');
+  });
+
+  it('validates, resolves, compares, and merges declarative EffectParamSpec values safely', () => {
+    const specs: readonly EffectParamSpec[] = [
+      { key: 'enabled', label: 'Enabled', kind: 'boolean', defaultValue: false },
+      { key: 'tint', label: 'Tint', kind: 'color', defaultValue: '#38bdf8' },
+      { key: 'glyphs', label: 'Glyphs', kind: 'string', maxLength: 3, defaultValue: '' },
+    ];
+
+    // Surrogate-safe truncation keeps whole astral glyphs instead of splitting UTF-16 code units.
+    const validated = validateEffectParams(
+      { enabled: true, tint: '#abc', glyphs: 'A🌸⚡❄', extra: 1 },
+      specs,
+    );
+    expect(validated).toEqual({
+      enabled: true,
+      tint: '#aabbcc',
+      glyphs: 'A🌸⚡',
+    });
+
+    // Resolved params fill defaults for missing/invalid entries.
+    expect(resolveEffectParams(specs, { tint: 'not-a-color' })).toEqual({
+      enabled: false,
+      tint: '#38bdf8',
+      glyphs: '',
+    });
+
+    // Empty-spec backdrops still emit forward-compat warnings for unknown parameter keys.
+    const warnings: string[] = [];
+    expect(validateEffectParams({ futureKey: 42 }, [], warnings)).toBeUndefined();
+    expect(warnings).toEqual(['Ignored unrecognized effect parameter(s): futureKey.']);
+
+    // Equality & merge helpers preserve params on same backdrop and reset on backdrop switch.
+    expect(sameEffectParams({ a: 1, b: 'x' }, { b: 'x', a: 1 })).toBe(true);
+    expect(sameEffectParams({ a: 1 }, { a: 2 })).toBe(false);
+
+    const base = {
+      ...DEFAULT_THEME_EFFECTS,
+      backdrop: 'digital-rain' as const,
+      backdropParams: { look: 'classic', density: 1 },
+    };
+    const mergedSame = mergeEffectsPatch(base, { backdropParams: { density: 1.5 } });
+    expect(mergedSame.backdropParams).toEqual({ look: 'classic', density: 1.5 });
+    const switched = mergeEffectsPatch(mergedSame, { backdrop: 'aurora' });
+    expect(switched.backdrop).toBe('aurora');
+    expect(switched.backdropParams).toBeUndefined();
   });
 });

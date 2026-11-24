@@ -1,9 +1,10 @@
-// Declarative model, validation, safe clamping, and curated Studio Vibes for
-// Feed Sanity's Creative Theme & Effects Studio.
+// Declarative effect plugin parameter schemas, validation, safe clamping,
+// and curated Studio Vibes for Feed Sanity's Creative Theme & Effects Studio.
 
 import type { RainCharsetName } from './digital-rain/charsets';
-import type { RainIntro, RainLookName } from './digital-rain/settings';
+import type { RainLookName } from './digital-rain/settings';
 import { isRecord } from '../storage';
+import { normalizeHex } from '../theming/color-utils';
 import { RAIN_CHARSETS } from './digital-rain/charsets';
 import { RAIN_INTROS } from './digital-rain/settings';
 
@@ -40,6 +41,290 @@ export const RAIN_LOOK_NAMES: readonly RainLookName[] = [
 export const RAIN_CHARSET_NAMES = Object.keys(RAIN_CHARSETS) as readonly RainCharsetName[];
 export const RAIN_INTRO_NAMES = RAIN_INTROS;
 
+export type EffectParamValue = string | number | boolean;
+export type EffectParamValues = Readonly<Record<string, EffectParamValue>>;
+
+/**
+ * Single-source-of-truth declarative parameter schema for effect plugins.
+ * One spec drives `.fstheme.json` validation, runtime clamping/defaults,
+ * and automatic Customize Effects UI controls.
+ */
+export type EffectParamSpec =
+  | {
+      readonly key: string;
+      readonly kind: 'number';
+      readonly label: string;
+      readonly ariaLabel?: string;
+      readonly min: number;
+      readonly max: number;
+      readonly step: number;
+      readonly defaultValue: number;
+      readonly unit?: '%' | '×';
+    }
+  | {
+      readonly key: string;
+      readonly kind: 'enum';
+      readonly label: string;
+      readonly ariaLabel?: string;
+      readonly options: readonly string[];
+      readonly optionLabels?: Readonly<Record<string, string>>;
+      readonly defaultValue: string;
+    }
+  | {
+      readonly key: string;
+      readonly kind: 'boolean';
+      readonly label: string;
+      readonly ariaLabel?: string;
+      readonly defaultValue: boolean;
+    }
+  | {
+      readonly key: string;
+      readonly kind: 'color';
+      readonly label: string;
+      readonly ariaLabel?: string;
+      readonly defaultValue: string;
+    }
+  | {
+      readonly key: string;
+      readonly kind: 'string';
+      readonly label: string;
+      readonly ariaLabel?: string;
+      readonly placeholder?: string;
+      readonly maxLength: number;
+      readonly defaultValue: string;
+    };
+
+export const THEME_EFFECT_BOUNDS = {
+  intensity: { min: 0.15, max: 1 },
+  speed: { min: 0.25, max: 2 },
+  glassStrength: { min: 0, max: 0.65 },
+  rainDensity: { min: 0.15, max: 0.9 },
+} as const;
+
+export const DIGITAL_RAIN_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'look',
+    kind: 'enum',
+    label: 'Rain style',
+    options: RAIN_LOOK_NAMES,
+    optionLabels: {
+      theme: 'Match active theme',
+      phosphor: 'Matrix Phosphor',
+      ultraviolet: 'Ultraviolet',
+      ember: 'Solar Ember',
+      glacier: 'Arctic Glacier',
+      newsprint: 'Newsprint Ink (Light)',
+      blueprint: 'Blueprint Ink (Light)',
+    },
+    defaultValue: 'theme',
+  },
+  {
+    key: 'charset',
+    kind: 'enum',
+    label: 'Glyph charset',
+    options: RAIN_CHARSET_NAMES,
+    optionLabels: {
+      matrix: 'Classic Matrix (Katakana + Digits)',
+      katakana: 'Half-width Katakana',
+      binary: 'Binary (0 / 1)',
+      decimal: 'Decimal (0–9)',
+      hex: 'Hexadecimal (0–F)',
+      latin: 'Latin (A–Z)',
+      symbols: 'Code Symbols',
+      braille: 'Braille Patterns',
+    },
+    defaultValue: 'matrix',
+  },
+  {
+    key: 'intro',
+    kind: 'enum',
+    label: 'Intro',
+    ariaLabel: 'Rain intro',
+    options: RAIN_INTRO_NAMES,
+    optionLabels: {
+      filled: 'Already falling',
+      'rain-in': 'Rain in from top',
+    },
+    defaultValue: 'filled',
+  },
+  {
+    key: 'density',
+    kind: 'number',
+    label: 'Rain density',
+    min: THEME_EFFECT_BOUNDS.rainDensity.min,
+    max: THEME_EFFECT_BOUNDS.rainDensity.max,
+    step: 0.05,
+    defaultValue: 0.45,
+    unit: '%',
+  },
+  {
+    key: 'customGlyphs',
+    kind: 'string',
+    label: 'Custom glyphs',
+    ariaLabel: 'Custom rain glyphs',
+    placeholder: 'Optional (e.g. ❄❅❆*· or 01)',
+    maxLength: 64,
+    defaultValue: '',
+  },
+];
+
+/** Declarative parameter specifications keyed by backdrop engine ID. */
+export const BACKDROP_PARAM_SPECS: Readonly<
+  Partial<Record<Exclude<BackdropEffectId, 'none'>, readonly EffectParamSpec[]>>
+> = {
+  'digital-rain': DIGITAL_RAIN_PARAM_SPECS,
+};
+
+const EMPTY_PARAM_SPECS: readonly EffectParamSpec[] = [];
+
+/** Returns the declarative `EffectParamSpec[]` for `backdropId` (empty when it has no extra params). */
+export function getBackdropParamSpecs(backdropId: BackdropEffectId): readonly EffectParamSpec[] {
+  if (backdropId === 'none') {
+    return EMPTY_PARAM_SPECS;
+  }
+  return BACKDROP_PARAM_SPECS[backdropId] ?? EMPTY_PARAM_SPECS;
+}
+
+function clampOptionalNumber(value: unknown, min: number, max: number): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.round(Math.min(max, Math.max(min, value)) * 100) / 100;
+}
+
+function stripControlChars(input: string): string {
+  let out = '';
+  for (const ch of input) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code >= 0x20 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f)) {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+function validateParamValue(spec: EffectParamSpec, val: unknown): EffectParamValue | undefined {
+  if (val === undefined) {
+    return undefined;
+  }
+  switch (spec.kind) {
+    case 'number':
+      return clampOptionalNumber(val, spec.min, spec.max);
+    case 'enum':
+      return typeof val === 'string' && spec.options.includes(val) ? val : undefined;
+    case 'boolean':
+      return typeof val === 'boolean' ? val : undefined;
+    case 'color':
+      return typeof val === 'string' ? (normalizeHex(val) ?? undefined) : undefined;
+    case 'string': {
+      if (typeof val !== 'string') {
+        return undefined;
+      }
+      const trimmed = stripControlChars(val).trim();
+      const cleaned = Array.from(trimmed).slice(0, spec.maxLength).join('');
+      return cleaned.length > 0 ? cleaned : undefined;
+    }
+  }
+}
+
+/**
+ * Validates and clamps a raw effect `params` record against `specs`.
+ * Omits invalid entries (and empty optional string defaults); optionally records
+ * forward-compatibility warnings for unrecognized parameter keys.
+ */
+export function validateEffectParams(
+  raw: unknown,
+  specs: readonly EffectParamSpec[],
+  warnings?: string[],
+): EffectParamValues | undefined {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  if (warnings) {
+    const knownKeys = new Set(specs.map((spec) => spec.key));
+    const unknownKeys = Object.keys(raw)
+      .filter((key) => !knownKeys.has(key))
+      .map((key) => stripControlChars(key).trim().slice(0, 40) || '(unnamed)')
+      .slice(0, 8);
+    if (unknownKeys.length > 0) {
+      warnings.push(`Ignored unrecognized effect parameter(s): ${unknownKeys.join(', ')}.`);
+    }
+  }
+  if (specs.length === 0) {
+    return undefined;
+  }
+  const out: Record<string, EffectParamValue> = {};
+  for (const spec of specs) {
+    const valid = validateParamValue(spec, raw[spec.key]);
+    if (valid !== undefined) {
+      out[spec.key] = valid;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Resolves every parameter in `specs` to a concrete validated value (with defaults filled). */
+export function resolveEffectParams(
+  specs: readonly EffectParamSpec[],
+  raw: EffectParamValues | undefined,
+): Record<string, EffectParamValue> {
+  const resolved: Record<string, EffectParamValue> = {};
+  for (const spec of specs) {
+    const valid = raw ? validateParamValue(spec, raw[spec.key]) : undefined;
+    resolved[spec.key] = valid ?? spec.defaultValue;
+  }
+  return resolved;
+}
+
+/** Shallow value equality for two optional `EffectParamValues` records. */
+export function sameEffectParams(
+  a: EffectParamValues | undefined,
+  b: EffectParamValues | undefined,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  const aKeys = a ? Object.keys(a) : [];
+  const bKeys = b ? Object.keys(b) : [];
+  if (aKeys.length !== bKeys.length) {
+    return false;
+  }
+  return aKeys.every((key) => a?.[key] === b?.[key]);
+}
+
+/**
+ * Merges a partial `ThemeEffectsConfig` update into `base`, preserving existing
+ * `backdropParams` when staying on the same backdrop and resetting them when switching.
+ */
+export function mergeEffectsPatch(
+  base: ThemeEffectsConfig,
+  patch: Partial<ThemeEffectsConfig>,
+): ThemeEffectsConfig;
+export function mergeEffectsPatch(
+  base: Partial<ThemeEffectsConfig>,
+  patch: Partial<ThemeEffectsConfig>,
+): Partial<ThemeEffectsConfig>;
+export function mergeEffectsPatch(
+  base: Partial<ThemeEffectsConfig>,
+  patch: Partial<ThemeEffectsConfig>,
+): Partial<ThemeEffectsConfig> {
+  const switchingBackdrop =
+    base.backdrop !== undefined && patch.backdrop !== undefined && patch.backdrop !== base.backdrop;
+  let nextBackdropParams = base.backdropParams;
+  if (switchingBackdrop) {
+    nextBackdropParams = patch.backdropParams;
+  } else if (patch.backdropParams !== undefined) {
+    nextBackdropParams = { ...base.backdropParams, ...patch.backdropParams };
+  }
+  const { backdropParams: _baseParams, ...restBase } = base;
+  const { backdropParams: _patchParams, ...restPatch } = patch;
+  return {
+    ...restBase,
+    ...restPatch,
+    ...(nextBackdropParams ? { backdropParams: nextBackdropParams } : {}),
+  };
+}
+
 export interface ThemeEffectsConfig {
   readonly backdrop: BackdropEffectId;
   /** Backdrop opacity multiplier (`0.15..1`). */
@@ -52,14 +337,8 @@ export interface ThemeEffectsConfig {
   readonly paused: boolean;
   /** Enables pointer time-warp, spotlights, and parallax where supported. */
   readonly interactive: boolean;
-  /** Color look for Digital Rain (`'theme'` harmonizes with active palette). */
-  readonly rainLook: RainLookName;
-  /** Glyph set for Digital Rain. */
-  readonly rainCharset: RainCharsetName;
-  /** Stream density for Digital Rain (`0.15..0.9`). */
-  readonly rainDensity: number;
-  /** Entry style for Digital Rain (`'filled'` or `'rain-in'`). */
-  readonly rainIntro: RainIntro;
+  /** Validated plugin-specific parameters for the active `backdrop` engine. */
+  readonly backdropParams?: EffectParamValues;
   /** Card, header, and CTA surface treatment. */
   readonly surface: SurfaceFinishId;
   /** Interactive micro-effect triggered on primary clicks. */
@@ -73,26 +352,12 @@ export const DEFAULT_THEME_EFFECTS: ThemeEffectsConfig = {
   glassStrength: 0.22,
   paused: false,
   interactive: true,
-  rainLook: 'theme',
-  rainCharset: 'matrix',
-  rainDensity: 0.45,
-  rainIntro: 'filled',
   surface: 'default',
   click: 'none',
 };
 
-export const THEME_EFFECT_BOUNDS = {
-  intensity: { min: 0.15, max: 1 },
-  speed: { min: 0.25, max: 2 },
-  glassStrength: { min: 0, max: 0.65 },
-  rainDensity: { min: 0.15, max: 0.9 },
-} as const;
-
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return fallback;
-  }
-  return Math.round(Math.min(max, Math.max(min, value)) * 100) / 100;
+  return clampOptionalNumber(value, min, max) ?? fallback;
 }
 
 function readEnum<T extends string>(raw: unknown, allowed: readonly T[], fallback: T): T {
@@ -101,13 +366,15 @@ function readEnum<T extends string>(raw: unknown, allowed: readonly T[], fallbac
     : fallback;
 }
 
-/** Validates and clamps persisted `ThemeEffectsConfig` safely. */
+/** Validates and clamps `ThemeEffectsConfig` (including active plugin `backdropParams`) safely. */
 export function readThemeEffectsConfig(raw: unknown): ThemeEffectsConfig {
   if (!isRecord(raw)) {
     return { ...DEFAULT_THEME_EFFECTS };
   }
+  const backdrop = readEnum(raw.backdrop, BACKDROP_EFFECT_IDS, DEFAULT_THEME_EFFECTS.backdrop);
+  const backdropParams = validateEffectParams(raw.backdropParams, getBackdropParamSpecs(backdrop));
   return {
-    backdrop: readEnum(raw.backdrop, BACKDROP_EFFECT_IDS, DEFAULT_THEME_EFFECTS.backdrop),
+    backdrop,
     intensity: clampNumber(
       raw.intensity,
       THEME_EFFECT_BOUNDS.intensity.min,
@@ -129,15 +396,7 @@ export function readThemeEffectsConfig(raw: unknown): ThemeEffectsConfig {
     paused: typeof raw.paused === 'boolean' ? raw.paused : DEFAULT_THEME_EFFECTS.paused,
     interactive:
       typeof raw.interactive === 'boolean' ? raw.interactive : DEFAULT_THEME_EFFECTS.interactive,
-    rainLook: readEnum(raw.rainLook, RAIN_LOOK_NAMES, DEFAULT_THEME_EFFECTS.rainLook),
-    rainCharset: readEnum(raw.rainCharset, RAIN_CHARSET_NAMES, DEFAULT_THEME_EFFECTS.rainCharset),
-    rainDensity: clampNumber(
-      raw.rainDensity,
-      THEME_EFFECT_BOUNDS.rainDensity.min,
-      THEME_EFFECT_BOUNDS.rainDensity.max,
-      DEFAULT_THEME_EFFECTS.rainDensity,
-    ),
-    rainIntro: readEnum(raw.rainIntro, RAIN_INTRO_NAMES, DEFAULT_THEME_EFFECTS.rainIntro),
+    ...(backdropParams ? { backdropParams } : {}),
     surface: readEnum(raw.surface, SURFACE_FINISH_IDS, DEFAULT_THEME_EFFECTS.surface),
     click: readEnum(raw.click, CLICK_EFFECT_IDS, DEFAULT_THEME_EFFECTS.click),
   };
@@ -271,10 +530,12 @@ export const STUDIO_VIBES: readonly StudioVibe[] = [
     swatch: 'linear-gradient(135deg, #040c06 0%, #0d3b1b 50%, #1fdf64 100%)',
     effects: {
       backdrop: 'digital-rain',
-      rainLook: 'phosphor',
-      rainCharset: 'matrix',
-      rainDensity: 0.46,
-      rainIntro: 'rain-in',
+      backdropParams: {
+        look: 'phosphor',
+        charset: 'matrix',
+        density: 0.46,
+        intro: 'rain-in',
+      },
       intensity: 0.8,
       speed: 1,
       glassStrength: 0.26,
@@ -379,9 +640,12 @@ export const STUDIO_VIBES: readonly StudioVibe[] = [
     swatch: 'linear-gradient(135deg, #ebf0fa 0%, #93c5fd 55%, #1d4ed8 100%)',
     effects: {
       backdrop: 'digital-rain',
-      rainLook: 'blueprint',
-      rainCharset: 'binary',
-      rainDensity: 0.32,
+      backdropParams: {
+        look: 'blueprint',
+        charset: 'binary',
+        density: 0.32,
+        intro: 'filled',
+      },
       intensity: 0.6,
       speed: 0.8,
       glassStrength: 0.18,

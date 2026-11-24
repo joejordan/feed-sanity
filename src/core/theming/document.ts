@@ -7,12 +7,15 @@
 import type {
   BackdropEffectId,
   ClickEffectId,
+  EffectParamSpec,
+  EffectParamValues,
   SurfaceFinishId,
   ThemeEffectsConfig,
 } from '../theme-effects/model';
 import type {
   ThemeAmbientGlowSpot,
   ThemeChromeConfig,
+  ThemeColorScheme,
   ThemeFontId,
   ThemePalette,
   ThemeRibbonSpec,
@@ -22,13 +25,13 @@ import {
   BACKDROP_EFFECT_IDS,
   CLICK_EFFECT_IDS,
   DEFAULT_THEME_EFFECTS,
+  DIGITAL_RAIN_PARAM_SPECS,
+  getBackdropParamSpecs,
   hasActiveEffects,
-  RAIN_CHARSET_NAMES,
-  RAIN_INTRO_NAMES,
-  RAIN_LOOK_NAMES,
   readThemeEffectsConfig,
   SURFACE_FINISH_IDS,
   THEME_EFFECT_BOUNDS,
+  validateEffectParams,
 } from '../theme-effects/model';
 import {
   contrastRatio,
@@ -40,6 +43,9 @@ import {
   WCAG_AA_TEXT_CONTRAST,
 } from './color-utils';
 import { isThemeFontId } from './types';
+
+export type { EffectParamSpec, EffectParamValues };
+export { DIGITAL_RAIN_PARAM_SPECS };
 
 export const THEME_FILE_FORMAT = 'feed-sanity-theme' as const;
 export const THEME_SCHEMA_VERSION = 1 as const;
@@ -65,73 +71,6 @@ const UNSAFE_CSS_FUNCTIONS = new Set([
 ]);
 const UNSAFE_CSS_PROPERTIES = new Set(['behavior', '-moz-binding']);
 
-/**
- * Declarative parameter schema for backdrop, surface, and click effect plugins.
- * One spec drives both `.fstheme.json` validation and future Studio UI controls.
- */
-export type EffectParamSpec =
-  | {
-      readonly key: string;
-      readonly kind: 'number';
-      readonly label: string;
-      readonly min: number;
-      readonly max: number;
-      readonly step: number;
-      readonly defaultValue: number;
-    }
-  | {
-      readonly key: string;
-      readonly kind: 'enum';
-      readonly label: string;
-      readonly options: readonly string[];
-      readonly defaultValue: string;
-    }
-  | {
-      readonly key: string;
-      readonly kind: 'boolean';
-      readonly label: string;
-      readonly defaultValue: boolean;
-    }
-  | {
-      readonly key: string;
-      readonly kind: 'color';
-      readonly label: string;
-      readonly defaultValue: string;
-    };
-
-export const DIGITAL_RAIN_PARAM_SPECS: readonly EffectParamSpec[] = [
-  {
-    key: 'look',
-    kind: 'enum',
-    label: 'Rain style',
-    options: RAIN_LOOK_NAMES,
-    defaultValue: DEFAULT_THEME_EFFECTS.rainLook,
-  },
-  {
-    key: 'charset',
-    kind: 'enum',
-    label: 'Glyph charset',
-    options: RAIN_CHARSET_NAMES,
-    defaultValue: DEFAULT_THEME_EFFECTS.rainCharset,
-  },
-  {
-    key: 'density',
-    kind: 'number',
-    label: 'Rain density',
-    min: THEME_EFFECT_BOUNDS.rainDensity.min,
-    max: THEME_EFFECT_BOUNDS.rainDensity.max,
-    step: 0.05,
-    defaultValue: DEFAULT_THEME_EFFECTS.rainDensity,
-  },
-  {
-    key: 'intro',
-    kind: 'enum',
-    label: 'Intro',
-    options: RAIN_INTRO_NAMES,
-    defaultValue: DEFAULT_THEME_EFFECTS.rainIntro,
-  },
-];
-
 export interface ThemeDocumentMeta {
   readonly name: string;
   readonly description?: string;
@@ -155,16 +94,16 @@ export interface ThemeDocumentEffects {
     readonly speed?: number;
     readonly paused?: boolean;
     readonly interactive?: boolean;
-    readonly params?: Readonly<Record<string, string | number | boolean>>;
+    readonly params?: EffectParamValues;
   };
   readonly surface?: {
     readonly finish: SurfaceFinishId;
     readonly glassStrength?: number;
-    readonly params?: Readonly<Record<string, string | number | boolean>>;
+    readonly params?: EffectParamValues;
   };
   readonly click?: {
     readonly id: ClickEffectId;
-    readonly params?: Readonly<Record<string, string | number | boolean>>;
+    readonly params?: EffectParamValues;
   };
 }
 
@@ -187,9 +126,32 @@ export interface SanitizedCssResult {
   readonly truncated: boolean;
 }
 
+export type ThemeTrustTier = 'data-only' | 'custom-css';
+
+/**
+ * Deterministic capability & trust manifest derived from a validated `ThemeDocumentV1`.
+ * Surfaces exactly what a theme touches (zero scripts, zero external network) for
+ * import previews and the My Themes Library.
+ */
+export interface ThemeCapabilities {
+  readonly trust: ThemeTrustTier;
+  readonly hasPalette: boolean;
+  readonly colorScheme: ThemeColorScheme | null;
+  readonly backdropEngine: Exclude<BackdropEffectId, 'none'> | null;
+  readonly surfaceFinish: Exclude<SurfaceFinishId, 'default'> | null;
+  readonly clickEffect: Exclude<ClickEffectId, 'none'> | null;
+  readonly hasChrome: boolean;
+  readonly hasTypography: boolean;
+  readonly hasCustomCss: boolean;
+  readonly minContrastRatio: number | null;
+  /** Deterministic content fingerprint of the canonical document for library deduplication. */
+  readonly fingerprint: string;
+}
+
 export interface ThemeParseResult {
   readonly ok: boolean;
   readonly document?: ThemeDocumentV1;
+  readonly capabilities?: ThemeCapabilities;
   readonly errors: readonly string[];
   readonly warnings: readonly string[];
   readonly hadCustomCss: boolean;
@@ -608,38 +570,6 @@ function parseChrome(raw: unknown): ThemeChromeConfig | undefined {
   };
 }
 
-function validateEffectParams(
-  raw: unknown,
-  specs: readonly EffectParamSpec[],
-): Record<string, string | number | boolean> | undefined {
-  if (!isRecord(raw)) {
-    return undefined;
-  }
-  const out: Record<string, string | number | boolean> = {};
-  for (const spec of specs) {
-    const val = raw[spec.key];
-    if (val === undefined) {
-      continue;
-    }
-    if (spec.kind === 'number') {
-      const num = readClampedNumber(val, spec.min, spec.max, 2);
-      if (num !== undefined) {
-        out[spec.key] = num;
-      }
-    } else if (spec.kind === 'enum' && isOneOf(val, spec.options)) {
-      out[spec.key] = val;
-    } else if (spec.kind === 'boolean' && typeof val === 'boolean') {
-      out[spec.key] = val;
-    } else if (spec.kind === 'color' && typeof val === 'string') {
-      const hex = normalizeHex(val);
-      if (hex) {
-        out[spec.key] = hex;
-      }
-    }
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
 /** Converts a structured `ThemeDocumentEffects` block into runtime `ThemeEffectsConfig`. */
 export function documentEffectsToConfig(
   effects: ThemeDocumentEffects | undefined,
@@ -647,17 +577,13 @@ export function documentEffectsToConfig(
   if (!effects) {
     return undefined;
   }
-  const rainParams = effects.backdrop?.id === 'digital-rain' ? effects.backdrop.params : undefined;
   const resolved = readThemeEffectsConfig({
     backdrop: effects.backdrop?.id ?? DEFAULT_THEME_EFFECTS.backdrop,
     intensity: effects.backdrop?.intensity ?? DEFAULT_THEME_EFFECTS.intensity,
     speed: effects.backdrop?.speed ?? DEFAULT_THEME_EFFECTS.speed,
     paused: effects.backdrop?.paused ?? DEFAULT_THEME_EFFECTS.paused,
     interactive: effects.backdrop?.interactive ?? DEFAULT_THEME_EFFECTS.interactive,
-    rainLook: rainParams?.look ?? DEFAULT_THEME_EFFECTS.rainLook,
-    rainCharset: rainParams?.charset ?? DEFAULT_THEME_EFFECTS.rainCharset,
-    rainDensity: rainParams?.density ?? DEFAULT_THEME_EFFECTS.rainDensity,
-    rainIntro: rainParams?.intro ?? DEFAULT_THEME_EFFECTS.rainIntro,
+    ...(effects.backdrop?.params ? { backdropParams: effects.backdrop.params } : {}),
     surface: effects.surface?.finish ?? DEFAULT_THEME_EFFECTS.surface,
     glassStrength: effects.surface?.glassStrength ?? DEFAULT_THEME_EFFECTS.glassStrength,
     click: effects.click?.id ?? DEFAULT_THEME_EFFECTS.click,
@@ -678,22 +604,13 @@ export function configEffectsToDocument(
   }
   let backdrop: ThemeDocumentEffects['backdrop'];
   if (normalized.backdrop !== 'none') {
-    const params =
-      normalized.backdrop === 'digital-rain'
-        ? {
-            look: normalized.rainLook,
-            charset: normalized.rainCharset,
-            density: normalized.rainDensity,
-            intro: normalized.rainIntro,
-          }
-        : undefined;
     backdrop = {
       id: normalized.backdrop,
       intensity: normalized.intensity,
       speed: normalized.speed,
       paused: normalized.paused,
       interactive: normalized.interactive,
-      ...(params ? { params } : {}),
+      ...(normalized.backdropParams ? { params: normalized.backdropParams } : {}),
     };
   }
   const surface: ThemeDocumentEffects['surface'] =
@@ -712,55 +629,81 @@ export function configEffectsToDocument(
   };
 }
 
-function parseEffects(raw: unknown): ThemeDocumentEffects | undefined {
+function warnUnsupportedEffect(
+  rawValue: unknown,
+  label: string,
+  fallback: string,
+  warnings: string[],
+): void {
+  const id = cleanDocumentText(rawValue, 40);
+  if (id) {
+    warnings.push(`Unsupported ${label} "${id}" — ${fallback}.`);
+  }
+}
+
+function parseEffects(raw: unknown, warnings: string[]): ThemeDocumentEffects | undefined {
   if (!isRecord(raw)) {
     return undefined;
   }
   let backdrop: ThemeDocumentEffects['backdrop'];
-  if (isRecord(raw.backdrop) && isOneOf(raw.backdrop.id, BACKDROP_EFFECT_IDS)) {
-    const id = raw.backdrop.id;
-    const intensity = readClampedNumber(
-      raw.backdrop.intensity,
-      THEME_EFFECT_BOUNDS.intensity.min,
-      THEME_EFFECT_BOUNDS.intensity.max,
-    );
-    const speed = readClampedNumber(
-      raw.backdrop.speed,
-      THEME_EFFECT_BOUNDS.speed.min,
-      THEME_EFFECT_BOUNDS.speed.max,
-    );
-    const params =
-      id === 'digital-rain'
-        ? validateEffectParams(raw.backdrop.params, DIGITAL_RAIN_PARAM_SPECS)
-        : undefined;
-    backdrop = {
-      id,
-      ...(intensity === undefined ? {} : { intensity }),
-      ...(speed === undefined ? {} : { speed }),
-      ...(typeof raw.backdrop.paused === 'boolean' ? { paused: raw.backdrop.paused } : {}),
-      ...(typeof raw.backdrop.interactive === 'boolean'
-        ? { interactive: raw.backdrop.interactive }
-        : {}),
-      ...(params ? { params } : {}),
-    };
+  if (isRecord(raw.backdrop)) {
+    if (isOneOf(raw.backdrop.id, BACKDROP_EFFECT_IDS)) {
+      const id = raw.backdrop.id;
+      const intensity = readClampedNumber(
+        raw.backdrop.intensity,
+        THEME_EFFECT_BOUNDS.intensity.min,
+        THEME_EFFECT_BOUNDS.intensity.max,
+      );
+      const speed = readClampedNumber(
+        raw.backdrop.speed,
+        THEME_EFFECT_BOUNDS.speed.min,
+        THEME_EFFECT_BOUNDS.speed.max,
+      );
+      const params = validateEffectParams(raw.backdrop.params, getBackdropParamSpecs(id), warnings);
+      backdrop = {
+        id,
+        ...(intensity === undefined ? {} : { intensity }),
+        ...(speed === undefined ? {} : { speed }),
+        ...(typeof raw.backdrop.paused === 'boolean' ? { paused: raw.backdrop.paused } : {}),
+        ...(typeof raw.backdrop.interactive === 'boolean'
+          ? { interactive: raw.backdrop.interactive }
+          : {}),
+        ...(params ? { params } : {}),
+      };
+    } else {
+      warnUnsupportedEffect(
+        raw.backdrop.id,
+        'backdrop engine',
+        'falling back to static theme colors',
+        warnings,
+      );
+    }
   }
 
   let surface: ThemeDocumentEffects['surface'];
-  if (isRecord(raw.surface) && isOneOf(raw.surface.finish, SURFACE_FINISH_IDS)) {
-    const glassStrength = readClampedNumber(
-      raw.surface.glassStrength,
-      THEME_EFFECT_BOUNDS.glassStrength.min,
-      THEME_EFFECT_BOUNDS.glassStrength.max,
-    );
-    surface = {
-      finish: raw.surface.finish,
-      ...(glassStrength === undefined ? {} : { glassStrength }),
-    };
+  if (isRecord(raw.surface)) {
+    if (isOneOf(raw.surface.finish, SURFACE_FINISH_IDS)) {
+      const glassStrength = readClampedNumber(
+        raw.surface.glassStrength,
+        THEME_EFFECT_BOUNDS.glassStrength.min,
+        THEME_EFFECT_BOUNDS.glassStrength.max,
+      );
+      surface = {
+        finish: raw.surface.finish,
+        ...(glassStrength === undefined ? {} : { glassStrength }),
+      };
+    } else {
+      warnUnsupportedEffect(raw.surface.finish, 'surface finish', 'using solid surfaces', warnings);
+    }
   }
 
   let click: ThemeDocumentEffects['click'];
-  if (isRecord(raw.click) && isOneOf(raw.click.id, CLICK_EFFECT_IDS)) {
-    click = { id: raw.click.id };
+  if (isRecord(raw.click)) {
+    if (isOneOf(raw.click.id, CLICK_EFFECT_IDS)) {
+      click = { id: raw.click.id };
+    } else {
+      warnUnsupportedEffect(raw.click.id, 'click effect', 'click effects disabled', warnings);
+    }
   }
 
   const active =
@@ -977,7 +920,7 @@ export function parseThemeDocument(input: unknown): ThemeParseResult {
   const palette = parseDocumentPalette(raw.palette, errors, warnings);
   const typography = parseDocumentTypography(raw.typography, warnings);
   const chrome = parseChrome(raw.chrome);
-  const effects = parseEffects(raw.effects);
+  const effects = parseEffects(raw.effects, warnings);
 
   let customCss: string | undefined;
   let hadCustomCss = false;
@@ -1005,24 +948,101 @@ export function parseThemeDocument(input: unknown): ThemeParseResult {
 
   const meta = parseDocumentMeta(rawMeta, name);
   const id = slugifyThemeId(typeof raw.id === 'string' ? raw.id : name);
+  const document: ThemeDocumentV1 = {
+    format: THEME_FILE_FORMAT,
+    schemaVersion: THEME_SCHEMA_VERSION,
+    id,
+    meta,
+    palette,
+    ...(typography ? { typography } : {}),
+    ...(chrome ? { chrome } : {}),
+    ...(effects ? { effects } : {}),
+    ...(customCss ? { customCss } : {}),
+  };
 
   return {
     ok: true,
-    document: {
-      format: THEME_FILE_FORMAT,
-      schemaVersion: THEME_SCHEMA_VERSION,
-      id,
-      meta,
-      palette,
-      ...(typography ? { typography } : {}),
-      ...(chrome ? { chrome } : {}),
-      ...(effects ? { effects } : {}),
-      ...(customCss ? { customCss } : {}),
-    },
+    document,
+    capabilities: analyzeThemeDocument(document),
     errors: [],
     warnings,
     hadCustomCss,
     strippedCssRules,
+  };
+}
+
+function stableHashHex(text: string): string {
+  // Dual independent 32-bit FNV-1a accumulators -> 16-char deterministic hex fingerprint.
+  let h1 = 0x81_1c_9d_c5;
+  let h2 = 0x9e_37_79_b9;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01_00_01_93);
+    h2 ^= code + i;
+    h2 = Math.imul(h2, 0x85_eb_ca_6b);
+  }
+  return `${(h1 >>> 0).toString(16).padStart(8, '0')}${(h2 >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function canonicalJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalJsonValue);
+  }
+  if (isRecord(value)) {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value).sort()) {
+      const entry = value[key];
+      if (entry !== undefined) {
+        sorted[key] = canonicalJsonValue(entry);
+      }
+    }
+    return sorted;
+  }
+  return value;
+}
+
+/**
+ * Computes a deterministic trust & capability summary for a `ThemeDocumentV1`,
+ * suitable for import previews, verification badges, and library deduplication.
+ */
+export function analyzeThemeDocument(doc: ThemeDocumentV1): ThemeCapabilities {
+  const hasCustomCss = Boolean(doc.customCss && doc.customCss.trim().length > 0);
+  const backdropId = doc.effects?.backdrop?.id;
+  const surfaceFinish = doc.effects?.surface?.finish;
+  const clickId = doc.effects?.click?.id;
+  const hasTypography = Boolean(
+    (doc.typography?.preset && doc.typography.preset !== 'default') || doc.typography?.customStack,
+  );
+  const hasChrome = Boolean(doc.chrome?.ribbon?.enabled || doc.chrome?.ambientGlow?.enabled);
+  const minContrastRatio = doc.palette
+    ? Number(
+        minTextContrast(doc.palette.text, doc.palette.background, doc.palette.surface).toFixed(2),
+      )
+    : null;
+  const fingerprint = stableHashHex(
+    JSON.stringify(
+      canonicalJsonValue({
+        palette: doc.palette,
+        typography: doc.typography,
+        chrome: doc.chrome,
+        effects: doc.effects,
+        customCss: doc.customCss,
+      }),
+    ),
+  );
+  return {
+    trust: hasCustomCss ? 'custom-css' : 'data-only',
+    hasPalette: doc.palette !== null,
+    colorScheme: doc.palette?.colorScheme ?? null,
+    backdropEngine: backdropId && backdropId !== 'none' ? backdropId : null,
+    surfaceFinish: surfaceFinish && surfaceFinish !== 'default' ? surfaceFinish : null,
+    clickEffect: clickId && clickId !== 'none' ? clickId : null,
+    hasChrome,
+    hasTypography,
+    hasCustomCss,
+    minContrastRatio,
+    fingerprint,
   };
 }
 

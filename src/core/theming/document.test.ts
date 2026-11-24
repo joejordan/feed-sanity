@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { STUDIO_VIBES } from '../theme-effects';
 import {
+  analyzeThemeDocument,
   applyStudioVibe,
   applyThemeDocument,
   applyThemePreset,
@@ -484,5 +485,105 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     // Real `! important` and unclosed `!important` enter `@layer fs-user` with balanced braces.
     expect(userLayer).toContain('.spaced { color: #ff00ff ! important; }');
     expect(userLayer).toContain('.unclosed { color: red !important;}');
+  });
+
+  it('computes deterministic ThemeCapabilities trust metadata, validates customGlyphs, and degrades unknown future effects gracefully', () => {
+    const dataOnly = parseThemeDocument({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      meta: { name: 'Snowfall' },
+      palette: {
+        colorScheme: 'dark',
+        background: '#08121e',
+        surface: '#0f1f33',
+        text: '#e8f1fa',
+        accent: '#38bdf8',
+      },
+      effects: {
+        backdrop: {
+          id: 'digital-rain',
+          intensity: 0.7,
+          params: {
+            look: 'glacier',
+            customGlyphs: '❄\u0000❅❆*·',
+            futureParam: 42,
+          },
+        },
+        surface: { finish: 'glass', glassStrength: 0.3 },
+      },
+    });
+    expect(dataOnly.ok).toBe(true);
+    expect(dataOnly.document?.effects?.backdrop?.params).toEqual({
+      look: 'glacier',
+      customGlyphs: '❄❅❆*·',
+    });
+    expect(dataOnly.warnings).toContain('Ignored unrecognized effect parameter(s): futureParam.');
+    expect(dataOnly.capabilities).toMatchObject({
+      trust: 'data-only',
+      hasPalette: true,
+      colorScheme: 'dark',
+      backdropEngine: 'digital-rain',
+      surfaceFinish: 'glass',
+      clickEffect: null,
+      hasCustomCss: false,
+    });
+    expect(dataOnly.capabilities?.fingerprint).toMatch(/^[0-9a-f]{16}$/);
+
+    // Identical visual specs with different meta names share the same deterministic fingerprint.
+    const renamed = { ...dataOnly.document!, meta: { name: 'Winter Drift' } };
+    expect(analyzeThemeDocument(renamed).fingerprint).toBe(dataOnly.capabilities?.fingerprint);
+
+    // Custom CSS upgrades trust tier to 'custom-css'.
+    const withCss = parseThemeDocument({
+      ...dataOnly.document!,
+      customCss: '.card { border-radius: 12px; }',
+    });
+    expect(withCss.capabilities?.trust).toBe('custom-css');
+    expect(withCss.capabilities?.hasCustomCss).toBe(true);
+
+    // Unknown future backdrop/surface/click engine IDs warn cleanly and degrade to static palette.
+    const futureEngine = parseThemeDocument({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      meta: { name: 'Future Scene' },
+      palette: {
+        colorScheme: 'dark',
+        background: '#08121e',
+        surface: '#0f1f33',
+        text: '#e8f1fa',
+        accent: '#38bdf8',
+      },
+      effects: {
+        backdrop: { id: 'hologram-v9' },
+        surface: { finish: 'chrome-mirror' },
+        click: { id: 'laser-beam' },
+      },
+    });
+    expect(futureEngine.ok).toBe(true);
+    expect(futureEngine.document?.effects).toBeUndefined();
+    expect(futureEngine.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Unsupported backdrop engine "hologram-v9"'),
+        expect.stringContaining('Unsupported surface finish "chrome-mirror"'),
+        expect.stringContaining('Unsupported click effect "laser-beam"'),
+      ]),
+    );
+
+    // Unrecognized params on zero-spec backdrops (e.g. aurora) still emit forward-compat warnings.
+    const futureAuroraParams = parseThemeDocument({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      meta: { name: 'Future Aurora' },
+      palette: null,
+      effects: {
+        backdrop: { id: 'aurora', params: { curtains: 5 } },
+      },
+    });
+    expect(futureAuroraParams.ok).toBe(true);
+    expect(futureAuroraParams.document?.effects?.backdrop?.id).toBe('aurora');
+    expect(futureAuroraParams.document?.effects?.backdrop?.params).toBeUndefined();
+    expect(futureAuroraParams.warnings).toContain(
+      'Ignored unrecognized effect parameter(s): curtains.',
+    );
   });
 });

@@ -29,6 +29,7 @@ import {
   createEffectsLayerController,
   DEFAULT_POPUPS,
   DEFAULT_SHELL_LANDMARKS,
+  sameEffectParams,
 } from '../theme-effects';
 import { compileHostThemeCss, compileShadowThemeCss, compileUiThemeCss } from './compile';
 import { THEME_STYLE_ID } from './early-cache';
@@ -147,10 +148,7 @@ function sameEffectsConfig(
     a.glassStrength === b.glassStrength &&
     a.paused === b.paused &&
     a.interactive === b.interactive &&
-    a.rainLook === b.rainLook &&
-    a.rainCharset === b.rainCharset &&
-    a.rainDensity === b.rainDensity &&
-    a.rainIntro === b.rainIntro &&
+    sameEffectParams(a.backdropParams, b.backdropParams) &&
     a.surface === b.surface &&
     a.click === b.click
   );

@@ -6,12 +6,14 @@
 // rate, and pauses on hidden tabs, the Pause switch, and reduced motion. The
 // WebGL scenes fall back to Canvas 2D, then to a static CSS wash.
 
-import type { DigitalRainOptions } from './digital-rain/settings';
+import type { RainCharsetName } from './digital-rain/charsets';
+import type { DigitalRainOptions, RainIntro, RainLookName } from './digital-rain/settings';
 import type { BackdropEffectId } from './model';
 import type { BackdropContext, BackdropInstance } from './renderers/types';
 import { RAIN_CHARSETS } from './digital-rain/charsets';
 import { mountDigitalRain } from './digital-rain/mount';
 import { RAIN_PRESETS } from './digital-rain/settings';
+import { DIGITAL_RAIN_PARAM_SPECS, resolveEffectParams } from './model';
 import { AURORA_SCENE } from './renderers/aurora';
 import { CYBER_GRID_SCENE } from './renderers/cyber-grid';
 import { DOT_SPOTLIGHT_SCENE } from './renderers/dot-spotlight';
@@ -36,10 +38,17 @@ export interface BackdropPlugin {
 function buildDigitalRainOptions(ctx: BackdropContext): DigitalRainOptions {
   const { effects, palette } = ctx;
   const scheme = palette?.colorScheme ?? ctx.hostScheme;
-  const charset = RAIN_CHARSETS[effects.rainCharset] ?? RAIN_CHARSETS.matrix;
+  const params = resolveEffectParams(DIGITAL_RAIN_PARAM_SPECS, effects.backdropParams);
+  const rainLook = params.look as RainLookName;
+  const rainCharset = params.charset as RainCharsetName;
+  const rainDensity = params.density as number;
+  const rainIntro = params.intro as RainIntro;
+  const customGlyphs = params.customGlyphs as string;
+  const charset =
+    customGlyphs.length > 0 ? customGlyphs : (RAIN_CHARSETS[rainCharset] ?? RAIN_CHARSETS.matrix);
 
   let colorOptions: DigitalRainOptions;
-  if (effects.rainLook === 'theme') {
+  if (rainLook === 'theme') {
     const fallbackHead = scheme === 'light' ? '#0f172a' : '#e4ffe9';
     colorOptions = {
       trailColor: palette?.accent ?? FALLBACK_COLORS[scheme].accent,
@@ -48,14 +57,14 @@ function buildDigitalRainOptions(ctx: BackdropContext): DigitalRainOptions {
       bloom: scheme === 'light' ? 0 : 0.35,
     };
   } else {
-    colorOptions = RAIN_PRESETS[effects.rainLook];
+    colorOptions = RAIN_PRESETS[rainLook];
   }
 
   return {
     ...colorOptions,
     backgroundColor: 'transparent',
     charset,
-    density: effects.rainDensity,
+    density: rainDensity,
     speed: effects.speed,
     paused: effects.paused,
     interactive: effects.interactive,
@@ -63,7 +72,7 @@ function buildDigitalRainOptions(ctx: BackdropContext): DigitalRainOptions {
     // Click cascades are routed through `burst` by the click-effects layer, which
     // owns click policy (Glyphs only, never on text-selection drags).
     clickCascade: false,
-    intro: effects.rainIntro,
+    intro: rainIntro,
     exposure: Math.max(0.3, Math.min(1.4, effects.intensity * 1.15)),
     resolution: 0.75,
   };
@@ -93,7 +102,10 @@ function mountDigitalRainBackdrop(ctx: BackdropContext): BackdropInstance {
 export const BACKDROP_REGISTRY: Readonly<
   Record<Exclude<BackdropEffectId, 'none'>, BackdropPlugin>
 > = {
-  'digital-rain': { id: 'digital-rain', mount: mountDigitalRainBackdrop },
+  'digital-rain': {
+    id: 'digital-rain',
+    mount: mountDigitalRainBackdrop,
+  },
   'vice-horizon': { id: 'vice-horizon', mount: (ctx) => mountScene(ctx, VICE_HORIZON_SCENE) },
   aurora: { id: 'aurora', mount: (ctx) => mountScene(ctx, AURORA_SCENE) },
   silk: { id: 'silk', mount: (ctx) => mountScene(ctx, SILK_SCENE) },

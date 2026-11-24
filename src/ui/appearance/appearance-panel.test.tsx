@@ -387,11 +387,18 @@ describe('appearancePanel & initSiteTheme', () => {
       expect(saved.get().effects?.click?.id).toBe('matrix-burst');
     });
 
-    // Matrix Rain tuner controls (including Rain intro) appear automatically and save live.
+    // Matrix Rain tuner controls (including Rain intro & Custom glyphs) appear automatically and save live.
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Glyph charset' }), 'hex');
     await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.charset).toBe('hex'));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Rain intro' }), 'filled');
     await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.intro).toBe('filled'));
+    const glyphsInput = screen.getByRole<HTMLInputElement>('textbox', {
+      name: 'Custom rain glyphs',
+    });
+    await userEvent.type(glyphsInput, '❄ ❅');
+    expect(glyphsInput.value).toBe('❄ ❅');
+    await userEvent.tab();
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.customGlyphs).toBe('❄ ❅'));
 
     // Switching to a static Color Theme clears active Studio effects AND resets vibe-owned mono font.
     await userEvent.click(screen.getByRole('button', { name: /Warm Paper/i }));
@@ -596,8 +603,9 @@ describe('appearancePanel & initSiteTheme', () => {
     await userEvent.paste(sampleTheme);
     await userEvent.click(screen.getByRole('button', { name: 'Preview import' }));
 
-    // Preview shows metadata, low-contrast warning, and unchecked custom CSS opt-in.
+    // Preview shows metadata, trust badge, low-contrast warning, and unchecked custom CSS opt-in.
     expect(screen.getByText('Ocean Pulse')).toBeTruthy();
+    expect(screen.getByText('Includes custom CSS')).toBeTruthy();
     expect(screen.getByText(/by Joe/)).toBeTruthy();
     expect(screen.getByText(/Low text contrast/)).toBeTruthy();
     const cssCheckbox = screen.getByRole<HTMLInputElement>('checkbox', {

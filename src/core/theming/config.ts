@@ -12,7 +12,12 @@ import type {
 } from './types';
 import { isRecord } from '../storage';
 import { samePalette } from '../theme';
-import { DEFAULT_THEME_EFFECTS, readThemeEffectsConfig, STUDIO_VIBES } from '../theme-effects';
+import {
+  DEFAULT_THEME_EFFECTS,
+  mergeEffectsPatch,
+  readThemeEffectsConfig,
+  STUDIO_VIBES,
+} from '../theme-effects';
 import {
   contrastingText,
   getPaletteSwatches,
@@ -409,14 +414,13 @@ export function updateThemeTypography(doc: ThemeDocumentV1, font: ThemeFontId): 
   };
 }
 
-/** Updates Studio effects on `doc`, reverting vibe identity and dropping `effects` cleanly when inactive. */
+/** Updates Studio effects on `doc`, merging plugin `backdropParams` and reverting vibe identity when inactive. */
 export function updateThemeEffects(
   doc: ThemeDocumentV1,
   patch: Partial<ThemeEffectsConfig>,
 ): ThemeDocumentV1 {
   const current = documentEffectsToConfig(doc.effects) ?? DEFAULT_THEME_EFFECTS;
-  const nextEffects: ThemeEffectsConfig = { ...current, ...patch };
-  const docEffects = configEffectsToDocument(nextEffects);
+  const docEffects = configEffectsToDocument(mergeEffectsPatch(current, patch));
   if (!docEffects) {
     return clearThemeEffects(doc);
   }

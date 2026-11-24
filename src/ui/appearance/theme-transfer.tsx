@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ThemeDocumentV1, ThemeParseResult } from '../../core/theming';
+import type { ThemeCapabilities, ThemeDocumentV1, ThemeParseResult } from '../../core/theming';
 import {
+  analyzeThemeDocument,
   autoFixDocumentContrast,
   getPaletteSwatches,
   isCustomImportedDocument,
@@ -40,24 +41,24 @@ export function downloadThemeDocumentFile(doc: ThemeDocumentV1): string {
   return filename;
 }
 
-function describeFeatures(doc: ThemeDocumentV1): readonly string[] {
+function describeCapabilities(doc: ThemeDocumentV1, caps: ThemeCapabilities): readonly string[] {
   const items: string[] = [];
-  if (doc.palette) {
-    items.push(doc.palette.colorScheme === 'light' ? 'Light palette' : 'Dark palette');
+  if (caps.hasPalette) {
+    items.push(caps.colorScheme === 'light' ? 'Light palette' : 'Dark palette');
   } else {
     items.push('Native site colors');
   }
-  if (doc.effects?.backdrop && doc.effects.backdrop.id !== 'none') {
-    items.push(`Backdrop: ${doc.effects.backdrop.id}`);
+  if (caps.backdropEngine) {
+    items.push(`Backdrop: ${caps.backdropEngine}`);
   }
-  if (doc.effects?.surface && doc.effects.surface.finish !== 'default') {
-    items.push(`Surface: ${doc.effects.surface.finish}`);
+  if (caps.surfaceFinish) {
+    items.push(`Surface: ${caps.surfaceFinish}`);
   }
-  if (doc.effects?.click && doc.effects.click.id !== 'none') {
-    items.push(`Click FX: ${doc.effects.click.id}`);
+  if (caps.clickEffect) {
+    items.push(`Click FX: ${caps.clickEffect}`);
   }
-  if (doc.chrome?.ribbon?.enabled) {
-    items.push('Accent ribbon');
+  if (caps.hasChrome) {
+    items.push('Chrome accents');
   }
   if (doc.typography?.preset && doc.typography.preset !== 'default') {
     items.push(`Font: ${doc.typography.preset}`);
@@ -90,7 +91,11 @@ function ThemeImportPreview({
     () => getPaletteSwatches(doc.palette, doc.meta.swatches, true),
     [doc.palette, doc.meta.swatches],
   );
-  const features = useMemo(() => describeFeatures(doc), [doc]);
+  const capabilities = useMemo(
+    () => parsed.capabilities ?? analyzeThemeDocument(doc),
+    [parsed.capabilities, doc],
+  );
+  const features = useMemo(() => describeCapabilities(doc, capabilities), [doc, capabilities]);
   const hasContrastWarning = parsed.warnings.some((warning) =>
     warning.toLowerCase().includes('contrast'),
   );
@@ -125,6 +130,9 @@ function ThemeImportPreview({
       {doc.meta.description && <p className="theme-card-desc">{doc.meta.description}</p>}
 
       <div className="theme-transfer-pills">
+        <Badge tone={capabilities.trust === 'data-only' ? 'accent' : 'warning'}>
+          {capabilities.trust === 'data-only' ? 'Verified data' : 'Includes custom CSS'}
+        </Badge>
         {features.map((item) => (
           <Badge key={item} tone="neutral">
             {item}

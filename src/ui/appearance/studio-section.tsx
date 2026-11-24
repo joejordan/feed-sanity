@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BackdropEffectId,
   ClickEffectId,
-  RainCharsetName,
-  RainIntro,
-  RainLookName,
+  EffectParamSpec,
+  EffectParamValue,
+  EffectParamValues,
   StudioVibe,
   SurfaceFinishId,
   ThemeEffectsConfig,
@@ -12,62 +12,24 @@ import type {
 import {
   BACKDROP_OPTIONS,
   CLICK_EFFECT_OPTIONS,
-  RAIN_CHARSET_NAMES,
-  RAIN_INTRO_NAMES,
-  RAIN_LOOK_NAMES,
+  getBackdropParamSpecs,
+  mergeEffectsPatch,
+  resolveEffectParams,
   STUDIO_VIBES,
   SURFACE_FINISH_OPTIONS,
   THEME_EFFECT_BOUNDS,
+  validateEffectParams,
 } from '../../core/theme-effects';
-import { Badge, SegmentedControl, SettingCard, SettingRow, Switch } from '../primitives';
+import { Badge, SegmentedControl, SettingCard, SettingRow, Switch, TextInput } from '../primitives';
 
 const SLIDER_COMMIT_DEBOUNCE_MS = 250;
 
-const RAIN_INTRO_LABELS: Record<RainIntro, string> = {
-  filled: 'Already falling',
-  'rain-in': 'Rain in from top',
-};
-
 const BACKDROP_NAMES = new Map(BACKDROP_OPTIONS.map((opt) => [opt.id, opt.name]));
 
-function RainSelect<T extends string>({
-  label,
-  ariaLabel,
-  value,
-  options,
-  labels,
-  onChange,
-}: {
-  readonly label: string;
-  readonly ariaLabel: string;
-  readonly value: T;
-  readonly options: readonly T[];
-  readonly labels: Readonly<Record<T, string>>;
-  readonly onChange: (next: T) => void;
-}) {
-  return (
-    <label className="theme-color-row">
-      <span>{label}</span>
-      <select
-        className="field"
-        aria-label={ariaLabel}
-        value={value}
-        onChange={(event) => onChange(event.currentTarget.value as T)}
-      >
-        {options.map((name) => (
-          <option key={name} value={name}>
-            {labels[name]}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-type SliderField = keyof typeof THEME_EFFECT_BOUNDS;
-
 function EffectSlider({
-  field,
+  min,
+  max,
+  step = 0.05,
   label,
   ariaLabel,
   value,
@@ -76,7 +38,9 @@ function EffectSlider({
   onDragStart,
   onCommit,
 }: {
-  readonly field: SliderField;
+  readonly min: number;
+  readonly max: number;
+  readonly step?: number;
   readonly label: string;
   readonly ariaLabel: string;
   readonly value: number;
@@ -85,7 +49,6 @@ function EffectSlider({
   readonly onDragStart: () => void;
   readonly onCommit: () => void;
 }) {
-  const { min, max } = THEME_EFFECT_BOUNDS[field];
   return (
     <label className="theme-slider-row">
       <span className="theme-slider-meta">
@@ -98,7 +61,7 @@ function EffectSlider({
         aria-label={ariaLabel}
         min={min}
         max={max}
-        step={0.05}
+        step={step}
         value={value}
         onPointerDown={onDragStart}
         onInput={(event) => onInput(Number.parseFloat(event.currentTarget.value))}
@@ -109,6 +72,173 @@ function EffectSlider({
       />
     </label>
   );
+}
+
+function formatParamNumber(value: number, unit: '%' | '×' | undefined): string {
+  if (unit === '%') {
+    return `${Math.round(value * 100)}%`;
+  }
+  if (unit === '×') {
+    return `${value.toFixed(2).replace(/\.00$/, '')}×`;
+  }
+  return String(value);
+}
+
+function PluginParamsBox({
+  backdropName,
+  specs,
+  values,
+  rawValues,
+  onUpdateParam,
+  onInputParam,
+  onDragStart,
+  onCommit,
+}: {
+  readonly backdropName: string;
+  readonly specs: readonly EffectParamSpec[];
+  readonly values: Readonly<Record<string, EffectParamValue>>;
+  readonly rawValues: EffectParamValues | undefined;
+  readonly onUpdateParam: (key: string, value: EffectParamValue) => void;
+  readonly onInputParam: (key: string, value: EffectParamValue) => void;
+  readonly onDragStart: () => void;
+  readonly onCommit: () => void;
+}) {
+  const grouped = useMemo(() => {
+    const enums: Extract<EffectParamSpec, { kind: 'enum' }>[] = [];
+    const numbers: Extract<EffectParamSpec, { kind: 'number' }>[] = [];
+    const strings: Extract<EffectParamSpec, { kind: 'string' }>[] = [];
+    const colors: Extract<EffectParamSpec, { kind: 'color' }>[] = [];
+    const booleans: Extract<EffectParamSpec, { kind: 'boolean' }>[] = [];
+    for (const spec of specs) {
+      switch (spec.kind) {
+        case 'enum':
+          enums.push(spec);
+          break;
+        case 'number':
+          numbers.push(spec);
+          break;
+        case 'string':
+          strings.push(spec);
+          break;
+        case 'color':
+          colors.push(spec);
+          break;
+        case 'boolean':
+          booleans.push(spec);
+          break;
+      }
+    }
+    return { enums, numbers, strings, colors, booleans };
+  }, [specs]);
+
+  return (
+    <div className="theme-tuner-box" role="group" aria-label={`${backdropName} settings`}>
+      {grouped.enums.length > 0 && (
+        <div className="theme-tuner-grid">
+          {grouped.enums.map((spec) => (
+            <label key={spec.key} className="theme-color-row">
+              <span>{spec.label}</span>
+              <select
+                className="field"
+                aria-label={spec.ariaLabel ?? spec.label}
+                value={String(values[spec.key] ?? spec.defaultValue)}
+                onChange={(event) => onUpdateParam(spec.key, event.currentTarget.value)}
+              >
+                {spec.options.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {spec.optionLabels?.[opt] ?? opt}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {grouped.numbers.map((spec) => {
+        const raw = values[spec.key];
+        const num = typeof raw === 'number' ? raw : spec.defaultValue;
+        return (
+          <EffectSlider
+            key={spec.key}
+            min={spec.min}
+            max={spec.max}
+            step={spec.step}
+            label={spec.label}
+            ariaLabel={spec.ariaLabel ?? spec.label}
+            value={num}
+            valueText={formatParamNumber(num, spec.unit)}
+            onInput={(next) => onInputParam(spec.key, next)}
+            onDragStart={onDragStart}
+            onCommit={onCommit}
+          />
+        );
+      })}
+
+      {grouped.strings.map((spec) => {
+        const raw = rawValues?.[spec.key];
+        const current =
+          typeof raw === 'string' ? raw : String(values[spec.key] ?? spec.defaultValue);
+        return (
+          <label key={spec.key} className="theme-color-row">
+            <span>{spec.label}</span>
+            <TextInput
+              className="field"
+              ariaLabel={spec.ariaLabel ?? spec.label}
+              {...(spec.placeholder === undefined ? {} : { placeholder: spec.placeholder })}
+              value={current}
+              onValueChange={(next) => {
+                if (next !== current) {
+                  onInputParam(spec.key, next);
+                }
+              }}
+              onBlur={onCommit}
+            />
+          </label>
+        );
+      })}
+
+      {grouped.colors.map((spec) => (
+        <label key={spec.key} className="theme-color-row">
+          <span>{spec.label}</span>
+          <input
+            type="color"
+            className="theme-picker"
+            aria-label={spec.ariaLabel ?? spec.label}
+            value={String(values[spec.key] ?? spec.defaultValue)}
+            onChange={(event) => onUpdateParam(spec.key, event.currentTarget.value)}
+          />
+        </label>
+      ))}
+
+      {grouped.booleans.length > 0 && (
+        <div className="theme-tuner-switches">
+          {grouped.booleans.map((spec) => (
+            <span key={spec.key} className="theme-inline-toggle">
+              <span>{spec.label}</span>
+              <Switch
+                checked={Boolean(values[spec.key] ?? spec.defaultValue)}
+                ariaLabel={spec.ariaLabel ?? spec.label}
+                onChange={(next) => onUpdateParam(spec.key, next)}
+              />
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function matchesCommittedBackdropParams(
+  actual: EffectParamValues | undefined,
+  committed: EffectParamValues | undefined,
+  specs: readonly EffectParamSpec[],
+): boolean {
+  if (!committed) {
+    return true;
+  }
+  const normalized = validateEffectParams(committed, specs);
+  return Object.keys(committed).every((key) => actual?.[key] === normalized?.[key]);
 }
 
 /**
@@ -166,10 +296,13 @@ function useEffectSliderDraft(
     }
     prevEffectsRef.current = effects;
     const committed = lastCommittedRef.current;
+    const specs = getBackdropParamSpecs(effects.backdrop);
     const matchesOwnCommit =
       committed !== null &&
-      (Object.keys(committed) as Array<keyof ThemeEffectsConfig>).every(
-        (key) => effects[key] === committed[key],
+      (Object.keys(committed) as Array<keyof ThemeEffectsConfig>).every((key) =>
+        key === 'backdropParams'
+          ? matchesCommittedBackdropParams(effects.backdropParams, committed.backdropParams, specs)
+          : effects[key] === committed[key],
       );
     if (draftRef.current && matchesOwnCommit) {
       lastCommittedRef.current = null;
@@ -210,7 +343,7 @@ function useEffectSliderDraft(
       onUpdateEffects(patch);
       return;
     }
-    const merged = { ...(draftRef.current ?? {}), ...patch };
+    const merged = mergeEffectsPatch(draftRef.current ?? {}, patch);
     draftRef.current = merged;
     setSliderDraft(merged);
     onPreviewEffects(merged);
@@ -220,30 +353,11 @@ function useEffectSliderDraft(
     }
   };
 
-  const displayEffects: ThemeEffectsConfig = sliderDraft ? { ...effects, ...sliderDraft } : effects;
+  const displayEffects: ThemeEffectsConfig = sliderDraft
+    ? mergeEffectsPatch(effects, sliderDraft)
+    : effects;
   return { displayEffects, handleInput, onDragStart, commitDraft };
 }
-
-const RAIN_LOOK_LABELS: Record<RainLookName, string> = {
-  theme: 'Match active theme',
-  phosphor: 'Matrix Phosphor',
-  ultraviolet: 'Ultraviolet',
-  ember: 'Solar Ember',
-  glacier: 'Arctic Glacier',
-  newsprint: 'Newsprint Ink (Light)',
-  blueprint: 'Blueprint Ink (Light)',
-};
-
-const RAIN_CHARSET_LABELS: Record<RainCharsetName, string> = {
-  matrix: 'Classic Matrix (Katakana + Digits)',
-  katakana: 'Half-width Katakana',
-  binary: 'Binary (0 / 1)',
-  decimal: 'Decimal (0–9)',
-  hex: 'Hexadecimal (0–F)',
-  latin: 'Latin (A–Z)',
-  symbols: 'Code Symbols',
-  braille: 'Braille Patterns',
-};
 
 export interface StudioVibesCardProps {
   readonly activeVibe: StudioVibe | undefined;
@@ -314,6 +428,12 @@ export function CreativeStudioCard({
     onPreviewEffects,
     onUpdateEffects,
   );
+  const backdropSpecs = getBackdropParamSpecs(effects.backdrop);
+  const resolvedPluginParams = useMemo(
+    () => resolveEffectParams(backdropSpecs, displayEffects.backdropParams),
+    [backdropSpecs, displayEffects.backdropParams],
+  );
+  const activeBackdropName = BACKDROP_NAMES.get(effects.backdrop) ?? effects.backdrop;
 
   return (
     <SettingCard
@@ -360,76 +480,54 @@ export function CreativeStudioCard({
           ))}
         </div>
 
-        {effects.backdrop === 'digital-rain' && (
-          <div className="theme-tuner-box" role="group" aria-label="Matrix Rain settings">
-            <div className="theme-tuner-grid">
-              <RainSelect
-                label="Rain style"
-                ariaLabel="Rain style"
-                value={effects.rainLook}
-                options={RAIN_LOOK_NAMES}
-                labels={RAIN_LOOK_LABELS}
-                onChange={(rainLook) => onUpdateEffects({ rainLook })}
-              />
-              <RainSelect
-                label="Glyph charset"
-                ariaLabel="Glyph charset"
-                value={effects.rainCharset}
-                options={RAIN_CHARSET_NAMES}
-                labels={RAIN_CHARSET_LABELS}
-                onChange={(rainCharset) => onUpdateEffects({ rainCharset })}
-              />
-              <RainSelect
-                label="Intro"
-                ariaLabel="Rain intro"
-                value={effects.rainIntro}
-                options={RAIN_INTRO_NAMES}
-                labels={RAIN_INTRO_LABELS}
-                onChange={(rainIntro) => onUpdateEffects({ rainIntro })}
-              />
-            </div>
-            <EffectSlider
-              field="rainDensity"
-              label="Rain density"
-              ariaLabel="Rain density"
-              value={displayEffects.rainDensity}
-              valueText={`${Math.round(displayEffects.rainDensity * 100)}%`}
-              onInput={(rainDensity) => handleInput({ rainDensity })}
-              onDragStart={onDragStart}
-              onCommit={commitDraft}
-            />
-          </div>
+        {backdropSpecs.length > 0 && (
+          <PluginParamsBox
+            backdropName={activeBackdropName}
+            specs={backdropSpecs}
+            values={resolvedPluginParams}
+            rawValues={displayEffects.backdropParams}
+            onUpdateParam={(key, val) => onUpdateEffects({ backdropParams: { [key]: val } })}
+            onInputParam={(key, val) => handleInput({ backdropParams: { [key]: val } })}
+            onDragStart={onDragStart}
+            onCommit={commitDraft}
+          />
         )}
 
         {effects.backdrop !== 'none' && (
           <div className="theme-tuner-box" role="group" aria-label="Background tuning">
             <div className="theme-slider-grid">
               <EffectSlider
-                field="intensity"
+                min={THEME_EFFECT_BOUNDS.intensity.min}
+                max={THEME_EFFECT_BOUNDS.intensity.max}
                 label="Visibility"
                 ariaLabel="Background visibility"
                 value={displayEffects.intensity}
-                valueText={`${Math.round(displayEffects.intensity * 100)}%`}
+                valueText={formatParamNumber(displayEffects.intensity, '%')}
                 onInput={(intensity) => handleInput({ intensity })}
                 onDragStart={onDragStart}
                 onCommit={commitDraft}
               />
               <EffectSlider
-                field="speed"
+                min={THEME_EFFECT_BOUNDS.speed.min}
+                max={THEME_EFFECT_BOUNDS.speed.max}
                 label="Motion speed"
                 ariaLabel="Motion speed"
                 value={displayEffects.speed}
-                valueText={`${displayEffects.speed.toFixed(2).replace(/\.00$/, '')}×`}
+                valueText={formatParamNumber(displayEffects.speed, '×')}
                 onInput={(speed) => handleInput({ speed })}
                 onDragStart={onDragStart}
                 onCommit={commitDraft}
               />
               <EffectSlider
-                field="glassStrength"
+                min={THEME_EFFECT_BOUNDS.glassStrength.min}
+                max={THEME_EFFECT_BOUNDS.glassStrength.max}
                 label="Card glass"
                 ariaLabel="Card glass translucency"
                 value={displayEffects.glassStrength}
-                valueText={`${Math.round((displayEffects.glassStrength / THEME_EFFECT_BOUNDS.glassStrength.max) * 100)}%`}
+                valueText={formatParamNumber(
+                  displayEffects.glassStrength / THEME_EFFECT_BOUNDS.glassStrength.max,
+                  '%',
+                )}
                 onInput={(glassStrength) => handleInput({ glassStrength })}
                 onDragStart={onDragStart}
                 onCommit={commitDraft}
