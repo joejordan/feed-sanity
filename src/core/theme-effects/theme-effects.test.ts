@@ -13,9 +13,10 @@ import {
   compileHostThemeCss,
   compileUiThemeCss,
   createThemeController,
-  DEFAULT_THEME_CONFIG,
-  readThemeConfig,
+  DEFAULT_THEME_DOCUMENT,
+  readThemeDocument,
   resolveTheme,
+  updateThemeEffects,
 } from '../theming';
 import { createRandom } from './digital-rain/math';
 import { mountDigitalRain } from './digital-rain/mount';
@@ -309,7 +310,7 @@ describe('Creative Theme & Effects Studio engine', () => {
       preset: 'crimson-velvet',
       effects: { backdrop: 'silk', surface: 'glass', click: 'ripple' },
     });
-    const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_CONFIG, velvet!));
+    const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_DOCUMENT, velvet!));
     expect(resolved?.effects?.backdrop).toBe('silk');
     expect(compileHostThemeCss(resolved!, xThemeMapping, 'dark')).toContain(
       `[data-feed-sanity="${BACKDROP_OWN_VALUE}"]`,
@@ -322,27 +323,27 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(matrixVibe).toBeDefined();
     expect(viceVibe).toBeDefined();
 
-    const matrixConfig = applyStudioVibe(DEFAULT_THEME_CONFIG, matrixVibe);
-    expect(readThemeConfig(matrixConfig).effects?.backdrop).toBe('digital-rain');
-    expect(readThemeConfig(matrixConfig).effects?.click).toBe('matrix-burst');
+    const matrixDoc = applyStudioVibe(DEFAULT_THEME_DOCUMENT, matrixVibe);
+    expect(readThemeDocument(matrixDoc).effects?.backdrop?.id).toBe('digital-rain');
+    expect(readThemeDocument(matrixDoc).effects?.click?.id).toBe('matrix-burst');
 
-    const resolvedMatrix = resolveTheme(matrixConfig)!;
+    const resolvedMatrix = resolveTheme(matrixDoc)!;
     const hostCss = compileHostThemeCss(resolvedMatrix, xThemeMapping, 'dark');
     expect(hostCss).toContain('[data-feed-sanity="theme-backdrop"]');
     expect(hostCss).toContain('#react-root');
+    expect(hostCss).toContain('[data-fs-shell]');
     expect(hostCss).toContain('backdrop-filter: blur(');
 
-    const viceConfig = applyStudioVibe(DEFAULT_THEME_CONFIG, viceVibe);
-    const resolvedVice = resolveTheme(viceConfig)!;
+    const viceDoc = applyStudioVibe(DEFAULT_THEME_DOCUMENT, viceVibe);
+    const resolvedVice = resolveTheme(viceDoc)!;
     const viceCss = compileHostThemeCss(resolvedVice, xThemeMapping, 'dark');
     expect(viceCss).toContain('linear-gradient(145deg');
     expect(compileUiThemeCss(resolvedVice)).toContain('linear-gradient(160deg');
 
     // Effects alone on Site Default still resolve cleanly without forcing a custom color palette.
-    const effectsOnly = resolveTheme({
-      ...DEFAULT_THEME_CONFIG,
-      effects: { ...DEFAULT_THEME_EFFECTS, backdrop: 'aurora' },
-    });
+    const effectsOnly = resolveTheme(
+      updateThemeEffects(DEFAULT_THEME_DOCUMENT, { backdrop: 'aurora' }),
+    );
     expect(effectsOnly?.palette).toBeNull();
     expect(effectsOnly?.effects?.backdrop).toBe('aurora');
 
@@ -695,7 +696,7 @@ describe('Creative Theme & Effects Studio engine', () => {
     cleanups.push(() => controller.dispose());
 
     const viceVibe = STUDIO_VIBES.find((v) => v.id === 'vice-city-vi')!;
-    const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_CONFIG, viceVibe));
+    const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_DOCUMENT, viceVibe));
     controller.apply(resolved);
 
     expect(backdropHost()).not.toBeNull();
@@ -706,7 +707,7 @@ describe('Creative Theme & Effects Studio engine', () => {
 
   it('layers backdrop at z-index -1 without body stacking traps and keeps popups opaque without ancestor backdrop-filter', () => {
     const matrixVibe = STUDIO_VIBES.find((v) => v.id === 'enter-the-matrix')!;
-    const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_CONFIG, matrixVibe))!;
+    const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_DOCUMENT, matrixVibe))!;
 
     const xCss = compileHostThemeCss(resolved, xThemeMapping, 'dark');
     expect(xCss).toContain('z-index: -1;');
@@ -733,19 +734,20 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(fbCss).toContain('--progress-ring-neutral-foreground:');
     expect(fbCss).toContain('--glimmer-spinner-icon:');
     expect(fbCss).toContain('[role="progressbar"]');
-    expect(fbCss).toContain('[id^="mount_0_0"] > div:has([role="main"])');
-    expect(fbCss).not.toContain('[id^="mount_0_0"] div:has([role="main"])');
+    expect(fbCss).toContain('[data-fs-shell]');
+    expect(fbCss).not.toContain('div:has([role="main"])');
     expect(fbCss).not.toMatch(/\[role="banner"\][^}]*backdrop-filter/s);
 
     // Intermediate root wrappers on X (Dim/Lights Out/Light), What's happening trend rows,
-    // and dialog toggle switches stay clean via `@layer fs-reveal-shell` + `--fs-reveal-canvas`
-    // (no opaque blocks over backdrops or switches, zero unbounded `:has()` or 5x attr hacks).
+    // and dialog toggle switches stay clean via universal `[data-fs-shell]` in
+    // `@layer fs-reveal-shell` + `--fs-reveal-canvas` (zero brittle `> div > div` chains,
+    // zero unbounded `:has()`, and zero 5x attr hacks).
     expect(xCss).toContain('@layer fs-reveal-shell');
+    expect(xCss).toContain('[data-fs-shell]');
     expect(xCss).toContain('--fs-reveal-canvas: transparent !important;');
-    expect(xCss).toContain('#react-root > div:not(');
-    expect(xCss).toContain('main[role="main"] > div:not(');
+    expect(xCss).not.toContain('#react-root > div > div');
     expect(xCss).not.toContain('#react-root div:has(');
-    expect(xCss).toContain('.r-yfoy6g');
+    expect(xCss).not.toContain('[data-testid="sidebarColumn"] > div > div');
     expect(xCss).not.toContain('[data-fs-heal-bg]');
     expect(xCss).not.toContain(':where(button, [role="button"]):hover');
     expect(xCss).toContain('[data-testid="sidebarColumn"] section [data-testid="trend"]');
@@ -830,7 +832,7 @@ describe('Creative Theme & Effects Studio engine', () => {
     for (const [siteName, mapping] of allSites) {
       expect(mapping.surfaces, `${siteName} should declare centralized surfaces`).toBeDefined();
       for (const vibe of STUDIO_VIBES) {
-        const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_CONFIG, vibe))!;
+        const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_DOCUMENT, vibe))!;
         const css = compileHostThemeCss(resolved, mapping, 'dark');
 
         // Invariant 1: Never inject a body-child stacking/position trap.

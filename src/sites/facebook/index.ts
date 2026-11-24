@@ -13,7 +13,7 @@ import facebookTheme from '../../facebook/theme.css?inline';
 import { isFacebookHost } from '../../facebook/urls';
 import { currentUserId } from '../../facebook/user';
 import { features, optionsPanels } from '../../features';
-import { readThemeConfig, THEME_DATA_KEY } from '../../ui/appearance';
+import { readThemeDocument, THEME_DATA_KEY } from '../../ui/appearance';
 import { facebookThemeMapping } from './theme-mapping';
 
 /**
@@ -44,7 +44,7 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
           options,
           filters: savedFilters(data),
           locators: overrides,
-          theme: data.value(THEME_DATA_KEY, readThemeConfig),
+          theme: data.value(THEME_DATA_KEY, readThemeDocument),
           read_history: savedPostData(data),
         },
         { siteName: 'Facebook' },

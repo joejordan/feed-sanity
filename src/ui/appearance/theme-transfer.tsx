@@ -1,13 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ThemeConfig, ThemeDocumentV1, ThemeParseResult } from '../../core/theming';
+import type { ThemeDocumentV1, ThemeParseResult } from '../../core/theming';
 import {
   autoFixDocumentContrast,
   getPaletteSwatches,
+  isCustomImportedDocument,
   MAX_THEME_FILE_BYTES,
   parseThemeDocument,
   serializeThemeDocument,
   THEME_FILE_EXTENSION,
-  themeConfigToDocument,
   themeParseFailure,
 } from '../../core/theming';
 import { Badge, Disclosure } from '../primitives';
@@ -15,14 +15,13 @@ import { Badge, Disclosure } from '../primitives';
 export interface ThemeTransferDisclosureProps {
   readonly open: boolean;
   readonly onToggle: () => void;
-  readonly config: ThemeConfig;
+  readonly document: ThemeDocumentV1;
   readonly onImport: (doc: ThemeDocumentV1, includeCustomCss: boolean) => void;
   readonly notify?: (message: string, onUndo?: () => void) => void;
 }
 
-/** Triggers a browser download of `config` as a standalone `.fstheme.json` file. */
-export function downloadThemeConfigFile(config: ThemeConfig): string {
-  const doc = themeConfigToDocument(config);
+/** Triggers a browser download of `doc` as a standalone `.fstheme.json` file. */
+export function downloadThemeDocumentFile(doc: ThemeDocumentV1): string {
   const filename = `${doc.id}${THEME_FILE_EXTENSION}`;
   const json = serializeThemeDocument(doc);
   const blob = new Blob([json], { type: 'application/json' });
@@ -176,7 +175,7 @@ function ThemeImportPreview({
 export function ThemeTransferDisclosure({
   open,
   onToggle,
-  config,
+  document: activeDoc,
   onImport,
   notify,
 }: ThemeTransferDisclosureProps) {
@@ -216,14 +215,13 @@ export function ThemeTransferDisclosure({
   };
 
   const handleExportDownload = (): void => {
-    const filename = downloadThemeConfigFile(config);
+    const filename = downloadThemeDocumentFile(activeDoc);
     setStatusMessage(`Exported ${filename}`);
     notify?.(`Exported ${filename}`);
   };
 
   const handleCopyJson = (): void => {
-    const doc = themeConfigToDocument(config);
-    const json = serializeThemeDocument(doc);
+    const json = serializeThemeDocument(activeDoc);
     const clipboard = globalThis.navigator?.clipboard;
     if (!clipboard?.writeText) {
       setStatusMessage('Clipboard unavailable — use Export file instead.');
@@ -232,7 +230,7 @@ export function ThemeTransferDisclosure({
     void clipboard
       .writeText(json)
       .then(() => {
-        setStatusMessage(`Copied "${doc.meta.name}" JSON to clipboard.`);
+        setStatusMessage(`Copied "${activeDoc.meta.name}" JSON to clipboard.`);
         notify?.('Copied theme JSON');
       })
       .catch(() => {
@@ -302,7 +300,9 @@ export function ThemeTransferDisclosure({
   return (
     <Disclosure
       label="Import / Export theme"
-      badge={config.document ? <Badge tone="accent">Imported</Badge> : undefined}
+      badge={
+        isCustomImportedDocument(activeDoc) ? <Badge tone="accent">Imported</Badge> : undefined
+      }
       open={open}
       onToggle={onToggle}
     >

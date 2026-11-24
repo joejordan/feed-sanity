@@ -9,9 +9,10 @@ import { STUDIO_VIBES } from '../../core/theme-effects';
 import {
   applyStudioVibe,
   applyThemeDocument,
-  DEFAULT_THEME_CONFIG,
+  DEFAULT_THEME_DOCUMENT,
+  isCustomImportedDocument,
   parseThemeDocument,
-  readThemeConfig,
+  readThemeDocument,
   THEME_DATA_KEY,
   THEME_FILE_FORMAT,
 } from '../../core/theming';
@@ -55,7 +56,7 @@ function renderXPopup(
 }
 
 async function readSavedXTheme(store: ReturnType<typeof inMemoryStore>) {
-  return readThemeConfig(await store.get(`x/123/${THEME_DATA_KEY}`));
+  return readThemeDocument(await store.get(`x/123/${THEME_DATA_KEY}`));
 }
 
 describe('QuickPopup', () => {
@@ -91,7 +92,7 @@ describe('QuickPopup', () => {
     // Quick Theme swatch updates site theme immediately.
     await userEvent.click(screen.getByRole('button', { name: 'Crimson Velvet theme' }));
     await vi.waitFor(async () => {
-      expect((await readSavedXTheme(store)).preset).toBe('crimson-velvet');
+      expect((await readSavedXTheme(store)).id).toBe('crimson-velvet');
     });
 
     // Quick Mute creates a runnable Simple filter rule.
@@ -112,47 +113,47 @@ describe('QuickPopup', () => {
 
   it('shows active Studio Vibe strip with Pause/FX off, clears Studio FX + vibe font on Quick Theme pick with full Undo', async () => {
     const matrixVibe = STUDIO_VIBES.find((v) => v.id === 'enter-the-matrix')!;
-    const matrixConfig = applyStudioVibe(DEFAULT_THEME_CONFIG, matrixVibe);
+    const matrixDoc = applyStudioVibe(DEFAULT_THEME_DOCUMENT, matrixVibe);
     const store = inMemoryStore({
       'x/123/options': { x_hide_sponsored: true, x_hide_suggested: true },
-      [`x/123/${THEME_DATA_KEY}`]: matrixConfig,
+      [`x/123/${THEME_DATA_KEY}`]: matrixDoc,
     });
 
     renderXPopup(store);
 
     await vi.waitFor(() => expect(screen.getByText('Enter the Matrix')).toBeTruthy());
 
-    // Pausing background motion flips effects.paused without losing the vibe.
+    // Pausing background motion flips effects.backdrop.paused without losing the vibe.
     await userEvent.click(screen.getByRole('button', { name: 'Pause' }));
     await vi.waitFor(async () => {
-      expect((await readSavedXTheme(store)).effects?.paused).toBe(true);
+      expect((await readSavedXTheme(store)).effects?.backdrop?.paused).toBe(true);
     });
 
     // Picking a light Quick Theme clears Studio effects AND resets Enter the Matrix's mono font.
     await userEvent.click(screen.getByRole('button', { name: 'Warm Paper theme' }));
     await vi.waitFor(async () => {
       const saved = await readSavedXTheme(store);
-      expect(saved.preset).toBe('warm-paper');
+      expect(saved.id).toBe('warm-paper');
       expect(saved.effects).toBeUndefined();
-      expect(saved.font).toBe('default');
+      expect(saved.typography).toBeUndefined();
     });
 
     // Clicking Undo restores the full previous Studio Vibe (including effects and font).
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await vi.waitFor(async () => {
       const saved = await readSavedXTheme(store);
-      expect(saved.preset).toBe('terminal-phosphor');
-      expect(saved.effects?.backdrop).toBe('digital-rain');
-      expect(saved.font).toBe('mono');
+      expect(saved.id).toBe('enter-the-matrix');
+      expect(saved.effects?.backdrop?.id).toBe('digital-rain');
+      expect(saved.typography?.preset).toBe('mono');
     });
 
     // Clicking "FX off" keeps the color palette while clearing effects and vibe-owned font.
     await userEvent.click(screen.getByRole('button', { name: 'FX off' }));
     await vi.waitFor(async () => {
       const saved = await readSavedXTheme(store);
-      expect(saved.preset).toBe('terminal-phosphor');
+      expect(saved.id).toBe('terminal-phosphor');
       expect(saved.effects).toBeUndefined();
-      expect(saved.font).toBe('default');
+      expect(saved.typography).toBeUndefined();
     });
   });
 
@@ -291,10 +292,10 @@ describe('QuickPopup', () => {
       },
     });
     expect(parsed.ok).toBe(true);
-    const importedConfig = applyThemeDocument(DEFAULT_THEME_CONFIG, parsed.document!);
+    const importedDoc = applyThemeDocument(parsed.document!);
 
     const store = inMemoryStore({
-      [`x/123/${THEME_DATA_KEY}`]: importedConfig,
+      [`x/123/${THEME_DATA_KEY}`]: importedDoc,
     });
     renderXPopup(store);
 
@@ -309,15 +310,16 @@ describe('QuickPopup', () => {
     // Picking a Quick Theme replaces the imported document, and Undo restores it cleanly.
     await userEvent.click(screen.getByRole('button', { name: 'Warm Paper theme' }));
     await vi.waitFor(async () => {
-      const saved = readThemeConfig(await store.get(`x/123/${THEME_DATA_KEY}`));
-      expect(saved.preset).toBe('warm-paper');
-      expect(saved.document).toBeUndefined();
+      const saved = readThemeDocument(await store.get(`x/123/${THEME_DATA_KEY}`));
+      expect(saved.id).toBe('warm-paper');
+      expect(isCustomImportedDocument(saved)).toBe(false);
     });
 
     await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await vi.waitFor(async () => {
-      const saved = readThemeConfig(await store.get(`x/123/${THEME_DATA_KEY}`));
-      expect(saved.document?.meta.name).toBe('Aurora Mist');
+      const saved = readThemeDocument(await store.get(`x/123/${THEME_DATA_KEY}`));
+      expect(saved.meta.name).toBe('Aurora Mist');
+      expect(isCustomImportedDocument(saved)).toBe(true);
     });
   });
 });

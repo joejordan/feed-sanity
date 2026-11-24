@@ -3,31 +3,35 @@ import type { SavedValue } from '../../core/saved';
 import type { StudioVibe, ThemeEffectsConfig } from '../../core/theme-effects';
 import type {
   THEME_FONT_STACKS,
-  ThemeConfig,
   ThemeController,
   ThemeDocumentV1,
+  ThemeFontId,
 } from '../../core/theming';
 import type { OptionsPanel, PanelProps, PanelSearchItem } from '../options-dialog/panel';
 import type { AuditState } from './health-disclosure';
-import {
-  DEFAULT_THEME_EFFECTS,
-  hasActiveEffects,
-  readThemeEffectsConfig,
-  STUDIO_VIBES,
-} from '../../core/theme-effects';
+import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from '../../core/theme-effects';
 import {
   applyStudioVibe,
   applyThemeDocument,
   applyThemePreset,
   BUILTIN_THEMES,
   clearThemeEffects,
-  DEFAULT_THEME_CONFIG,
+  DEFAULT_THEME_DOCUMENT,
+  documentEffectsToConfig,
   findActiveStudioVibe,
+  findActiveThemePreset,
   getPaletteSwatches,
+  hasPaletteOverrides,
+  isCustomImportedDocument,
+  isThemeFontId,
   minTextContrast,
   normalizeHex,
   pickAccessibleText,
   resolveTheme,
+  updateThemeCustomCss,
+  updateThemeEffects,
+  updateThemePalette,
+  updateThemeTypography,
   WCAG_AA_TEXT_CONTRAST,
 } from '../../core/theming';
 import { definePanel } from '../options-dialog/panel';
@@ -43,9 +47,9 @@ import css from './appearance-panel.css?inline';
 import { CustomCssDisclosure } from './custom-css-disclosure';
 import { ThemeHealthDisclosure } from './health-disclosure';
 import { CreativeStudioCard, StudioVibesCard } from './studio-section';
-import { downloadThemeConfigFile, ThemeTransferDisclosure } from './theme-transfer';
+import { downloadThemeDocumentFile, ThemeTransferDisclosure } from './theme-transfer';
 
-export { readThemeConfig, THEME_DATA_KEY } from '../../core/theming';
+export { readThemeDocument, THEME_DATA_KEY } from '../../core/theming';
 
 const FONT_LABELS: Record<keyof typeof THEME_FONT_STACKS, string> = {
   default: 'Site default',
@@ -55,8 +59,10 @@ const FONT_LABELS: Record<keyof typeof THEME_FONT_STACKS, string> = {
   mono: 'Monospace',
 };
 
+type ColorFieldKey = 'accent' | 'background' | 'surface' | 'text';
+
 const COLOR_FIELDS: ReadonlyArray<{
-  readonly key: 'accent' | 'background' | 'surface' | 'text';
+  readonly key: ColorFieldKey;
   readonly label: string;
 }> = [
   { key: 'accent', label: 'Accent' },
@@ -83,10 +89,24 @@ function AppearancePanelView({
   notify,
   options,
   controller,
-}: PanelProps<ThemeConfig> & { controller: ThemeController }) {
+}: PanelProps<ThemeDocumentV1> & { controller: ThemeController }) {
   const fontId = useId();
   const [auditState, setAuditState] = useState<AuditState | null>(null);
   const [schemeFilter, setSchemeFilter] = useState<SchemeFilter>('all');
+  const [colorDrafts, setColorDrafts] = useState<Partial<Record<ColorFieldKey, string>>>({});
+  const colorError = useMemo(() => {
+    for (const { key, label } of COLOR_FIELDS) {
+      const draft = colorDrafts[key];
+      if (draft !== undefined) {
+        const trimmed = draft.trim();
+        if (trimmed && !normalizeHex(trimmed)) {
+          return `${label} must be a hex color like #3b82f6.`;
+        }
+      }
+    }
+    return null;
+  }, [colorDrafts]);
+
   const hasExternalCssOption = useMemo(
     () => Boolean(options?.list().some(([key]) => key === 'custom_stylesheet_url')),
     [options],
@@ -107,11 +127,12 @@ function AppearancePanelView({
     });
   }, [hasExternalCssOption, options]);
 
-  const hasCustomColors = Boolean(value.accent || value.background || value.surface || value.text);
+  const hasCustomColors = useMemo(() => hasPaletteOverrides(value), [value]);
+  const isImported = useMemo(() => isCustomImportedDocument(value), [value]);
   const [colorsOpen, setColorsOpen] = useState(hasCustomColors);
-  const [transferOpen, setTransferOpen] = useState(Boolean(value.document));
+  const [transferOpen, setTransferOpen] = useState(isImported);
   const [cssOpen, setCssOpen] = useState(
-    Boolean(value.customCss.trim() || savedExternalCssUrl.trim()),
+    Boolean((value.customCss ?? '').trim() || savedExternalCssUrl.trim()),
   );
   const [healthOpen, setHealthOpen] = useState(false);
 
@@ -135,7 +156,8 @@ function AppearancePanelView({
     });
   };
 
-  const effective = useMemo(() => resolveTheme(value)?.palette ?? null, [value]);
+  const effective = value.palette;
+  const activePreset = useMemo(() => findActiveThemePreset(value), [value]);
   const minContrast = useMemo(
     () =>
       effective ? minTextContrast(effective.text, effective.background, effective.surface) : null,
@@ -149,49 +171,46 @@ function AppearancePanelView({
     }
   }, [lowContrast]);
 
-  const applyEdit = (next: ThemeConfig, toastLabel?: string): void => {
+  const clearColorDrafts = (): void => {
+    setColorDrafts({});
+  };
+
+  const applyEdit = (next: ThemeDocumentV1, toastLabel?: string): void => {
     const previous = value;
     controller.preview(resolveTheme(next));
     onChange(next);
     setAuditState(null);
     if (toastLabel && notify) {
       notify(toastLabel, () => {
+        clearColorDrafts();
         controller.preview(resolveTheme(previous));
         onChange(previous);
         setAuditState(null);
       });
     }
   };
-  const update = (patch: Partial<ThemeConfig>, toastLabel?: string): void =>
-    applyEdit({ ...value, ...patch }, toastLabel);
 
-  const effects: ThemeEffectsConfig = useMemo(
-    () => (value.effects ? readThemeEffectsConfig(value.effects) : DEFAULT_THEME_EFFECTS),
-    [value.effects],
-  );
-  const effectsActive = hasActiveEffects(effects);
-
-  const buildNextEffectsConfig = (patch: Partial<ThemeEffectsConfig>): ThemeConfig => {
-    const nextEffects: ThemeEffectsConfig = { ...effects, ...patch };
-    const { effects: _prev, ...rest } = value;
-    return hasActiveEffects(nextEffects) ? { ...rest, effects: nextEffects } : rest;
-  };
+  const activeEffects = useMemo(() => documentEffectsToConfig(value.effects), [value.effects]);
+  const effects: ThemeEffectsConfig = activeEffects ?? DEFAULT_THEME_EFFECTS;
+  const effectsActive = Boolean(activeEffects);
 
   const previewEffects = (patch: Partial<ThemeEffectsConfig>): void => {
-    controller.preview(resolveTheme(buildNextEffectsConfig(patch)));
+    controller.preview(resolveTheme(updateThemeEffects(value, patch)));
   };
 
   const updateEffects = (patch: Partial<ThemeEffectsConfig>, toastLabel?: string): void => {
-    applyEdit(buildNextEffectsConfig(patch), toastLabel);
+    applyEdit(updateThemeEffects(value, patch), toastLabel);
   };
 
   const applyVibe = (vibe: StudioVibe): void => {
+    clearColorDrafts();
     applyEdit(applyStudioVibe(value, vibe), `${vibe.name} vibe applied`);
   };
 
   const activeVibe = useMemo(() => findActiveStudioVibe(value), [value]);
 
   const selectColorTheme = (presetId: string, label: string): void => {
+    clearColorDrafts();
     const suffix = effectsActive ? ' (effects cleared)' : '';
     applyEdit(applyThemePreset(value, presetId), `Theme set to ${label}${suffix}`);
   };
@@ -201,10 +220,42 @@ function AppearancePanelView({
   };
 
   const handleImportDocument = (doc: ThemeDocumentV1, includeCustomCss: boolean): void => {
-    applyEdit(
-      applyThemeDocument(value, doc, { includeCustomCss }),
-      `Imported theme "${doc.meta.name}"`,
-    );
+    clearColorDrafts();
+    applyEdit(applyThemeDocument(doc, { includeCustomCss }), `Imported theme "${doc.meta.name}"`);
+  };
+
+  const clearDraftKey = (key: ColorFieldKey): void => {
+    setColorDrafts((prev) => {
+      if (!(key in prev)) {
+        return prev;
+      }
+      const { [key]: _removed, ...next } = prev;
+      return next;
+    });
+  };
+
+  const handleColorHexInput = (key: ColorFieldKey, raw: string): void => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      if (activePreset) {
+        clearDraftKey(key);
+        applyEdit(updateThemePalette(value, { [key]: activePreset.palette[key] }));
+      } else {
+        setColorDrafts((prev) => ({ ...prev, [key]: '' }));
+      }
+      return;
+    }
+    const normalized = normalizeHex(trimmed);
+    if (!normalized) {
+      setColorDrafts((prev) => ({ ...prev, [key]: raw }));
+      return;
+    }
+    if (trimmed.toLowerCase() === normalized) {
+      clearDraftKey(key);
+    } else {
+      setColorDrafts((prev) => ({ ...prev, [key]: raw }));
+    }
+    applyEdit(updateThemePalette(value, { [key]: normalized }));
   };
 
   const runAudit = (): void => {
@@ -252,43 +303,31 @@ function AppearancePanelView({
     colorsBadge = <Badge tone="accent">Customized</Badge>;
   }
 
-  const hasImportedCustomStack = Boolean(
-    value.font === 'default' && value.document?.typography?.customStack,
-  );
+  const fontPreset: ThemeFontId = value.typography?.preset ?? 'default';
+  const hasImportedCustomStack = Boolean(fontPreset === 'default' && value.typography?.customStack);
   const selectFont = (nextFont: string): void => {
-    if (nextFont === '__imported__') {
+    if (nextFont === '__imported__' || !isThemeFontId(nextFont)) {
       return;
     }
-    const fontLabel = FONT_LABELS[nextFont as keyof typeof FONT_LABELS] ?? nextFont;
-    let nextConfig: ThemeConfig = { ...value, font: nextFont };
-    if (value.document?.typography?.customStack) {
-      const { customStack: _dropped, ...restTypo } = value.document.typography;
-      const { typography: _oldTypo, ...restDoc } = value.document;
-      nextConfig = {
-        ...nextConfig,
-        document: Object.keys(restTypo).length > 0 ? { ...restDoc, typography: restTypo } : restDoc,
-      };
-    }
-    applyEdit(nextConfig, `Typography set to ${fontLabel}`);
+    const fontLabel = FONT_LABELS[nextFont];
+    applyEdit(updateThemeTypography(value, nextFont), `Typography set to ${fontLabel}`);
   };
 
   return (
     <section className="theme-panel">
-      {value.document && (
+      {isImported && (
         <div className="theme-imported-banner" role="region" aria-label="Active imported theme">
           <div className="theme-imported-info">
             <Badge tone="accent">Imported</Badge>
-            <strong className="theme-card-name">{value.document.meta.name}</strong>
-            {value.document.meta.author && (
-              <span className="theme-studio-hint">by {value.document.meta.author}</span>
-            )}
+            <strong className="theme-card-name">{value.meta.name}</strong>
+            {value.meta.author && <span className="theme-studio-hint">by {value.meta.author}</span>}
           </div>
           <div className="theme-audit-buttons">
             <button
               type="button"
               className="theme-inline-reset"
               onClick={() => {
-                const filename = downloadThemeConfigFile(value);
+                const filename = downloadThemeDocumentFile(value);
                 notify?.(`Exported ${filename}`);
               }}
             >
@@ -297,7 +336,10 @@ function AppearancePanelView({
             <button
               type="button"
               className="theme-inline-reset"
-              onClick={() => applyEdit({ ...DEFAULT_THEME_CONFIG }, 'Cleared imported theme')}
+              onClick={() => {
+                clearColorDrafts();
+                applyEdit({ ...DEFAULT_THEME_DOCUMENT }, 'Cleared imported theme');
+              }}
             >
               Reset
             </button>
@@ -313,7 +355,10 @@ function AppearancePanelView({
           <button
             className="theme-inline-reset"
             type="button"
-            onClick={() => applyEdit({ ...DEFAULT_THEME_CONFIG }, 'Reset theme to site default')}
+            onClick={() => {
+              clearColorDrafts();
+              applyEdit({ ...DEFAULT_THEME_DOCUMENT }, 'Reset theme to site default');
+            }}
           >
             Reset to site default
           </button>
@@ -336,7 +381,7 @@ function AppearancePanelView({
             <button
               type="button"
               className="theme-card"
-              aria-pressed={!effectsActive && value.preset === 'default'}
+              aria-pressed={!effectsActive && value.id === 'default'}
               onClick={() => selectColorTheme('default', 'Site Default')}
             >
               <span className="theme-card-name">Site Default</span>
@@ -347,8 +392,8 @@ function AppearancePanelView({
                 key={preset.id}
                 type="button"
                 className="theme-card"
-                aria-pressed={!effectsActive && value.preset === preset.id}
-                data-base={effectsActive && value.preset === preset.id ? 'true' : undefined}
+                aria-pressed={!effectsActive && activePreset?.id === preset.id}
+                data-base={effectsActive && activePreset?.id === preset.id ? 'true' : undefined}
                 onClick={() => selectColorTheme(preset.id, preset.name)}
               >
                 <span className="theme-swatches" aria-hidden="true">
@@ -387,7 +432,7 @@ function AppearancePanelView({
             id={fontId}
             className="field"
             aria-label="Typography"
-            value={hasImportedCustomStack ? '__imported__' : value.font}
+            value={hasImportedCustomStack ? '__imported__' : fontPreset}
             onChange={(event) => selectFont(event.currentTarget.value)}
           >
             {hasImportedCustomStack && <option value="__imported__">Custom (imported)</option>}
@@ -408,8 +453,13 @@ function AppearancePanelView({
           <div className="theme-drawer-pad">
             <div className="theme-controls">
               {COLOR_FIELDS.map(({ key, label }) => {
-                const fallbackHex = effective ? effective[key] : '#3b82f6';
-                const pickerValue = normalizeHex(value[key]) ?? fallbackHex;
+                const fallbackHex = effective?.[key] ?? '#3b82f6';
+                const savedOverride =
+                  effective && (!activePreset || effective[key] !== activePreset.palette[key])
+                    ? effective[key]
+                    : '';
+                const inputVal = colorDrafts[key] ?? savedOverride;
+                const pickerValue = normalizeHex(inputVal) ?? fallbackHex;
                 return (
                   <label key={key} className="theme-color-row">
                     <span>{label}</span>
@@ -419,20 +469,25 @@ function AppearancePanelView({
                         className="theme-picker"
                         aria-label={`${label} picker`}
                         value={pickerValue}
-                        onChange={(event) => update({ [key]: event.currentTarget.value })}
+                        onChange={(event) => handleColorHexInput(key, event.currentTarget.value)}
                       />
                       <TextInput
                         className="field theme-hex"
                         ariaLabel={label}
                         placeholder={fallbackHex}
-                        value={value[key]}
-                        onValueChange={(nextHex) => update({ [key]: nextHex })}
+                        value={inputVal}
+                        onValueChange={(nextHex) => handleColorHexInput(key, nextHex)}
                       />
                     </span>
                   </label>
                 );
               })}
             </div>
+            {colorError && (
+              <div className="theme-contrast-warn" role="alert">
+                <span>{colorError}</span>
+              </div>
+            )}
             {lowContrast && effective && (
               <div className="theme-contrast-warn" role="status">
                 <span>
@@ -441,12 +496,15 @@ function AppearancePanelView({
                 <button
                   className="button"
                   type="button"
-                  onClick={() =>
-                    update(
-                      { text: pickAccessibleText(effective.background, effective.surface) },
+                  onClick={() => {
+                    clearDraftKey('text');
+                    applyEdit(
+                      updateThemePalette(value, {
+                        text: pickAccessibleText(effective.background, effective.surface),
+                      }),
                       'Fixed text contrast',
-                    )
-                  }
+                    );
+                  }}
                 >
                   Fix contrast
                 </button>
@@ -458,7 +516,7 @@ function AppearancePanelView({
         <ThemeTransferDisclosure
           open={transferOpen}
           onToggle={() => setTransferOpen((open) => !open)}
-          config={value}
+          document={value}
           onImport={handleImportDocument}
           {...(notify ? { notify } : {})}
         />
@@ -477,8 +535,8 @@ function AppearancePanelView({
         <CustomCssDisclosure
           open={cssOpen}
           onToggle={() => setCssOpen((open) => !open)}
-          customCss={value.customCss}
-          onCustomCssChange={(nextCss) => update({ customCss: nextCss })}
+          customCss={value.customCss ?? ''}
+          onCustomCssChange={(nextCss) => applyEdit(updateThemeCustomCss(value, nextCss))}
           hasExternalCssOption={hasExternalCssOption}
           savedExternalCssUrl={savedExternalCssUrl}
           externalCssDraft={externalCssDraft}
@@ -492,15 +550,15 @@ function AppearancePanelView({
 
 /**
  * First-class Appearance panel automatically attached to every `SiteAdapter`
- * that declares a `themeMapping`. Instant-applies valid theme edits with Undo
- * support and contributes all presets & styling controls to unified search.
+ * that declares a `themeMapping`. Instant-applies valid `ThemeDocumentV1` edits
+ * with Undo support and contributes all presets & styling controls to unified search.
  */
 export function appearancePanel(
-  saved: SavedValue<ThemeConfig>,
+  saved: SavedValue<ThemeDocumentV1>,
   controller: ThemeController,
-  onApply: (config: ThemeConfig) => void = (next) => controller.apply(resolveTheme(next)),
+  onApply: (doc: ThemeDocumentV1) => void = (next) => controller.apply(resolveTheme(next)),
 ): OptionsPanel {
-  return definePanel<ThemeConfig>({
+  return definePanel<ThemeDocumentV1>({
     section: 'Appearance',
     css,
     instant: true,
@@ -512,7 +570,7 @@ export function appearancePanel(
       controller.clearPreview();
     },
     swatch: () => {
-      const palette = resolveTheme(saved.get())?.palette;
+      const palette = saved.get().palette;
       return palette ? { bg: palette.background, accent: palette.accent } : null;
     },
     searchItems: (): PanelSearchItem[] => [
@@ -590,15 +648,6 @@ export function appearancePanel(
       })),
     ],
     onClose: () => controller.clearPreview(),
-    problem: (next) => {
-      for (const { key, label } of COLOR_FIELDS) {
-        const raw = next[key].trim();
-        if (raw && !normalizeHex(raw)) {
-          return `${label} must be a hex color like #3b82f6.`;
-        }
-      }
-      return null;
-    },
     Panel: (props) => <AppearancePanelView {...props} controller={controller} />,
   });
 }

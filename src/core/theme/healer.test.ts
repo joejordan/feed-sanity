@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDomEnvironment } from '../dom-env';
 import { Scope } from '../scope';
+import { SHELL_ATTR } from '../surface';
 import { findThemePreset } from '../theming';
 import { createThemeHealer, HEAL_BG_ATTR, HEAL_FG_ATTR, HEALER_STYLE_ID } from './healer';
 
@@ -189,7 +190,9 @@ describe('core/theme/healer', () => {
     document.body.innerHTML = `
       <div id="react-root">
         <div id="shell-wrap" style="background-color: rgb(255, 255, 255);">
-          <div id="inner-card" style="background-color: rgb(255, 255, 255);">Card</div>
+          <div id="auto-shell-wrap" style="background-color: rgb(255, 255, 255);">
+            <div id="inner-card" style="background-color: rgb(255, 255, 255);">Card</div>
+          </div>
         </div>
       </div>
     `;
@@ -200,28 +203,35 @@ describe('core/theme/healer', () => {
       transparentShellSelectors: ['#react-root', '#react-root > div'],
     });
 
-    // Without a Studio backdrop, the white wrapper gets healed as usual.
+    // Without a Studio backdrop, both wrappers get healed as usual.
     healer.setPalette(darkPalette);
     healer.healNow();
     const shellWrap = document.querySelector('#shell-wrap') as HTMLElement;
+    const autoShellWrap = document.querySelector('#auto-shell-wrap') as HTMLElement;
     const innerCard = document.querySelector('#inner-card') as HTMLElement;
     expect(shellWrap.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+    expect(autoShellWrap.getAttribute(HEAL_BG_ATTR)).toBe('surface');
     expect(innerCard.getAttribute(HEAL_BG_ATTR)).toBe('surface');
 
-    // Enabling a Studio backdrop strips stale HEAL_BG_ATTR from transparentShell wrappers
-    // and keeps them clear on subsequent heal passes while cards stay healed.
+    // Marking an ancestor with universal SHELL_ATTR + enabling a Studio backdrop strips stale
+    // HEAL_BG_ATTR from both selector-based and SHELL_ATTR wrappers while cards stay healed.
+    autoShellWrap.setAttribute(SHELL_ATTR, '');
     healer.setBackdropActive(true);
     expect(shellWrap.hasAttribute(HEAL_BG_ATTR)).toBe(false);
+    expect(autoShellWrap.hasAttribute(HEAL_BG_ATTR)).toBe(false);
     expect(innerCard.getAttribute(HEAL_BG_ATTR)).toBe('surface');
 
     healer.healNow();
     expect(shellWrap.hasAttribute(HEAL_BG_ATTR)).toBe(false);
+    expect(autoShellWrap.hasAttribute(HEAL_BG_ATTR)).toBe(false);
     expect(innerCard.getAttribute(HEAL_BG_ATTR)).toBe('surface');
 
-    // Turning the Studio backdrop back off allows shell wrappers to heal again cleanly.
+    // Turning the Studio backdrop back off (and clearing SHELL_ATTR) allows wrappers to heal again cleanly.
+    autoShellWrap.removeAttribute(SHELL_ATTR);
     healer.setBackdropActive(false);
     healer.healNow();
     expect(shellWrap.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+    expect(autoShellWrap.getAttribute(HEAL_BG_ATTR)).toBe('surface');
 
     // Disposing the healer stops reacting to subsequent mutations in connected open ShadowRoots.
     const shadowHost = document.createElement('div');

@@ -41,5 +41,7 @@ export {
   compileBackdropRevealCss,
   compileSurfaceFinishCss,
   compileUiSurfaceCss,
+  DEFAULT_POPUPS,
+  DEFAULT_SHELL_LANDMARKS,
   resolveGlassMetrics,
 } from './surfaces';

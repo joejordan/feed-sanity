@@ -81,13 +81,7 @@ body {
 }
 `.trim(),
   surfaces: {
-    transparentShell: [
-      '[id^="mount_0_0"]',
-      '[id^="mount_0_0"] > div:has([role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
-      '[id^="mount_0_0"] > div > div:has([role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
-      '[role="main"]',
-      '[role="feed"]',
-    ],
+    transparentShell: ['[role="feed"]'],
     popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
     revealCssVars: (p, { cardAlpha, popupAlpha }) => {
       const surface = p?.surface ?? '#18191a';

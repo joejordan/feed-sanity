@@ -361,6 +361,10 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
   },
 ];
 
+const BUILTIN_THEME_BY_ID: ReadonlyMap<string, ThemePreset> = new Map(
+  BUILTIN_THEMES.map((preset) => [preset.id, preset]),
+);
+
 export function findThemePreset(id: string): ThemePreset | undefined {
-  return BUILTIN_THEMES.find((preset) => preset.id === id);
+  return BUILTIN_THEME_BY_ID.get(id);
 }

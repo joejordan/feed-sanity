@@ -6,29 +6,36 @@ import {
   applyThemePreset,
   autoFixDocumentContrast,
   BUILTIN_THEMES,
+  clearThemeEffects,
   compileChromeHostCss,
   compileChromeUiCss,
   compileHostThemeCss,
-  DEFAULT_THEME_CONFIG,
+  DEFAULT_THEME_DOCUMENT,
   hydratePalette,
+  isCustomImportedDocument,
   MAX_CUSTOM_CSS_BYTES,
   MAX_THEME_FILE_BYTES,
   parseThemeDocument,
-  readThemeConfig,
+  presetToThemeDocument,
+  readThemeDocument,
   resolveTheme,
   sanitizeCustomCss,
   sanitizeFontStack,
   serializeThemeDocument,
   THEME_FILE_FORMAT,
   THEME_SCHEMA_VERSION,
-  themeConfigToDocument,
+  updateThemeCustomCss,
+  updateThemeEffects,
+  updateThemePalette,
+  updateThemeTypography,
+  vibeToThemeDocument,
 } from '../theming';
 
 describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
-  it('round-trips every built-in Color Theme preset cleanly through export -> parse -> apply', () => {
+  it('materializes every built-in Color Theme and Studio Vibe as canonical ThemeDocumentV1 and round-trips cleanly', () => {
     for (const preset of BUILTIN_THEMES) {
-      const cfg = applyThemePreset(DEFAULT_THEME_CONFIG, preset.id);
-      const doc = themeConfigToDocument(cfg);
+      const doc = presetToThemeDocument(preset);
+      expect(applyThemePreset(DEFAULT_THEME_DOCUMENT, preset.id)).toEqual(doc);
       const json = serializeThemeDocument(doc);
       const parsed = parseThemeDocument(json);
 
@@ -39,27 +46,27 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
       expect(parsed.document?.id).toBe(preset.id);
       expect(parsed.document?.palette).toEqual(preset.palette);
       expect(parsed.document?.chrome).toEqual(preset.chrome);
+      expect(isCustomImportedDocument(parsed.document!)).toBe(false);
 
-      const applied = applyThemeDocument(DEFAULT_THEME_CONFIG, parsed.document!);
+      const applied = applyThemeDocument(parsed.document!);
       const resolved = resolveTheme(applied);
       expect(resolved?.palette).toEqual(preset.palette);
       expect(resolved?.chrome).toEqual(preset.chrome);
     }
-  });
 
-  it('round-trips every built-in Studio Vibe (including digital-rain params & typography)', () => {
     for (const vibe of STUDIO_VIBES) {
-      const cfg = applyStudioVibe(DEFAULT_THEME_CONFIG, vibe);
-      const doc = themeConfigToDocument(cfg);
+      const doc = vibeToThemeDocument(vibe);
+      expect(applyStudioVibe(DEFAULT_THEME_DOCUMENT, vibe)).toEqual(doc);
       const json = serializeThemeDocument(doc);
       const parsed = parseThemeDocument(json);
 
       expect(parsed.ok, `${vibe.id} should parse cleanly`).toBe(true);
       expect(parsed.document?.id).toBe(vibe.id);
       expect(parsed.document?.effects?.backdrop?.id).toBe(vibe.effects.backdrop);
+      expect(isCustomImportedDocument(parsed.document!)).toBe(false);
 
-      const applied = applyThemeDocument(DEFAULT_THEME_CONFIG, parsed.document!);
-      const originalResolved = resolveTheme(cfg);
+      const applied = applyThemeDocument(parsed.document!);
+      const originalResolved = resolveTheme(doc);
       const importedResolved = resolveTheme(applied);
 
       expect(importedResolved?.palette).toEqual(originalResolved?.palette);
@@ -196,11 +203,10 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
       customCss: '.x { color: green; }',
     });
     expect(parsed.hadCustomCss).toBe(true);
-    const withoutCss = applyThemeDocument(DEFAULT_THEME_CONFIG, parsed.document!, {
+    const withoutCss = applyThemeDocument(parsed.document!, {
       includeCustomCss: false,
     });
-    expect(withoutCss.customCss).toBe('');
-    expect(withoutCss.document?.customCss).toBeUndefined();
+    expect(withoutCss.customCss).toBeUndefined();
   });
 
   it('compiles declarative chrome specs cleanly and suppresses ambientGlow when a live backdrop runs', () => {
@@ -227,12 +233,12 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
   });
 
   it('keeps mixed !important and normal custom CSS rules in their proper cascade layers', () => {
-    const resolved = resolveTheme({
-      ...DEFAULT_THEME_CONFIG,
-      preset: 'midnight',
-      customCss:
+    const resolved = resolveTheme(
+      updateThemeCustomCss(
+        applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'),
         '.normal { border-radius: 12px; }\n.forced { color: #ff00ff !important; }\n@media (min-width: 800px) { .wide { padding: 8px; } }',
-    })!;
+      ),
+    )!;
 
     const css = compileHostThemeCss(resolved, {
       rootSelectors: [':root'],
@@ -243,22 +249,22 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     expect(css).toContain('@media (min-width: 800px) { .wide { padding: 8px; } }');
   });
 
-  it('re-hydrates secondary tokens when a background override flips theme polarity and persists document safely', () => {
+  it('re-hydrates secondary tokens when a background override flips theme polarity and migrates legacy flat v0 configs cleanly', () => {
     // Flip a dark preset to a light background override
-    const flipped = resolveTheme({
-      ...DEFAULT_THEME_CONFIG,
-      preset: 'midnight',
-      background: '#f8fafc',
-      surface: '#ffffff',
-      text: '#111111',
-    })!;
+    const flipped = resolveTheme(
+      updateThemePalette(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'), {
+        background: '#f8fafc',
+        surface: '#ffffff',
+        text: '#111111',
+      }),
+    )!;
     expect(flipped.palette).not.toBeNull();
     expect(flipped.palette?.colorScheme).toBe('light');
     // Secondary tokens should match light polarity, not dark midnight (#1c2536 / #243044)
     expect(flipped.palette?.surfaceAlt).not.toBe('#1c2536');
     expect(flipped.palette?.border).not.toBe('#243044');
 
-    // readThemeConfig preserves valid stored document and strips corrupt ones
+    // readThemeDocument preserves valid stored ThemeDocumentV1 and rejects corrupt ones cleanly
     const validDoc = parseThemeDocument({
       format: THEME_FILE_FORMAT,
       schemaVersion: 1,
@@ -272,16 +278,99 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
       }),
     }).document!;
 
-    const readValid = readThemeConfig(applyThemeDocument(DEFAULT_THEME_CONFIG, validDoc));
-    expect(readValid.document?.meta.name).toBe('Saved Doc');
-    expect(readValid.document?.meta.author).toBe('Joe');
+    const readValid = readThemeDocument(validDoc);
+    expect(readValid.meta.name).toBe('Saved Doc');
+    expect(readValid.meta.author).toBe('Joe');
 
-    const readCorrupt = readThemeConfig({
-      ...DEFAULT_THEME_CONFIG,
+    const readCorruptV1 = readThemeDocument({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 99,
+      meta: { name: 'Broken' },
+    });
+    expect(readCorruptV1).toEqual(DEFAULT_THEME_DOCUMENT);
+
+    // One-way migration from legacy pre-cutover flat ThemeConfig storage records
+    const migratedPreset = readThemeDocument({
+      preset: 'nord',
+      accent: '#ff0066',
+      background: '',
+      surface: '',
+      text: '',
+      font: 'serif',
+      customCss: '.legacy { opacity: 0.9; }',
+    });
+    expect(migratedPreset.format).toBe(THEME_FILE_FORMAT);
+    expect(migratedPreset.id).toBe('nord');
+    expect(migratedPreset.palette?.accent).toBe('#ff0066');
+    expect(migratedPreset.palette?.background).toBe('#2e3440');
+    expect(migratedPreset.typography).toEqual({ preset: 'serif' });
+    expect(migratedPreset.customCss).toBe('.legacy { opacity: 0.9; }');
+
+    // Legacy flat Studio Vibe config migrates to the matching Studio Vibe ThemeDocumentV1
+    const migratedVibe = readThemeDocument({
+      preset: 'terminal-phosphor',
+      font: 'mono',
+      effects: {
+        backdrop: 'digital-rain',
+        surface: 'glass',
+        click: 'matrix-burst',
+        rainIntro: 'rain-in',
+      },
+    });
+    expect(migratedVibe.id).toBe('enter-the-matrix');
+    expect(migratedVibe.meta.name).toBe('Enter the Matrix');
+    expect(migratedVibe.effects?.backdrop?.id).toBe('digital-rain');
+    expect(migratedVibe.typography).toEqual({ preset: 'mono' });
+
+    // Legacy flat config with an embedded imported document preserves author/name while dropping corrupt ones
+    const migratedEmbedded = readThemeDocument({
+      preset: 'custom',
+      accent: '',
+      font: 'default',
+      customCss: '',
+      document: validDoc,
+    });
+    expect(migratedEmbedded.meta.name).toBe('Saved Doc');
+    expect(migratedEmbedded.meta.author).toBe('Joe');
+
+    const migratedCorruptEmbedded = readThemeDocument({
       preset: 'custom',
       document: { format: 'wrong' },
     });
-    expect(readCorrupt.document).toBeUndefined();
+    expect(migratedCorruptEmbedded).toEqual(DEFAULT_THEME_DOCUMENT);
+
+    // Legacy v0 customCss is strictly sanitized (strips @import / url / expression).
+    const migratedUnsafeCss = readThemeDocument({
+      preset: 'midnight',
+      customCss: '@import url("https://evil.example/x.css"); .ok { border-radius: 4px; }',
+    });
+    expect(migratedUnsafeCss.customCss).toContain('.ok { border-radius: 4px; }');
+    expect(migratedUnsafeCss.customCss).not.toContain('evil.example');
+
+    // Tweaking a Studio Vibe and then clearing effects (or manually turning all effects off)
+    // still reverts vibe identity & vibe-owned font cleanly while preserving custom palette swatches.
+    const matrix = STUDIO_VIBES.find((v) => v.id === 'enter-the-matrix')!;
+    const tweakedVibe = updateThemeEffects(
+      updateThemePalette(applyStudioVibe(DEFAULT_THEME_DOCUMENT, matrix), { accent: '#ff0066' }),
+      { backdrop: 'aurora' },
+    );
+    const clearedTweaked = clearThemeEffects(tweakedVibe);
+    expect(clearedTweaked.id).toBe('terminal-phosphor');
+    expect(clearedTweaked.typography).toBeUndefined();
+    expect(clearedTweaked.meta.swatches).toContain('#ff0066');
+
+    const manuallyOff = updateThemeEffects(tweakedVibe, {
+      backdrop: 'none',
+      surface: 'default',
+      click: 'none',
+    });
+    expect(manuallyOff.id).toBe('terminal-phosphor');
+    expect(manuallyOff.effects).toBeUndefined();
+    expect(manuallyOff.typography).toBeUndefined();
+
+    const switchedAfterTweak = applyThemePreset(tweakedVibe, 'warm-paper');
+    expect(switchedAfterTweak.id).toBe('warm-paper');
+    expect(switchedAfterTweak.typography).toBeUndefined();
   });
 
   it('blocks CSS escape bypasses, image-set/src/image functions, comment breakout, and EOF payloads', () => {
@@ -362,7 +451,7 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     });
     expect(parsed.ok).toBe(true);
 
-    const withCss = applyThemeDocument(DEFAULT_THEME_CONFIG, parsed.document!, {
+    const withCss = applyThemeDocument(parsed.document!, {
       includeCustomCss: true,
     });
     const resolvedWithCss = resolveTheme(withCss);
@@ -378,11 +467,13 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
       palette: null,
       customCss: '.x { color: green; }',
     }).document!;
-    const stripped = applyThemeDocument(DEFAULT_THEME_CONFIG, cssOnly, { includeCustomCss: false });
+    const stripped = applyThemeDocument(cssOnly, {
+      includeCustomCss: false,
+    });
     expect(resolveTheme(stripped)).toBeNull();
   });
 
-  it('clears imported font/customCss on applyThemePreset and refreshes swatches/customStack on export', () => {
+  it('clears imported font/customCss on applyThemePreset and refreshes swatches/customStack on edit', () => {
     const importedDoc = parseThemeDocument({
       format: THEME_FILE_FORMAT,
       schemaVersion: 1,
@@ -401,35 +492,40 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
       customCss: '.imported { opacity: 0.9; }',
     }).document!;
 
-    const applied = applyThemeDocument(DEFAULT_THEME_CONFIG, importedDoc, {
+    const applied = applyThemeDocument(importedDoc, {
       includeCustomCss: true,
     });
+    expect(isCustomImportedDocument(applied)).toBe(true);
 
-    // Switching to a built-in preset clears imported font and imported customCss.
+    // Switching to a built-in preset clears imported identity, font, and imported customCss.
     const switched = applyThemePreset(applied, 'warm-paper');
-    expect(switched.document).toBeUndefined();
-    expect(switched.font).toBe('default');
-    expect(switched.customCss).toBe('');
+    expect(isCustomImportedDocument(switched)).toBe(false);
+    expect(switched.id).toBe('warm-paper');
+    expect(switched.typography).toBeUndefined();
+    expect(switched.customCss).toBeUndefined();
 
-    // Editing accent and font on top of an imported theme updates exported swatches & drops stale customStack.
-    const edited = { ...applied, accent: '#ff0066', font: 'serif' };
-    const exported = themeConfigToDocument(edited);
-    expect(exported.meta.swatches).toContain('#ff0066');
-    expect(exported.typography).toEqual({ preset: 'serif' });
+    // Editing accent and font on top of an imported theme updates swatches & drops stale customStack.
+    const edited = updateThemeTypography(
+      updateThemePalette(applied, { accent: '#ff0066' }),
+      'serif',
+    );
+    expect(edited.meta.swatches).toContain('#ff0066');
+    expect(edited.typography).toEqual({ preset: 'serif' });
   });
 
   it('routes comments, strings, ! important whitespace, statement at-rules, and unclosed blocks safely in formatUserCustomCss', () => {
-    const resolved = resolveTheme({
-      ...DEFAULT_THEME_CONFIG,
-      preset: 'midnight',
-      customCss: [
-        '@layer external;',
-        '/* avoid !important here */ .commented { color: green; }',
-        '.quoted::after { content: "!important"; color: yellow; }',
-        '.spaced { color: #ff00ff ! important; }',
-        '.unclosed { color: red !important;',
-      ].join('\n'),
-    })!;
+    const resolved = resolveTheme(
+      updateThemeCustomCss(
+        applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'),
+        [
+          '@layer external;',
+          '/* avoid !important here */ .commented { color: green; }',
+          '.quoted::after { content: "!important"; color: yellow; }',
+          '.spaced { color: #ff00ff ! important; }',
+          '.unclosed { color: red !important;',
+        ].join('\n'),
+      ),
+    )!;
 
     const css = compileHostThemeCss(resolved, { rootSelectors: [':root'] });
     const layerStart = css.indexOf('@layer fs-user {');

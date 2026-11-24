@@ -167,8 +167,6 @@ export const xThemeMapping: SiteThemeMapping = {
   extraCss: (p) => {
     const frostedBg = hexWithAlpha(p.background, 0.88);
     const floatingBg = hexWithAlpha(p.surface, 0.92);
-    const hoverBg = hexWithAlpha(p.text, 0.08);
-    const activeBg = hexWithAlpha(p.text, 0.14);
     const popupShadow =
       p.colorScheme === 'dark'
         ? '0 4px 18px rgb(0 0 0 / 55%), 0 0 1px rgb(255 255 255 / 12%)'
@@ -205,7 +203,7 @@ html, body, #react-root, header[role="banner"], main[role="main"] {
   border-bottom-color: ${p.border} !important;
 }
 
-/* === 3. React Native Web dark & light canvas/surface/border/text atomic palette === */
+/* === 3. React Native Web canvas reveal, semantic surfaces, elevation, and inline overrides === */
 /* Dark & light host canvas (Lights Out #000, Dim #15202b, Light #fff).
  * Uses --fs-reveal-canvas so Studio backdrops turn outer shells transparent
  * while #layers, form[role="search"], and popups stay opaque cleanly. */
@@ -219,53 +217,13 @@ div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${IN_VIDEO}, [data-te
   background-color: ${p.surface} !important;
   border-color: ${p.border} !important;
 }
-/* Elevated sheets, cards, dialogs, menus, active settings routes */
-.r-g2wdr4,
-.r-cl2sl0,
-.r-1che71a,
-.r-x572qd,
 [data-testid="activeRoute"] {
   background-color: ${p.surface} !important;
 }
-/* Secondary inputs, muted pills, recessed controls */
-.r-z32n2g,
-.r-1fkb3t2 {
-  background-color: ${p.surfaceAlt} !important;
-}
-/* Hairline separator bars & thread connectors */
-.r-gu4em3,
-.r-1bnu78o,
-.r-1shrkeu,
 [role="separator"] {
   background-color: ${p.border} !important;
 }
-/* Subtle hover / selection highlight tints */
-.r-1cuuowz,
-.r-q773ft,
-.r-c8f5pn,
-.r-pjtv4k,
-.r-1hdo0pc {
-  background-color: ${hoverBg} !important;
-}
-.r-11gmi9o,
-.r-1a7u7ko,
-.r-7l9xyp,
-.r-1fpi9eo {
-  background-color: ${activeBg} !important;
-}
-/* Borders across dark, dim, and light X modes */
-.r-1kqtdi0,
-.r-1roi411,
-.r-16cnnyw,
-.r-j7xza8,
-.r-1l9avrr,
-.r-7jjzhb,
-.r-14wv3jr,
-.r-316qow,
-.r-1ets6dv,
-.r-jxzhtn,
-.r-1wl2o3p,
-.r-1d6w8o1,
+/* Inline host border colors (stylesheet borders are compiled automatically by Layer 1) */
 [style*="border-color: rgb(47, 51, 54)"],
 [style*="border-color: rgb(51, 54, 57)"],
 [style*="border-color: rgb(62, 65, 68)"],
@@ -273,23 +231,7 @@ div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${IN_VIDEO}, [data-te
 [style*="border-color: rgb(207, 217, 222)"] {
   border-color: ${p.border} !important;
 }
-.r-1igl3o0,
-.r-j5o65s,
-.r-zjs74l {
-  border-bottom-color: ${p.border} !important;
-}
-.r-2sztyj,
-.r-12s0y0c,
-.r-1dgieki {
-  border-top-color: ${p.border} !important;
-}
-.r-motplv {
-  border-left-color: ${p.border} !important;
-}
-.r-1hm43qg {
-  border-right-color: ${p.border} !important;
-}
-/* Elevation shadows (replaces dark-mode white glow on popovers/menus) */
+/* Elevation shadows (non-paint box-shadow replaces dark-mode white glow on popovers/menus) */
 .r-qo02w8,
 .r-15ce4ve,
 .r-1upvrn0,
@@ -304,8 +246,6 @@ div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${IN_VIDEO}, [data-te
 }
 
 /* === 4. Text & SVG foreground contrast (dark-mode & light-mode X accounts) === */
-.r-1nao33i${NOT_IN_VIDEO},
-.r-54znze${NOT_IN_VIDEO},
 [style*="color: rgb(231, 233, 234)"]${NOT_IN_VIDEO},
 [style*="color: rgb(239, 243, 244)"]${NOT_IN_VIDEO},
 [style*="color: rgb(247, 249, 249)"]${NOT_IN_VIDEO},
@@ -321,24 +261,15 @@ article[data-testid="tweet"],
 [data-testid="UserProfileHeader_Items"] span {
   color: ${p.text} !important;
 }
-/* Light-mode host text overrides (scoped with :where so CTA pills still outrank them) */
-:where(html[style*="color-scheme: light"]) .r-18jsvk2,
+/* Light-mode host inline text overrides (scoped with :where so CTA pills still outrank them) */
 :where(html[style*="color-scheme: light"]) [style*="color: rgb(15, 20, 25)"] {
   color: ${p.text} !important;
 }
-.r-1o2jch0 {
-  fill: ${p.text} !important;
-}
-.r-1bwzh9t,
-.r-14j79pv,
 [style*="color: rgb(113, 118, 123)"],
 [style*="color: rgb(83, 100, 113)"],
 [data-testid="User-Name"] a[tabindex="-1"] span,
 [data-testid="UserJoinDate"] {
   color: ${p.textMuted} !important;
-}
-.r-s7we3t {
-  fill: ${p.textMuted} !important;
 }
 /* Manage timelines '+' button & close/back app-bar icons */
 button[aria-label="Manage timelines"] svg,
@@ -379,9 +310,7 @@ button[aria-label="Manage timelines"] svg,
 }
 
 /* === 6. Right sidebar rail, search pill, and module cards === */
-[data-testid="sidebarColumn"],
-[data-testid="sidebarColumn"] > div > div > div > div,
-[data-testid="sidebarColumn"] > div > div > div > div > div {
+[data-testid="sidebarColumn"] {
   background-color: ${p.background} !important;
   border-color: ${p.border} !important;
   color: ${p.text} !important;
@@ -546,23 +475,8 @@ svg[data-testid="icon-verified"] {
 }
 `.trim(),
   surfaces: {
-    transparentShell: [
-      '#react-root',
-      '#react-root > div:not(:where(#layers, [role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"]))',
-      '#react-root > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"]))',
-      '#react-root > div:not(#layers) > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"]))',
-      'header[role="banner"]',
-      'header[role="banner"] > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
-      'header[role="banner"] > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
-      'header[role="banner"] > div > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
-      'main[role="main"]',
-      'main[role="main"] > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
-      'main[role="main"] > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
-      'main[role="main"] > div > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
-      '[data-testid="sidebarColumn"]',
-      '[data-testid="sidebarColumn"] > div > div > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [id^="typeaheadDropdown"], [data-testid="typeaheadDropdown"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="news_sidebar"], .r-1867qdf))',
-      '[data-testid="sidebarColumn"] > div > div > div > div > div:not(:where([role="dialog"], [role="menu"], [role="listbox"], [id^="typeaheadDropdown"], [data-testid="typeaheadDropdown"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="news_sidebar"], .r-1867qdf))',
-    ],
+    transparentShell: ['header[role="banner"]'],
+    shellAnchors: ['header[role="banner"] nav'],
     columns: [
       '[data-testid="primaryColumn"]',
       '[data-testid="primaryColumn"] [data-testid="toolBar"]',

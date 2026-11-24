@@ -1,24 +1,28 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ThemeConfig, ThemeController } from '../../core/theming';
+import type { ThemeController, ThemeDocumentV1 } from '../../core/theming';
 import { createDomEnvironment } from '../../core/dom-env';
 import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { inMemoryStore } from '../../core/testing';
 import {
-  DEFAULT_THEME_CONFIG,
+  applyThemePreset,
+  DEFAULT_THEME_DOCUMENT,
+  isCustomImportedDocument,
   MAX_THEME_FILE_BYTES,
   readEarlyThemeCss,
   resolveTheme,
   THEME_FILE_FORMAT,
   THEME_FONT_STACKS,
+  updateThemePalette,
+  updateThemeTypography,
   writeEarlyThemeCss,
 } from '../../core/theming';
 import { facebookThemeMapping } from '../../sites/facebook/theme-mapping';
 import { setUserThemeCss } from '../mount';
 import { OptionsDialog } from '../options-dialog/options-dialog';
-import { appearancePanel, readThemeConfig, THEME_DATA_KEY } from './appearance-panel';
+import { appearancePanel, readThemeDocument, THEME_DATA_KEY } from './appearance-panel';
 import { initSiteTheme } from './index';
 
 afterEach(() => {
@@ -49,16 +53,15 @@ function makeController(): ThemeController & {
 }
 
 describe('appearancePanel & initSiteTheme', () => {
-  it('reads corrupt or partial saved ThemeConfig values safely', () => {
-    expect(readThemeConfig(null)).toEqual(DEFAULT_THEME_CONFIG);
-    expect(readThemeConfig('invalid')).toEqual(DEFAULT_THEME_CONFIG);
-    expect(readThemeConfig({ preset: 42, accent: '#123456', font: null })).toEqual({
-      ...DEFAULT_THEME_CONFIG,
-      accent: '#123456',
-    });
+  it('reads corrupt or partial saved theme values safely and migrates legacy flat configs', () => {
+    expect(readThemeDocument(null)).toEqual(DEFAULT_THEME_DOCUMENT);
+    expect(readThemeDocument('invalid')).toEqual(DEFAULT_THEME_DOCUMENT);
+    const migrated = readThemeDocument({ preset: 42, accent: '#123456', font: null });
+    expect(migrated.format).toBe(THEME_FILE_FORMAT);
+    expect(migrated.palette?.accent).toBe('#123456');
   });
 
-  it('applies presets instantly with live preview, clears preview on close, validates hex, and saves', async () => {
+  it('applies presets instantly with live preview, clears preview on close, validates hex inline, and saves', async () => {
     const store = inMemoryStore();
     const options = new Options(store, 'test/options');
     options.register({
@@ -72,7 +75,7 @@ describe('appearancePanel & initSiteTheme', () => {
     await options.load();
 
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
     const controller = makeController();
     const panel = appearancePanel(saved, controller);
@@ -93,14 +96,28 @@ describe('appearancePanel & initSiteTheme', () => {
         palette: expect.objectContaining({ background: '#1e1e2e', accent: '#cba6f7' }),
       }),
     );
-    await vi.waitFor(() => expect(saved.get().preset).toBe('catppuccin-mocha'));
+    await vi.waitFor(() => expect(saved.get().id).toBe('catppuccin-mocha'));
+
+    // Inline hex validation catches malformed hex strings without writing corrupt colors to storage.
+    await userEvent.click(screen.getByRole('button', { name: /Customize colors/i }));
+    const accentInput = screen.getByRole<HTMLInputElement>('textbox', { name: 'Accent' });
+    await userEvent.clear(accentInput);
+    await userEvent.type(accentInput, 'purple');
+    expect(screen.getByRole('alert').textContent).toMatch(/hex color/i);
+    expect(saved.get().palette?.accent).toBe('#cba6f7');
+
+    // Entering a valid hex clears the alert and saves immediately.
+    await userEvent.clear(accentInput);
+    await userEvent.type(accentInput, '#38bdf8');
+    expect(screen.queryByRole('alert')).toBeNull();
+    await vi.waitFor(() => expect(saved.get().palette?.accent).toBe('#38bdf8'));
 
     // Switching to another tab inside the open dialog keeps the saved theme intact.
     await userEvent.click(screen.getByRole('button', { name: 'Filtering' }));
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
     await userEvent.click(screen.getByRole('button', { name: /^Site Default/i }));
     expect(controller.previewMock).toHaveBeenLastCalledWith(null);
-    await vi.waitFor(() => expect(saved.get().preset).toBe('default'));
+    await vi.waitFor(() => expect(saved.get().id).toBe('default'));
 
     // Closing the dialog invokes `panel.onClose` to clear preview cleanly.
     controller.clearPreviewMock.mockClear();
@@ -110,15 +127,14 @@ describe('appearancePanel & initSiteTheme', () => {
     unmount();
     expect(controller.clearPreviewMock).toHaveBeenCalledTimes(1);
 
-    // Validation catches malformed hex strings and accepts valid ones.
-    expect(panel.problem?.({ ...DEFAULT_THEME_CONFIG, accent: 'purple' })).toMatch(/hex color/i);
-    expect(panel.problem?.({ ...DEFAULT_THEME_CONFIG, accent: '#cba6f7' })).toBeNull();
-
-    // Save persists config, applies the resolved theme + font, and clears preview state.
+    // Save persists ThemeDocumentV1, applies the resolved theme + font, and clears preview state.
     controller.clearPreviewMock.mockClear();
-    const nextConfig: ThemeConfig = { ...DEFAULT_THEME_CONFIG, preset: 'nord', font: 'serif' };
-    await panel.save(nextConfig);
-    expect(saved.get()).toEqual(nextConfig);
+    const nextDoc: ThemeDocumentV1 = updateThemeTypography(
+      applyThemePreset(DEFAULT_THEME_DOCUMENT, 'nord'),
+      'serif',
+    );
+    await panel.save(nextDoc);
+    expect(saved.get()).toEqual(nextDoc);
     expect(controller.applyMock).toHaveBeenCalledWith(
       expect.objectContaining({
         palette: expect.objectContaining({ background: '#2e3440' }),
@@ -130,7 +146,7 @@ describe('appearancePanel & initSiteTheme', () => {
 
   it('hydrates stored theme in initSiteTheme, reacts to cross-tab storage updates, and unsubscribes on dispose', async () => {
     const store = inMemoryStore({
-      'acct/theme': { ...DEFAULT_THEME_CONFIG, preset: 'midnight' },
+      'acct/theme': applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'),
     });
     const data = new SavedData(store, 'acct');
     const env = createDomEnvironment();
@@ -143,9 +159,9 @@ describe('appearancePanel & initSiteTheme', () => {
 
       // External storage update (e.g., QuickPopup toolbar toggle or another tab) clears any
       // lingering in-page preview and switches the theme live immediately.
-      runtime.controller.preview(resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'nord' }));
+      runtime.controller.preview(resolveTheme(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'nord')));
       expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#2e3440');
-      await store.set('acct/theme', { ...DEFAULT_THEME_CONFIG, preset: 'warm-paper' });
+      await store.set('acct/theme', applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'));
       await vi.waitFor(() =>
         expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#f4efe6'),
       );
@@ -154,7 +170,7 @@ describe('appearancePanel & initSiteTheme', () => {
       runtime.dispose();
       expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
 
-      await store.set('acct/theme', { ...DEFAULT_THEME_CONFIG, preset: 'catppuccin-mocha' });
+      await store.set('acct/theme', applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'));
       expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
     } finally {
       runtime.dispose();
@@ -164,7 +180,7 @@ describe('appearancePanel & initSiteTheme', () => {
 
   it('respects active: false on load and save, and clears both applied and previewed styles on setActive(false)', async () => {
     const store = inMemoryStore({
-      'acct/theme': { ...DEFAULT_THEME_CONFIG, preset: 'midnight' },
+      'acct/theme': applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'),
     });
     const data = new SavedData(store, 'acct');
     const env = createDomEnvironment();
@@ -176,7 +192,7 @@ describe('appearancePanel & initSiteTheme', () => {
       expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
 
       // Saving a new theme while inactive persists it without injecting CSS onto the disabled site.
-      await runtime.panel.save({ ...DEFAULT_THEME_CONFIG, preset: 'warm-paper' });
+      await runtime.panel.save(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'));
       expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
 
       // Activating applies the saved theme immediately.
@@ -184,7 +200,7 @@ describe('appearancePanel & initSiteTheme', () => {
       expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#f4efe6');
 
       // Deactivating clears both live preview and applied theme without losing saved config.
-      runtime.controller.preview(resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'nord' }));
+      runtime.controller.preview(resolveTheme(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'nord')));
       expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#2e3440');
       runtime.setActive(false);
       expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
@@ -200,18 +216,16 @@ describe('appearancePanel & initSiteTheme', () => {
 
   it('warns inline on low WCAG AA contrast and fixes text color in one click', async () => {
     const store = inMemoryStore({
-      'test/theme': {
-        ...DEFAULT_THEME_CONFIG,
-        preset: 'warm-paper',
+      'test/theme': updateThemePalette(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'), {
         background: '#ffffff',
         surface: '#f8fafc',
         text: '#dddddd',
-      },
+      }),
     });
     const options = new Options(store, 'test/options');
     await options.load();
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
     const controller = makeController();
     const panel = appearancePanel(saved, controller);
@@ -220,21 +234,37 @@ describe('appearancePanel & initSiteTheme', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
 
     expect(screen.getByText(/Low text contrast/)).toBeTruthy();
+    // Typing shorthand low-contrast hex `#ddd` keeps the draft editable, and clicking
+    // "Fix contrast" clears the stale draft so both textbox and picker show `#111111`.
+    const textInput = screen.getByRole<HTMLInputElement>('textbox', { name: 'Primary text' });
+    await userEvent.clear(textInput);
+    await userEvent.type(textInput, '#ddd');
+    expect(textInput.value).toBe('#ddd');
     await userEvent.click(screen.getByRole('button', { name: 'Fix contrast' }));
     expect(screen.queryByText(/Low text contrast/)).toBeNull();
-    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Primary text' }).value).toBe(
-      '#111111',
-    );
+    expect(textInput.value).toBe('#111111');
+
+    // On a custom theme (`!activePreset`, created by editing a color from Site Default),
+    // clearing a hex input stays blank so the user can type a replacement color cleanly.
+    await userEvent.click(screen.getByRole('button', { name: /^Site Default/i }));
+    const accentInput = screen.getByRole<HTMLInputElement>('textbox', { name: 'Accent' });
+    await userEvent.type(accentInput, '#22c55e');
+    await vi.waitFor(() => expect(saved.get().id).toBe('custom'));
+    await userEvent.clear(accentInput);
+    expect(accentInput.value).toBe('');
+    await userEvent.type(accentInput, '#f97316');
+    await vi.waitFor(() => expect(saved.get().palette?.accent).toBe('#f97316'));
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('runs theme audit and auto-heal from the Appearance panel and clears stale results on edit', async () => {
     const store = inMemoryStore({
-      'test/theme': { ...DEFAULT_THEME_CONFIG, preset: 'midnight' },
+      'test/theme': applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'),
     });
     const options = new Options(store, 'test/options');
     await options.load();
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
 
     const auditMock = vi
@@ -299,12 +329,12 @@ describe('appearancePanel & initSiteTheme', () => {
 
   it('reports remaining issues accurately when Auto-heal now returns 0 with unresolved contrast violations', async () => {
     const store = inMemoryStore({
-      'test/theme': { ...DEFAULT_THEME_CONFIG, preset: 'midnight' },
+      'test/theme': applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'),
     });
     const options = new Options(store, 'test/options');
     await options.load();
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
 
     const controller: ThemeController = {
@@ -335,7 +365,7 @@ describe('appearancePanel & initSiteTheme', () => {
     const options = new Options(store, 'test/options');
     await options.load();
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
     const controller = makeController();
     const panel = appearancePanel(saved, controller);
@@ -349,41 +379,41 @@ describe('appearancePanel & initSiteTheme', () => {
     // One-click Enter the Matrix vibe applies Hacker Terminal + Matrix Digital Rain + Glass + Glyphs.
     await userEvent.click(screen.getByRole('button', { name: /Enter the Matrix/i }));
     await vi.waitFor(() => {
-      expect(saved.get().preset).toBe('terminal-phosphor');
-      expect(saved.get().font).toBe('mono');
-      expect(saved.get().effects?.backdrop).toBe('digital-rain');
-      expect(saved.get().effects?.rainIntro).toBe('rain-in');
-      expect(saved.get().effects?.surface).toBe('glass');
-      expect(saved.get().effects?.click).toBe('matrix-burst');
+      expect(saved.get().id).toBe('enter-the-matrix');
+      expect(saved.get().typography?.preset).toBe('mono');
+      expect(saved.get().effects?.backdrop?.id).toBe('digital-rain');
+      expect(saved.get().effects?.backdrop?.params?.intro).toBe('rain-in');
+      expect(saved.get().effects?.surface?.finish).toBe('glass');
+      expect(saved.get().effects?.click?.id).toBe('matrix-burst');
     });
 
     // Matrix Rain tuner controls (including Rain intro) appear automatically and save live.
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Glyph charset' }), 'hex');
-    await vi.waitFor(() => expect(saved.get().effects?.rainCharset).toBe('hex'));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.charset).toBe('hex'));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Rain intro' }), 'filled');
-    await vi.waitFor(() => expect(saved.get().effects?.rainIntro).toBe('filled'));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.intro).toBe('filled'));
 
     // Switching to a static Color Theme clears active Studio effects AND resets vibe-owned mono font.
     await userEvent.click(screen.getByRole('button', { name: /Warm Paper/i }));
     await vi.waitFor(() => {
-      expect(saved.get().preset).toBe('warm-paper');
+      expect(saved.get().id).toBe('warm-paper');
       expect(saved.get().effects).toBeUndefined();
-      expect(saved.get().font).toBe('default');
+      expect(saved.get().typography).toBeUndefined();
     });
 
     // Switching to Vice City VI vibe activates GTA VI Vice Horizon + Gradient + Sparks.
     await userEvent.click(screen.getByRole('button', { name: /Vice City VI/i }));
     await vi.waitFor(() => {
-      expect(saved.get().preset).toBe('sunset-vapor');
-      expect(saved.get().effects?.backdrop).toBe('vice-horizon');
-      expect(saved.get().effects?.surface).toBe('gradient');
-      expect(saved.get().effects?.click).toBe('spark');
+      expect(saved.get().id).toBe('vice-city-vi');
+      expect(saved.get().effects?.backdrop?.id).toBe('vice-horizon');
+      expect(saved.get().effects?.surface?.finish).toBe('gradient');
+      expect(saved.get().effects?.click?.id).toBe('spark');
     });
 
     // Reset effects clears all studio effects while keeping the color palette intact.
     await userEvent.click(screen.getByRole('button', { name: 'Reset effects' }));
     await vi.waitFor(() => {
-      expect(saved.get().preset).toBe('sunset-vapor');
+      expect(saved.get().id).toBe('sunset-vapor');
       expect(saved.get().effects).toBeUndefined();
     });
   });
@@ -393,7 +423,7 @@ describe('appearancePanel & initSiteTheme', () => {
     const options = new Options(store, 'test/options');
     await options.load();
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
     const controller = makeController();
     const panel = appearancePanel(saved, controller);
@@ -404,19 +434,19 @@ describe('appearancePanel & initSiteTheme', () => {
     const velvet = screen.getByRole('button', { name: /Velvet Silk/i });
     await userEvent.click(velvet);
     await vi.waitFor(() => {
-      expect(saved.get().preset).toBe('crimson-velvet');
-      expect(saved.get().effects?.backdrop).toBe('silk');
-      expect(saved.get().effects?.surface).toBe('glass');
-      expect(saved.get().effects?.click).toBe('ripple');
+      expect(saved.get().id).toBe('velvet-silk');
+      expect(saved.get().effects?.backdrop?.id).toBe('silk');
+      expect(saved.get().effects?.surface?.finish).toBe('glass');
+      expect(saved.get().effects?.click?.id).toBe('ripple');
     });
     expect(velvet.getAttribute('aria-pressed')).toBe('true');
 
     // Silk is also a standalone background chip: switch away, then back.
     await userEvent.click(screen.getByRole('button', { name: /^Aurora/ }));
-    await vi.waitFor(() => expect(saved.get().effects?.backdrop).toBe('aurora'));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.id).toBe('aurora'));
     const silkChip = screen.getByRole('button', { name: /^Silk/ });
     await userEvent.click(silkChip);
-    await vi.waitFor(() => expect(saved.get().effects?.backdrop).toBe('silk'));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.id).toBe('silk'));
     expect(silkChip.getAttribute('aria-pressed')).toBe('true');
 
     // The click-effects copy promises calm, interactive-only feedback.
@@ -436,13 +466,13 @@ describe('appearancePanel & initSiteTheme', () => {
 
     globalThis.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
     fireEvent.blur(speedSlider);
-    await vi.waitFor(() => expect(saved.get().effects?.speed).toBe(1.65));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.speed).toBe(1.65));
     expect(setSpy).toHaveBeenCalledTimes(1);
 
     // Non-pointer (keyboard) input commits automatically after the 250ms fallback debounce.
     fireEvent.input(speedSlider, { target: { value: '1.25' } });
     expect(setSpy).toHaveBeenCalledTimes(1);
-    await vi.waitFor(() => expect(saved.get().effects?.speed).toBe(1.25));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.speed).toBe(1.25));
     expect(setSpy).toHaveBeenCalledTimes(2);
     setSpy.mockRestore();
   });
@@ -462,7 +492,7 @@ describe('appearancePanel & initSiteTheme', () => {
     });
     await options.load();
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
     const controller: ThemeController = {
       ...makeController(),
@@ -502,7 +532,7 @@ describe('appearancePanel & initSiteTheme', () => {
     const env = createDomEnvironment({ doc: document });
     const store = inMemoryStore();
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
 
     const runtime = initSiteTheme(env, data, facebookThemeMapping, { earlyCacheSiteId: siteId });
@@ -510,13 +540,13 @@ describe('appearancePanel & initSiteTheme', () => {
       // Save Catppuccin Mocha while previewing Site Default (`null`): sessionStorage must
       // cache Catppuccin Mocha (`#1e1e2e`), NOT the null preview (`""`).
       runtime.controller.preview(null);
-      await saved.set({ ...DEFAULT_THEME_CONFIG, preset: 'catppuccin-mocha' });
+      await saved.set(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'));
       await vi.waitFor(() => expect(readEarlyThemeCss(siteId)).toContain('#1e1e2e'));
 
       // Save Midnight Slate while previewing Warm Paper: sessionStorage must cache Midnight (`#0b0f17`).
-      const warmPaper = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'warm-paper' });
+      const warmPaper = resolveTheme(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'));
       runtime.controller.preview(warmPaper);
-      await saved.set({ ...DEFAULT_THEME_CONFIG, preset: 'midnight' });
+      await saved.set(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'));
       await vi.waitFor(() => expect(readEarlyThemeCss(siteId)).toContain('#0b0f17'));
       expect(readEarlyThemeCss(siteId)).not.toContain('#f4efe6');
     } finally {
@@ -531,7 +561,7 @@ describe('appearancePanel & initSiteTheme', () => {
     const options = new Options(store, 'test/options');
     await options.load();
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
     const controller = makeController();
     const panel = appearancePanel(saved, controller);
@@ -582,18 +612,18 @@ describe('appearancePanel & initSiteTheme', () => {
     // Apply without checking custom CSS: palette + effects apply, custom CSS stays excluded.
     await userEvent.click(screen.getByRole('button', { name: 'Apply imported theme' }));
     await vi.waitFor(() => {
-      expect(saved.get().document?.meta.name).toBe('Ocean Pulse');
-      expect(saved.get().document?.palette?.text).toBe('#111111');
-      expect(saved.get().effects?.backdrop).toBe('aurora');
-      expect(saved.get().customCss).toBe('');
+      expect(saved.get().meta.name).toBe('Ocean Pulse');
+      expect(saved.get().palette?.text).toBe('#111111');
+      expect(saved.get().effects?.backdrop?.id).toBe('aurora');
+      expect(saved.get().customCss).toBeUndefined();
     });
 
     // Active imported theme banner appears at the top of Appearance and can reset cleanly.
     expect(screen.getByRole('region', { name: 'Active imported theme' })).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
     await vi.waitFor(() => {
-      expect(saved.get().document).toBeUndefined();
-      expect(saved.get().preset).toBe('default');
+      expect(isCustomImportedDocument(saved.get())).toBe(false);
+      expect(saved.get().id).toBe('default');
     });
   });
 
@@ -602,7 +632,7 @@ describe('appearancePanel & initSiteTheme', () => {
     const options = new Options(store, 'test/options');
     await options.load();
     const data = new SavedData(store, 'test');
-    const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
     const controller = makeController();
     const panel = appearancePanel(saved, controller);
@@ -662,7 +692,7 @@ describe('appearancePanel & initSiteTheme', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: /Include custom CSS/i }));
     await userEvent.click(screen.getByRole('button', { name: 'Apply imported theme' }));
     await vi.waitFor(() => {
-      expect(saved.get().document?.meta.name).toBe('Imported Studio');
+      expect(saved.get().meta.name).toBe('Imported Studio');
       expect(saved.get().customCss).toContain('.keep { border-radius: 8px; }');
       expect(saved.get().customCss).not.toContain('evil.example');
     });
@@ -672,8 +702,7 @@ describe('appearancePanel & initSiteTheme', () => {
     expect(fontSelect.value).toBe('__imported__');
     await userEvent.selectOptions(fontSelect, 'default');
     await vi.waitFor(() => {
-      expect(saved.get().font).toBe('default');
-      expect(saved.get().document?.typography?.customStack).toBeUndefined();
+      expect(saved.get().typography).toBeUndefined();
     });
 
     // Export triggers Blob download and Copy JSON writes canonical JSON to clipboard.

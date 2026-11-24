@@ -11,7 +11,7 @@ import type {
   ThemePalette,
   ThemeRibbonSpec,
 } from './types';
-import { OWN_ATTR } from '../surface';
+import { OWN_ATTR, SHELL_ATTR } from '../surface';
 import {
   auditThemeCoverage,
   captureCssomSnapshot,
@@ -25,13 +25,18 @@ import {
   sameCssomSnapshot,
   samePalette,
 } from '../theme';
-import { createEffectsLayerController } from '../theme-effects';
+import {
+  createEffectsLayerController,
+  DEFAULT_POPUPS,
+  DEFAULT_SHELL_LANDMARKS,
+} from '../theme-effects';
 import { compileHostThemeCss, compileShadowThemeCss, compileUiThemeCss } from './compile';
 import { THEME_STYLE_ID } from './early-cache';
 
 const ADAPTIVE_STYLE_ID = 'feed_sanity_adaptive_theme';
 const SCHEME_RECHECK_DEBOUNCE_MS = 80;
 const CSSOM_CHECK_DEBOUNCE_MS = 400;
+const SHELL_SYNC_DEBOUNCE_MS = 50;
 const SCHEME_ATTR_FILTER = ['class', 'style', ...HOST_SCHEME_ATTRS];
 
 const isConnectedRoot = (root: Document | ShadowRoot): boolean =>
@@ -207,10 +212,13 @@ export function createThemeController(
   let recompileTimer: ReturnType<typeof setTimeout> | undefined;
   let schemeRecheckTimer: ReturnType<typeof setTimeout> | undefined;
   let cssomCheckTimer: ReturnType<typeof setTimeout> | undefined;
+  let shellSyncTimer: ReturnType<typeof setTimeout> | undefined;
   let backdropHealQueued = false;
+  let shellsSyncedForBody = false;
   let stopBackdropWatch: (() => void) | undefined;
   let stopCssomWatch: (() => void) | undefined;
   let schemeObserverActive = false;
+  const markedShells = new Set<Element>();
   const linkLoadAbort = new AbortController();
 
   const styles = new Map<Document | ShadowRoot, HTMLStyleElement>();
@@ -609,19 +617,208 @@ export function createThemeController(
     effectsLayer.sync(effects, palette, scheme);
   };
 
-  // Self-heal if the host SPA (e.g. React/Shreddit re-hydration) detaches our live backdrop host.
+  // Automatically mark outer layout wrapper ancestors (`data-fs-shell`) between
+  // `<body>` and semantic landmarks (`main`, `[role="main"]`, columns, cards) so
+  // Studio backdrops shine through without brittle per-site `> div > div` chains.
+  interface SelectorGroup {
+    readonly basic: string;
+    readonly hasList: readonly string[];
+  }
+  const compileSelectorGroup = (selectors: readonly string[]): SelectorGroup => {
+    const unique = [...new Set(selectors)];
+    return {
+      basic: unique.filter((sel) => !sel.includes(':has(')).join(', '),
+      hasList: unique.filter((sel) => sel.includes(':has(')),
+    };
+  };
+  const matchesGroup = (el: Element, group: SelectorGroup): boolean => {
+    if (group.basic) {
+      try {
+        if (el.matches(group.basic)) {
+          return true;
+        }
+      } catch {
+        // Invalid or unsupported selector syntax on host engine.
+      }
+    }
+    for (const hasSel of group.hasList) {
+      try {
+        if (el.matches(hasSel)) {
+          return true;
+        }
+      } catch {
+        // Older engines without `:has()` support skip only that rule.
+      }
+    }
+    return false;
+  };
+  const queryGroup = (group: SelectorGroup): Element[] => {
+    if (!env.doc.body) {
+      return [];
+    }
+    const found: Element[] = [];
+    if (group.basic) {
+      try {
+        for (const el of env.doc.body.querySelectorAll(group.basic)) {
+          found.push(el);
+        }
+      } catch {
+        // Ignore invalid selector group.
+      }
+    }
+    for (const hasSel of group.hasList) {
+      try {
+        for (const el of env.doc.body.querySelectorAll(hasSel)) {
+          found.push(el);
+        }
+      } catch {
+        // Ignore unsupported `:has()` rule.
+      }
+    }
+    return found;
+  };
+
+  const surfaces = mapping.surfaces;
+  const popups = surfaces?.popups?.length ? surfaces.popups : DEFAULT_POPUPS;
+  const contentSurfaces = [
+    ...new Set([
+      ...(surfaces?.columns ?? []),
+      ...(surfaces?.leafCards ?? []),
+      ...(surfaces?.softSurfaces ?? []),
+      ...(surfaces?.feedCards ?? []),
+    ]),
+  ];
+  const popupGroup = compileSelectorGroup(popups);
+  const opaqueSurfaceGroup = compileSelectorGroup([
+    ...contentSurfaces,
+    ...(surfaces?.searchContainers ?? []),
+  ]);
+  const landmarkAnchorGroup = compileSelectorGroup(DEFAULT_SHELL_LANDMARKS);
+  const parentAnchorGroup = compileSelectorGroup([
+    ...contentSurfaces,
+    ...(surfaces?.shellAnchors ?? []),
+  ]);
+  const allAnchorGroup = compileSelectorGroup([
+    ...DEFAULT_SHELL_LANDMARKS,
+    ...contentSurfaces,
+    ...(surfaces?.shellAnchors ?? []),
+  ]);
+
+  const cancelShellSync = (): void => {
+    if (shellSyncTimer !== undefined) {
+      clearTimeout(shellSyncTimer);
+      shellSyncTimer = undefined;
+    }
+  };
+
+  const clearBackdropShells = (): void => {
+    cancelShellSync();
+    shellsSyncedForBody = false;
+    for (const el of markedShells) {
+      el.removeAttribute(SHELL_ATTR);
+    }
+    markedShells.clear();
+  };
+
+  const syncBackdropShells = (): void => {
+    if (disposed || !env.doc.body) {
+      return;
+    }
+    shellsSyncedForBody = true;
+    const visited = new Set<Element>();
+    const blocked = new Set<Element>();
+    const nextMarked = new Set<Element>();
+    const markAncestors = (start: Element | null): void => {
+      const path: Element[] = [];
+      let abortedByBoundary = false;
+      for (
+        let cur = start;
+        cur && cur !== env.doc.body && cur !== env.doc.documentElement;
+        cur = cur.parentElement
+      ) {
+        if (blocked.has(cur) || isOwnUiElement(cur) || matchesGroup(cur, popupGroup)) {
+          blocked.add(cur);
+          visited.add(cur);
+          abortedByBoundary = true;
+          break;
+        }
+        if (visited.has(cur)) {
+          break;
+        }
+        path.push(cur);
+      }
+      if (abortedByBoundary) {
+        for (const el of path) {
+          blocked.add(el);
+          visited.add(el);
+        }
+        return;
+      }
+      for (const el of path) {
+        visited.add(el);
+        if (!matchesGroup(el, opaqueSurfaceGroup)) {
+          nextMarked.add(el);
+        }
+      }
+    };
+    for (const landmark of queryGroup(landmarkAnchorGroup)) {
+      // When a site omits declarative `surfaces`, `compileBackdropRevealCss` paints
+      // `main` / `[role="main"]` as fallback translucent cards, so only mark wrappers above them.
+      markAncestors(surfaces ? landmark : landmark.parentElement);
+    }
+    for (const surface of queryGroup(parentAnchorGroup)) {
+      markAncestors(surface.parentElement);
+    }
+    for (const prev of markedShells) {
+      if (!prev.isConnected || !nextMarked.has(prev)) {
+        prev.removeAttribute(SHELL_ATTR);
+        markedShells.delete(prev);
+      }
+    }
+    for (const el of nextMarked) {
+      if (!markedShells.has(el)) {
+        el.setAttribute(SHELL_ATTR, '');
+        markedShells.add(el);
+      }
+    }
+  };
+
+  const scheduleShellSync = (): void => {
+    if (disposed || shellSyncTimer !== undefined || !hasActiveBackdrop(effectiveTheme())) {
+      return;
+    }
+    shellSyncTimer = setTimeout(() => {
+      shellSyncTimer = undefined;
+      if (disposed || !hasActiveBackdrop(effectiveTheme())) {
+        return;
+      }
+      syncBackdropShells();
+    }, SHELL_SYNC_DEBOUNCE_MS);
+  };
+
+  // Self-heal if the host SPA (e.g. React/Shreddit re-hydration) detaches our live backdrop host,
+  // and keep `data-fs-shell` ancestors synced across SPA route changes.
   // Subscribed ONLY while a live backdrop is active so Site Default / static themes pay zero cost.
   const setBackdropWatcherActive = (active: boolean): void => {
     if (!active) {
       stopBackdropWatch?.();
       stopBackdropWatch = undefined;
+      clearBackdropShells();
       return;
     }
     if (stopBackdropWatch || disposed) {
       return;
     }
     stopBackdropWatch = env.watcher.watchTree({
-      removed: () => {
+      added: (el) => {
+        if (el.childElementCount > 0 || matchesGroup(el, allAnchorGroup)) {
+          scheduleShellSync();
+        }
+      },
+      removed: (el) => {
+        if (el.childElementCount > 0 || markedShells.has(el) || matchesGroup(el, allAnchorGroup)) {
+          scheduleShellSync();
+        }
         if (disposed || backdropHealQueued || effectsLayer.isBackdropConnected()) {
           return;
         }
@@ -744,6 +941,9 @@ export function createThemeController(
     }
     setSchemeObserverActive(Boolean(effective));
     setBackdropWatcherActive(backdropActive);
+    if (backdropActive && !shellsSyncedForBody) {
+      syncBackdropShells();
+    }
     setCssomWatcherActive(adaptiveTarget);
 
     // Re-verify native host polarity on palette transitions (including Appearance Panel
@@ -938,6 +1138,9 @@ export function createThemeController(
           ) {
             render();
           } else if (effective.effects) {
+            if (hasActiveBackdrop(effective) && !shellsSyncedForBody) {
+              syncBackdropShells();
+            }
             syncEffectsIfNeeded(effective.effects, effective.palette, scheme, true);
           }
         }

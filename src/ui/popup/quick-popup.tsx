@@ -3,7 +3,7 @@ import type { OptionValue } from '../../core/options';
 import type { PopupTabState } from '../../core/platform';
 import type { SiteSettingsClient, SiteStatus } from '../../core/site-settings';
 import type { Store } from '../../core/storage';
-import type { ThemeConfig } from '../../core/theming';
+import type { ThemeDocumentV1 } from '../../core/theming';
 import type { SavedVideoSpeed } from '../../sites/x/features/video-speed-model';
 import type { DragHandleProps } from '../primitives';
 import type { StarterModeId } from './starter-modes';
@@ -12,18 +12,18 @@ import { newFilter, newRule, readFilters } from '../../core/filter-types';
 import { createLogger } from '../../core/log';
 import { createSiteSettings } from '../../core/site-settings';
 import { isRecord, readStoreMany, watchStoreKey } from '../../core/storage';
-import {
-  BACKDROP_OPTIONS,
-  hasActiveEffects,
-  readThemeEffectsConfig,
-} from '../../core/theme-effects';
+import { BACKDROP_OPTIONS } from '../../core/theme-effects';
 import {
   applyThemePreset,
   clearThemeEffects,
+  describeThemeDocument,
+  documentEffectsToConfig,
   findActiveStudioVibe,
+  findActiveThemePreset,
   findThemePreset,
-  readThemeConfig,
+  readThemeDocument,
   THEME_DATA_KEY,
+  updateThemeEffects,
 } from '../../core/theming';
 import {
   clampVideoSpeed,
@@ -69,7 +69,7 @@ export interface QuickPopupProps {
   /** Optional caller-owned site settings client (reused by userscript runtime). */
   readonly siteSettings?: SiteSettingsClient;
   /** Optional callback notified whenever the active site's theme config loads or changes. */
-  readonly onThemeChange?: (config: ThemeConfig) => void;
+  readonly onThemeChange?: (doc: ThemeDocumentV1) => void;
   /** Opens the full Options dialog on the active tab, optionally jumping to `section`. */
   readonly onOpenSettings: (section?: string) => void;
   /** Opens a supported site URL (used in the unsupported-tab launcher). */
@@ -146,7 +146,7 @@ export function QuickPopup({
   const [sites, setSites] = useState<SiteStatus[]>(() => providedSiteSettings?.list() ?? []);
   const siteSettingsRef = useRef<SiteSettingsClient | undefined>(providedSiteSettings);
   const [optionsMap, setOptionsMap] = useState<Record<string, OptionValue>>({});
-  const [theme, setTheme] = useState<ThemeConfig>(() => readThemeConfig(undefined));
+  const [theme, setTheme] = useState<ThemeDocumentV1>(() => readThemeDocument(undefined));
   const [videoSpeed, setVideoSpeed] = useState<SavedVideoSpeed>(() => ({ ...DEFAULT_VIDEO_SPEED }));
   const [presetsOpen, setPresetsOpen] = useState(true);
   const [pendingMode, setPendingMode] = useState<StarterModeId | null>(null);
@@ -156,7 +156,7 @@ export function QuickPopup({
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const mutationSeqRef = useRef(0);
 
-  const syncTheme = useCallback((next: ThemeConfig): void => {
+  const syncTheme = useCallback((next: ThemeDocumentV1): void => {
     setTheme(next);
     onThemeChangeRef.current?.(next);
   }, []);
@@ -228,7 +228,7 @@ export function QuickPopup({
             !isCustomizedSetup(siteConfig.modes, loadedOptions, siteConfig.modeDefaults),
           );
         }
-        const nextTheme = readThemeConfig(loaded[themeKey]);
+        const nextTheme = readThemeDocument(loaded[themeKey]);
         syncTheme(nextTheme);
         if (speedKey) {
           setVideoSpeed(readSavedVideoSpeed(loaded[speedKey]));
@@ -246,7 +246,7 @@ export function QuickPopup({
       watchStoreKey(store, themeKey, (next) => {
         if (alive) {
           mutationSeqRef.current++;
-          syncTheme(readThemeConfig(next));
+          syncTheme(readThemeDocument(next));
         }
       }),
       ...(speedKey
@@ -273,6 +273,33 @@ export function QuickPopup({
     () => new Set(siteConfig?.toggles.map((t) => t.key) ?? []),
     [siteConfig],
   );
+
+  const {
+    activeEffects,
+    effectsActive,
+    activeVibe,
+    activePreset,
+    activeBackdrop,
+    themeBadgeLabel,
+  } = useMemo(() => {
+    const resolvedEffects = documentEffectsToConfig(theme.effects);
+    const hasEffects = Boolean(resolvedEffects);
+    const vibe = findActiveStudioVibe(theme);
+    const preset = findActiveThemePreset(theme);
+    const backdrop =
+      resolvedEffects && resolvedEffects.backdrop !== 'none'
+        ? BACKDROP_OPTIONS.find((opt) => opt.id === resolvedEffects.backdrop)
+        : undefined;
+    const summaryLabel = describeThemeDocument(theme).label;
+    return {
+      activeEffects: resolvedEffects,
+      effectsActive: hasEffects,
+      activeVibe: vibe,
+      activePreset: preset,
+      activeBackdrop: backdrop,
+      themeBadgeLabel: hasEffects && !vibe ? `${summaryLabel} · FX` : summaryLabel,
+    };
+  }, [theme]);
 
   const setSiteEnabled = (siteId: string, enabled: boolean): void => {
     const client = siteSettingsRef.current;
@@ -421,18 +448,18 @@ export function QuickPopup({
     setPendingMode(modeId);
   };
 
-  const updateThemeConfig = (
-    transform: (current: ThemeConfig) => ThemeConfig,
+  const updateThemeDocument = (
+    transform: (current: ThemeDocumentV1) => ThemeDocumentV1,
     toastLabel: string,
   ): void => {
     if (!themeKey) {
       return;
     }
     const key = themeKey;
-    let previous: ThemeConfig = theme;
+    let previous: ThemeDocumentV1 = theme;
     syncTheme(transform(theme));
     enqueueWrite(async () => {
-      const latest = readThemeConfig(await store.get(key));
+      const latest = readThemeDocument(await store.get(key));
       previous = latest;
       const next = transform(latest);
       await store.set(key, next);
@@ -447,34 +474,32 @@ export function QuickPopup({
   };
 
   const applyQuickTheme = (preset: string): void => {
-    const hadEffects = hasActiveEffects(theme.effects);
     const label = preset === 'default' ? 'Site Default' : (findThemePreset(preset)?.name ?? preset);
-    const suffix = hadEffects ? ' (FX cleared)' : '';
-    updateThemeConfig((current) => applyThemePreset(current, preset), `Theme: ${label}${suffix}`);
+    const suffix = effectsActive ? ' (FX cleared)' : '';
+    updateThemeDocument((current) => applyThemePreset(current, preset), `Theme: ${label}${suffix}`);
   };
 
   const toggleBackdropMotion = (): void => {
-    if (!hasActiveEffects(theme.effects)) {
+    if (!activeEffects) {
       return;
     }
-    const nextPaused = !readThemeEffectsConfig(theme.effects).paused;
-    updateThemeConfig(
+    const nextPaused = !activeEffects.paused;
+    updateThemeDocument(
       (current) => {
-        if (!hasActiveEffects(current.effects)) {
+        if (!documentEffectsToConfig(current.effects)) {
           return current;
         }
-        const parsed = readThemeEffectsConfig(current.effects);
-        return { ...current, effects: { ...parsed, paused: nextPaused } };
+        return updateThemeEffects(current, { paused: nextPaused });
       },
       nextPaused ? 'Background motion paused' : 'Background motion resumed',
     );
   };
 
   const clearStudioEffects = (): void => {
-    if (!hasActiveEffects(theme.effects)) {
+    if (!effectsActive) {
       return;
     }
-    updateThemeConfig((current) => clearThemeEffects(current), 'Studio effects off');
+    updateThemeDocument((current) => clearThemeEffects(current), 'Studio effects off');
   };
 
   const stepVideoSpeed = (delta: number): void => {
@@ -541,26 +566,6 @@ export function QuickPopup({
       });
     });
   };
-
-  let activeThemeName = 'Site Default';
-  if (theme.document) {
-    activeThemeName = theme.document.meta.name;
-  } else if (theme.preset && theme.preset !== 'default') {
-    activeThemeName = findThemePreset(theme.preset)?.name ?? 'Custom';
-  }
-  const effectsActive = hasActiveEffects(theme.effects);
-  const activeVibe = findActiveStudioVibe(theme);
-  const activeEffects = effectsActive ? readThemeEffectsConfig(theme.effects) : null;
-  const activeBackdrop =
-    activeEffects && activeEffects.backdrop !== 'none'
-      ? BACKDROP_OPTIONS.find((opt) => opt.id === activeEffects.backdrop)
-      : undefined;
-  let themeBadgeLabel = activeThemeName;
-  if (activeVibe) {
-    themeBadgeLabel = activeVibe.name;
-  } else if (effectsActive) {
-    themeBadgeLabel = `${activeThemeName} · FX`;
-  }
 
   let idleModeHint = `Pick a starter mode for ${activeTab.displayName}`;
   if (activeModeSpec) {
@@ -786,9 +791,7 @@ export function QuickPopup({
               className="qp-swatch-btn"
               title="Site Default"
               aria-label="Site Default theme"
-              aria-pressed={
-                !effectsActive && !theme.document && (!theme.preset || theme.preset === 'default')
-              }
+              aria-pressed={!effectsActive && theme.id === 'default'}
               onClick={() => applyQuickTheme('default')}
             >
               <span className="qp-swatch-fill qp-swatch-default" aria-hidden="true" />
@@ -800,7 +803,7 @@ export function QuickPopup({
                 className="qp-swatch-btn"
                 title={preset.name}
                 aria-label={`${preset.name} theme`}
-                aria-pressed={!effectsActive && !theme.document && theme.preset === preset.id}
+                aria-pressed={!effectsActive && activePreset?.id === preset.id}
                 onClick={() => applyQuickTheme(preset.id)}
               >
                 <span

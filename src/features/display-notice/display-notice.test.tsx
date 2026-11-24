@@ -6,9 +6,11 @@ import { inMemoryStore } from '../../core/testing';
 import { STUDIO_VIBES } from '../../core/theme-effects';
 import {
   applyStudioVibe,
-  DEFAULT_THEME_CONFIG,
+  applyThemePreset,
+  DEFAULT_THEME_DOCUMENT,
   THEME_FILE_FORMAT,
   THEME_SCHEMA_VERSION,
+  updateThemeTypography,
 } from '../../core/theming';
 import { facebookSite } from '../../sites/facebook';
 import { xSite } from '../../sites/x';
@@ -92,44 +94,40 @@ describe('display-notice feature (X & Facebook)', () => {
   });
 
   it('summarizes Site Default, preset, Studio Vibe, imported theme, and custom overrides accurately', () => {
-    expect(describeActiveTheme({ ...DEFAULT_THEME_CONFIG })).toEqual({
+    expect(describeActiveTheme({ ...DEFAULT_THEME_DOCUMENT })).toEqual({
       overriding: false,
       label: 'Site Default',
     });
-    expect(describeActiveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'warm-paper' })).toEqual({
+    expect(describeActiveTheme(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'))).toEqual({
       overriding: true,
       label: 'Warm Paper',
     });
     const velvetSilk = STUDIO_VIBES.find((vibe) => vibe.id === 'velvet-silk')!;
-    expect(describeActiveTheme(applyStudioVibe(DEFAULT_THEME_CONFIG, velvetSilk))).toEqual({
+    expect(describeActiveTheme(applyStudioVibe(DEFAULT_THEME_DOCUMENT, velvetSilk))).toEqual({
       overriding: true,
       label: velvetSilk.name,
     });
-    expect(describeActiveTheme({ ...DEFAULT_THEME_CONFIG, font: 'serif' })).toEqual({
+    expect(describeActiveTheme(updateThemeTypography(DEFAULT_THEME_DOCUMENT, 'serif'))).toEqual({
       overriding: true,
       label: 'Custom theme',
     });
     expect(
       describeActiveTheme({
-        ...DEFAULT_THEME_CONFIG,
-        preset: 'midnight',
-        document: {
-          format: THEME_FILE_FORMAT,
-          schemaVersion: THEME_SCHEMA_VERSION,
-          id: 'solarized-dusk',
-          meta: { name: 'Solarized Dusk' },
-          palette: {
-            colorScheme: 'dark',
-            background: '#002b36',
-            surface: '#073642',
-            surfaceAlt: '#0d414f',
-            text: '#eee8d5',
-            textMuted: '#93a1a1',
-            border: '#586e75',
-            accent: '#268bd2',
-            accentText: '#ffffff',
-            danger: '#dc322f',
-          },
+        format: THEME_FILE_FORMAT,
+        schemaVersion: THEME_SCHEMA_VERSION,
+        id: 'solarized-dusk',
+        meta: { name: 'Solarized Dusk' },
+        palette: {
+          colorScheme: 'dark',
+          background: '#002b36',
+          surface: '#073642',
+          surfaceAlt: '#0d414f',
+          text: '#eee8d5',
+          textMuted: '#93a1a1',
+          border: '#586e75',
+          accent: '#268bd2',
+          accentText: '#ffffff',
+          danger: '#dc322f',
         },
       }),
     ).toEqual({
@@ -224,10 +222,7 @@ describe('display-notice feature (X & Facebook)', () => {
     history.replaceState({}, '', '/settings/display');
     const section = renderXDisplaySettingsDom();
     const { platform, store } = makePlatform({
-      'v2/x/424242/theme': {
-        ...DEFAULT_THEME_CONFIG,
-        preset: 'warm-paper',
-      },
+      'v2/x/424242/theme': applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'),
     });
 
     const failed = await startSite(xSite, platform);
@@ -260,7 +255,7 @@ describe('display-notice feature (X & Facebook)', () => {
     });
 
     // Updating theme storage to Site Default updates the notice live.
-    await store.set('v2/x/424242/theme', { ...DEFAULT_THEME_CONFIG });
+    await store.set('v2/x/424242/theme', { ...DEFAULT_THEME_DOCUMENT });
     await vi.waitFor(() => {
       const shadowText = host?.shadowRoot?.textContent ?? '';
       expect(shadowText).toContain('Site Default');
@@ -296,10 +291,7 @@ describe('display-notice feature (X & Facebook)', () => {
     history.replaceState({}, '', '/settings/?tab=dark_mode_category');
     const fbMain = renderFacebookDarkModeDom();
     const { platform, store } = makePlatform({
-      '100000000000042/theme': {
-        ...DEFAULT_THEME_CONFIG,
-        preset: 'catppuccin-mocha',
-      },
+      '100000000000042/theme': applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'),
     });
 
     const failed = await startSite(facebookSite, platform);

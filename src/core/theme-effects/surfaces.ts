@@ -10,7 +10,7 @@ import type {
   ThemePalette,
 } from '../theming/types';
 import type { ThemeEffectsConfig } from './model';
-import { OWN_ATTR } from '../surface';
+import { OWN_ATTR, SHELL_ATTR } from '../surface';
 import { hexWithAlpha, splitSelectorList } from '../theme';
 import { formatRootSelectors, TEXT_INPUT_SELECTOR, wrapThemeLayer } from '../theming/types';
 import { THEME_EFFECT_BOUNDS } from './model';
@@ -19,7 +19,12 @@ export const BACKDROP_OWN_VALUE = 'theme-backdrop';
 export const BACKDROP_SELECTOR = `[${OWN_ATTR}="${BACKDROP_OWN_VALUE}"]`;
 export const CLICK_FX_OWN_VALUE = 'theme-click-fx';
 
-const DEFAULT_POPUPS: readonly string[] = ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'];
+export const DEFAULT_POPUPS: readonly string[] = [
+  '[role="dialog"]',
+  '[role="menu"]',
+  '[role="listbox"]',
+];
+export const DEFAULT_SHELL_LANDMARKS: readonly string[] = ['main', '[role="main"]'];
 
 /**
  * Computes safe surface alpha values from `glassStrength` (`0..0.65`) so text
@@ -41,6 +46,21 @@ export function resolveGlassMetrics(glassStrength: number): {
   return { columnAlpha, cardAlpha, blurPx };
 }
 
+function compileTransparentShellCss(extraShell?: readonly string[]): string {
+  const shellSelectors: string[] = [`[${SHELL_ATTR}]`, ...(extraShell ?? [])];
+  const basicShell = shellSelectors.filter((sel) => !sel.includes(':has('));
+  const hasShell = shellSelectors.filter((sel) => sel.includes(':has('));
+  const blocks: string[] = [
+    `${basicShell.join(',\n')} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
+  ];
+  if (hasShell.length > 0) {
+    blocks.push(
+      `${hasShell.join(',\n')} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
+    );
+  }
+  return blocks.join('\n\n');
+}
+
 function compileDeclarativeReveal(
   rootSelectors: readonly string[],
   surfaces: SurfaceSelectors,
@@ -51,7 +71,6 @@ function compileDeclarativeReveal(
 ): { readonly shellCss: string; readonly revealCss: string } {
   const popupAlpha = Math.max(0.96, metrics.cardAlpha);
   const fullMetrics = { ...metrics, popupAlpha };
-  const shellBlocks: string[] = [];
   const revealBlocks: string[] = [];
 
   // Bind `--fs-reveal-canvas` to transparent at the document root so Layer 1
@@ -65,21 +84,9 @@ function compileDeclarativeReveal(
   const varDecls = Object.entries(rootVars).map(([name, val]) => `  ${name}: ${val} !important;`);
   revealBlocks.push(`${rootSel} {\n${varDecls.join('\n')}\n}`);
 
-  if (surfaces.transparentShell && surfaces.transparentShell.length > 0) {
-    const shell = surfaces.transparentShell;
-    const basicShell = shell.filter((sel) => !sel.includes(':has('));
-    const hasShell = shell.filter((sel) => sel.includes(':has('));
-    if (basicShell.length > 0) {
-      shellBlocks.push(
-        `${basicShell.join(',\n')} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
-      );
-    }
-    if (hasShell.length > 0) {
-      shellBlocks.push(
-        `${hasShell.join(',\n')} {\n  background-color: transparent !important;\n  background-image: none !important;\n}`,
-      );
-    }
-  }
+  // Universal ancestor shell markers stamped dynamically by `ThemeController`
+  // replace per-site `> div > div` ladders across every current and future site.
+  const shellCss = compileTransparentShellCss(surfaces.transparentShell);
 
   if (surfaces.extraRevealCss) {
     const extra = surfaces.extraRevealCss(palette, fullMetrics).trim();
@@ -121,7 +128,7 @@ function compileDeclarativeReveal(
   );
 
   return {
-    shellCss: shellBlocks.join('\n\n'),
+    shellCss,
     revealCss: revealBlocks.join('\n\n'),
   };
 }
@@ -136,7 +143,7 @@ export function compileBackdropRevealCss(
   palette: ThemePalette | null,
   hostScheme: ThemeColorScheme,
   effects: ThemeEffectsConfig,
-  mapping?: Pick<SiteThemeMapping, 'rootSelectors' | 'surfaces' | 'backdropRevealCss'>,
+  mapping?: Pick<SiteThemeMapping, 'rootSelectors' | 'surfaces'>,
 ): string {
   if (effects.backdrop === 'none') {
     return '';
@@ -173,26 +180,25 @@ ${BACKDROP_SELECTOR} {
       surfaceBg,
       metrics,
     );
-    const blocks: string[] = [];
-    if (shellCss) {
-      blocks.push(wrapThemeLayer('fs-reveal-shell', shellCss));
-    }
-    blocks.push(wrapThemeLayer('fs-reveal', `${genericReveal.trim()}\n\n${revealCss}`));
-    return blocks.join('\n\n');
+    return [
+      wrapThemeLayer('fs-reveal-shell', shellCss),
+      wrapThemeLayer('fs-reveal', `${genericReveal.trim()}\n\n${revealCss}`),
+    ].join('\n\n');
   }
 
-  const legacySiteCss = mapping?.backdropRevealCss?.(palette, metrics).trim();
-  const fallbackCards = legacySiteCss
-    ? legacySiteCss
-    : `
-main, [role="main"], article {
+  const fallbackShell = wrapThemeLayer('fs-reveal-shell', compileTransparentShellCss());
+  const fallbackCards = `
+${DEFAULT_SHELL_LANDMARKS.join(', ')}, article {
   background-color: ${hexWithAlpha(surfaceBg, metrics.cardAlpha)} !important;
 }
 ${DEFAULT_POPUPS.join(', ')} {
   background-color: ${hexWithAlpha(surfaceBg, Math.max(0.96, metrics.cardAlpha))} !important;
 }`;
 
-  return wrapThemeLayer('fs-reveal', `${genericReveal.trim()}\n\n${fallbackCards.trim()}`);
+  return [
+    fallbackShell,
+    wrapThemeLayer('fs-reveal', `${genericReveal.trim()}\n\n${fallbackCards.trim()}`),
+  ].join('\n\n');
 }
 
 /**

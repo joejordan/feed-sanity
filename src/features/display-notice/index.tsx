@@ -5,18 +5,12 @@ import type { Locate, LocatorSpec } from '../../core/locator';
 import type { PageWatcher } from '../../core/page-watcher';
 import type { Scope } from '../../core/scope';
 import type { SlotPlacement } from '../../core/surface';
-import type { ThemeConfig } from '../../core/theming';
+import type { ThemeDocumentV1 } from '../../core/theming';
 import type { Watched } from '../../ui/watched';
 import { defineFeature } from '../../core/feature';
 import { pageWatcher } from '../../core/page-watcher';
 import { OWN_ATTR, whileOnRoute } from '../../core/surface';
-import {
-  findActiveStudioVibe,
-  findThemePreset,
-  readThemeConfig,
-  resolveTheme,
-  THEME_DATA_KEY,
-} from '../../core/theming';
+import { describeThemeDocument, readThemeDocument, THEME_DATA_KEY } from '../../core/theming';
 import { HOST_TAG, renderInShadow } from '../../ui/mount';
 import { UiIcon } from '../../ui/primitives';
 import css from './display-notice.css?inline';
@@ -48,24 +42,8 @@ export interface DisplayNoticeSpec {
   readonly findAnchor?: (container: Element) => DisplayNoticeAnchor;
 }
 
-export interface DisplayNoticeSummary {
-  readonly overriding: boolean;
-  readonly label: string;
-}
-
-/** Summarizes whether Feed Sanity currently overrides a host site's native display settings. */
-export function describeActiveTheme(config: ThemeConfig): DisplayNoticeSummary {
-  if (!resolveTheme(config)) {
-    return { overriding: false, label: 'Site Default' };
-  }
-  const importedName = config.document?.meta.name?.trim();
-  const label =
-    importedName ||
-    findActiveStudioVibe(config)?.name ||
-    findThemePreset(config.preset)?.name ||
-    'Custom theme';
-  return { overriding: true, label };
-}
+export type { ThemeSummary as DisplayNoticeSummary } from '../../core/theming';
+export { describeThemeDocument as describeActiveTheme } from '../../core/theming';
 
 function nonOwnChildren(parent: Element): Element[] {
   const result: Element[] = [];
@@ -176,11 +154,11 @@ function DisplayNotice({
 }: {
   readonly siteName: string;
   readonly layout: DisplayNoticeLayout;
-  readonly state: Watched<ThemeConfig>;
+  readonly state: Watched<ThemeDocumentV1>;
   readonly onOpenAppearance: () => void;
 }) {
-  const config = useSyncExternalStore(state.subscribe, state.get);
-  const { overriding, label } = describeActiveTheme(config);
+  const doc = useSyncExternalStore(state.subscribe, state.get);
+  const { overriding, label } = describeThemeDocument(doc);
 
   return (
     <aside
@@ -232,8 +210,8 @@ export function createDisplayNoticeFeature<P extends DisplayNoticePage>({
     id,
     options: {},
     setup({ page, data, scope }) {
-      const savedTheme = data.value(THEME_DATA_KEY, readThemeConfig);
-      const state: Watched<ThemeConfig> = {
+      const savedTheme = data.value(THEME_DATA_KEY, readThemeDocument);
+      const state: Watched<ThemeDocumentV1> = {
         get: () => savedTheme.get(),
         subscribe: (onChange) => savedTheme.onChange(() => onChange()),
       };

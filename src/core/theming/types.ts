@@ -1,5 +1,4 @@
 import type { ThemeEffectsConfig } from '../theme-effects/model';
-import type { ThemeDocumentV1 } from './document';
 
 /**
  * Deterministic CSS Cascade Layer order (CSS Cascading Level 5).
@@ -175,29 +174,6 @@ export function isThemeFontId(value: unknown): value is ThemeFontId {
   return typeof value === 'string' && Object.hasOwn(THEME_FONT_STACKS, value);
 }
 
-export interface ThemeConfig {
-  readonly preset: string;
-  readonly accent: string;
-  readonly background: string;
-  readonly surface: string;
-  readonly text: string;
-  readonly font: string;
-  readonly customCss: string;
-  readonly effects?: ThemeEffectsConfig;
-  /** Optional imported self-contained `.fstheme.json` theme document. */
-  readonly document?: ThemeDocumentV1;
-}
-
-export const DEFAULT_THEME_CONFIG: ThemeConfig = {
-  preset: 'default',
-  accent: '',
-  background: '',
-  surface: '',
-  text: '',
-  font: 'default',
-  customCss: '',
-};
-
 export const THEME_DATA_KEY = 'theme';
 
 export interface BackdropRevealMetrics {
@@ -216,8 +192,10 @@ export interface SurfaceRevealMetrics extends BackdropRevealMetrics {
  * opaque popups prevents stacking-context and `backdrop-filter` traps across sites.
  */
 export interface SurfaceSelectors {
-  /** Outer page/app wrappers made transparent so live backdrops shine through margins. */
+  /** Optional explicit semantic outer landmarks made transparent during active backdrops (layout ancestor wrappers are marked automatically via `data-fs-shell`). */
   readonly transparentShell?: readonly string[];
+  /** Optional extra semantic anchors whose ancestor wrappers up to `<body>` should be marked with `data-fs-shell` (in addition to `main`, `[role="main"]`, columns, and cards). */
+  readonly shellAnchors?: readonly string[];
   /** Primary reading columns painted at `columnAlpha` (never given `backdrop-filter`). */
   readonly columns?: readonly string[];
   /** Optional opacity multiplier applied to `columnAlpha` (defaults to `1`). */
@@ -266,11 +244,6 @@ export interface SiteThemeMapping {
   readonly shadowExtraCss?: (palette: ThemePalette) => string;
   /** Declarative surface selectors compiled centrally for backdrop reveal and surface finishes. */
   readonly surfaces?: SurfaceSelectors;
-  /** Legacy escape hatch for custom backdrop-reveal CSS when `surfaces` is not set. */
-  readonly backdropRevealCss?: (
-    palette: ThemePalette | null,
-    metrics: BackdropRevealMetrics,
-  ) => string;
   /** Opt-in automatic stylesheet compiler + real-time contrast/polarity self-healer. */
   readonly adaptive?: AdaptiveThemeMappingOptions;
 }

@@ -4,9 +4,9 @@ import type { SiteThemeMapping, ThemeController } from '../../core/theming';
 import type { OptionsPanel } from '../options-dialog/panel';
 import { createThemeController, resolveTheme, writeEarlyThemeCss } from '../../core/theming';
 import { setUserThemeCss } from '../mount';
-import { appearancePanel, readThemeConfig, THEME_DATA_KEY } from './appearance-panel';
+import { appearancePanel, readThemeDocument, THEME_DATA_KEY } from './appearance-panel';
 
-export { readThemeConfig, THEME_DATA_KEY } from './appearance-panel';
+export { readThemeDocument, THEME_DATA_KEY } from './appearance-panel';
 
 export interface SiteThemeRuntime {
   readonly controller: ThemeController;
@@ -24,7 +24,7 @@ export interface SiteThemeOptions {
 
 /**
  * Initializes first-class theming for a site: loads the site's persisted
- * `ThemeConfig` from `SavedData`, applies it while `active` (and whenever
+ * `ThemeDocumentV1` from `SavedData`, applies it while `active` (and whenever
  * storage changes across tabs), and returns the ready-to-mount `Appearance` panel.
  */
 export function initSiteTheme(
@@ -33,7 +33,7 @@ export function initSiteTheme(
   mapping: SiteThemeMapping,
   { active: initialActive = true, earlyCacheSiteId }: SiteThemeOptions = {},
 ): SiteThemeRuntime {
-  const saved = data.value(THEME_DATA_KEY, readThemeConfig);
+  const saved = data.value(THEME_DATA_KEY, readThemeDocument);
   const controller = createThemeController(env, mapping, setUserThemeCss);
   let active = initialActive;
   let loaded = false;

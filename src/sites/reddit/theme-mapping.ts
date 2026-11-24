@@ -90,13 +90,7 @@ header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
 }
 `.trim(),
   surfaces: {
-    transparentShell: [
-      'shreddit-app',
-      'shreddit-app > div:has(main):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
-      'shreddit-app > div > div:has(main):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
-      'main',
-      'reddit-header-large',
-    ],
+    transparentShell: ['reddit-header-large'],
     softSurfaces: [
       'header',
       'nav',

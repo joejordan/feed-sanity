@@ -4,9 +4,15 @@ import { savedFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { Options } from '../core/options';
 import { SavedData } from '../core/saved';
+import {
+  applyThemePreset,
+  DEFAULT_THEME_DOCUMENT,
+  updateThemePalette,
+  updateThemeTypography,
+} from '../core/theming';
 import { LOCATOR_OVERRIDES } from '../facebook/feature';
 import { extensionStore } from '../platform/extension-store';
-import { readThemeConfig, THEME_DATA_KEY } from '../ui/appearance';
+import { readThemeDocument, THEME_DATA_KEY } from '../ui/appearance';
 import { applyBackup, exportBackup, parseBackup, resetAllData } from './transfer';
 
 const SPECS = {
@@ -138,26 +144,26 @@ describe('data transfer', () => {
     });
   });
 
-  it('exports, imports, and resets saved theme configurations alongside options and filters', async () => {
+  it('exports, imports, and resets saved theme documents (and migrates legacy v0 backups)', async () => {
     const stores = makeStores();
-    const theme = data.value(THEME_DATA_KEY, readThemeConfig);
+    const theme = data.value(THEME_DATA_KEY, readThemeDocument);
     await Promise.all([stores.filters.ready, stores.locators.ready, theme.ready]);
-    await theme.set({
-      preset: 'nord',
-      accent: '#88c0d0',
-      background: '',
-      surface: '',
-      text: '',
-      font: 'serif',
-      customCss: '',
-    });
+    const customNord = updateThemeTypography(
+      updateThemePalette(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'nord'), { accent: '#88c0d0' }),
+      'serif',
+    );
+    await theme.set(customNord);
 
     const withTheme = { ...stores, theme };
     const exported = exportBackup(withTheme);
-    expect(JSON.parse(exported).theme).toMatchObject({ preset: 'nord', font: 'serif' });
+    expect(JSON.parse(exported).theme).toMatchObject({
+      id: 'nord',
+      typography: { preset: 'serif' },
+    });
 
     await resetAllData(withTheme);
-    expect(theme.get().preset).toBe('default');
+    expect(theme.get().id).toBe('default');
+    expect(theme.get().palette).toBeNull();
 
     const parsed = parseBackup(exported, options.list());
     expect(parsed.ok).toBe(true);
@@ -166,6 +172,23 @@ describe('data transfer', () => {
     }
     const summary = await applyBackup(parsed, withTheme);
     expect(summary).toContain('theme');
-    expect(theme.get()).toMatchObject({ preset: 'nord', accent: '#88c0d0', font: 'serif' });
+    expect(theme.get()).toMatchObject({
+      id: 'nord',
+      palette: { accent: '#88c0d0' },
+      typography: { preset: 'serif' },
+    });
+
+    // Legacy v0 flat theme backup imports cleanly into canonical ThemeDocumentV1.
+    const legacyBackup = JSON.stringify({
+      theme: { preset: 'warm-paper', font: 'mono', accent: '', customCss: '' },
+    });
+    const parsedLegacy = parseBackup(legacyBackup, options.list());
+    expect(parsedLegacy.ok).toBe(true);
+    if (!parsedLegacy.ok) {
+      return;
+    }
+    await applyBackup(parsedLegacy, withTheme);
+    expect(theme.get().id).toBe('warm-paper');
+    expect(theme.get().typography).toEqual({ preset: 'mono' });
   });
 });

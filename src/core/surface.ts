@@ -6,6 +6,8 @@ import { OWN_ATTR, pageWatcher } from './page-watcher';
 
 /** Attribute marking one of Facebook's elements that a feature is temporarily hiding. */
 export const HIDDEN_ATTR = 'data-feed-sanity-hidden';
+/** Attribute marking an outer host layout wrapper made transparent while a Studio backdrop runs. */
+export const SHELL_ATTR = 'data-fs-shell';
 /** Attribute marking an element this project inserted into the host DOM. */
 export { OWN_ATTR };
 /** Custom element tag hosting Feed Sanity's own Shadow DOM UI. */

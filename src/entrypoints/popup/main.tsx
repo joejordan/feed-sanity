@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
 import type { PopupTabState } from '../../core/platform';
-import type { ThemeConfig } from '../../core/theming';
+import type { ThemeDocumentV1 } from '../../core/theming';
 import { compileUiThemeCss, resolveTheme } from '../../core/theming';
 import { extensionStore } from '../../platform/extension-store';
 import { GET_POPUP_STATE, isPopupTabState, openOptionsMessage } from '../../platform/messages';
@@ -136,8 +136,8 @@ function PopupApp() {
     };
   }, []);
 
-  const handleThemeChange = useCallback((config: ThemeConfig) => {
-    const resolved = resolveTheme(config);
+  const handleThemeChange = useCallback((doc: ThemeDocumentV1) => {
+    const resolved = resolveTheme(doc);
     injectStyle('fs-popup-user-theme', resolved ? toDocumentCss(compileUiThemeCss(resolved)) : '');
   }, []);
 

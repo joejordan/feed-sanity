@@ -8,7 +8,7 @@ import { siteStoragePrefix } from '../../core/site-storage';
 import { dataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
-import { readThemeConfig, THEME_DATA_KEY } from '../../ui/appearance';
+import { readThemeDocument, THEME_DATA_KEY } from '../../ui/appearance';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createRedditPage, REDDIT_LOCATOR_OVERRIDES } from './feature';
 import redditFeedFilters from './features/feed-filters';
@@ -57,7 +57,7 @@ export const redditSite: SiteAdapter<RedditPage, ReturnType<typeof createRedditP
           options,
           filters: savedFilters(data),
           locators: overrides,
-          theme: data.value(THEME_DATA_KEY, readThemeConfig),
+          theme: data.value(THEME_DATA_KEY, readThemeDocument),
         },
         { siteName: 'Reddit' },
       ),

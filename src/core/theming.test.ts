@@ -4,10 +4,12 @@ import { instagramThemeMapping } from '../sites/instagram/theme-mapping';
 import { xThemeMapping } from '../sites/x/theme-mapping';
 import { HOST_TAG, renderInShadow, setUserThemeCss } from '../ui/mount';
 import { createDomEnvironment } from './dom-env';
+import { SHELL_ATTR } from './surface';
 import { samePalette } from './theme';
 import { BACKDROP_SELECTOR, DEFAULT_THEME_EFFECTS } from './theme-effects';
 import {
   applyEarlyThemeCss,
+  applyThemePreset,
   BUILTIN_THEMES,
   clearEarlyThemeStyle,
   compileHostThemeCss,
@@ -16,15 +18,19 @@ import {
   contrastingText,
   contrastRatio,
   createThemeController,
-  DEFAULT_THEME_CONFIG,
+  DEFAULT_THEME_DOCUMENT,
   hexToHslTriplet,
   hexToRgbTriplet,
   hexWithAlpha,
   mixHex,
   normalizeHex,
   readEarlyThemeCss,
+  readThemeDocument,
   resolveTheme,
   THEME_FONT_STACKS,
+  updateThemeCustomCss,
+  updateThemePalette,
+  updateThemeTypography,
   writeEarlyThemeCss,
 } from './theming';
 
@@ -65,7 +71,7 @@ describe('first-class multi-site theming engine', () => {
   });
 
   it('compiles shadowExtraCss and manages the synchronous zero-FOUC early theme cache', () => {
-    const resolved = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'midnight' })!;
+    const resolved = resolveTheme(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'))!;
     const shadowCss = compileShadowThemeCss(resolved, {
       rootSelectors: [':root'],
       shadowExtraCss: (p) => `.card { background: ${p.surface}; }`,
@@ -87,18 +93,19 @@ describe('first-class multi-site theming engine', () => {
   });
 
   it('resolves presets, keeps font/customCss orthogonal from Site Default colors, and blocks prototype keys', () => {
-    expect(resolveTheme(DEFAULT_THEME_CONFIG)).toBeNull();
+    expect(resolveTheme(DEFAULT_THEME_DOCUMENT)).toBeNull();
 
-    const catppuccin = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'catppuccin-mocha' });
+    const catppuccin = resolveTheme(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'));
     expect(catppuccin?.palette?.background).toBe('#1e1e2e');
     expect(catppuccin?.palette?.colorScheme).toBe('dark');
 
     // Font or custom CSS alone on Site Default must NOT force Midnight Slate colors!
-    const fontOnly = resolveTheme({
-      ...DEFAULT_THEME_CONFIG,
-      font: 'serif',
-      customCss: 'article { border-radius: 12px; }',
-    });
+    const fontOnly = resolveTheme(
+      updateThemeCustomCss(
+        updateThemeTypography(DEFAULT_THEME_DOCUMENT, 'serif'),
+        'article { border-radius: 12px; }',
+      ),
+    );
     expect(fontOnly?.palette).toBeNull();
     expect(fontOnly?.fontFamily).toBe(THEME_FONT_STACKS.serif);
     expect(fontOnly?.customCss).toBe('article { border-radius: 12px; }');
@@ -112,30 +119,30 @@ describe('first-class multi-site theming engine', () => {
     );
 
     // Prototype-chain keys like `toString` or `constructor` must be ignored cleanly.
-    expect(resolveTheme({ ...DEFAULT_THEME_CONFIG, font: 'toString' })).toBeNull();
-    expect(resolveTheme({ ...DEFAULT_THEME_CONFIG, font: 'constructor' })).toBeNull();
+    expect(resolveTheme(readThemeDocument({ font: 'toString' }))).toBeNull();
+    expect(resolveTheme(readThemeDocument({ font: 'constructor' }))).toBeNull();
 
     // Custom light canvas on top of 'default' infers light colorScheme and contrasting accentText.
-    const customLight = resolveTheme({
-      ...DEFAULT_THEME_CONFIG,
-      background: '#faf6ef',
-      accent: '#fde047',
-      font: 'serif',
-    });
+    const customLight = resolveTheme(
+      updateThemeTypography(
+        updateThemePalette(DEFAULT_THEME_DOCUMENT, { background: '#faf6ef', accent: '#fde047' }),
+        'serif',
+      ),
+    );
     expect(customLight?.palette?.colorScheme).toBe('light');
     expect(customLight?.palette?.background).toBe('#faf6ef');
     expect(customLight?.palette?.accentText).toBe('#111111');
 
     // Invalid hex values are ignored cleanly without producing broken CSS.
-    expect(resolveTheme({ ...DEFAULT_THEME_CONFIG, accent: 'not-a-color' })).toBeNull();
+    expect(
+      resolveTheme(updateThemePalette(DEFAULT_THEME_DOCUMENT, { accent: 'not-a-color' })),
+    ).toBeNull();
   });
 
   it('compiles host, shadow (:host), and Feed Sanity UI CSS accurately across Facebook, Instagram, and X', () => {
-    const resolved = resolveTheme({
-      ...DEFAULT_THEME_CONFIG,
-      preset: 'catppuccin-mocha',
-      font: 'mono',
-    })!;
+    const resolved = resolveTheme(
+      updateThemeTypography(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'), 'mono'),
+    )!;
 
     const fbCss = compileHostThemeCss(resolved, facebookThemeMapping);
     expect(fbCss).toContain(':root, .__fb-dark-mode, .__fb-light-mode');
@@ -171,7 +178,7 @@ describe('first-class multi-site theming engine', () => {
     expect(xShadowCss).toContain('--color-background: 240 21% 15% !important;');
     expect(xShadowCss).not.toContain(':root');
 
-    const warmPaperResolved = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'warm-paper' })!;
+    const warmPaperResolved = resolveTheme(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'))!;
     const xLightCss = compileHostThemeCss(warmPaperResolved, xThemeMapping);
     expect(xLightCss).toContain('color-scheme: light !important;');
     expect(xLightCss).toContain('--x-bg-primary: #f4efe6 !important;');
@@ -391,7 +398,7 @@ describe('first-class multi-site theming engine', () => {
       ).toBeGreaterThanOrEqual(preset.id === 'midnight' ? 3.5 : 4.5);
     }
 
-    const serifOnly = resolveTheme({ ...DEFAULT_THEME_CONFIG, font: 'serif' })!;
+    const serifOnly = resolveTheme(updateThemeTypography(DEFAULT_THEME_DOCUMENT, 'serif'))!;
     const hostCss = compileHostThemeCss(serifOnly, xThemeMapping);
     expect(hostCss).toContain(
       '@layer fs-user, fs-reveal-shell, fs-healer, fs-finish, fs-reveal, fs-mapping, fs-adaptive;',
@@ -407,27 +414,29 @@ describe('first-class multi-site theming engine', () => {
     expect(shadowCss).toContain(':host {\n  font-family: Georgia');
     expect(shadowCss).toContain('--x-font-sans: Georgia');
 
-    const prism = resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'prism-aurora' })!;
+    const prism = resolveTheme(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'prism-aurora'))!;
     expect(compileHostThemeCss(prism, xThemeMapping)).toContain('linear-gradient(90deg, #ff3b8d');
     expect(compileHostThemeCss(prism, xThemeMapping)).not.toContain('background-attachment: fixed');
     expect(compileUiThemeCss(prism)).toContain('linear-gradient(90deg, #ff3b8d');
 
     // Normal custom CSS stays unlayered so non-!important user rules beat layered rules;
     // !important custom CSS enters @layer fs-user (highest !important priority).
-    const normalCustom = resolveTheme({
-      ...DEFAULT_THEME_CONFIG,
-      preset: 'midnight',
-      customCss: 'article { border-radius: 12px; }',
-    })!;
+    const normalCustom = resolveTheme(
+      updateThemeCustomCss(
+        applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'),
+        'article { border-radius: 12px; }',
+      ),
+    )!;
     const normalCustomCss = compileHostThemeCss(normalCustom, xThemeMapping);
     expect(normalCustomCss).not.toContain('@layer fs-user {');
     expect(normalCustomCss.trim().endsWith('article { border-radius: 12px; }')).toBe(true);
 
-    const importantCustom = resolveTheme({
-      ...DEFAULT_THEME_CONFIG,
-      preset: 'midnight',
-      customCss: 'a { color: #ff0000 !important; }',
-    })!;
+    const importantCustom = resolveTheme(
+      updateThemeCustomCss(
+        applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'),
+        'a { color: #ff0000 !important; }',
+      ),
+    )!;
     expect(compileHostThemeCss(importantCustom, xThemeMapping)).toContain('@layer fs-user {');
   });
 
@@ -839,5 +848,105 @@ describe('first-class multi-site theming engine', () => {
       },
       { timeout: 1500 },
     );
+  });
+
+  it('automatically marks ancestor shell wrappers with data-fs-shell during Studio backdrops, skips popups/own UI, tracks SPA additions, and cleans up on exit', async () => {
+    document.body.innerHTML = `
+      <div id="app-root">
+        <div id="deep-wrapper-1">
+          <div id="deep-wrapper-2">
+            <main role="main" id="main-landmark">
+              <div id="col-wrapper">
+                <div data-testid="primaryColumn" id="primary-col">
+                  <article id="feed-post">Post</article>
+                </div>
+              </div>
+              <div data-testid="sidebarColumn" id="sidebar-col">
+                <div id="sidebar-inner">
+                  <aside id="leaf-card" role="complementary" aria-label="Who to follow">Card</aside>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+        <div role="dialog" id="modal-dialog">
+          <div id="modal-inner">
+            <article data-testid="tweet" id="modal-article">Dialog tweet</article>
+          </div>
+        </div>
+        <feed-sanity-ui data-feed-sanity="" id="own-ui-host">
+          <div id="own-ui-inner">
+            <main id="own-ui-main">Own UI main</main>
+          </div>
+        </feed-sanity-ui>
+      </div>
+    `;
+
+    const env = createDomEnvironment();
+    cleanups.push(() => env.dispose());
+    const controller = createThemeController(env, xThemeMapping, vi.fn());
+    cleanups.push(() => controller.dispose());
+
+    const midnight = BUILTIN_THEMES[0]!.palette;
+
+    // Static theme (no Studio backdrop) stamps zero SHELL_ATTR attributes.
+    controller.apply({ palette: midnight });
+    expect(document.querySelectorAll(`[${SHELL_ATTR}]`).length).toBe(0);
+
+    // Enabling a Studio backdrop automatically marks every arbitrary wrapper ancestor between
+    // semantic landmarks/cards and <body> without hardcoded `div > div` ladders.
+    controller.apply({
+      palette: midnight,
+      effects: { ...DEFAULT_THEME_EFFECTS, backdrop: 'aurora', surface: 'glass' },
+    });
+
+    expect(document.querySelector('#app-root')?.hasAttribute(SHELL_ATTR)).toBe(true);
+    expect(document.querySelector('#deep-wrapper-1')?.hasAttribute(SHELL_ATTR)).toBe(true);
+    expect(document.querySelector('#deep-wrapper-2')?.hasAttribute(SHELL_ATTR)).toBe(true);
+    expect(document.querySelector('#main-landmark')?.hasAttribute(SHELL_ATTR)).toBe(true);
+    expect(document.querySelector('#col-wrapper')?.hasAttribute(SHELL_ATTR)).toBe(true);
+    expect(document.querySelector('#sidebar-col')?.hasAttribute(SHELL_ATTR)).toBe(true);
+    expect(document.querySelector('#sidebar-inner')?.hasAttribute(SHELL_ATTR)).toBe(true);
+    // Semantic content surfaces themselves, dialogs, and Feed Sanity's own UI interior wrappers
+    // must NEVER be marked transparent shell.
+    expect(document.querySelector('#primary-col')?.hasAttribute(SHELL_ATTR)).toBe(false);
+    expect(document.querySelector('#leaf-card')?.hasAttribute(SHELL_ATTR)).toBe(false);
+    expect(document.querySelector('#modal-dialog')?.hasAttribute(SHELL_ATTR)).toBe(false);
+    expect(document.querySelector('#modal-inner')?.hasAttribute(SHELL_ATTR)).toBe(false);
+    expect(document.querySelector('#own-ui-host')?.hasAttribute(SHELL_ATTR)).toBe(false);
+    expect(document.querySelector('#own-ui-inner')?.hasAttribute(SHELL_ATTR)).toBe(false);
+    expect(document.querySelector('#own-ui-main')?.hasAttribute(SHELL_ATTR)).toBe(false);
+
+    // Dynamically inserted SPA subtrees get their wrapper ancestors marked automatically.
+    const lateShell = document.createElement('div');
+    lateShell.id = 'late-spa-shell';
+    const lateCard = document.createElement('section');
+    lateCard.id = 'late-card';
+    lateCard.setAttribute('aria-label', 'Trending');
+    lateShell.append(lateCard);
+    document.querySelector('#sidebar-col')?.append(lateShell);
+
+    await vi.waitFor(() => {
+      expect(lateShell.hasAttribute(SHELL_ATTR)).toBe(true);
+    });
+    expect(lateCard.hasAttribute(SHELL_ATTR)).toBe(false);
+
+    // Turning the backdrop off removes every SHELL_ATTR cleanly.
+    controller.apply({ palette: midnight });
+    expect(document.querySelectorAll(`[${SHELL_ATTR}]`).length).toBe(0);
+
+    // Fallback site mapping (no declarative `surfaces`): only wrappers ABOVE `<main>` get SHELL_ATTR
+    // so `<main>` keeps its fallback `cardAlpha` background in `@layer fs-reveal`.
+    const fallbackController = createThemeController(env, { rootSelectors: [':root'] }, vi.fn());
+    cleanups.push(() => fallbackController.dispose());
+    fallbackController.apply({
+      palette: midnight,
+      effects: { ...DEFAULT_THEME_EFFECTS, backdrop: 'aurora' },
+    });
+    expect(document.querySelector('#app-root')?.hasAttribute(SHELL_ATTR)).toBe(true);
+    expect(document.querySelector('#deep-wrapper-2')?.hasAttribute(SHELL_ATTR)).toBe(true);
+    expect(document.querySelector('#main-landmark')?.hasAttribute(SHELL_ATTR)).toBe(false);
+    fallbackController.apply(null);
+    expect(document.querySelectorAll(`[${SHELL_ATTR}]`).length).toBe(0);
   });
 });

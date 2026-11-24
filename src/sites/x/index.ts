@@ -8,7 +8,7 @@ import { siteStoragePrefix } from '../../core/site-storage';
 import { dataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
-import { readThemeConfig, THEME_DATA_KEY } from '../../ui/appearance';
+import { readThemeDocument, THEME_DATA_KEY } from '../../ui/appearance';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createXPage, X_LOCATOR_OVERRIDES } from './feature';
 import xDefaultFollowing from './features/default-following';
@@ -60,7 +60,7 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
           options,
           filters: savedFilters(data),
           locators: overrides,
-          theme: data.value(THEME_DATA_KEY, readThemeConfig),
+          theme: data.value(THEME_DATA_KEY, readThemeDocument),
         },
         { siteName: 'X (Twitter)' },
       ),

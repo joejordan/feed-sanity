@@ -14,7 +14,7 @@ import type { Scope } from '../scope';
 import type { ThemeColorScheme, ThemePalette } from '../theming';
 import type { RgbaColor } from './color';
 import { parentAcrossShadows } from '../dom';
-import { addStyleAcrossRoots, isOwnUiElement, OWN_ATTR, OWN_UI_TAG } from '../surface';
+import { addStyleAcrossRoots, isOwnUiElement, OWN_ATTR, OWN_UI_TAG, SHELL_ATTR } from '../surface';
 import { withThemeLayerOrder, wrapThemeLayer } from '../theming/types';
 import {
   colorSchemeOf,
@@ -275,7 +275,13 @@ export function createThemeHealer(
   let disposed = false;
 
   const isTransparentShell = (el: Element): boolean => {
-    if (!backdropActive || shellSelectors.length === 0) {
+    if (!backdropActive) {
+      return false;
+    }
+    if (el.hasAttribute(SHELL_ATTR)) {
+      return true;
+    }
+    if (shellSelectors.length === 0) {
       return false;
     }
     for (const sel of shellSelectors) {
