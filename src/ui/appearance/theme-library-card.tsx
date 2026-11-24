@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { SavedThemeEntry, ThemeCapabilities, ThemeDocumentV1 } from '../../core/theming';
 import { MAX_LIBRARY_THEMES } from '../../core/theming';
 import { Badge, SettingCard, TextInput } from '../primitives';
-import { downloadThemeDocumentFile, ThemeSwatches } from './theme-transfer';
+import { downloadThemeDocumentFile, previewLeaveProps, ThemeSwatches } from './theme-transfer';
 
 export interface AnalyzedLibraryEntry {
   readonly entry: SavedThemeEntry;
@@ -16,6 +16,7 @@ export interface ThemeLibraryCardProps {
   readonly activeFingerprint: string;
   readonly onSaveCurrent: (name: string) => void;
   readonly onApplyEntry: (entry: SavedThemeEntry) => void;
+  readonly onPreviewEntry?: (entry: SavedThemeEntry | null) => void;
   readonly onApplyAllSites: (doc: ThemeDocumentV1) => void;
   readonly onRenameEntry: (entryId: string, nextName: string) => void;
   readonly onDeleteEntry: (entry: SavedThemeEntry) => void;
@@ -60,6 +61,7 @@ interface SavedThemeItemProps {
   readonly onCommitRename: () => void;
   readonly onCancelRename: () => void;
   readonly onApply: () => void;
+  readonly onPreview: () => void;
   readonly onApplyAllSites: () => void;
   readonly onExport: () => void;
   readonly onDelete: () => void;
@@ -75,6 +77,7 @@ function SavedThemeItem({
   onCommitRename,
   onCancelRename,
   onApply,
+  onPreview,
   onApplyAllSites,
   onExport,
   onDelete,
@@ -113,6 +116,8 @@ function SavedThemeItem({
             type="button"
             className="theme-library-select"
             aria-pressed={isActive}
+            onMouseEnter={onPreview}
+            onFocus={onPreview}
             onClick={onApply}
           >
             <ThemeSwatches swatches={swatches} />
@@ -172,6 +177,7 @@ export function ThemeLibraryCard({
   activeFingerprint,
   onSaveCurrent,
   onApplyEntry,
+  onPreviewEntry,
   onApplyAllSites,
   onRenameEntry,
   onDeleteEntry,
@@ -266,7 +272,12 @@ export function ThemeLibraryCard({
             one click or apply across every site.
           </p>
         ) : (
-          <div className="theme-grid" role="group" aria-label="Saved themes">
+          <div
+            className="theme-grid"
+            role="group"
+            aria-label="Saved themes"
+            {...previewLeaveProps(() => onPreviewEntry?.(null))}
+          >
             {items.map((item) => (
               <SavedThemeItem
                 key={item.entry.id}
@@ -276,18 +287,27 @@ export function ThemeLibraryCard({
                 renameDraft={renameDraft}
                 onRenameDraftChange={setRenameDraft}
                 onStartRename={() => {
+                  onPreviewEntry?.(null);
                   setRenamingId(item.entry.id);
                   setRenameDraft(item.entry.document.meta.name);
                 }}
                 onCommitRename={() => commitRename(item.entry.id)}
                 onCancelRename={() => setRenamingId(null)}
                 onApply={() => onApplyEntry(item.entry)}
+                onPreview={() => {
+                  if (renamingId === null) {
+                    onPreviewEntry?.(item.entry);
+                  }
+                }}
                 onApplyAllSites={() => onApplyAllSites(item.entry.document)}
                 onExport={() => {
                   const filename = downloadThemeDocumentFile(item.entry.document);
                   onExportEntry?.(item.entry, filename);
                 }}
-                onDelete={() => onDeleteEntry(item.entry)}
+                onDelete={() => {
+                  onPreviewEntry?.(null);
+                  onDeleteEntry(item.entry);
+                }}
               />
             ))}
           </div>

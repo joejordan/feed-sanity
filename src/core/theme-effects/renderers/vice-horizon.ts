@@ -11,9 +11,24 @@ import type { Rgb } from './palette';
 import type { Scene, SceneFactory, SceneSpec, SceneViewport } from './scene-host';
 import type { Palm } from './vice-palms';
 import { createRandom } from '../digital-rain/math';
+import { deriveEffectParams, VICE_HORIZON_PARAM_SPECS } from '../model';
 import { createLayer, createRadialSprite, wrap } from './canvas';
 import { hexRgb, mixRgb, rgbCss } from './palette';
 import { createFronds, drawPalm } from './vice-palms';
+
+const viceHorizonParams = deriveEffectParams(VICE_HORIZON_PARAM_SPECS, (p) => ({
+  sunScale: p.sunScale as number,
+  palms: p.palms as boolean,
+  sunSlices: p.sunSlices as boolean,
+  clouds: p.clouds as boolean,
+}));
+
+function releaseLayer(layer: Layer | null): void {
+  if (layer) {
+    layer.canvas.width = 0;
+    layer.canvas.height = 0;
+  }
+}
 
 const HORIZON = 0.665;
 const SKYLINE_MARGIN = 48;
@@ -187,6 +202,8 @@ function buildSkyline(
   const far = createLayer(doc, span, height, ratio);
   const near = createLayer(doc, span, height, ratio);
   if (!far || !near) {
+    releaseLayer(far);
+    releaseLayer(near);
     return null;
   }
   const neon: NeonMark[] = [];
@@ -340,6 +357,7 @@ function bokehSprite(doc: Document, color: Rgb): HTMLCanvasElement | null {
 interface ViceFrame {
   readonly horizonY: number;
   readonly oceanH: number;
+  readonly sunScale: number;
   readonly sunR: number;
   readonly sky: CanvasGradient;
   readonly sea: CanvasGradient;
@@ -354,12 +372,17 @@ interface ViceFrame {
   readonly sunDisc: CanvasGradient | null;
 }
 
-function buildFrame(c: CanvasRenderingContext2D, doc: Document, view: SceneViewport): ViceFrame {
+function buildFrame(
+  c: CanvasRenderingContext2D,
+  doc: Document,
+  view: SceneViewport,
+  sunScale: number,
+): ViceFrame {
   const w = view.cssWidth;
   const h = view.cssHeight;
   const horizonY = Math.round(h * HORIZON);
   // Wide enough that the disc's rim peeks past a 600px reading column.
-  const sunR = Math.max(130, Math.min(Math.min(w, h) * 0.4, 470));
+  const sunR = Math.max(95, Math.min(Math.min(w, h) * 0.4, 470) * sunScale);
   const linear = (y0: number, y1: number, stops: ReadonlyArray<readonly [number, string]>) => {
     const grad = c.createLinearGradient(0, y0, 0, y1);
     for (const [offset, color] of stops) {
@@ -401,6 +424,7 @@ function buildFrame(c: CanvasRenderingContext2D, doc: Document, view: SceneViewp
   return {
     horizonY,
     oceanH: h - horizonY,
+    sunScale,
     sunR,
     sky: linear(0, horizonY, [
       [0, '#0a0520'],
@@ -480,6 +504,7 @@ const createViceCanvas: SceneFactory = (canvas) => {
   const doc = canvas.ownerDocument;
   const seed = 0x0c_17_56;
   let frame: ViceFrame | null = null;
+  let sunStaticClean = false;
   let skyline: Skyline | null = null;
   let clouds: CloudBank[] = [];
   let palms: Palm[] = [];
@@ -523,16 +548,34 @@ const createViceCanvas: SceneFactory = (canvas) => {
     phase: moteRand() * Math.PI * 2,
   }));
 
+  const releaseOffscreenLayers = (): void => {
+    releaseLayer(frame?.sun ?? null);
+    frame = null;
+    releaseLayer(skyline?.far ?? null);
+    releaseLayer(skyline?.near ?? null);
+    skyline = null;
+    for (const bank of clouds) {
+      releaseLayer(bank.layer);
+    }
+    clouds = [];
+    releaseLayer(palmStrips?.left ?? null);
+    releaseLayer(palmStrips?.right ?? null);
+    palmStrips = null;
+  };
+
   const scene: Scene = {
     kind: 'canvas2d',
     renderScale: 0.75,
     maxPixelRatio: 1.25,
     maxPixels: 1_200_000,
     resize(view) {
+      const prevSunScale = frame?.sunScale ?? 1;
+      releaseOffscreenLayers();
       const rand = createRandom(seed);
       const w = view.cssWidth;
       const h = view.cssHeight;
-      frame = buildFrame(c, doc, view);
+      frame = buildFrame(c, doc, view, prevSunScale);
+      sunStaticClean = false;
       skyline = buildSkyline(doc, rand, w, h, view.pixelRatio);
       clouds = buildClouds(doc, rand, w, h * HORIZON);
       const builtPalms = buildPalms(rand, w, h);
@@ -557,13 +600,23 @@ const createViceCanvas: SceneFactory = (canvas) => {
         palmStrips = { left, right, width: stripW, bleedX, bleedY };
         palms = [];
       } else {
+        releaseLayer(left);
+        releaseLayer(right);
         palmStrips = null;
         palms = builtPalms;
       }
     },
-    render({ view, time, dt, pointer }) {
-      if (!frame) {
-        return;
+    render({ ctx, view, time, dt, pointer }) {
+      const {
+        sunScale,
+        palms: showPalms,
+        sunSlices: showSunSlices,
+        clouds: showClouds,
+      } = viceHorizonParams(ctx.effects.backdropParams);
+      if (!frame || frame.sunScale !== sunScale) {
+        releaseLayer(frame?.sun ?? null);
+        frame = buildFrame(c, doc, view, sunScale);
+        sunStaticClean = false;
       }
       const { horizonY, oceanH, sunR } = frame;
       const w = view.cssWidth;
@@ -602,40 +655,47 @@ const createViceCanvas: SceneFactory = (canvas) => {
 
       const { sun, sunDisc } = frame;
       if (sun && sunDisc) {
-        const sg = sun.g;
         const sunW = sunR * 2 + 4;
         const sunH = sunR * 1.32 + 2;
         const cx = sunW / 2;
         const cy = sunR + 2;
-        sg.setTransform(ratio, 0, 0, ratio, 0, 0);
-        sg.globalCompositeOperation = 'source-over';
-        sg.clearRect(0, 0, sunW, sunH);
-        sg.fillStyle = sunDisc;
-        sg.beginPath();
-        sg.arc(cx, cy, sunR, 0, Math.PI * 2);
-        sg.fill();
-        // Retro slices drift downward and widen, cut cleanly so the sky shows through.
-        sg.globalCompositeOperation = 'destination-out';
-        sg.fillStyle = '#000';
-        const slices = 7;
-        const offset = (sliceClock * 0.07) % 1;
-        for (let i = 0; i < slices; i++) {
-          const p = (i + offset) / slices;
-          const y = cy + sunR * (0.04 + p * 0.96);
-          if (y > sunH) {
-            break;
+        if (showSunSlices || !sunStaticClean) {
+          const sg = sun.g;
+          sg.setTransform(ratio, 0, 0, ratio, 0, 0);
+          sg.globalCompositeOperation = 'source-over';
+          sg.clearRect(0, 0, sunW, sunH);
+          sg.fillStyle = sunDisc;
+          sg.beginPath();
+          sg.arc(cx, cy, sunR, 0, Math.PI * 2);
+          sg.fill();
+          if (showSunSlices) {
+            // Retro slices drift downward and widen, cut cleanly so the sky shows through.
+            sg.globalCompositeOperation = 'destination-out';
+            sg.fillStyle = '#000';
+            const slices = 7;
+            const offset = (sliceClock * 0.07) % 1;
+            for (let i = 0; i < slices; i++) {
+              const p = (i + offset) / slices;
+              const y = cy + sunR * (0.04 + p * 0.96);
+              if (y > sunH) {
+                break;
+              }
+              const thick = sunR * (0.008 + p * p * 0.075);
+              sg.fillRect(0, y - thick / 2, sunW, thick);
+            }
           }
-          const thick = sunR * (0.008 + p * p * 0.075);
-          sg.fillRect(0, y - thick / 2, sunW, thick);
+          sunStaticClean = !showSunSlices;
         }
         c.drawImage(sun.canvas, sunX - cx, sunY - cy, sunW, sunH);
       }
 
       // 4. Lit tropical cloud banks drifting slowly.
-      for (const bank of clouds) {
-        const travel = w + bank.width;
-        const x = wrap(bank.x0 * travel + drift * bank.speed, travel) - bank.width;
-        c.drawImage(bank.layer.canvas, x - px * 6, bank.y - py * 3, bank.width, bank.height);
+      if (showClouds) {
+        for (const bank of clouds) {
+          const travel = w + bank.width;
+          const x = wrap(bank.x0 * travel + drift * bank.speed, travel) - bank.width;
+          c.drawImage(bank.layer.canvas, x - px * 6, bank.y - py * 3, bank.width, bank.height);
+        }
       }
 
       // 5. Atmospheric horizon bloom (upper half only: the opaque sea covers the rest).
@@ -768,27 +828,29 @@ const createViceCanvas: SceneFactory = (canvas) => {
       c.globalCompositeOperation = 'source-over';
 
       // 8. Palms framing only the outer margins (cached strips swayed via shear transform).
-      const sway = Math.sin(time * 0.55) * 0.6 + Math.sin(time * 1.13 + 1) * 0.4;
-      if (palmStrips) {
-        const { left, right, width, bleedX, bleedY } = palmStrips;
-        const shear = sway * 0.012;
-        const shiftX = -px * 24;
-        const shiftY = -py * 6;
-        c.setTransform(ratio, 0, shear * ratio, ratio, shiftX * ratio, (h + shiftY) * ratio);
-        c.drawImage(left.canvas, -bleedX, -h, width + bleedX, h + bleedY);
-        c.drawImage(right.canvas, w - width, -h, width + bleedX, h + bleedY);
-        c.setTransform(ratio, 0, 0, ratio, 0, 0);
-      } else {
-        for (const palm of palms) {
-          const depth = palm.back ? 18 : 28;
-          drawPalm(
-            c,
-            palm,
-            sway * (palm.back ? 0.7 : 1),
-            time,
-            -px * depth,
-            -py * (palm.back ? 4 : 7),
-          );
+      if (showPalms) {
+        const sway = Math.sin(time * 0.55) * 0.6 + Math.sin(time * 1.13 + 1) * 0.4;
+        if (palmStrips) {
+          const { left, right, width, bleedX, bleedY } = palmStrips;
+          const shear = sway * 0.012;
+          const shiftX = -px * 24;
+          const shiftY = -py * 6;
+          c.setTransform(ratio, 0, shear * ratio, ratio, shiftX * ratio, (h + shiftY) * ratio);
+          c.drawImage(left.canvas, -bleedX, -h, width + bleedX, h + bleedY);
+          c.drawImage(right.canvas, w - width, -h, width + bleedX, h + bleedY);
+          c.setTransform(ratio, 0, 0, ratio, 0, 0);
+        } else {
+          for (const palm of palms) {
+            const depth = palm.back ? 18 : 28;
+            drawPalm(
+              c,
+              palm,
+              sway * (palm.back ? 0.7 : 1),
+              time,
+              -px * depth,
+              -py * (palm.back ? 4 : 7),
+            );
+          }
         }
       }
 
@@ -821,6 +883,9 @@ const createViceCanvas: SceneFactory = (canvas) => {
       c.fillStyle = frame.vignette;
       c.fillRect(0, 0, w, h);
       c.setTransform(1, 0, 0, 1, 0, 0);
+    },
+    dispose() {
+      releaseOffscreenLayers();
     },
   };
   return scene;

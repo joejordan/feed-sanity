@@ -22,6 +22,18 @@ export interface ThemeTransferDisclosureProps {
   readonly notify?: (message: string, onUndo?: () => void) => void;
 }
 
+/** Shared mouseleave + focus-leaving props that clear a card-grid live hover preview cleanly. */
+export function previewLeaveProps(onClear: () => void) {
+  return {
+    onMouseLeave: onClear,
+    onBlur: (event: { currentTarget: HTMLElement; relatedTarget: EventTarget | null }) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        onClear();
+      }
+    },
+  };
+}
+
 /** Decorative row of palette preview dots shared across preset, library, and import cards. */
 export function ThemeSwatches({ swatches }: { readonly swatches: readonly string[] }) {
   if (swatches.length === 0) {

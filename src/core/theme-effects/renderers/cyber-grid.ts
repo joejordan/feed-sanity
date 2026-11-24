@@ -5,7 +5,14 @@
 import type { Rgb, ScenePalette } from './palette';
 import type { Scene, SceneFactory, SceneSpec } from './scene-host';
 import { createRandom } from '../digital-rain/math';
+import { CYBER_GRID_PARAM_SPECS, deriveEffectParams } from '../model';
 import { mixRgb, rgbCss, WHITE } from './palette';
+
+const cyberGridParams = deriveEffectParams(CYBER_GRID_PARAM_SPECS, (p) => ({
+  gridDensity: p.gridDensity as number,
+  mountains: p.mountains as boolean,
+  scanPulse: p.scanPulse as boolean,
+}));
 
 const HORIZON = 0.56;
 const Z_NEAR = 1;
@@ -209,7 +216,12 @@ const createCyberGridCanvas: SceneFactory = (canvas) => {
     renderScale: 0.75,
     maxPixelRatio: 1.25,
     maxPixels: 1_000_000,
-    render({ palette, view, time, dt, pointer }) {
+    render({ ctx, palette, view, time, dt, pointer }) {
+      const {
+        gridDensity,
+        mountains: showMountains,
+        scanPulse: showScanPulse,
+      } = cyberGridParams(ctx.effects.backdropParams);
       const light = palette.scheme === 'light';
       const w = view.cssWidth;
       const h = view.cssHeight;
@@ -243,38 +255,41 @@ const createCyberGridCanvas: SceneFactory = (canvas) => {
       c.setTransform(pr, 0, 0, pr, 0, 0);
 
       // Geometric mountains with luminous ridge lines.
-      drawRidge(
-        c,
-        FAR_RIDGE,
-        w,
-        horizonY,
-        h,
-        -lean * 6,
-        paints.farFill,
-        paints.farRim,
-        paints.farFacet,
-      );
-      drawRidge(
-        c,
-        NEAR_RIDGE,
-        w,
-        horizonY,
-        h,
-        -lean * 12,
-        paints.nearFill,
-        paints.nearRim,
-        paints.nearFacet,
-      );
+      if (showMountains) {
+        drawRidge(
+          c,
+          FAR_RIDGE,
+          w,
+          horizonY,
+          h,
+          -lean * 6,
+          paints.farFill,
+          paints.farRim,
+          paints.farFacet,
+        );
+        drawRidge(
+          c,
+          NEAR_RIDGE,
+          w,
+          horizonY,
+          h,
+          -lean * 12,
+          paints.nearFill,
+          paints.nearRim,
+          paints.nearFacet,
+        );
+      }
 
       // Floor.
       c.fillStyle = paints.floor;
       c.fillRect(0, horizonY, w, floorH);
 
-      scroll = (scroll + dt * 0.9) % ROW_SPACING;
+      const rowSpacing = ROW_SPACING / gridDensity;
+      scroll = (scroll + dt * 0.9) % rowSpacing;
       // Horizontal rows at perspective depths, densest near the horizon.
       let rowCount = 0;
       for (let k = 0; k < MAX_ROWS; k++) {
-        const z = Z_NEAR + k * ROW_SPACING - scroll;
+        const z = Z_NEAR + k * rowSpacing - scroll;
         if (z < Z_NEAR * 0.98 || z > Z_FAR) {
           continue;
         }
@@ -287,7 +302,7 @@ const createCyberGridCanvas: SceneFactory = (canvas) => {
         rowCount += 1;
       }
       // Columns converge on the vanishing point; at the bottom edge (z = Z_NEAR) they sit `spread` apart.
-      const spread = w * COLUMN_SPREAD;
+      const spread = (w * COLUMN_SPREAD) / gridDensity;
       const columnCount = Math.ceil((w * 1.6) / spread);
       // Two passes: a soft glow, then a crisp hairline.
       for (const [pass, vertical] of paints.verticals.entries()) {
@@ -316,7 +331,7 @@ const createCyberGridCanvas: SceneFactory = (canvas) => {
       // Horizon scan pulse rolling toward the viewer (reuses cached unit gradient).
       scanClock += dt;
       const phase = scanClock % SCAN_PERIOD;
-      if (phase < SCAN_DURATION) {
+      if (showScanPulse && phase < SCAN_DURATION) {
         const s = phase / SCAN_DURATION;
         const y = horizonY + floorH * s * s;
         const band = 2 + s * 14;

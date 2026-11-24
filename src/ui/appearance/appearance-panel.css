@@ -624,3 +624,29 @@
   flex-direction: column;
   gap: 8px;
 }
+
+.theme-palette-gen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--fs-divider);
+  border-radius: 8px;
+  background: var(--fs-background);
+}
+
+.theme-palette-gen-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fs-text);
+}
+
+.theme-chrome-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--fs-divider);
+}

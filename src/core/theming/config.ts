@@ -2,9 +2,11 @@
 // and immutable document editors.
 
 import type { StudioVibe, ThemeEffectsConfig } from '../theme-effects';
+import type { PaletteMood } from './color-utils';
 import type { ThemeDocumentV1 } from './document';
 import type {
   ResolvedTheme,
+  ThemeChromeConfig,
   ThemeColorScheme,
   ThemeFontId,
   ThemePalette,
@@ -20,6 +22,8 @@ import {
 } from '../theme-effects';
 import {
   contrastingText,
+  flipPaletteScheme,
+  generateThemePalette,
   getPaletteSwatches,
   hydratePalette,
   normalizeHex,
@@ -51,8 +55,9 @@ const STUDIO_VIBE_BY_ID: ReadonlyMap<string, StudioVibe> = new Map(
 function optionalSwatches(
   palette: ThemePalette | null,
   custom?: readonly string[],
+  includeSecondaryAccent = false,
 ): { readonly swatches?: readonly string[] } {
-  const swatches = getPaletteSwatches(palette, custom);
+  const swatches = getPaletteSwatches(palette, custom, includeSecondaryAccent);
   return swatches.length >= 2 ? { swatches } : {};
 }
 
@@ -226,16 +231,19 @@ function withPalettePatch(
   basePalette: ThemePalette | null,
   patch: Partial<ThemePalette>,
 ): ThemePalette | null {
-  const accent = patch.accent === undefined ? null : normalizeHex(patch.accent);
-  const background = patch.background === undefined ? null : normalizeHex(patch.background);
-  const surface = patch.surface === undefined ? null : normalizeHex(patch.surface);
-  const text = patch.text === undefined ? null : normalizeHex(patch.text);
-  const surfaceAlt = patch.surfaceAlt === undefined ? null : normalizeHex(patch.surfaceAlt);
-  const textMuted = patch.textMuted === undefined ? null : normalizeHex(patch.textMuted);
-  const border = patch.border === undefined ? null : normalizeHex(patch.border);
-  const accentSecondary =
-    patch.accentSecondary === undefined ? null : normalizeHex(patch.accentSecondary);
-  const danger = patch.danger === undefined ? null : normalizeHex(patch.danger);
+  const readHex = (raw: string | undefined): string | null =>
+    raw === undefined ? null : normalizeHex(raw);
+  const accent = readHex(patch.accent);
+  const background = readHex(patch.background);
+  const surface = readHex(patch.surface);
+  const text = readHex(patch.text);
+  const surfaceAlt = readHex(patch.surfaceAlt);
+  const textMuted = readHex(patch.textMuted);
+  const border = readHex(patch.border);
+  const clearAccentSecondary =
+    patch.accentSecondary === '' && Boolean(basePalette?.accentSecondary);
+  const accentSecondary = readHex(patch.accentSecondary);
+  const danger = readHex(patch.danger);
 
   if (
     !accent &&
@@ -246,6 +254,7 @@ function withPalettePatch(
     !textMuted &&
     !border &&
     !accentSecondary &&
+    !clearAccentSecondary &&
     !danger
   ) {
     return basePalette;
@@ -260,15 +269,18 @@ function withPalettePatch(
   const resolvedSurface = surface ?? base.surface;
   const resolvedText = text ?? base.text;
   const resolvedAccent = accent ?? base.accent;
-  const nextSecondary = accentSecondary ?? base.accentSecondary;
+  const nextSecondary = clearAccentSecondary
+    ? undefined
+    : (accentSecondary ?? base.accentSecondary);
   let resolvedScheme: ThemeColorScheme = base.colorScheme;
   if (background !== null) {
     resolvedScheme = inferredLight ? 'light' : 'dark';
   }
 
   if (resolvedScheme === base.colorScheme) {
+    const { accentSecondary: _oldSecondary, ...restBase } = base;
     return {
-      ...base,
+      ...restBase,
       colorScheme: resolvedScheme,
       background: resolvedBg,
       surface: resolvedSurface,
@@ -380,6 +392,72 @@ export function applyThemeDocument(
   return doc;
 }
 
+function buildPaletteRibbon(palette: ThemePalette | null) {
+  const primary = palette?.accent ?? '#3b82f6';
+  const secondary = palette?.accentSecondary ?? palette?.danger ?? '#a855f7';
+  return {
+    enabled: true,
+    stops: [primary, secondary],
+    angle: 90,
+    height: 3,
+    position: 'top' as const,
+  };
+}
+
+function buildPaletteAmbientGlow(palette: ThemePalette | null) {
+  const primary = palette?.accent ?? '#3b82f6';
+  const secondary = palette?.accentSecondary ?? palette?.danger ?? '#a855f7';
+  const isLight = palette?.colorScheme === 'light';
+  return {
+    enabled: true,
+    spots: [
+      { color: primary, alpha: isLight ? 0.08 : 0.14, x: 14, y: 12, radiusX: 55, radiusY: 38 },
+      { color: secondary, alpha: isLight ? 0.06 : 0.11, x: 86, y: 84, radiusX: 50, radiusY: 36 },
+    ],
+  };
+}
+
+function buildPaletteChrome(
+  palette: ThemePalette | null,
+  ribbonEnabled: boolean,
+  glowEnabled: boolean,
+): ThemeChromeConfig | undefined {
+  if (!ribbonEnabled && !glowEnabled) {
+    return undefined;
+  }
+  return {
+    ...(ribbonEnabled ? { ribbon: buildPaletteRibbon(palette) } : {}),
+    ...(glowEnabled ? { ambientGlow: buildPaletteAmbientGlow(palette) } : {}),
+  };
+}
+
+function replaceThemePalette(
+  doc: ThemeDocumentV1,
+  nextPalette: ThemePalette,
+  refreshChrome = false,
+): ThemeDocumentV1 {
+  const fromDefault = doc.id === 'default';
+  const nextChrome = refreshChrome
+    ? buildPaletteChrome(
+        nextPalette,
+        Boolean(doc.chrome?.ribbon?.enabled),
+        Boolean(doc.chrome?.ambientGlow?.enabled),
+      )
+    : doc.chrome;
+  const { chrome: _oldChrome, ...rest } = doc;
+  return {
+    ...rest,
+    id: fromDefault ? 'custom' : doc.id,
+    meta: {
+      ...doc.meta,
+      ...(fromDefault ? { name: 'Custom theme' } : {}),
+      ...optionalSwatches(nextPalette, undefined, true),
+    },
+    palette: nextPalette,
+    ...(nextChrome ? { chrome: nextChrome } : {}),
+  };
+}
+
 /** Updates one or more palette tokens on `doc`, auto-hydrating polarity flips and refreshing swatches. */
 export function updateThemePalette(
   doc: ThemeDocumentV1,
@@ -389,16 +467,57 @@ export function updateThemePalette(
   if (!nextPalette || nextPalette === doc.palette) {
     return doc;
   }
-  const fromDefault = doc.id === 'default';
+  return replaceThemePalette(doc, nextPalette, false);
+}
+
+/** Replaces `doc.palette` with a WCAG-AA palette generated from `seedHex` and `mood`. */
+export function applyGeneratedPalette(
+  doc: ThemeDocumentV1,
+  seedHex: string,
+  mood: PaletteMood,
+): ThemeDocumentV1 {
+  return replaceThemePalette(doc, generateThemePalette(seedHex, mood), true);
+}
+
+/** Flips `doc.palette` between dark and light mode while preserving accent identity. */
+export function flipThemeColorScheme(doc: ThemeDocumentV1): ThemeDocumentV1 {
+  if (!doc.palette) {
+    return doc;
+  }
+  return replaceThemePalette(doc, flipPaletteScheme(doc.palette), true);
+}
+
+/** Toggles declarative chrome accents (top ribbon, ambient corner glow) while preserving untouched custom specs. */
+export function updateThemeChrome(
+  doc: ThemeDocumentV1,
+  patch: { readonly ribbon?: boolean; readonly ambientGlow?: boolean },
+): ThemeDocumentV1 {
+  let ribbon = doc.chrome?.ribbon;
+  if (patch.ribbon === false) {
+    ribbon = undefined;
+  } else if (patch.ribbon === true) {
+    ribbon = ribbon ? { ...ribbon, enabled: true } : buildPaletteRibbon(doc.palette);
+  }
+
+  let ambientGlow = doc.chrome?.ambientGlow;
+  if (patch.ambientGlow === false) {
+    ambientGlow = undefined;
+  } else if (patch.ambientGlow === true) {
+    ambientGlow = ambientGlow
+      ? { ...ambientGlow, enabled: true }
+      : buildPaletteAmbientGlow(doc.palette);
+  }
+
+  const { chrome: _oldChrome, ...rest } = doc;
+  if (!ribbon && !ambientGlow) {
+    return rest;
+  }
   return {
-    ...doc,
-    id: fromDefault ? 'custom' : doc.id,
-    meta: {
-      ...doc.meta,
-      ...(fromDefault ? { name: 'Custom theme' } : {}),
-      ...optionalSwatches(nextPalette),
+    ...rest,
+    chrome: {
+      ...(ribbon ? { ribbon } : {}),
+      ...(ambientGlow ? { ambientGlow } : {}),
     },
-    palette: nextPalette,
   };
 }
 

@@ -784,9 +784,12 @@ describe('appearancePanel & initSiteTheme', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Save' }));
       await vi.waitFor(() => expect(library.list()[0]?.document.meta.name).toBe('Cyber Matrix'));
 
-      // Delete the saved entry, then restore it with Undo.
+      // Deleting a hovered saved theme clears live preview even when the library grid unmounts, then Undo restores it.
+      vi.mocked(controller.clearPreview).mockClear();
+      fireEvent.mouseEnter(screen.getByRole('button', { name: /^Cyber Matrix/i }));
       await userEvent.click(screen.getByRole('button', { name: 'Delete Cyber Matrix' }));
       await vi.waitFor(() => expect(library.list()).toHaveLength(0));
+      expect(controller.clearPreview).toHaveBeenCalled();
       await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
       await vi.waitFor(() => expect(library.list()).toHaveLength(1));
 
@@ -934,5 +937,67 @@ describe('appearancePanel & initSiteTheme', () => {
       xEnv.dispose();
       redditEnv.dispose();
     }
+  });
+
+  it('previews themes on hover without saving, generates WCAG-AA palettes with Dark/Light flip & chrome switches, and tunes non-Matrix backdrops', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+    // Hovering a Color Theme previews live without saving, and mouseleave clears preview.
+    const nordBtn = screen.getByRole('button', { name: /Nord/i });
+    const presetsGroup = screen.getByRole('group', { name: 'Theme presets' });
+    fireEvent.mouseEnter(nordBtn);
+    expect(controller.preview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        palette: expect.objectContaining({ colorScheme: 'dark' }),
+      }),
+    );
+    expect(saved.get().id).toBe('default');
+    fireEvent.mouseLeave(presetsGroup);
+    expect(controller.clearPreview).toHaveBeenCalledTimes(1);
+
+    // Hover -> click commits and resets hoverPreviewActiveRef so subsequent mouseLeave does not clear preview prematurely.
+    vi.mocked(controller.clearPreview).mockClear();
+    fireEvent.mouseEnter(nordBtn);
+    await userEvent.click(nordBtn);
+    await vi.waitFor(() => expect(saved.get().id).toBe('nord'));
+    vi.mocked(controller.clearPreview).mockClear();
+    fireEvent.mouseLeave(presetsGroup);
+    expect(controller.clearPreview).not.toHaveBeenCalled();
+
+    // Open Customize colors, generate a Neon palette, flip it to light, and toggle Chrome accents.
+    await userEvent.click(screen.getByRole('button', { name: /Customize colors/i }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Palette mood' }), 'neon');
+    await userEvent.click(screen.getByRole('button', { name: 'Generate' }));
+    await vi.waitFor(() => {
+      expect(saved.get().palette?.colorScheme).toBe('dark');
+      expect(saved.get().palette?.accentSecondary).toMatch(/^#[0-9a-f]{6}$/);
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Flip Light' }));
+    await vi.waitFor(() => expect(saved.get().palette?.colorScheme).toBe('light'));
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Top accent ribbon' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Ambient corner glow' }));
+    await vi.waitFor(() => {
+      expect(saved.get().chrome?.ribbon?.enabled).toBe(true);
+      expect(saved.get().chrome?.ambientGlow?.enabled).toBe(true);
+    });
+
+    // Selecting Vice City VI automatically renders Vice Horizon's declarative plugin controls.
+    await userEvent.click(screen.getByRole('button', { name: /Vice City VI/i }));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.id).toBe('vice-horizon'));
+    const palmsSwitch = screen.getByRole('checkbox', { name: 'Palm silhouettes' });
+    await userEvent.click(palmsSwitch);
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.palms).toBe(false));
   });
 });

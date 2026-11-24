@@ -12,6 +12,8 @@ export { DEFAULT_THEME_EFFECTS, hasActiveEffects, readThemeEffectsConfig } from 
 export {
   contrastingText,
   contrastRatio,
+  flipPaletteScheme,
+  generateThemePalette,
   getPaletteSwatches,
   hexToHslTriplet,
   hexToRgbTriplet,
@@ -19,6 +21,8 @@ export {
   minTextContrast,
   mixHex,
   normalizeHex,
+  PALETTE_MOODS,
+  type PaletteMood,
   pickAccessibleText,
   relativeLuminance,
   WCAG_AA_ACCENT_CONTRAST,
@@ -32,6 +36,7 @@ export {
   compileUiThemeCss,
 } from './theming/compile';
 export {
+  applyGeneratedPalette,
   applyStudioVibe,
   applyThemeDocument,
   applyThemePreset,
@@ -40,6 +45,7 @@ export {
   describeThemeDocument,
   findActiveStudioVibe,
   findActiveThemePreset,
+  flipThemeColorScheme,
   hasPaletteOverrides,
   isCustomImportedDocument,
   isSiteDefaultDocument,
@@ -47,6 +53,7 @@ export {
   readThemeDocument,
   resolveTheme,
   type ThemeSummary,
+  updateThemeChrome,
   updateThemeCustomCss,
   updateThemeEffects,
   updateThemePalette,

@@ -2,8 +2,10 @@
 // Returns `null` (so the scene host falls back to Canvas 2D) whenever WebGL is
 // missing, software-rendered, fails to compile, or throws.
 
+import type { EffectParamValues } from '../model';
 import type { ScenePalette } from './palette';
 import type { Scene, SceneFactory } from './scene-host';
+import { sameEffectParams } from '../model';
 
 /** Uniforms every shader scene receives from the runner. */
 const BUILTIN_UNIFORMS = ['uResolution', 'uTime', 'uPointer'] as const;
@@ -24,6 +26,12 @@ export interface ShaderSceneSpec<U extends string> {
     gl: WebGLRenderingContext,
     uniforms: UniformMap<U>,
     palette: ScenePalette,
+  ) => void;
+  /** Optional parameter uniform uploader invoked on mount and whenever `backdropParams` change. */
+  readonly bindParams?: (
+    gl: WebGLRenderingContext,
+    uniforms: UniformMap<U>,
+    params: EffectParamValues | undefined,
   ) => void;
   /** Fraction of the device pixel ratio to render at (soft shaders look identical at half). */
   readonly renderScale?: number;
@@ -141,6 +149,7 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
       names.map((name) => [name, gl.getUniformLocation(linked, name)]),
     ) as UniformMap<U | BuiltinUniform>;
     let boundPalette: ScenePalette | null = null;
+    let boundParams: EffectParamValues | undefined | null = null;
     let boundWidth = 0;
     let boundHeight = 0;
     let lost = false;
@@ -175,6 +184,13 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
         if (frame.palette !== boundPalette) {
           boundPalette = frame.palette;
           spec.bindPalette(gl, uniforms, frame.palette);
+        }
+        if (
+          spec.bindParams &&
+          (boundParams === null || !sameEffectParams(boundParams, frame.ctx.effects.backdropParams))
+        ) {
+          boundParams = frame.ctx.effects.backdropParams;
+          spec.bindParams(gl, uniforms, boundParams);
         }
         syncResolution(frame.view.width, frame.view.height);
         gl.uniform1f(uniforms.uTime, frame.time);

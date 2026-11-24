@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  BackdropEffectId,
-  ClickEffectId,
   EffectParamSpec,
+  EffectParamUnit,
   EffectParamValue,
   EffectParamValues,
   StudioVibe,
-  SurfaceFinishId,
   ThemeEffectsConfig,
 } from '../../core/theme-effects';
 import {
@@ -21,6 +19,7 @@ import {
   validateEffectParams,
 } from '../../core/theme-effects';
 import { Badge, SegmentedControl, SettingCard, SettingRow, Switch, TextInput } from '../primitives';
+import { previewLeaveProps } from './theme-transfer';
 
 const SLIDER_COMMIT_DEBOUNCE_MS = 250;
 
@@ -74,12 +73,15 @@ function EffectSlider({
   );
 }
 
-function formatParamNumber(value: number, unit: '%' | '×' | undefined): string {
+function formatParamNumber(value: number, unit: EffectParamUnit | undefined): string {
   if (unit === '%') {
     return `${Math.round(value * 100)}%`;
   }
   if (unit === '×') {
     return `${value.toFixed(2).replace(/\.00$/, '')}×`;
+  }
+  if (unit === 'px' || unit === '°') {
+    return `${Math.round(value)}${unit}`;
   }
   return String(value);
 }
@@ -362,9 +364,10 @@ function useEffectSliderDraft(
 export interface StudioVibesCardProps {
   readonly activeVibe: StudioVibe | undefined;
   readonly onApplyVibe: (vibe: StudioVibe) => void;
+  readonly onPreviewVibe?: (vibe: StudioVibe | null) => void;
 }
 
-export function StudioVibesCard({ activeVibe, onApplyVibe }: StudioVibesCardProps) {
+export function StudioVibesCard({ activeVibe, onApplyVibe, onPreviewVibe }: StudioVibesCardProps) {
   return (
     <SettingCard
       title="Studio Vibes"
@@ -373,9 +376,14 @@ export function StudioVibesCard({ activeVibe, onApplyVibe }: StudioVibesCardProp
       <div className="theme-studio-pad">
         <p className="theme-studio-intro">
           Full-scene looks pairing curated palettes with live backgrounds, surface finishes, and
-          click effects.
+          click effects. Hover any card to preview live.
         </p>
-        <div className="theme-vibe-grid" role="group" aria-label="Studio vibes">
+        <div
+          className="theme-vibe-grid"
+          role="group"
+          aria-label="Studio vibes"
+          {...previewLeaveProps(() => onPreviewVibe?.(null))}
+        >
           {STUDIO_VIBES.map((vibe) => {
             const backdropName = vibe.effects.backdrop
               ? BACKDROP_NAMES.get(vibe.effects.backdrop)
@@ -386,6 +394,8 @@ export function StudioVibesCard({ activeVibe, onApplyVibe }: StudioVibesCardProp
                 type="button"
                 className="theme-vibe-card"
                 aria-pressed={activeVibe?.id === vibe.id}
+                onMouseEnter={() => onPreviewVibe?.(vibe)}
+                onFocus={() => onPreviewVibe?.(vibe)}
                 onClick={() => onApplyVibe(vibe)}
               >
                 <span
@@ -462,7 +472,7 @@ export function CreativeStudioCard({
               aria-pressed={effects.backdrop === opt.id}
               onClick={() =>
                 onUpdateEffects(
-                  { backdrop: opt.id as BackdropEffectId },
+                  { backdrop: opt.id },
                   opt.id === 'none' ? 'Background effect off' : `Background: ${opt.name}`,
                 )
               }
@@ -562,10 +572,10 @@ export function CreativeStudioCard({
         <SegmentedControl
           ariaLabel="Surface finish"
           value={effects.surface}
-          options={SURFACE_FINISH_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+          options={SURFACE_FINISH_OPTIONS}
           onChange={(next) =>
             onUpdateEffects(
-              { surface: next as SurfaceFinishId },
+              { surface: next },
               `Surface finish: ${SURFACE_FINISH_OPTIONS.find((o) => o.value === next)?.label ?? next}`,
             )
           }
@@ -582,7 +592,7 @@ export function CreativeStudioCard({
           options={CLICK_EFFECT_OPTIONS}
           onChange={(next) =>
             onUpdateEffects(
-              { click: next as ClickEffectId },
+              { click: next },
               next === 'none'
                 ? 'Click effects off'
                 : `Click effect: ${CLICK_EFFECT_OPTIONS.find((o) => o.value === next)?.label ?? next}`,

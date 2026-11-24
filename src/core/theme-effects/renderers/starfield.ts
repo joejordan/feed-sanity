@@ -6,8 +6,15 @@ import type { Layer } from './canvas';
 import type { Rgb, ScenePalette } from './palette';
 import type { Scene, SceneFactory, SceneSpec } from './scene-host';
 import { createRandom } from '../digital-rain/math';
+import { deriveEffectParams, STARFIELD_PARAM_SPECS } from '../model';
 import { createLayer, createRadialSprite, wrap } from './canvas';
 import { mixRgb, rgbCss, WHITE } from './palette';
+
+const starfieldParams = deriveEffectParams(STARFIELD_PARAM_SPECS, (p) => ({
+  density: p.density as number,
+  constellations: p.constellations as boolean,
+  shootingStars: p.shootingStars as boolean,
+}));
 
 interface Star {
   readonly x: number;
@@ -211,7 +218,12 @@ const createStarfieldCanvas: SceneFactory = (canvas) => {
     kind: 'canvas2d',
     maxPixelRatio: 1.25,
     maxPixels: 1_200_000,
-    render({ palette, view, time, dt, pointer, still }) {
+    render({ ctx, palette, view, time, dt, pointer, still }) {
+      const {
+        density: densityScale,
+        constellations: showConstellations,
+        shootingStars: showShootingStars,
+      } = starfieldParams(ctx.effects.backdropParams);
       const light = palette.scheme === 'light';
       const w = view.cssWidth;
       const h = view.cssHeight;
@@ -265,7 +277,7 @@ const createStarfieldCanvas: SceneFactory = (canvas) => {
         if (!layer) {
           continue;
         }
-        const count = Math.min(layer.stars.length, Math.round(area * layer.density));
+        const count = Math.min(layer.stars.length, Math.round(area * layer.density * densityScale));
         const shiftX = -drift * layer.drift - px * layer.parallax;
         const shiftY = -drift * layer.drift * 0.35 - py * layer.parallax;
         for (const [tone, indices] of layer.byTone.entries()) {
@@ -286,7 +298,12 @@ const createStarfieldCanvas: SceneFactory = (canvas) => {
               const gs = s * 8;
               c.drawImage(glow, x - gs / 2, y - gs / 2, gs, gs);
             }
-            if (li > 0 && pointer.presence > 0.02 && linked.length < MAX_LINKED) {
+            if (
+              showConstellations &&
+              li > 0 &&
+              pointer.presence > 0.02 &&
+              linked.length < MAX_LINKED
+            ) {
               const d = Math.hypot(x - pointer.x, y - pointer.y);
               if (d < LINK_RADIUS) {
                 linked.push({ x, y, d });
@@ -325,7 +342,9 @@ const createStarfieldCanvas: SceneFactory = (canvas) => {
       }
 
       // Shooting stars: rare, quick, tapered comet streaks.
-      if (!still) {
+      if (!showShootingStars) {
+        comets.length = 0;
+      } else if (!still) {
         untilComet -= dt;
         if (untilComet <= 0 && comets.length < 2) {
           spawnComet(w, h);

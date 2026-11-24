@@ -5,11 +5,23 @@
 import type { Layer } from './canvas';
 import type { Rgb, ScenePalette } from './palette';
 import type { Scene, SceneFactory, SceneSpec } from './scene-host';
+import { DOT_SPOTLIGHT_PARAM_SPECS, deriveEffectParams } from '../model';
 import { createLayer } from './canvas';
 import { mixRgb, rgbCss, WHITE } from './palette';
 
-const SPACING = 22;
-const SPOT_RADIUS = 250;
+const DEFAULT_SPACING = 22;
+
+const dotSpotlightParams = deriveEffectParams(DOT_SPOTLIGHT_PARAM_SPECS, (p) => ({
+  spacing: p.spacing as number,
+  spotRadius: p.spotRadius as number,
+}));
+
+function releaseLayer(layer: Layer | null): void {
+  if (layer) {
+    layer.canvas.width = 0;
+    layer.canvas.height = 0;
+  }
+}
 
 function dotTile(doc: Document, size: number, radius: number, color: string): Layer | null {
   const tile = createLayer(doc, size, size);
@@ -32,12 +44,18 @@ interface SpotPaints {
   readonly glow: CanvasGradient;
 }
 
-function spotPaints(doc: Document, palette: ScenePalette, ratio: number) {
+function spotPaints(
+  doc: Document,
+  palette: ScenePalette,
+  ratio: number,
+  spacing: number,
+  spotRadius: number,
+) {
   const light = palette.scheme === 'light';
-  const tileSize = Math.max(4, Math.round(SPACING * ratio));
+  const tileSize = Math.max(4, Math.round(spacing * ratio));
   const litColor: Rgb = light ? palette.accent : mixRgb(palette.accent, WHITE, 0.25);
   const tile = dotTile(doc, tileSize, Math.max(0.8, 1.5 * ratio), rgbCss(litColor));
-  const r = SPOT_RADIUS * ratio;
+  const r = spotRadius * ratio;
   const spot = createLayer(doc, Math.ceil(r * 2), Math.ceil(r * 2));
   const lit = tile && spot ? spot.g.createPattern(tile.canvas, 'repeat') : null;
   if (!spot || !lit) {
@@ -64,9 +82,10 @@ function dotBase(
   width: number,
   height: number,
   ratio: number,
+  spacing: number,
 ): Layer | null {
   const base = createLayer(doc, width, height);
-  const tileSize = Math.max(4, Math.round(SPACING * ratio));
+  const tileSize = Math.max(4, Math.round(spacing * ratio));
   const alpha = palette.scheme === 'light' ? 0.24 : 0.22;
   const tile = dotTile(doc, tileSize, Math.max(0.7, 1.15 * ratio), rgbCss(palette.text, alpha));
   const pattern = tile && base ? base.g.createPattern(tile.canvas, 'repeat') : null;
@@ -118,18 +137,22 @@ const createDotSpotlightCanvas: SceneFactory = (canvas) => {
     kind: 'canvas2d',
     maxPixelRatio: 1.5,
     maxPixels: 1_500_000,
-    render({ palette, view, pointer }) {
+    render({ ctx, palette, view, pointer }) {
+      const { spacing, spotRadius } = dotSpotlightParams(ctx.effects.backdropParams);
       const { width, height, pixelRatio } = view;
-      const ratioKey = `${palette.key}|${pixelRatio.toFixed(3)}`;
+      const ratioKey = `${palette.key}|${pixelRatio.toFixed(3)}|${spacing}`;
       const nextBaseKey = `${ratioKey}|${width}|${height}`;
+      const nextPaintsKey = `${ratioKey}|${spotRadius}`;
       if (nextBaseKey !== baseKey) {
         baseKey = nextBaseKey;
+        releaseLayer(base);
         // Built in backing pixels so the pattern stays pixel-crisp at every ratio.
-        base = dotBase(doc, palette, width, height, pixelRatio);
+        base = dotBase(doc, palette, width, height, pixelRatio, spacing);
       }
-      if (paintsKey !== ratioKey) {
-        paintsKey = ratioKey;
-        paints = spotPaints(doc, palette, pixelRatio);
+      if (paintsKey !== nextPaintsKey) {
+        paintsKey = nextPaintsKey;
+        releaseLayer(paints?.spot ?? null);
+        paints = spotPaints(doc, palette, pixelRatio, spacing, spotRadius);
       }
 
       // `copy` clears and blits the cached dot field in a single pass.
@@ -148,7 +171,7 @@ const createDotSpotlightCanvas: SceneFactory = (canvas) => {
       }
       const { spot, lit, mask, glow } = paints;
       const size = spot.canvas.width;
-      const r = SPOT_RADIUS * pixelRatio;
+      const r = spotRadius * pixelRatio;
       const cx = pointer.x * pixelRatio;
       const cy = pointer.y * pixelRatio;
       const sx = Math.round(cx - r);
@@ -174,13 +197,19 @@ const createDotSpotlightCanvas: SceneFactory = (canvas) => {
       c.globalAlpha = 1;
       c.setTransform(1, 0, 0, 1, 0, 0);
     },
+    dispose() {
+      releaseLayer(base);
+      base = null;
+      releaseLayer(paints?.spot ?? null);
+      paints = null;
+    },
   };
   return scene;
 };
 
 function dotSpotlightCss(palette: ScenePalette): string {
   const dot = rgbCss(palette.text, palette.scheme === 'light' ? 0.2 : 0.16);
-  return `radial-gradient(${dot} 1.1px, transparent 1.3px) 0 0 / ${SPACING}px ${SPACING}px`;
+  return `radial-gradient(${dot} 1.1px, transparent 1.3px) 0 0 / ${DEFAULT_SPACING}px ${DEFAULT_SPACING}px`;
 }
 
 export const DOT_SPOTLIGHT_SCENE: SceneSpec = {

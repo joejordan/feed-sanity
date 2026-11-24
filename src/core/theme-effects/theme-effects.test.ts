@@ -25,12 +25,14 @@ import {
   BACKDROP_EFFECT_IDS,
   BACKDROP_OPTIONS,
   BACKDROP_OWN_VALUE,
+  BACKDROP_PARAM_SPECS,
   BACKDROP_REGISTRY,
   CLICK_FX_OWN_VALUE,
   compileBackdropRevealCss,
   compileSurfaceFinishCss,
   createEffectsLayerController,
   DEFAULT_THEME_EFFECTS,
+  deriveEffectParams,
   hasActiveEffects,
   mergeEffectsPatch,
   mountClickEffects,
@@ -53,6 +55,7 @@ interface CanvasStubs {
   readonly calls2d: string[];
   readonly fillTexts: string[];
   readonly glCalls: string[];
+  readonly glUniform1f: Record<string, number>;
   readonly loseContext: Mock<() => void>;
 }
 
@@ -102,6 +105,7 @@ function fake2dContext(
 
 function fakeWebGlContext(
   calls: string[],
+  uniform1f: Record<string, number>,
   loseContext: () => void,
   compileOk: boolean,
 ): WebGLRenderingContext {
@@ -134,10 +138,18 @@ function fakeWebGlContext(
             return lost;
           case 'getAttribLocation':
             return 0;
+          case 'getUniformLocation':
+            return { name: String(args[1] ?? '') };
+          case 'uniform1f': {
+            const loc = args[0] as { name?: string } | null;
+            if (loc?.name && typeof args[1] === 'number') {
+              uniform1f[loc.name] = args[1];
+            }
+            return;
+          }
           case 'createShader':
           case 'createProgram':
           case 'createBuffer':
-          case 'getUniformLocation':
             return {};
           default:
             return;
@@ -153,6 +165,7 @@ function installCanvasStubs(options: { webgl: GlMode; twoD: boolean }): CanvasSt
     calls2d: [],
     fillTexts: [],
     glCalls: [],
+    glUniform1f: {},
     loseContext: vi.fn<() => void>(),
   };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function getContext(
@@ -162,7 +175,12 @@ function installCanvasStubs(options: { webgl: GlMode; twoD: boolean }): CanvasSt
     if (type === 'webgl') {
       return options.webgl === 'none'
         ? null
-        : fakeWebGlContext(stubs.glCalls, stubs.loseContext, options.webgl === 'ok');
+        : fakeWebGlContext(
+            stubs.glCalls,
+            stubs.glUniform1f,
+            stubs.loseContext,
+            options.webgl === 'ok',
+          );
     }
     if (type === '2d' && options.twoD) {
       return fake2dContext(stubs.calls2d, stubs.fillTexts, this);
@@ -1132,5 +1150,100 @@ describe('Creative Theme & Effects Studio engine', () => {
     const switched = mergeEffectsPatch(mergedSame, { backdrop: 'aurora' });
     expect(switched.backdrop).toBe('aurora');
     expect(switched.backdropParams).toBeUndefined();
+  });
+
+  it('exposes declarative param specs for every backdrop, memoizes deriveEffectParams, and applies live params in WebGL & Canvas 2D', async () => {
+    for (const id of BACKDROP_EFFECT_IDS) {
+      if (id === 'none') {
+        continue;
+      }
+      expect(BACKDROP_PARAM_SPECS[id].length).toBeGreaterThan(0);
+    }
+
+    // deriveEffectParams memoizes identical params and invalidates on value changes.
+    let projectCalls = 0;
+    const readSilk = deriveEffectParams(BACKDROP_PARAM_SPECS.silk, (p) => {
+      projectCalls++;
+      return { scale: p.scale as number };
+    });
+    const first = readSilk(undefined);
+    expect(readSilk(undefined)).toBe(first);
+    expect(readSilk({ scale: 1 })).not.toBe(first);
+    expect(readSilk({ scale: 1 })).toEqual({ scale: 1 });
+    expect(projectCalls).toBe(2);
+
+    const customByBackdrop = {
+      'vice-horizon': { sunScale: 1.25, palms: false, sunSlices: false, clouds: false },
+      aurora: { height: 1.25, shimmer: 1.3 },
+      silk: { scale: 1.4, sheen: 1.3, angle: 25 },
+      starfield: { density: 1.5, constellations: false, shootingStars: false },
+      'cyber-grid': { gridDensity: 1.4, mountains: false, scanPulse: false },
+      'prism-beams': { spread: 0.55, dust: false },
+      'dot-spotlight': { spacing: 30, spotRadius: 320 },
+    } as const;
+
+    // WebGL shader scenes upload initial and live-updated param uniforms without falling back.
+    const glStubs = installCanvasStubs({ webgl: 'ok', twoD: true });
+    const frames = installFrameDriver();
+    const layer = createEffectsLayerController(document);
+    cleanups.push(() => layer.dispose());
+    for (const [id, params] of Object.entries(customByBackdrop)) {
+      glStubs.calls2d.length = 0;
+      glStubs.glCalls.length = 0;
+      for (const k of Object.keys(glStubs.glUniform1f)) {
+        delete glStubs.glUniform1f[k];
+      }
+      layer.sync(
+        {
+          ...DEFAULT_THEME_EFFECTS,
+          backdrop: id as keyof typeof customByBackdrop,
+          backdropParams: params,
+        },
+        null,
+        'dark',
+      );
+      frames.flush(16);
+      await Promise.resolve();
+      if (id === 'aurora') {
+        expect(rendererKind()).toBe('webgl');
+        expect(glStubs.glUniform1f.uReach).toBe(1.25);
+        expect(glStubs.glUniform1f.uShimmer).toBe(1.3);
+        layer.sync(
+          { ...DEFAULT_THEME_EFFECTS, backdrop: 'aurora', backdropParams: { height: 0.7 } },
+          null,
+          'dark',
+        );
+        frames.flush(64);
+        expect(glStubs.glUniform1f.uReach).toBe(0.7);
+      } else if (id === 'silk') {
+        expect(rendererKind()).toBe('webgl');
+        expect(glStubs.glUniform1f.uScale).toBe(1.4);
+        expect(glStubs.glUniform1f.uSheenGain).toBe(1.3);
+      } else if (id === 'prism-beams') {
+        expect(rendererKind()).toBe('webgl');
+        expect(glStubs.glUniform1f.uSpread).toBe(0.55);
+        expect(glStubs.glUniform1f.uDust).toBe(0);
+      } else {
+        expect(rendererKind()).toBe('canvas2d');
+        expect(glStubs.calls2d.length).toBeGreaterThan(0);
+      }
+    }
+
+    // Dual-backend shader scenes also apply non-default params cleanly on their Canvas 2D fallback.
+    const twoDStubs = installCanvasStubs({ webgl: 'none', twoD: true });
+    const twoDLayer = createEffectsLayerController(document);
+    cleanups.push(() => twoDLayer.dispose());
+    for (const id of ['aurora', 'silk', 'prism-beams'] as const) {
+      twoDStubs.calls2d.length = 0;
+      twoDLayer.sync(
+        { ...DEFAULT_THEME_EFFECTS, backdrop: id, backdropParams: customByBackdrop[id] },
+        null,
+        'dark',
+      );
+      frames.flush(112);
+      await Promise.resolve();
+      expect(rendererKind()).toBe('canvas2d');
+      expect(twoDStubs.calls2d.length).toBeGreaterThan(0);
+    }
   });
 });

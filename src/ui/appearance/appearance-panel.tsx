@@ -1,7 +1,8 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { SavedValue } from '../../core/saved';
 import type { StudioVibe, ThemeEffectsConfig } from '../../core/theme-effects';
 import type {
+  PaletteMood,
   SavedThemeEntry,
   THEME_FONT_STACKS,
   ThemeController,
@@ -14,6 +15,7 @@ import type { AuditState } from './health-disclosure';
 import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from '../../core/theme-effects';
 import {
   analyzeThemeDocument,
+  applyGeneratedPalette,
   applyStudioVibe,
   applyThemeDocument,
   applyThemePreset,
@@ -23,14 +25,17 @@ import {
   documentEffectsToConfig,
   findActiveStudioVibe,
   findActiveThemePreset,
+  flipThemeColorScheme,
   getPaletteSwatches,
   hasPaletteOverrides,
   isCustomImportedDocument,
   isThemeFontId,
   minTextContrast,
   normalizeHex,
+  PALETTE_MOODS,
   pickAccessibleText,
   resolveTheme,
+  updateThemeChrome,
   updateThemeCustomCss,
   updateThemeEffects,
   updateThemePalette,
@@ -44,6 +49,7 @@ import {
   SegmentedControl,
   SettingCard,
   SettingRow,
+  Switch,
   TextInput,
 } from '../primitives';
 import css from './appearance-panel.css?inline';
@@ -53,6 +59,7 @@ import { CreativeStudioCard, StudioVibesCard } from './studio-section';
 import { ThemeLibraryCard } from './theme-library-card';
 import {
   downloadThemeDocumentFile,
+  previewLeaveProps,
   ThemeSwatches,
   ThemeTransferDisclosure,
 } from './theme-transfer';
@@ -67,17 +74,27 @@ const FONT_LABELS: Record<keyof typeof THEME_FONT_STACKS, string> = {
   mono: 'Monospace',
 };
 
-type ColorFieldKey = 'accent' | 'background' | 'surface' | 'text';
+type ColorFieldKey = 'accent' | 'accentSecondary' | 'background' | 'surface' | 'text';
 
 const COLOR_FIELDS: ReadonlyArray<{
   readonly key: ColorFieldKey;
   readonly label: string;
 }> = [
   { key: 'accent', label: 'Accent' },
+  { key: 'accentSecondary', label: 'Secondary accent' },
   { key: 'background', label: 'Canvas background' },
   { key: 'surface', label: 'Card surface' },
   { key: 'text', label: 'Primary text' },
 ];
+
+const MOOD_LABELS: Record<PaletteMood, string> = {
+  midnight: 'Midnight',
+  'soft-dark': 'Soft Dark',
+  neon: 'Neon',
+  'warm-paper': 'Warm Paper',
+  'crisp-light': 'Crisp Light',
+  pastel: 'Pastel',
+};
 
 type SchemeFilter = 'all' | 'dark' | 'light';
 
@@ -103,6 +120,9 @@ function AppearancePanelView({
   library?: ThemeLibraryClient;
 }) {
   const fontId = useId();
+  const hoverPreviewActiveRef = useRef(false);
+  const [seedColor, setSeedColor] = useState(() => value.palette?.accent ?? '#3b82f6');
+  const [seedMood, setSeedMood] = useState<PaletteMood>('midnight');
   const [libraryEntries, setLibraryEntries] = useState<readonly SavedThemeEntry[]>(() =>
     library ? library.list() : [],
   );
@@ -211,14 +231,52 @@ function AppearancePanelView({
     setColorDrafts({});
   };
 
+  const valueJson = useMemo(() => JSON.stringify(value), [value]);
+
+  useEffect(
+    () => () => {
+      if (hoverPreviewActiveRef.current) {
+        hoverPreviewActiveRef.current = false;
+        controller.clearPreview();
+      }
+    },
+    [controller],
+  );
+
+  const clearHoverPreview = (): void => {
+    if (!hoverPreviewActiveRef.current) {
+      return;
+    }
+    hoverPreviewActiveRef.current = false;
+    controller.clearPreview();
+  };
+
+  const previewCandidate = (candidate: ThemeDocumentV1 | null): void => {
+    if (!candidate) {
+      clearHoverPreview();
+      return;
+    }
+    if (
+      candidate === value ||
+      (candidate.id === value.id && JSON.stringify(candidate) === valueJson)
+    ) {
+      clearHoverPreview();
+      return;
+    }
+    hoverPreviewActiveRef.current = true;
+    controller.preview(resolveTheme(candidate));
+  };
+
   const applyEdit = (next: ThemeDocumentV1, toastLabel?: string): void => {
     const previous = value;
+    hoverPreviewActiveRef.current = false;
     controller.preview(resolveTheme(next));
     onChange(next);
     setAuditState(null);
     if (toastLabel && notify) {
       notify(toastLabel, () => {
         clearColorDrafts();
+        hoverPreviewActiveRef.current = false;
         controller.preview(resolveTheme(previous));
         onChange(previous);
         setAuditState(null);
@@ -323,6 +381,7 @@ function AppearancePanelView({
   };
 
   const handleDeleteLibraryEntry = (entry: SavedThemeEntry): void => {
+    clearHoverPreview();
     void runLibraryAction(
       (client) => client.removeTheme(entry.id),
       (removed) => {
@@ -353,6 +412,12 @@ function AppearancePanelView({
   const handleColorHexInput = (key: ColorFieldKey, raw: string): void => {
     const trimmed = raw.trim();
     if (!trimmed) {
+      if (key === 'accentSecondary') {
+        clearDraftKey(key);
+        const presetSecondary = activePreset?.palette.accentSecondary;
+        applyEdit(updateThemePalette(value, { accentSecondary: presetSecondary ?? '' }));
+        return;
+      }
       if (activePreset) {
         clearDraftKey(key);
         applyEdit(updateThemePalette(value, { [key]: activePreset.palette[key] }));
@@ -483,6 +548,7 @@ function AppearancePanelView({
             void handleSaveToLibrary(value, { name });
           }}
           onApplyEntry={handleApplyLibraryEntry}
+          onPreviewEntry={(entry) => previewCandidate(entry ? entry.document : null)}
           onApplyAllSites={handleApplyAllSites}
           onRenameEntry={handleRenameLibraryEntry}
           onDeleteEntry={handleDeleteLibraryEntry}
@@ -490,7 +556,11 @@ function AppearancePanelView({
         />
       )}
 
-      <StudioVibesCard activeVibe={activeVibe} onApplyVibe={applyVibe} />
+      <StudioVibesCard
+        activeVibe={activeVibe}
+        onApplyVibe={applyVibe}
+        onPreviewVibe={(vibe) => previewCandidate(vibe ? applyStudioVibe(value, vibe) : null)}
+      />
 
       <SettingCard
         title="Color Themes"
@@ -520,11 +590,18 @@ function AppearancePanelView({
             />
           </div>
 
-          <div className="theme-grid" role="group" aria-label="Theme presets">
+          <div
+            className="theme-grid"
+            role="group"
+            aria-label="Theme presets"
+            {...previewLeaveProps(clearHoverPreview)}
+          >
             <button
               type="button"
               className="theme-card"
               aria-pressed={!effectsActive && value.id === 'default'}
+              onMouseEnter={() => previewCandidate(applyThemePreset(value, 'default'))}
+              onFocus={() => previewCandidate(applyThemePreset(value, 'default'))}
               onClick={() => selectColorTheme('default', 'Site Default')}
             >
               <span className="theme-card-name">Site Default</span>
@@ -537,6 +614,8 @@ function AppearancePanelView({
                 className="theme-card"
                 aria-pressed={!effectsActive && activePreset?.id === preset.id}
                 data-base={effectsActive && activePreset?.id === preset.id ? 'true' : undefined}
+                onMouseEnter={() => previewCandidate(applyThemePreset(value, preset.id))}
+                onFocus={() => previewCandidate(applyThemePreset(value, preset.id))}
                 onClick={() => selectColorTheme(preset.id, preset.name)}
               >
                 <ThemeSwatches swatches={getPaletteSwatches(preset.palette, preset.swatches)} />
@@ -585,13 +664,64 @@ function AppearancePanelView({
           onToggle={() => setColorsOpen((open) => !open)}
         >
           <div className="theme-drawer-pad">
+            <div className="theme-palette-gen" role="group" aria-label="Palette generator">
+              <span className="theme-palette-gen-label">Generate palette</span>
+              <input
+                type="color"
+                className="theme-picker"
+                aria-label="Palette seed color"
+                value={seedColor}
+                onChange={(event) => setSeedColor(event.currentTarget.value)}
+              />
+              <select
+                className="field"
+                aria-label="Palette mood"
+                value={seedMood}
+                onChange={(event) => setSeedMood(event.currentTarget.value as PaletteMood)}
+              >
+                {PALETTE_MOODS.map((mood) => (
+                  <option key={mood} value={mood}>
+                    {MOOD_LABELS[mood]}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => {
+                  clearColorDrafts();
+                  applyEdit(
+                    applyGeneratedPalette(value, seedColor, seedMood),
+                    `Generated ${MOOD_LABELS[seedMood]} palette`,
+                  );
+                }}
+              >
+                Generate
+              </button>
+              {effective && (
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => {
+                    clearColorDrafts();
+                    const nextScheme = effective.colorScheme === 'dark' ? 'light' : 'dark';
+                    applyEdit(flipThemeColorScheme(value), `Flipped to ${nextScheme} mode`);
+                  }}
+                >
+                  Flip {effective.colorScheme === 'dark' ? 'Light' : 'Dark'}
+                </button>
+              )}
+            </div>
+
             <div className="theme-controls">
               {COLOR_FIELDS.map(({ key, label }) => {
-                const fallbackHex = effective?.[key] ?? '#3b82f6';
+                const defaultFallback =
+                  key === 'accentSecondary' ? (effective?.danger ?? '#a855f7') : '#3b82f6';
+                const fallbackHex = effective?.[key] ?? defaultFallback;
+                const currentToken = effective?.[key] ?? '';
+                const presetToken = activePreset?.palette[key] ?? '';
                 const savedOverride =
-                  effective && (!activePreset || effective[key] !== activePreset.palette[key])
-                    ? effective[key]
-                    : '';
+                  effective && (!activePreset || currentToken !== presetToken) ? currentToken : '';
                 const inputVal = colorDrafts[key] ?? savedOverride;
                 const pickerValue = normalizeHex(inputVal) ?? fallbackHex;
                 return (
@@ -616,6 +746,35 @@ function AppearancePanelView({
                   </label>
                 );
               })}
+            </div>
+
+            <div className="theme-chrome-row" role="group" aria-label="Chrome accents">
+              <span className="theme-inline-toggle">
+                <span>Top accent ribbon</span>
+                <Switch
+                  checked={Boolean(value.chrome?.ribbon?.enabled)}
+                  ariaLabel="Top accent ribbon"
+                  onChange={(enabled) =>
+                    applyEdit(
+                      updateThemeChrome(value, { ribbon: enabled }),
+                      enabled ? 'Top accent ribbon on' : 'Top accent ribbon off',
+                    )
+                  }
+                />
+              </span>
+              <span className="theme-inline-toggle">
+                <span>Ambient corner glow</span>
+                <Switch
+                  checked={Boolean(value.chrome?.ambientGlow?.enabled)}
+                  ariaLabel="Ambient corner glow"
+                  onChange={(enabled) =>
+                    applyEdit(
+                      updateThemeChrome(value, { ambientGlow: enabled }),
+                      enabled ? 'Ambient corner glow on' : 'Ambient corner glow off',
+                    )
+                  }
+                />
+              </span>
             </div>
             {colorError && (
               <div className="theme-contrast-warn" role="alert">

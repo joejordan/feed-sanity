@@ -49,6 +49,8 @@ export type EffectParamValues = Readonly<Record<string, EffectParamValue>>;
  * One spec drives `.fstheme.json` validation, runtime clamping/defaults,
  * and automatic Customize Effects UI controls.
  */
+export type EffectParamUnit = '%' | '×' | 'px' | '°';
+
 export type EffectParamSpec =
   | {
       readonly key: string;
@@ -59,7 +61,7 @@ export type EffectParamSpec =
       readonly max: number;
       readonly step: number;
       readonly defaultValue: number;
-      readonly unit?: '%' | '×';
+      readonly unit?: EffectParamUnit;
     }
   | {
       readonly key: string;
@@ -168,11 +170,198 @@ export const DIGITAL_RAIN_PARAM_SPECS: readonly EffectParamSpec[] = [
   },
 ];
 
+export const VICE_HORIZON_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'sunScale',
+    kind: 'number',
+    label: 'Sun size',
+    min: 0.6,
+    max: 1.35,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  },
+  {
+    key: 'palms',
+    kind: 'boolean',
+    label: 'Palm silhouettes',
+    defaultValue: true,
+  },
+  {
+    key: 'sunSlices',
+    kind: 'boolean',
+    label: 'Retro sun slices',
+    defaultValue: true,
+  },
+  {
+    key: 'clouds',
+    kind: 'boolean',
+    label: 'Twilight clouds',
+    defaultValue: true,
+  },
+];
+
+export const SILK_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'scale',
+    kind: 'number',
+    label: 'Fold scale',
+    min: 0.65,
+    max: 1.65,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  },
+  {
+    key: 'sheen',
+    kind: 'number',
+    label: 'Satin sheen',
+    min: 0.2,
+    max: 1.6,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  },
+  {
+    key: 'angle',
+    kind: 'number',
+    label: 'Drape angle',
+    ariaLabel: 'Silk drape angle',
+    min: -60,
+    max: 60,
+    step: 5,
+    defaultValue: -30,
+    unit: '°',
+  },
+];
+
+export const AURORA_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'height',
+    kind: 'number',
+    label: 'Curtain reach',
+    min: 0.55,
+    max: 1.35,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  },
+  {
+    key: 'shimmer',
+    kind: 'number',
+    label: 'Ray intensity',
+    min: 0.3,
+    max: 1.5,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  },
+];
+
+export const STARFIELD_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'density',
+    kind: 'number',
+    label: 'Star density',
+    min: 0.4,
+    max: 1.8,
+    step: 0.1,
+    defaultValue: 1,
+    unit: '×',
+  },
+  {
+    key: 'constellations',
+    kind: 'boolean',
+    label: 'Cursor constellations',
+    defaultValue: true,
+  },
+  {
+    key: 'shootingStars',
+    kind: 'boolean',
+    label: 'Shooting stars',
+    defaultValue: true,
+  },
+];
+
+export const CYBER_GRID_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'gridDensity',
+    kind: 'number',
+    label: 'Grid density',
+    min: 0.6,
+    max: 1.6,
+    step: 0.1,
+    defaultValue: 1,
+    unit: '×',
+  },
+  {
+    key: 'mountains',
+    kind: 'boolean',
+    label: 'Wireframe mountains',
+    defaultValue: true,
+  },
+  {
+    key: 'scanPulse',
+    kind: 'boolean',
+    label: 'Horizon scan pulse',
+    defaultValue: true,
+  },
+];
+
+export const PRISM_BEAMS_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'spread',
+    kind: 'number',
+    label: 'Beam spread',
+    min: 0.55,
+    max: 1.5,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  },
+  {
+    key: 'dust',
+    kind: 'boolean',
+    label: 'Floating dust motes',
+    defaultValue: true,
+  },
+];
+
+export const DOT_SPOTLIGHT_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'spacing',
+    kind: 'number',
+    label: 'Dot spacing',
+    min: 14,
+    max: 36,
+    step: 2,
+    defaultValue: 22,
+    unit: 'px',
+  },
+  {
+    key: 'spotRadius',
+    kind: 'number',
+    label: 'Spotlight size',
+    min: 140,
+    max: 380,
+    step: 20,
+    defaultValue: 250,
+    unit: 'px',
+  },
+];
+
 /** Declarative parameter specifications keyed by backdrop engine ID. */
 export const BACKDROP_PARAM_SPECS: Readonly<
-  Partial<Record<Exclude<BackdropEffectId, 'none'>, readonly EffectParamSpec[]>>
+  Record<Exclude<BackdropEffectId, 'none'>, readonly EffectParamSpec[]>
 > = {
   'digital-rain': DIGITAL_RAIN_PARAM_SPECS,
+  'vice-horizon': VICE_HORIZON_PARAM_SPECS,
+  aurora: AURORA_PARAM_SPECS,
+  silk: SILK_PARAM_SPECS,
+  starfield: STARFIELD_PARAM_SPECS,
+  'cyber-grid': CYBER_GRID_PARAM_SPECS,
+  'prism-beams': PRISM_BEAMS_PARAM_SPECS,
+  'dot-spotlight': DOT_SPOTLIGHT_PARAM_SPECS,
 };
 
 const EMPTY_PARAM_SPECS: readonly EffectParamSpec[] = [];
@@ -274,6 +463,29 @@ export function resolveEffectParams(
     resolved[spec.key] = valid ?? spec.defaultValue;
   }
   return resolved;
+}
+
+/**
+ * Memoizes typed parameter extraction for a backdrop renderer (mirroring
+ * `derivePalette`), avoiding per-frame validation and allocations in 20–30fps
+ * animation loops whenever `backdropParams` is unchanged.
+ */
+export function deriveEffectParams<T>(
+  specs: readonly EffectParamSpec[],
+  project: (resolved: Readonly<Record<string, EffectParamValue>>) => T,
+): (raw: EffectParamValues | undefined) => T {
+  let hasValue = false;
+  let lastRaw: EffectParamValues | undefined;
+  let cached: T;
+  return (raw) => {
+    if (hasValue && (raw === lastRaw || sameEffectParams(raw, lastRaw))) {
+      return cached;
+    }
+    lastRaw = raw;
+    cached = project(resolveEffectParams(specs, raw));
+    hasValue = true;
+    return cached;
+  };
 }
 
 /** Shallow value equality for two optional `EffectParamValues` records. */

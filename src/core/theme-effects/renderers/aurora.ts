@@ -5,8 +5,14 @@
 import type { Rgb, ScenePalette } from './palette';
 import type { Scene, SceneFactory, SceneSpec } from './scene-host';
 import { clamp } from '../digital-rain/math';
+import { AURORA_PARAM_SPECS, deriveEffectParams } from '../model';
 import { derivePalette, hexRgb, mixRgb, rgbCss, rgbUnit, rotateHue } from './palette';
 import { createShaderScene, GLSL_NOISE, GLSL_PRECISION } from './webgl';
+
+const auroraParams = deriveEffectParams(AURORA_PARAM_SPECS, (p) => ({
+  reach: p.height as number,
+  shimmer: p.shimmer as number,
+}));
 
 interface AuroraColors {
   readonly low: Rgb;
@@ -37,6 +43,8 @@ uniform vec3 uLow;
 uniform vec3 uCore;
 uniform vec3 uFringe;
 uniform float uLight;
+uniform float uReach;
+uniform float uShimmer;
 ${GLSL_NOISE}
 
 float curtain(vec2 uv, float aspect, float seed, float base, float t) {
@@ -51,7 +59,7 @@ float curtain(vec2 uv, float aspect, float seed, float base, float t) {
   rays = 0.35 + 0.65 * pow(rays, 1.3);
   // Large-scale breaks so curtains drift as separate bands rather than one wall.
   float bands = smoothstep(-0.35, 0.55, snoise(vec2(x * 0.32 + seed * 3.1, t * 0.035)));
-  float reachUp = 3.2 + 2.4 * (0.5 + 0.5 * snoise(vec2(x * 1.3 + seed, t * 0.05)));
+  float reachUp = (3.2 + 2.4 * (0.5 + 0.5 * snoise(vec2(x * 1.3 + seed, t * 0.05)))) / max(0.4, uReach);
   float hem = smoothstep(-0.02, 0.012, d);
   float rise = exp(-max(d, 0.0) * reachUp);
   float glowLine = exp(-abs(d) * 26.0) * 0.8;
@@ -61,14 +69,15 @@ float curtain(vec2 uv, float aspect, float seed, float base, float t) {
 
 void main() {
   vec2 uv = gl_FragCoord.xy / uResolution;
-  if (uv.y < 0.28) {
+  if (uv.y < 0.22) {
     gl_FragColor = vec4(0.0);
     return;
   }
   float aspect = uResolution.x / uResolution.y;
   float t = uTime;
-  float c1 = curtain(uv, aspect, 3.1, 0.66, t) * 1.15;
-  float c2 = curtain(uv, aspect, 11.7, 0.8, t * 0.82) * 0.75;
+  float drop = (uReach - 1.0) * 0.14;
+  float c1 = curtain(uv, aspect, 3.1, 0.66 - drop, t) * 1.15 * uShimmer;
+  float c2 = curtain(uv, aspect, 11.7, 0.8 - drop * 0.8, t * 0.82) * 0.75 * uShimmer;
 
   float flow = uv.x + 0.14 * snoise(vec2(uv.x * 1.1 - t * 0.03, t * 0.04 + 2.0));
   vec3 base = mix(uLow, uCore, smoothstep(0.02, 0.55, flow));
@@ -96,7 +105,7 @@ void main() {
 
 const createAuroraShader: SceneFactory = createShaderScene({
   fragment: AURORA_FRAGMENT,
-  uniforms: ['uLow', 'uCore', 'uFringe', 'uLight'],
+  uniforms: ['uLow', 'uCore', 'uFringe', 'uLight', 'uReach', 'uShimmer'],
   renderScale: 0.35,
   maxPixels: 360_000,
   bindPalette(gl, u, palette) {
@@ -105,6 +114,11 @@ const createAuroraShader: SceneFactory = createShaderScene({
     gl.uniform3fv(u.uCore, rgbUnit(colors.core));
     gl.uniform3fv(u.uFringe, rgbUnit(colors.fringe));
     gl.uniform1f(u.uLight, colors.light ? 1 : 0);
+  },
+  bindParams(gl, u, rawParams) {
+    const { reach, shimmer } = auroraParams(rawParams);
+    gl.uniform1f(u.uReach, reach);
+    gl.uniform1f(u.uShimmer, shimmer);
   },
 });
 
@@ -132,17 +146,18 @@ const createAuroraCanvas: SceneFactory = (canvas) => {
     // A quarter-resolution canvas upscaled by CSS gives free, buttery blur.
     renderScale: 0.25,
     maxPixels: 360_000,
-    render({ palette, view, time, pointer }) {
+    render({ ctx, palette, view, time, pointer }) {
+      const { reach, shimmer } = auroraParams(ctx.effects.backdropParams);
       const colors = auroraColors(palette);
       const w = view.cssWidth;
       const h = view.cssHeight;
       c.setTransform(view.pixelRatio, 0, 0, view.pixelRatio, 0, 0);
       c.clearRect(0, 0, w, h);
-      const key = `${palette.key}|${w}|${h}`;
+      const key = `${palette.key}|${w}|${h}|${reach}`;
       if (key !== gradientKey) {
         gradientKey = key;
         curtainGradients = [0, 1].map((idx) => {
-          const span = h * (idx === 0 ? 0.36 : 0.26);
+          const span = h * (idx === 0 ? 0.36 : 0.26) * reach;
           const grad = c.createLinearGradient(0, -span, 0, h * 0.02);
           const tone = idx === 0 ? colors.core : colors.fringe;
           grad.addColorStop(0, rgbCss(colors.fringe, 0));
@@ -160,7 +175,7 @@ const createAuroraCanvas: SceneFactory = (canvas) => {
           continue;
         }
         c.fillStyle = grad;
-        const base = h * (layer === 0 ? 0.34 : 0.22);
+        const base = h * (layer === 0 ? 0.34 : 0.22) * reach;
         const seed = layer * 7.3;
         for (let i = 0; i < STRIPS; i++) {
           const x = (i / STRIPS) * w;
@@ -168,10 +183,10 @@ const createAuroraCanvas: SceneFactory = (canvas) => {
           const edge = base + wave(nx * 3 + time * 0.05, seed) * h * 0.06;
           const ray = 0.55 + 0.45 * wave(nx * 22 + time * 0.12, seed + 2);
           const near = Math.exp(-(((nx - pointer.nx) * 4) ** 2)) * pointer.presence * 0.25;
-          c.globalAlpha = clamp((ray + near) * (colors.light ? 0.5 : 0.85), 0, 1);
+          c.globalAlpha = clamp((ray + near) * shimmer * (colors.light ? 0.5 : 0.85), 0, 1);
           const pr = view.pixelRatio;
           c.setTransform(pr, 0, 0, pr, x * pr, edge * pr);
-          c.fillRect(0, -h * 0.4, stripW, h * 0.42);
+          c.fillRect(0, -h * 0.4 * reach, stripW, h * 0.42 * reach);
         }
       }
       c.globalAlpha = 1;

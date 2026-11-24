@@ -5,9 +5,15 @@
 import type { Rgb, ScenePalette } from './palette';
 import type { Scene, SceneFactory, SceneSpec } from './scene-host';
 import { clamp, createRandom } from '../digital-rain/math';
+import { deriveEffectParams, PRISM_BEAMS_PARAM_SPECS } from '../model';
 import { wrap } from './canvas';
 import { derivePalette, hexRgb, mixRgb, rgbCss, rgbUnit, rotateHue, WHITE } from './palette';
 import { createShaderScene, GLSL_NOISE, GLSL_PRECISION } from './webgl';
+
+const prismParams = deriveEffectParams(PRISM_BEAMS_PARAM_SPECS, (p) => ({
+  spread: p.spread as number,
+  dust: p.dust as boolean,
+}));
 
 interface PrismColors {
   readonly left: Rgb;
@@ -37,6 +43,8 @@ uniform vec3 uLeft;
 uniform vec3 uCore;
 uniform vec3 uRight;
 uniform float uLight;
+uniform float uSpread;
+uniform float uDust;
 ${GLSL_NOISE}
 
 float motes(vec2 p, float t) {
@@ -68,7 +76,7 @@ void main() {
   float rays = 0.6 * smoothstep(-0.2, 0.9, r1)
     + 0.4 * smoothstep(0.1, 1.0, r2)
     + 0.25 * smoothstep(0.35, 1.0, r3);
-  float cone = exp(-ang * ang * 1.3);
+  float cone = exp(-ang * ang * (1.3 / max(0.2, uSpread * uSpread)));
   float fall = exp(-max(dist - 0.3, 0.0) * 0.95);
   float shafts = rays * cone * fall * 1.25;
   float pulse = 0.92 + 0.08 * sin(t * 0.6);
@@ -78,7 +86,7 @@ void main() {
   tint = mix(tint, uRight, smoothstep(0.5, 1.0, k));
   vec3 halo = mix(uCore, vec3(1.0), 0.35);
   float source = exp(-dist * 3.0) * 0.5 + smoothstep(0.8, 1.0, uv.y) * 0.05;
-  float dust = motes(p, t) * (shafts * 1.6 + 0.04);
+  float dust = uDust > 0.5 ? motes(p, t) * (shafts * 1.6 + 0.04) : 0.0;
 
   vec3 col = tint * shafts * pulse + halo * source + mix(tint, vec3(1.0), 0.5) * dust;
   float coverage = clamp(shafts * 0.7 + source + dust, 0.0, 1.0);
@@ -93,7 +101,7 @@ void main() {
 
 const createPrismShader: SceneFactory = createShaderScene({
   fragment: PRISM_FRAGMENT,
-  uniforms: ['uLeft', 'uCore', 'uRight', 'uLight'],
+  uniforms: ['uLeft', 'uCore', 'uRight', 'uLight', 'uSpread', 'uDust'],
   renderScale: 0.38,
   maxPixels: 450_000,
   bindPalette(gl, u, palette) {
@@ -102,6 +110,11 @@ const createPrismShader: SceneFactory = createShaderScene({
     gl.uniform3fv(u.uCore, rgbUnit(colors.core));
     gl.uniform3fv(u.uRight, rgbUnit(colors.right));
     gl.uniform1f(u.uLight, colors.light ? 1 : 0);
+  },
+  bindParams(gl, u, rawParams) {
+    const { spread, dust } = prismParams(rawParams);
+    gl.uniform1f(u.uSpread, spread);
+    gl.uniform1f(u.uDust, dust ? 1 : 0);
   },
 });
 
@@ -156,7 +169,8 @@ const createPrismCanvas: SceneFactory = (canvas) => {
     kind: 'canvas2d',
     renderScale: 0.38,
     maxPixels: 450_000,
-    render({ palette, view, time, dt, pointer }) {
+    render({ ctx, palette, view, time, dt, pointer }) {
+      const { spread: spreadScale, dust: showDust } = prismParams(ctx.effects.backdropParams);
       const colors = prismColors(palette);
       const w = view.cssWidth;
       const h = view.cssHeight;
@@ -194,8 +208,8 @@ const createPrismCanvas: SceneFactory = (canvas) => {
       c.setTransform(pr, 0, 0, pr, ox * pr, oy * pr);
       for (const [i, ray] of rays.entries()) {
         const shimmer = 0.55 + 0.45 * Math.sin(time * ray.rate + ray.phase);
-        const a = ray.angle - steer * 0.18;
-        const spread = ray.width * (0.85 + 0.3 * shimmer);
+        const a = ray.angle * spreadScale - steer * 0.18;
+        const spread = ray.width * spreadScale * (0.85 + 0.3 * shimmer);
         c.globalAlpha = shimmer;
         c.fillStyle = rayPaints[i] ?? halo;
         c.beginPath();
@@ -211,18 +225,20 @@ const createPrismCanvas: SceneFactory = (canvas) => {
       c.fillStyle = halo;
       c.fillRect(-ox, 0, w, h * 0.6);
 
-      c.setTransform(pr, 0, 0, pr, 0, 0);
-      c.fillStyle = moteColor;
-      for (const mote of motes) {
-        mote.x = wrap(mote.x + mote.vx * dt, 1);
-        mote.y = (mote.y + mote.vy * dt) % 1;
-        const mx = mote.x * w;
-        const my = mote.y * h;
-        const beam = Math.exp(-(((mx - ox) / (w * 0.42)) ** 2));
-        c.globalAlpha = (0.12 + 0.38 * beam) * (0.6 + 0.4 * Math.sin(time * 0.9 + mote.phase));
-        c.beginPath();
-        c.arc(mx, my, mote.r, 0, Math.PI * 2);
-        c.fill();
+      if (showDust) {
+        c.setTransform(pr, 0, 0, pr, 0, 0);
+        c.fillStyle = moteColor;
+        for (const mote of motes) {
+          mote.x = wrap(mote.x + mote.vx * dt, 1);
+          mote.y = (mote.y + mote.vy * dt) % 1;
+          const mx = mote.x * w;
+          const my = mote.y * h;
+          const beam = Math.exp(-(((mx - ox) / (w * 0.42)) ** 2));
+          c.globalAlpha = (0.12 + 0.38 * beam) * (0.6 + 0.4 * Math.sin(time * 0.9 + mote.phase));
+          c.beginPath();
+          c.arc(mx, my, mote.r, 0, Math.PI * 2);
+          c.fill();
+        }
       }
       c.globalAlpha = 1;
       c.globalCompositeOperation = 'source-over';

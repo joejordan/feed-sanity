@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { STUDIO_VIBES } from '../theme-effects';
 import {
   analyzeThemeDocument,
+  applyGeneratedPalette,
   applyStudioVibe,
   applyThemeDocument,
   applyThemePreset,
@@ -12,10 +13,14 @@ import {
   compileChromeUiCss,
   compileHostThemeCss,
   DEFAULT_THEME_DOCUMENT,
+  flipThemeColorScheme,
+  generateThemePalette,
   hydratePalette,
   isCustomImportedDocument,
   MAX_CUSTOM_CSS_BYTES,
   MAX_THEME_FILE_BYTES,
+  minTextContrast,
+  PALETTE_MOODS,
   parseThemeDocument,
   presetToThemeDocument,
   readThemeDocument,
@@ -25,11 +30,14 @@ import {
   serializeThemeDocument,
   THEME_FILE_FORMAT,
   THEME_SCHEMA_VERSION,
+  updateThemeChrome,
   updateThemeCustomCss,
   updateThemeEffects,
   updateThemePalette,
   updateThemeTypography,
   vibeToThemeDocument,
+  WCAG_AA_ACCENT_CONTRAST,
+  WCAG_AA_TEXT_CONTRAST,
 } from '../theming';
 
 describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
@@ -585,5 +593,58 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     expect(futureAuroraParams.warnings).toContain(
       'Ignored unrecognized effect parameter(s): curtains.',
     );
+  });
+
+  it('generates WCAG-AA palettes for every mood, flips dark/light polarity, preserves custom chrome, and handles accentSecondary cleanly', () => {
+    for (const mood of PALETTE_MOODS) {
+      for (const seed of ['#22c55e', '#ec4899', '#ffff00', '#00f0ff', '#0000ff', '#808080']) {
+        const palette = generateThemePalette(seed, mood);
+        const textContrast = minTextContrast(palette.text, palette.background, palette.surface);
+        const accentContrast = minTextContrast(palette.accent, palette.background, palette.surface);
+        expect(textContrast).toBeGreaterThanOrEqual(WCAG_AA_TEXT_CONTRAST);
+        expect(accentContrast).toBeGreaterThanOrEqual(WCAG_AA_ACCENT_CONTRAST);
+        expect(palette.accentSecondary).toMatch(/^#[0-9a-f]{6}$/);
+      }
+    }
+
+    // Clearing accentSecondary on Site Default must be a no-op (never materialize Midnight).
+    expect(updateThemePalette(DEFAULT_THEME_DOCUMENT, { accentSecondary: '' })).toBe(
+      DEFAULT_THEME_DOCUMENT,
+    );
+
+    const generated = applyGeneratedPalette(DEFAULT_THEME_DOCUMENT, '#10b981', 'neon');
+    expect(generated.id).toBe('custom');
+    expect(generated.palette?.colorScheme).toBe('dark');
+    expect(generated.meta.swatches).toContain(generated.palette?.accentSecondary);
+
+    const withChrome = updateThemeChrome(generated, { ribbon: true, ambientGlow: true });
+    expect(withChrome.chrome?.ribbon?.enabled).toBe(true);
+    expect(withChrome.chrome?.ambientGlow?.enabled).toBe(true);
+    expect(withChrome.chrome?.ribbon?.stops).toContain(generated.palette?.accent);
+
+    // Flipping polarity adapts both palette and active chrome stops cleanly.
+    const flipped = flipThemeColorScheme(withChrome);
+    expect(flipped.palette?.colorScheme).toBe('light');
+    expect(flipped.chrome?.ribbon?.stops).toContain(flipped.palette?.accent);
+    expect(
+      minTextContrast(flipped.palette!.text, flipped.palette!.background, flipped.palette!.surface),
+    ).toBeGreaterThanOrEqual(WCAG_AA_TEXT_CONTRAST);
+
+    // Toggling one chrome switch or editing a color preserves untouched custom preset chrome.
+    const prism = applyThemePreset(DEFAULT_THEME_DOCUMENT, 'prism-aurora');
+    const prismStops = prism.chrome?.ribbon?.stops;
+    expect(prismStops?.length).toBeGreaterThan(2);
+    const prismNoGlow = updateThemeChrome(prism, { ambientGlow: false });
+    expect(prismNoGlow.chrome?.ambientGlow).toBeUndefined();
+    expect(prismNoGlow.chrome?.ribbon?.stops).toEqual(prismStops);
+    const prismEdited = updateThemePalette(prism, { text: '#ffffff' });
+    expect(prismEdited.chrome?.ribbon?.stops).toEqual(prismStops);
+
+    // Clearing accentSecondary removes it cleanly; disabling both chrome switches drops `chrome`.
+    const clearedSecondary = updateThemePalette(flipped, { accentSecondary: '' });
+    expect(clearedSecondary.palette?.accentSecondary).toBeUndefined();
+    expect(clearedSecondary.meta.swatches).toHaveLength(4);
+    const noChrome = updateThemeChrome(clearedSecondary, { ribbon: false, ambientGlow: false });
+    expect(noChrome.chrome).toBeUndefined();
   });
 });
