@@ -15,7 +15,14 @@ import { SavedData } from './saved';
 import { createSiteSettings, SITES_STORAGE_KEY } from './site-settings';
 import { siteStoragePrefix } from './site-storage';
 import { createPreloadedStore, readStoreMany } from './storage';
-import { applyEarlyThemeCss, clearEarlyThemeStyle, writeEarlyThemeCss } from './theming';
+import {
+  applyEarlyThemeCss,
+  clearEarlyThemeStyle,
+  createThemeLibrary,
+  THEME_GLOBAL_REV_KEY,
+  THEME_LIBRARY_KEY,
+  writeEarlyThemeCss,
+} from './theming';
 
 export { scrubCommonPii } from './pii';
 
@@ -132,7 +139,13 @@ export async function startSite<P, F extends PageFactory<P>>(
     SITES_STORAGE_KEY,
     `${bootPrefix}/options`,
     `${bootPrefix}/filters`,
-    ...(site.themeMapping ? [`${bootPrefix}/${THEME_DATA_KEY}`] : []),
+    ...(site.themeMapping
+      ? [
+          `${bootPrefix}/${THEME_DATA_KEY}`,
+          `${bootPrefix}/${THEME_GLOBAL_REV_KEY}`,
+          THEME_LIBRARY_KEY,
+        ]
+      : []),
   ];
   let preloadedStore: ReturnType<typeof createPreloadedStore> | undefined;
   const bootStoreReady: Promise<typeof platform.store> = platform.store.getMany
@@ -174,6 +187,7 @@ export async function startSite<P, F extends PageFactory<P>>(
       ? initSiteTheme(env, data, site.themeMapping, {
           active: false,
           earlyCacheSiteId: site.id,
+          library: createThemeLibrary(bootStore),
         })
       : undefined;
     const page = site.createPage(

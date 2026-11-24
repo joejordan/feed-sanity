@@ -18,7 +18,27 @@ export interface ThemeTransferDisclosureProps {
   readonly onToggle: () => void;
   readonly document: ThemeDocumentV1;
   readonly onImport: (doc: ThemeDocumentV1, includeCustomCss: boolean) => void;
+  readonly onSaveToLibrary?: (doc: ThemeDocumentV1, includeCustomCss: boolean) => Promise<boolean>;
   readonly notify?: (message: string, onUndo?: () => void) => void;
+}
+
+/** Decorative row of palette preview dots shared across preset, library, and import cards. */
+export function ThemeSwatches({ swatches }: { readonly swatches: readonly string[] }) {
+  if (swatches.length === 0) {
+    return null;
+  }
+  return (
+    <span className="theme-swatches" aria-hidden="true">
+      {swatches.map((color, idx) => (
+        <span
+          // biome-ignore lint/suspicious/noArrayIndexKey: static preview swatch list
+          key={idx}
+          className="theme-dot"
+          style={{ background: color }}
+        />
+      ))}
+    </span>
+  );
 }
 
 /** Triggers a browser download of `doc` as a standalone `.fstheme.json` file. */
@@ -75,6 +95,7 @@ interface ThemeImportPreviewProps {
   readonly onIncludeCustomCssChange: (checked: boolean) => void;
   readonly onFixContrast: () => void;
   readonly onApply: () => void;
+  readonly onSaveToLibrary?: () => void;
   readonly onCancel: () => void;
 }
 
@@ -85,6 +106,7 @@ function ThemeImportPreview({
   onIncludeCustomCssChange,
   onFixContrast,
   onApply,
+  onSaveToLibrary,
   onCancel,
 }: ThemeImportPreviewProps) {
   const swatches = useMemo(
@@ -113,18 +135,7 @@ function ThemeImportPreview({
           <strong className="theme-card-name">{doc.meta.name}</strong>
           {byline && <span className="theme-studio-hint"> {byline}</span>}
         </div>
-        {swatches.length > 0 && (
-          <span className="theme-swatches" aria-hidden="true">
-            {swatches.map((color, idx) => (
-              <span
-                // biome-ignore lint/suspicious/noArrayIndexKey: static preview swatch list
-                key={idx}
-                className="theme-dot"
-                style={{ background: color }}
-              />
-            ))}
-          </span>
-        )}
+        <ThemeSwatches swatches={swatches} />
       </div>
 
       {doc.meta.description && <p className="theme-card-desc">{doc.meta.description}</p>}
@@ -172,6 +183,11 @@ function ThemeImportPreview({
         <button type="button" className="button primary" onClick={onApply}>
           Apply imported theme
         </button>
+        {onSaveToLibrary && (
+          <button type="button" className="button" onClick={onSaveToLibrary}>
+            Save to My Themes
+          </button>
+        )}
         <button type="button" className="button" onClick={onCancel}>
           Cancel
         </button>
@@ -185,6 +201,7 @@ export function ThemeTransferDisclosure({
   onToggle,
   document: activeDoc,
   onImport,
+  onSaveToLibrary,
   notify,
 }: ThemeTransferDisclosureProps) {
   const pasteId = useId();
@@ -305,6 +322,19 @@ export function ThemeTransferDisclosure({
     setStatusMessage(`Imported "${previewDoc.meta.name}"`);
   };
 
+  const handleSaveImportToLibrary = (): void => {
+    if (!previewDoc || !onSaveToLibrary) {
+      return;
+    }
+    const seq = readSeqRef.current;
+    const savedName = previewDoc.meta.name;
+    void onSaveToLibrary(previewDoc, includeCustomCss).then((ok) => {
+      if (ok && seq === readSeqRef.current) {
+        setStatusMessage(`Saved "${savedName}" to My Themes`);
+      }
+    });
+  };
+
   return (
     <Disclosure
       label="Import / Export theme"
@@ -408,6 +438,7 @@ export function ThemeTransferDisclosure({
               onIncludeCustomCssChange={setIncludeCustomCss}
               onFixContrast={handleFixPreviewContrast}
               onApply={handleApplyImport}
+              {...(onSaveToLibrary ? { onSaveToLibrary: handleSaveImportToLibrary } : {})}
               onCancel={clearPreview}
             />
           )}

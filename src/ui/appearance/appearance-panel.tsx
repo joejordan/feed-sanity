@@ -2,15 +2,18 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import type { SavedValue } from '../../core/saved';
 import type { StudioVibe, ThemeEffectsConfig } from '../../core/theme-effects';
 import type {
+  SavedThemeEntry,
   THEME_FONT_STACKS,
   ThemeController,
   ThemeDocumentV1,
   ThemeFontId,
+  ThemeLibraryClient,
 } from '../../core/theming';
 import type { OptionsPanel, PanelProps, PanelSearchItem } from '../options-dialog/panel';
 import type { AuditState } from './health-disclosure';
 import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from '../../core/theme-effects';
 import {
+  analyzeThemeDocument,
   applyStudioVibe,
   applyThemeDocument,
   applyThemePreset,
@@ -47,7 +50,12 @@ import css from './appearance-panel.css?inline';
 import { CustomCssDisclosure } from './custom-css-disclosure';
 import { ThemeHealthDisclosure } from './health-disclosure';
 import { CreativeStudioCard, StudioVibesCard } from './studio-section';
-import { downloadThemeDocumentFile, ThemeTransferDisclosure } from './theme-transfer';
+import { ThemeLibraryCard } from './theme-library-card';
+import {
+  downloadThemeDocumentFile,
+  ThemeSwatches,
+  ThemeTransferDisclosure,
+} from './theme-transfer';
 
 export { readThemeDocument, THEME_DATA_KEY } from '../../core/theming';
 
@@ -89,8 +97,36 @@ function AppearancePanelView({
   notify,
   options,
   controller,
-}: PanelProps<ThemeDocumentV1> & { controller: ThemeController }) {
+  library,
+}: PanelProps<ThemeDocumentV1> & {
+  controller: ThemeController;
+  library?: ThemeLibraryClient;
+}) {
   const fontId = useId();
+  const [libraryEntries, setLibraryEntries] = useState<readonly SavedThemeEntry[]>(() =>
+    library ? library.list() : [],
+  );
+  useEffect(() => {
+    if (!library) {
+      return;
+    }
+    setLibraryEntries(library.list());
+    return library.onChange((next) => setLibraryEntries(next.themes));
+  }, [library]);
+  const activeFingerprint = useMemo(
+    () => (library ? analyzeThemeDocument(value).fingerprint : ''),
+    [library, value],
+  );
+  const analyzedLibrary = useMemo(() => {
+    const items = libraryEntries.map((entry) => ({
+      entry,
+      capabilities: analyzeThemeDocument(entry.document),
+      swatches: getPaletteSwatches(entry.document.palette, entry.document.meta.swatches, true),
+    }));
+    const fingerprints = new Set(items.map((item) => item.capabilities.fingerprint));
+    return { items, fingerprints };
+  }, [libraryEntries]);
+  const savedInLibrary = Boolean(library && analyzedLibrary.fingerprints.has(activeFingerprint));
   const [auditState, setAuditState] = useState<AuditState | null>(null);
   const [schemeFilter, setSchemeFilter] = useState<SchemeFilter>('all');
   const [colorDrafts, setColorDrafts] = useState<Partial<Record<ColorFieldKey, string>>>({});
@@ -224,6 +260,86 @@ function AppearancePanelView({
     applyEdit(applyThemeDocument(doc, { includeCustomCss }), `Imported theme "${doc.meta.name}"`);
   };
 
+  const runLibraryAction = <R,>(
+    run: (client: ThemeLibraryClient) => Promise<R>,
+    onSuccess: (result: R, client: ThemeLibraryClient) => void,
+    fallbackError: string,
+  ): Promise<boolean> => {
+    if (!library) {
+      return Promise.resolve(false);
+    }
+    return run(library).then(
+      (result) => {
+        onSuccess(result, library);
+        return true;
+      },
+      (error: unknown) => {
+        notify?.(error instanceof Error ? error.message : fallbackError);
+        return false;
+      },
+    );
+  };
+
+  const handleSaveToLibrary = (
+    doc: ThemeDocumentV1,
+    saveOptions: { readonly name?: string; readonly includeCustomCss?: boolean } = {},
+  ): Promise<boolean> =>
+    runLibraryAction(
+      (client) => client.saveTheme(doc, saveOptions),
+      (entry) => notify?.(`Saved "${entry.document.meta.name}" to My Themes`),
+      'Could not save theme to My Themes',
+    );
+
+  const handleApplyLibraryEntry = (entry: SavedThemeEntry): void => {
+    clearColorDrafts();
+    applyEdit(entry.document, `Applied "${entry.document.meta.name}"`);
+  };
+
+  const handleApplyAllSites = (doc: ThemeDocumentV1): void => {
+    if (!library) {
+      return;
+    }
+    if (doc !== value) {
+      clearColorDrafts();
+      applyEdit(doc);
+    }
+    void runLibraryAction(
+      (client) => client.applyToAllSites(doc),
+      (override) => notify?.(`Applied "${override.document.meta.name}" to all sites`),
+      'Could not apply theme across all sites',
+    );
+  };
+
+  const handleRenameLibraryEntry = (entryId: string, nextName: string): void => {
+    void runLibraryAction(
+      (client) => client.renameTheme(entryId, nextName),
+      (updated) => {
+        if (updated) {
+          notify?.(`Renamed theme to "${updated.document.meta.name}"`);
+        }
+      },
+      'Could not rename saved theme',
+    );
+  };
+
+  const handleDeleteLibraryEntry = (entry: SavedThemeEntry): void => {
+    void runLibraryAction(
+      (client) => client.removeTheme(entry.id),
+      (removed) => {
+        if (removed) {
+          notify?.(`Deleted "${removed.document.meta.name}"`, () => {
+            void runLibraryAction(
+              (client) => client.restoreTheme(removed),
+              () => undefined,
+              'Could not restore deleted theme',
+            );
+          });
+        }
+      },
+      'Could not delete saved theme',
+    );
+  };
+
   const clearDraftKey = (key: ColorFieldKey): void => {
     setColorDrafts((prev) => {
       if (!(key in prev)) {
@@ -323,6 +439,17 @@ function AppearancePanelView({
             {value.meta.author && <span className="theme-studio-hint">by {value.meta.author}</span>}
           </div>
           <div className="theme-audit-buttons">
+            {library && !savedInLibrary && (
+              <button
+                type="button"
+                className="theme-inline-reset"
+                onClick={() => {
+                  void handleSaveToLibrary(value);
+                }}
+              >
+                Save to My Themes
+              </button>
+            )}
             <button
               type="button"
               className="theme-inline-reset"
@@ -345,6 +472,22 @@ function AppearancePanelView({
             </button>
           </div>
         </div>
+      )}
+
+      {library && (
+        <ThemeLibraryCard
+          items={analyzedLibrary.items}
+          activeDocument={value}
+          activeFingerprint={activeFingerprint}
+          onSaveCurrent={(name) => {
+            void handleSaveToLibrary(value, { name });
+          }}
+          onApplyEntry={handleApplyLibraryEntry}
+          onApplyAllSites={handleApplyAllSites}
+          onRenameEntry={handleRenameLibraryEntry}
+          onDeleteEntry={handleDeleteLibraryEntry}
+          onExportEntry={(_entry, filename) => notify?.(`Exported ${filename}`)}
+        />
       )}
 
       <StudioVibesCard activeVibe={activeVibe} onApplyVibe={applyVibe} />
@@ -396,16 +539,7 @@ function AppearancePanelView({
                 data-base={effectsActive && activePreset?.id === preset.id ? 'true' : undefined}
                 onClick={() => selectColorTheme(preset.id, preset.name)}
               >
-                <span className="theme-swatches" aria-hidden="true">
-                  {getPaletteSwatches(preset.palette, preset.swatches).map((color, idx) => (
-                    <span
-                      // biome-ignore lint/suspicious/noArrayIndexKey: static preset swatch palette
-                      key={idx}
-                      className="theme-dot"
-                      style={{ background: color }}
-                    />
-                  ))}
-                </span>
+                <ThemeSwatches swatches={getPaletteSwatches(preset.palette, preset.swatches)} />
                 <span className="theme-card-name">{preset.name}</span>
                 <p className="theme-card-desc">{preset.description}</p>
               </button>
@@ -518,6 +652,12 @@ function AppearancePanelView({
           onToggle={() => setTransferOpen((open) => !open)}
           document={value}
           onImport={handleImportDocument}
+          {...(library
+            ? {
+                onSaveToLibrary: (doc: ThemeDocumentV1, includeCustomCss: boolean) =>
+                  handleSaveToLibrary(doc, { includeCustomCss }),
+              }
+            : {})}
           {...(notify ? { notify } : {})}
         />
 
@@ -557,23 +697,52 @@ export function appearancePanel(
   saved: SavedValue<ThemeDocumentV1>,
   controller: ThemeController,
   onApply: (doc: ThemeDocumentV1) => void = (next) => controller.apply(resolveTheme(next)),
+  library?: ThemeLibraryClient,
+  extraReady?: Promise<void>,
 ): OptionsPanel {
+  const baseReady = library
+    ? Promise.all([saved.ready, library.ready]).then(() => undefined)
+    : saved.ready;
+  const ready = extraReady ? Promise.all([baseReady, extraReady]).then(() => undefined) : baseReady;
+  const saveDocument = async (next: ThemeDocumentV1): Promise<void> => {
+    await saved.set(next);
+    onApply(next);
+    controller.clearPreview();
+  };
+  const selectDocument = (next: ThemeDocumentV1): void => {
+    controller.preview(resolveTheme(next));
+    void saveDocument(next);
+  };
   return definePanel<ThemeDocumentV1>({
     section: 'Appearance',
     css,
     instant: true,
-    ready: saved.ready,
+    ready,
     read: () => saved.get(),
-    save: async (next) => {
-      await saved.set(next);
-      onApply(next);
-      controller.clearPreview();
-    },
+    save: saveDocument,
     swatch: () => {
       const palette = saved.get().palette;
       return palette ? { bg: palette.background, accent: palette.accent } : null;
     },
     searchItems: (): PanelSearchItem[] => [
+      ...(library
+        ? [
+            {
+              id: 'theme-library',
+              title: 'My Themes library / Apply to all sites',
+              description:
+                'Save customized or imported themes and apply any theme across every site.',
+              keywords: ['library', 'saved', 'my themes', 'all sites', 'sync', 'global'],
+            },
+            ...library.list().map((entry) => ({
+              id: `saved-theme:${entry.id}`,
+              title: `My Theme: ${entry.document.meta.name}`,
+              description: entry.document.meta.description ?? 'Saved theme in My Themes library.',
+              keywords: ['saved', 'library', 'theme', entry.id, entry.document.id],
+              onSelect: () => selectDocument(entry.document),
+            })),
+          ]
+        : []),
       {
         id: 'typography',
         title: 'Typography / Site font',
@@ -623,31 +792,19 @@ export function appearancePanel(
         title: `Studio Vibe: ${vibe.name}`,
         description: vibe.tagline,
         keywords: ['vibe', 'studio', 'effect', vibe.id, vibe.preset, vibe.effects.backdrop ?? ''],
-        onSelect: () => {
-          const next = applyStudioVibe(saved.get(), vibe);
-          controller.preview(resolveTheme(next));
-          void saved.set(next).then(() => {
-            onApply(next);
-            controller.clearPreview();
-          });
-        },
+        onSelect: () => selectDocument(applyStudioVibe(saved.get(), vibe)),
       })),
       ...BUILTIN_THEMES.map((preset) => ({
         id: `preset:${preset.id}`,
         title: `Theme: ${preset.name}`,
         description: preset.description,
         keywords: ['theme', 'preset', preset.palette.colorScheme, preset.id],
-        onSelect: () => {
-          const next = applyThemePreset(saved.get(), preset.id);
-          controller.preview(resolveTheme(next));
-          void saved.set(next).then(() => {
-            onApply(next);
-            controller.clearPreview();
-          });
-        },
+        onSelect: () => selectDocument(applyThemePreset(saved.get(), preset.id)),
       })),
     ],
     onClose: () => controller.clearPreview(),
-    Panel: (props) => <AppearancePanelView {...props} controller={controller} />,
+    Panel: (props) => (
+      <AppearancePanelView {...props} controller={controller} {...(library ? { library } : {})} />
+    ),
   });
 }

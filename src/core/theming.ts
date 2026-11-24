@@ -93,6 +93,20 @@ export {
   THEME_STYLE_ID,
   writeEarlyThemeCss,
 } from './theming/early-cache';
+export {
+  createThemeLibrary,
+  EMPTY_THEME_LIBRARY,
+  type GlobalThemeOverride,
+  MAX_LIBRARY_THEMES,
+  readGlobalThemeRevision,
+  readThemeLibraryState,
+  type SavedThemeEntry,
+  type SaveLibraryThemeOptions,
+  THEME_GLOBAL_REV_KEY,
+  THEME_LIBRARY_KEY,
+  type ThemeLibraryClient,
+  type ThemeLibraryState,
+} from './theming/library';
 export { BUILTIN_THEMES, findThemePreset } from './theming/presets';
 export {
   type AdaptiveThemeMappingOptions,

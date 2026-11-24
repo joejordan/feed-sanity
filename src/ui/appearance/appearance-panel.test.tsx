@@ -8,6 +8,7 @@ import { SavedData } from '../../core/saved';
 import { inMemoryStore } from '../../core/testing';
 import {
   applyThemePreset,
+  createThemeLibrary,
   DEFAULT_THEME_DOCUMENT,
   isCustomImportedDocument,
   MAX_THEME_FILE_BYTES,
@@ -730,6 +731,208 @@ describe('appearancePanel & initSiteTheme', () => {
     } finally {
       createUrlSpy.mockRestore();
       revokeUrlSpy.mockRestore();
+    }
+  });
+
+  it('saves, applies, renames, deletes with Undo, and imports directly into the My Themes library', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'v2/facebook/u1');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    const library = createThemeLibrary(store);
+    await library.ready;
+
+    try {
+      const controller = makeController();
+      const panel = appearancePanel(saved, controller, () => undefined, library);
+
+      render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+      // Apply Enter the Matrix vibe and save it to My Themes with a custom name.
+      await userEvent.click(screen.getByRole('button', { name: /Enter the Matrix/i }));
+      await vi.waitFor(() => expect(saved.get().id).toBe('enter-the-matrix'));
+
+      await userEvent.click(screen.getByRole('button', { name: 'Save current' }));
+      const nameInput = screen.getByRole<HTMLInputElement>('textbox', { name: 'Saved theme name' });
+      await userEvent.clear(nameInput);
+      await userEvent.type(nameInput, 'Night Matrix');
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      await vi.waitFor(() => expect(library.list()).toHaveLength(1));
+      expect(screen.getByRole('button', { name: /^Night Matrix/i })).toBeTruthy();
+
+      // Switch to Warm Paper, then click the saved theme card to re-apply it.
+      await userEvent.click(screen.getByRole('button', { name: /Warm Paper/i }));
+      await vi.waitFor(() => expect(saved.get().id).toBe('warm-paper'));
+
+      await userEvent.click(screen.getByRole('button', { name: /^Night Matrix/i }));
+      await vi.waitFor(() => {
+        expect(saved.get().meta.name).toBe('Night Matrix');
+        expect(saved.get().effects?.backdrop?.id).toBe('digital-rain');
+      });
+
+      // Rename the saved entry inline.
+      await userEvent.click(screen.getByRole('button', { name: 'Rename Night Matrix' }));
+      const renameInput = screen.getByRole<HTMLInputElement>('textbox', {
+        name: 'Rename saved theme',
+      });
+      await userEvent.clear(renameInput);
+      await userEvent.type(renameInput, 'Cyber Matrix');
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await vi.waitFor(() => expect(library.list()[0]?.document.meta.name).toBe('Cyber Matrix'));
+
+      // Delete the saved entry, then restore it with Undo.
+      await userEvent.click(screen.getByRole('button', { name: 'Delete Cyber Matrix' }));
+      await vi.waitFor(() => expect(library.list()).toHaveLength(0));
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+      await vi.waitFor(() => expect(library.list()).toHaveLength(1));
+
+      // Save an imported .fstheme.json preview straight into My Themes (custom CSS unchecked).
+      await userEvent.click(screen.getByRole('button', { name: /Import \/ Export theme/i }));
+      const pasteArea = screen.getByRole<HTMLTextAreaElement>('textbox', {
+        name: 'Paste theme JSON',
+      });
+      await userEvent.click(pasteArea);
+      await userEvent.paste(
+        JSON.stringify({
+          format: THEME_FILE_FORMAT,
+          schemaVersion: 1,
+          meta: { name: 'Deep Ocean' },
+          palette: {
+            colorScheme: 'dark',
+            background: '#08121e',
+            surface: '#0f1f33',
+            text: '#e8f1fa',
+            accent: '#38bdf8',
+          },
+          customCss: '.ignored { opacity: 0.9; }',
+        }),
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Save to My Themes' }));
+      await vi.waitFor(() => expect(library.list()).toHaveLength(2));
+      const ocean = library.list().find((entry) => entry.document.meta.name === 'Deep Ocean');
+      expect(ocean).toBeDefined();
+      expect(ocean?.document.customCss).toBeUndefined();
+      await vi.waitFor(() =>
+        expect(
+          screen.getAllByText('Saved "Deep Ocean" to My Themes').length,
+        ).toBeGreaterThanOrEqual(1),
+      );
+
+      // Failed library saves must NOT show the inline "Saved ... to My Themes" confirmation.
+      const saveSpy = vi
+        .spyOn(library, 'saveTheme')
+        .mockRejectedValueOnce(new Error('Library full'));
+      try {
+        await userEvent.clear(pasteArea);
+        await userEvent.paste(
+          JSON.stringify({
+            format: THEME_FILE_FORMAT,
+            schemaVersion: 1,
+            meta: { name: 'Overflow Theme' },
+            palette: null,
+          }),
+        );
+        await userEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+        await userEvent.click(screen.getByRole('button', { name: 'Save to My Themes' }));
+        await vi.waitFor(() => expect(screen.getByText('Library full')).toBeTruthy());
+        expect(screen.queryByText('Saved "Overflow Theme" to My Themes')).toBeNull();
+      } finally {
+        saveSpy.mockRestore();
+      }
+    } finally {
+      library.dispose();
+    }
+  });
+
+  it('broadcasts Apply to all sites live to open tabs, adopts on unopened sites at boot, and preserves later per-site overrides', async () => {
+    const store = inMemoryStore();
+    const fbEnv = createDomEnvironment();
+    const xEnv = createDomEnvironment();
+    const redditEnv = createDomEnvironment();
+
+    const fbData = new SavedData(store, 'v2/facebook/u1');
+    const xData = new SavedData(store, 'v2/x/u2');
+    const fbLibrary = createThemeLibrary(store);
+    const xLibrary = createThemeLibrary(store);
+
+    const fbRuntime = initSiteTheme(fbEnv, fbData, facebookThemeMapping, { library: fbLibrary });
+    const xRuntime = initSiteTheme(xEnv, xData, facebookThemeMapping, { library: xLibrary });
+    const fbSaved = fbData.value(THEME_DATA_KEY, readThemeDocument);
+    const xSaved = xData.value(THEME_DATA_KEY, readThemeDocument);
+    const fbOptions = new Options(store, 'v2/facebook/u1/options');
+    await Promise.all([
+      fbOptions.load(),
+      fbSaved.ready,
+      xSaved.ready,
+      fbLibrary.ready,
+      xLibrary.ready,
+    ]);
+
+    let redditRuntime: ReturnType<typeof initSiteTheme> | undefined;
+    let redditLibrary: ReturnType<typeof createThemeLibrary> | undefined;
+    try {
+      // Mount Facebook's Appearance panel, pick Nord, and click Apply to all sites.
+      render(<OptionsDialog options={fbOptions} panels={[fbRuntime.panel]} onClose={vi.fn()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+      await userEvent.click(screen.getByRole('button', { name: /Nord/i }));
+      await vi.waitFor(() => expect(fbSaved.get().id).toBe('nord'));
+
+      await userEvent.click(screen.getByRole('button', { name: 'Apply to all sites' }));
+
+      // Open X tab adopts Nord live automatically.
+      await vi.waitFor(() => expect(xSaved.get().id).toBe('nord'));
+
+      // Unopened Reddit tab booting later adopts Nord on startup.
+      const redditData = new SavedData(store, 'v2/reddit/u3');
+      redditLibrary = createThemeLibrary(store);
+      redditRuntime = initSiteTheme(redditEnv, redditData, facebookThemeMapping, {
+        library: redditLibrary,
+      });
+      const redditSaved = redditData.value(THEME_DATA_KEY, readThemeDocument);
+      await vi.waitFor(() => expect(redditSaved.get().id).toBe('nord'));
+
+      // Subsequent per-site edit on X stays local to X and persists across a full reload without re-adopting older Nord.
+      await xSaved.set(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'));
+      await vi.waitFor(() => expect(xSaved.get().id).toBe('warm-paper'));
+      expect(fbSaved.get().id).toBe('nord');
+
+      const reloadedXEnv = createDomEnvironment();
+      const reloadedXData = new SavedData(store, 'v2/x/u2');
+      const reloadedXLibrary = createThemeLibrary(store);
+      const reloadedXRuntime = initSiteTheme(reloadedXEnv, reloadedXData, facebookThemeMapping, {
+        library: reloadedXLibrary,
+      });
+      try {
+        await reloadedXRuntime.panel.ready;
+        expect(reloadedXData.value(THEME_DATA_KEY, readThemeDocument).get().id).toBe('warm-paper');
+      } finally {
+        reloadedXRuntime.dispose();
+        reloadedXLibrary.dispose();
+        reloadedXEnv.dispose();
+      }
+
+      // A newer Apply to all sites broadcast overrides X again.
+      await fbLibrary.applyToAllSites(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'));
+      await vi.waitFor(() => {
+        expect(fbSaved.get().id).toBe('catppuccin-mocha');
+        expect(xSaved.get().id).toBe('catppuccin-mocha');
+        expect(redditSaved.get().id).toBe('catppuccin-mocha');
+      });
+    } finally {
+      redditRuntime?.dispose();
+      redditLibrary?.dispose();
+      fbRuntime.dispose();
+      xRuntime.dispose();
+      fbLibrary.dispose();
+      xLibrary.dispose();
+      fbEnv.dispose();
+      xEnv.dispose();
+      redditEnv.dispose();
     }
   });
 });
