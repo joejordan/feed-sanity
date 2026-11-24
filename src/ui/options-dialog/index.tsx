@@ -32,10 +32,14 @@ export async function openOptionsDialog(
 ): Promise<void> {
   await Promise.all([options.loaded, ...panels.map((panel) => panel.ready)]);
   if (closeOpen) {
-    if (config.initialSection) {
-      jumpOpenSection?.(config.initialSection);
+    if (document.querySelector(`#${HOST_ID}`)) {
+      if (config.initialSection) {
+        jumpOpenSection?.(config.initialSection);
+      }
+      return;
     }
-    return;
+    // Host page detached our dialog container: clean up the stale root and remount.
+    closeOpen();
   }
   const close = () => {
     if (closeOpen === close) {

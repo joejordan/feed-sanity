@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import { savedFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { Options } from '../core/options';
 import { SavedData } from '../core/saved';
 import { LOCATOR_OVERRIDES } from '../facebook/feature';
-import { savedFilters } from '../features/post-filters/types';
 import { extensionStore } from '../platform/extension-store';
 import { readThemeConfig, THEME_DATA_KEY } from '../ui/appearance';
 import { applyBackup, exportBackup, parseBackup, resetAllData } from './transfer';

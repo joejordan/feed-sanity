@@ -196,4 +196,44 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     expect(receivedEnvs[0]).toBeDefined();
     expect(getSpy).toHaveBeenCalledWith('v2/facebook/u1/options');
   });
+
+  it('defers createPanels until the user opens the Options dialog and caches them across reopens', async () => {
+    const createPanels = vi.fn(() => []);
+    const openHandlers: Array<() => void> = [];
+    const site: SiteAdapter<Record<string, never>> = {
+      id: 'facebook',
+      displayName: 'Facebook',
+      matchesHost: () => true,
+      themeCss: '',
+      themeMapping: { rootSelectors: [':root'] },
+      accountId: () => 'u1',
+      storagePrefix: (account) => `v2/facebook/${account}`,
+      scrubPii: scrubCommonPii,
+      createPage: () => () => ({}),
+      features: [],
+      createPanels,
+    };
+
+    await startSite(site, {
+      build: 'test',
+      store: inMemoryStore(),
+      setBadge: () => undefined,
+      onOpenOptions: (listener) => openHandlers.push(listener),
+      installPageWorld: () => Promise.resolve(),
+    });
+
+    // Startup runs cleanly without constructing any Settings panel UI or subscriptions.
+    expect(createPanels).not.toHaveBeenCalled();
+
+    // First Options open constructs panels once; reopening reuses them.
+    openHandlers[0]?.();
+    await vi.waitFor(() => expect(createPanels).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(document.querySelector('#feed_sanity_options')).not.toBeNull());
+    openHandlers[0]?.();
+    expect(createPanels).toHaveBeenCalledTimes(1);
+    document
+      .querySelector('#feed_sanity_options')
+      ?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Close"]')
+      ?.click();
+  });
 });

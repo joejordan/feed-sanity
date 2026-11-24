@@ -2,11 +2,11 @@ import { cleanup, render, screen } from '@testing-library/preact';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import { savedFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { Options } from '../core/options';
 import { SavedData } from '../core/saved';
 import { LOCATOR_OVERRIDES } from '../facebook/feature';
-import { savedFilters } from '../features/post-filters/types';
 import { extensionStore } from '../platform/extension-store';
 import { DataPanel } from './data-panel';
 

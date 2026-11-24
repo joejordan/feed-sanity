@@ -1,6 +1,7 @@
 import type { SiteAdapter } from '../../core/site';
 import type { FacebookPage } from '../../facebook/feature';
 import { version } from '../../../package.json';
+import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
 import { dataPanel } from '../../data/data-panel';
 import { collectDiagnostics, reportedPageType } from '../../diagnostics/collect';
@@ -12,7 +13,6 @@ import facebookTheme from '../../facebook/theme.css?inline';
 import { isFacebookHost } from '../../facebook/urls';
 import { currentUserId } from '../../facebook/user';
 import { features, optionsPanels } from '../../features';
-import { savedFilters } from '../../features/post-filters/types';
 import { readThemeConfig, THEME_DATA_KEY } from '../../ui/appearance';
 import { facebookThemeMapping } from './theme-mapping';
 

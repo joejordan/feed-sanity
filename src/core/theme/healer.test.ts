@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDomEnvironment } from '../dom-env';
 import { Scope } from '../scope';
 import { findThemePreset } from '../theming';
@@ -134,5 +134,41 @@ describe('core/theme/healer', () => {
 
     scope.dispose();
     env.dispose();
+  });
+
+  it('schedules flush slices via requestIdleCallback when available and cancels them on dispose', () => {
+    const callbacks = new Map<number, IdleRequestCallback>();
+    let nextId = 1;
+    const reqIdle = vi.fn((cb: IdleRequestCallback) => {
+      const id = nextId++;
+      callbacks.set(id, cb);
+      return id;
+    });
+    const cancelIdle = vi.fn((id: number) => {
+      callbacks.delete(id);
+    });
+    vi.stubGlobal('requestIdleCallback', reqIdle);
+    vi.stubGlobal('cancelIdleCallback', cancelIdle);
+
+    try {
+      document.body.style.backgroundColor = warmPaper.background;
+      document.body.innerHTML =
+        '<div id="idle-card" style="background-color: rgb(22, 24, 28);">Dark card</div>';
+
+      const env = createDomEnvironment();
+      const scope = new Scope();
+      const healer = createThemeHealer(env, scope);
+
+      healer.setPalette(warmPaper);
+      expect(reqIdle).toHaveBeenCalledTimes(1);
+
+      // Disposing cancels any pending idle callback cleanly.
+      scope.dispose();
+      expect(cancelIdle).toHaveBeenCalledTimes(1);
+      expect(callbacks.size).toBe(0);
+      env.dispose();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
