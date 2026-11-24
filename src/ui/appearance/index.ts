@@ -71,10 +71,16 @@ export function initSiteTheme(
     }
   });
 
+  let cachedPanel: OptionsPanel | undefined;
+
   return {
     controller,
-    // `saved.set` already triggers `onChange(sync)` above (which respects `active`).
-    panel: appearancePanel(saved, controller, () => undefined),
+    // Construct the Appearance panel lazily on first Settings open to keep page boot light.
+    get panel(): OptionsPanel {
+      // `saved.set` already triggers `onChange(sync)` above (which respects `active`).
+      cachedPanel ??= appearancePanel(saved, controller, () => undefined);
+      return cachedPanel;
+    },
     setActive(next) {
       if (active === next) {
         return;

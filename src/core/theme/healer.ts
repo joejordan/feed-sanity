@@ -249,7 +249,7 @@ export function createThemeHealer(
   let paletteTextRgba: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
   let paletteMutedRgba: RgbaColor = { r: 100, g: 100, b: 100, a: 1 };
   let removeStyle: (() => void) | undefined;
-  let scheduledHandle: number | undefined;
+  let scheduledHandle: { readonly kind: 'idle' | 'timeout'; readonly id: number } | undefined;
   let disposed = false;
 
   const isSelfExcluded = (el: Element): boolean => {
@@ -310,10 +310,15 @@ export function createThemeHealer(
   };
 
   const cancelScheduled = (): void => {
-    if (scheduledHandle !== undefined) {
-      clearTimeout(scheduledHandle);
-      scheduledHandle = undefined;
+    if (scheduledHandle === undefined) {
+      return;
     }
+    if (scheduledHandle.kind === 'idle' && typeof globalThis.cancelIdleCallback === 'function') {
+      globalThis.cancelIdleCallback(scheduledHandle.id);
+    } else {
+      clearTimeout(scheduledHandle.id);
+    }
+    scheduledHandle = undefined;
   };
 
   // Pure read phase: computes needed attribute writes without mutating the DOM.
@@ -494,12 +499,15 @@ export function createThemeHealer(
     scheduleFlush();
   };
 
-  const flushSlice = (): void => {
+  const flushSlice = (deadline?: IdleDeadline): void => {
     scheduledHandle = undefined;
     if (!activePalette || disposed || pendingQueue.size === 0) {
       return;
     }
     const started = performance.now();
+    const budgetMs = deadline
+      ? Math.min(MAX_SLICE_MS, Math.max(1, deadline.timeRemaining()))
+      : MAX_SLICE_MS;
     const bgCache = new Map<Element, RgbaColor>();
     const plans: PlannedHeal[] = [];
     let processed = 0;
@@ -512,7 +520,7 @@ export function createThemeHealer(
         }
       }
       processed++;
-      if (processed >= MAX_NODES_PER_SLICE || performance.now() - started >= MAX_SLICE_MS) {
+      if (processed >= MAX_NODES_PER_SLICE || performance.now() - started >= budgetMs) {
         break;
       }
     }
@@ -526,7 +534,14 @@ export function createThemeHealer(
     if (scheduledHandle !== undefined || disposed || !activePalette) {
       return;
     }
-    scheduledHandle = Number(setTimeout(flushSlice, 16));
+    if (typeof globalThis.requestIdleCallback === 'function') {
+      scheduledHandle = {
+        kind: 'idle',
+        id: globalThis.requestIdleCallback((deadline) => flushSlice(deadline), { timeout: 120 }),
+      };
+      return;
+    }
+    scheduledHandle = { kind: 'timeout', id: Number(setTimeout(() => flushSlice(), 16)) };
   };
 
   scope.add(

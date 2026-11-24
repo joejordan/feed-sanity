@@ -150,7 +150,7 @@ export async function startSite<P, F extends PageFactory<P>>(
     readonly options: Options;
     readonly runner: FeatureRunner<P>;
     readonly theme: ReturnType<typeof initSiteTheme> | undefined;
-    readonly panels: OptionsPanel[];
+    readonly ensurePanels: () => OptionsPanel[];
   }
 
   let runtime: SiteRuntime | undefined;
@@ -182,18 +182,25 @@ export async function startSite<P, F extends PageFactory<P>>(
       : undefined;
     const page = site.createPage(data, () => platform.installPageWorld(), env);
     const runner = new FeatureRunner(site.features, options, page, data);
-    const sitePanels = site.createPanels({ options, data, page, runner, platform });
-    const diagIndex = sitePanels.findIndex((panel) => panel.section === 'Diagnostics');
-    const insertAt = diagIndex === -1 ? sitePanels.length : diagIndex;
-    const panels = [
-      ...(theme ? [theme.panel] : []),
-      ...sitePanels.slice(0, insertAt),
-      sitesPanel(ensureSiteSettings(), site.id),
-      ...sitePanels.slice(insertAt),
-    ];
+    let cachedPanels: OptionsPanel[] | undefined;
+    const ensurePanels = (): OptionsPanel[] => {
+      if (cachedPanels) {
+        return cachedPanels;
+      }
+      const sitePanels = site.createPanels({ options, data, page, runner, platform });
+      const diagIndex = sitePanels.findIndex((panel) => panel.section === 'Diagnostics');
+      const insertAt = diagIndex === -1 ? sitePanels.length : diagIndex;
+      cachedPanels = [
+        ...(theme ? [theme.panel] : []),
+        ...sitePanels.slice(0, insertAt),
+        sitesPanel(ensureSiteSettings(), site.id),
+        ...sitePanels.slice(insertAt),
+      ];
+      return cachedPanels;
+    };
 
     runner.onBadgeChange((badge) => platform.setBadge(badge));
-    runtime = { options, runner, theme, panels };
+    runtime = { options, runner, theme, ensurePanels };
     return runtime;
   };
 
@@ -228,9 +235,9 @@ export async function startSite<P, F extends PageFactory<P>>(
   const openOptions = (initialSection?: string): void => {
     void resolveBootSettings()
       .then((settings) => {
-        const { options, runner, panels } = ensureRuntime();
+        const { options, runner, ensurePanels } = ensureRuntime();
         return runner.prepare().then(() =>
-          openOptionsDialog(options, panels, {
+          openOptionsDialog(options, ensurePanels(), {
             site: { id: site.id, displayName: site.displayName },
             siteEnabled: settings.isEnabled(site.id),
             onToggleSite: (enabled) => {

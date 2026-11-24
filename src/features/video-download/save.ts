@@ -56,25 +56,30 @@ export async function fetchFile(
   if (!response.body) {
     return response.blob();
   }
+  const reader = response.body.getReader();
+  const chunks: BlobPart[] = [];
   let received = 0;
   let reported = 0;
-  const counted = response.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        received += chunk.byteLength;
-        if (performance.now() - reported >= PROGRESS_MS) {
-          reported = performance.now();
-          progress(received, total);
-        }
-        controller.enqueue(chunk);
-      },
-      flush() {
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      chunks.push(value as BlobPart);
+      received += value.byteLength;
+      if (performance.now() - reported >= PROGRESS_MS) {
+        reported = performance.now();
         progress(received, total);
-      },
-    }),
-  );
-  // Each chunk goes into the Blob as it comes, so the file is not held twice.
-  return new Response(counted, { headers: { 'content-type': type } }).blob();
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  progress(received, total);
+  const blob = new Blob(chunks, { type });
+  chunks.length = 0;
+  return blob;
 }
 
 /**

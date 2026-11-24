@@ -7,6 +7,8 @@ export default defineConfig({
   plugins: [WxtVitest(), pageWorldScript()],
   resolve: { alias: PREACT_ALIAS },
   test: {
+    // Reuse happy-dom once per worker while keeping full per-file VM isolation.
+    pool: 'vmThreads',
     environment: 'happy-dom',
     environmentOptions: {
       happyDOM: {
