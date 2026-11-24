@@ -141,7 +141,10 @@ describe('appearancePanel & initSiteTheme', () => {
         expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#0b0f17'),
       );
 
-      // External storage update (e.g., another tab) switches the theme live.
+      // External storage update (e.g., QuickPopup toolbar toggle or another tab) clears any
+      // lingering in-page preview and switches the theme live immediately.
+      runtime.controller.preview(resolveTheme({ ...DEFAULT_THEME_CONFIG, preset: 'nord' }));
+      expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#2e3440');
       await store.set('acct/theme', { ...DEFAULT_THEME_CONFIG, preset: 'warm-paper' });
       await vi.waitFor(() =>
         expect(document.querySelector('#feed_sanity_user_theme')?.textContent).toContain('#f4efe6'),

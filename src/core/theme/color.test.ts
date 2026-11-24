@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { findThemePreset } from '../theming';
 import {
   compositeOver,
+  detectConfirmedHostColorScheme,
   detectHostColorScheme,
   isNeutralColor,
+  isOppositePolarityNeutral,
   mapHostNeutralToPalette,
   matchesBrandHue,
   parseCssColor,
@@ -94,11 +96,30 @@ describe('core/theme/color', () => {
     );
   });
 
-  it('detects host color scheme from computed body background', () => {
+  it('detects confirmed vs unconfirmed host color scheme and catches X Dim opposite-polarity neutrals', () => {
+    document.body.style.backgroundColor = '';
+    document.documentElement.style.backgroundColor = '';
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.className = '';
+    document.body.innerHTML = '';
+
+    // Unstyled transparent document returns null from confirmed detector (never locks a guess).
+    expect(detectConfirmedHostColorScheme(document)).toBeNull();
+    expect(detectHostColorScheme(document)).toBe('light');
+
+    // Detects dark canvas painted on `#react-root` when `body` stays transparent.
+    document.body.innerHTML = '<div id="react-root" style="background-color: rgb(0, 0, 0);"></div>';
+    expect(detectConfirmedHostColorScheme(document)).toBe('dark');
+    document.body.innerHTML = '';
+
     document.body.style.backgroundColor = 'rgb(0, 0, 0)';
     expect(detectHostColorScheme(document)).toBe('dark');
     document.body.style.backgroundColor = 'rgb(255, 255, 255)';
     expect(detectHostColorScheme(document)).toBe('light');
     document.body.style.backgroundColor = '';
+
+    // X Dim (#38444d) and dark chrome (#3e4144) are flagged as opposite-polarity on Light themes.
+    expect(isOppositePolarityNeutral(parseCssColor('#38444d')!, 'light')).toBe(true);
+    expect(isOppositePolarityNeutral(parseCssColor('#3e4144')!, 'light')).toBe(true);
   });
 });

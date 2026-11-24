@@ -9,7 +9,7 @@
 //    below (`header-occlusion`, catching bugs like X's "Post" header covering
 //    the top of a post)
 
-import type { ThemePalette } from '../theming';
+import type { ThemeColorScheme, ThemePalette } from '../theming';
 import type { RgbaColor } from './color';
 import { containsAcrossShadows } from '../dom';
 import { scrubCommonPii } from '../pii';
@@ -69,6 +69,8 @@ export interface ThemeAuditOptions {
   readonly geometryTolerancePx?: number;
   /** Maximum elements to inspect (defaults to `1200`). */
   readonly maxElements?: number;
+  /** Optional native host polarity so ordinary dark/light host buttons aren't misclassified as inverted CTAs. */
+  readonly hostScheme?: ThemeColorScheme;
 }
 
 const SKIP_AUDIT_TAGS = new Set([...NON_VISUAL_OR_MEDIA_TAGS, 'svg', 'path']);
@@ -281,7 +283,7 @@ export function auditThemeCoverage(
       bg &&
       isOppositePolarityNeutral(bg, palette.colorScheme) &&
       !matchesPaletteSurface(bg) &&
-      !isIntentionalInvertedPill(el, bg, fg, rect)
+      !isIntentionalInvertedPill(el, bg, fg, rect, options.hostScheme)
     ) {
       polarityCount++;
       violatedElements.add(el);

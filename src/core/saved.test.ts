@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import type { SavedChangeSource } from './saved';
 import { extensionStore } from '../platform/extension-store';
 import { SavedData } from './saved';
 
@@ -33,26 +34,26 @@ describe('SavedData', () => {
   it('saves under the prefix and tells listeners', async () => {
     const words = new SavedData(extensionStore, 'u').value('words', readList);
     await words.ready;
-    const listener = vi.fn<(value: string[]) => void>();
+    const listener = vi.fn<(value: string[], source: SavedChangeSource) => void>();
     words.onChange(listener);
 
     await words.set(['c']);
 
     expect(words.get()).toEqual(['c']);
-    expect(listener).toHaveBeenLastCalledWith(['c']);
+    expect(listener).toHaveBeenLastCalledWith(['c'], 'local');
     expect(await browser.storage.local.get('u/words')).toEqual({ 'u/words': ['c'] });
   });
 
   it('follows a save made in another tab', async () => {
     const words = new SavedData(extensionStore, 'u').value('words', readList);
     await words.ready;
-    const listener = vi.fn<(value: string[]) => void>();
+    const listener = vi.fn<(value: string[], source: SavedChangeSource) => void>();
     words.onChange(listener);
 
     await browser.storage.local.set({ 'u/words': ['elsewhere'] });
 
     expect(words.get()).toEqual(['elsewhere']);
-    expect(listener).toHaveBeenLastCalledWith(['elsewhere']);
+    expect(listener).toHaveBeenLastCalledWith(['elsewhere'], 'external');
   });
 
   it('is ready even when the store cannot be read', async () => {

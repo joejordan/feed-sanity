@@ -12,7 +12,9 @@ export type { AdaptiveCompilerOptions } from './compiler';
 export type { ThemeHealer, ThemeHealerOptions } from './healer';
 export { auditThemeCoverage, captureLayoutSnapshot } from './audit';
 export {
+  colorSchemeOf,
   compositeOver,
+  detectConfirmedHostColorScheme,
   detectHostColorScheme,
   hexWithAlpha,
   isNeutralColor,
@@ -24,7 +26,7 @@ export {
   rgbaLuminance,
   rgbToOklch,
 } from './color';
-export { compileAdaptiveRootCss, splitSelectorList } from './compiler';
+export { compileAdaptiveRootCss, countStyleSheetRules, splitSelectorList } from './compiler';
 export {
   createThemeHealer,
   HEAL_BG_ATTR,

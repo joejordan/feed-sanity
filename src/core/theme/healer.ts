@@ -11,12 +11,13 @@
 
 import type { DomEnvironment } from '../dom-env';
 import type { Scope } from '../scope';
-import type { ThemePalette } from '../theming';
+import type { ThemeColorScheme, ThemePalette } from '../theming';
 import type { RgbaColor } from './color';
 import { parentAcrossShadows } from '../dom';
 import { addStyleAcrossRoots, isOwnUiElement, OWN_ATTR, OWN_UI_TAG } from '../surface';
 import { withThemeLayerOrder, wrapThemeLayer } from '../theming/types';
 import {
+  colorSchemeOf,
   compositeOver,
   isNeutralColor,
   isOppositePolarityNeutral,
@@ -65,10 +66,16 @@ const HEAL_SKIP_TAGS = new Set([
 
 const INPUT_TAGS = new Set(['input', 'textarea', 'select']);
 const MAX_NODES_PER_SLICE = 80;
-const MAX_PENDING_QUEUE = 1000;
+const MAX_PENDING_QUEUE = 4000;
 const MAX_HEALED_BEFORE_PRUNE = 400;
 const MAX_SLICE_MS = 4;
 const MUTATION_HEAL_DELAY_MS = 120;
+const PRIORITY_LANDMARK_SELECTORS = [
+  '[role="dialog"]',
+  '[role="menu"]',
+  'main, [role="main"]',
+  'aside',
+] as const;
 
 const BORDER_SIDES = [
   ['borderTopWidth', 'borderTopColor'],
@@ -83,8 +90,8 @@ export interface ThemeHealerOptions {
 }
 
 export interface ThemeHealer {
-  /** Updates the active palette (or clears all healing when `null`). */
-  readonly setPalette: (palette: ThemePalette | null) => void;
+  /** Updates the active palette (or clears all healing when `null`) and optional native host polarity. */
+  readonly setPalette: (palette: ThemePalette | null, hostScheme?: ThemeColorScheme) => void;
   /** Suppresses opaque background healing on transparent page-shell wrappers while a Studio backdrop is active. */
   readonly setBackdropActive: (active: boolean) => void;
   /** Runs an immediate bounded healing pass across the current document + open Shadow Roots. */
@@ -110,16 +117,23 @@ export function hasDirectText(el: Element): boolean {
 /**
  * True for compact high-contrast interactive CTA pills (e.g. "Follow", "Post")
  * whose intentional inverted polarity should be preserved rather than flattened.
+ * When `hostScheme` is known, rejects buttons whose background matches the host's
+ * native surface polarity (e.g. ordinary dark-mode `#16181c` buttons on dark X
+ * must be healed under a Light theme, while white `#eff3f4` pills stay inverted).
  */
 export function isIntentionalInvertedPill(
   el: Element,
   bg: RgbaColor,
   fg: RgbaColor | null,
   rect?: DOMRect,
+  hostScheme?: ThemeColorScheme,
 ): boolean {
   const tag = el.localName;
   const role = el.getAttribute('role');
   if (tag !== 'button' && tag !== 'a' && role !== 'button') {
+    return false;
+  }
+  if (hostScheme !== undefined && colorSchemeOf(bg) === hostScheme) {
     return false;
   }
   if (fg && rgbaContrastRatio(fg, bg) >= 5.5) {
@@ -249,6 +263,7 @@ export function createThemeHealer(
   const shellSelectors = options.transparentShellSelectors ?? [];
 
   let activePalette: ThemePalette | null = null;
+  let activeHostScheme: ThemeColorScheme | undefined;
   let backdropActive = false;
   let paletteBgRgba: RgbaColor = { r: 255, g: 255, b: 255, a: 1 };
   let paletteSurfaceRgba: RgbaColor = { r: 255, g: 255, b: 255, a: 1 };
@@ -372,7 +387,7 @@ export function createThemeHealer(
       bg &&
       !isTransparentShell(el) &&
       isOppositePolarityNeutral(bg, palette.colorScheme) &&
-      !isIntentionalInvertedPill(el, bg, fg)
+      !isIntentionalInvertedPill(el, bg, fg, undefined, activeHostScheme)
     ) {
       const role = el.getAttribute('role') ?? '';
       const desiredBgRole =
@@ -488,33 +503,48 @@ export function createThemeHealer(
   const enqueueSubtree = (
     root: ParentNode,
     limit = 160,
-    opts?: { readonly visitedShadows?: Set<ShadowRoot>; readonly delayMs?: number },
-  ): void => {
+    opts?: {
+      readonly visitedShadows?: Set<ShadowRoot>;
+      readonly completedSubtrees?: Set<Element>;
+      readonly delayMs?: number;
+    },
+  ): boolean => {
     if (!activePalette || disposed || pendingQueue.size >= MAX_PENDING_QUEUE) {
-      return;
+      return false;
     }
     const visitedShadows = opts?.visitedShadows;
+    const completedSubtrees = opts?.completedSubtrees;
     let added = 0;
+    let truncated = false;
     const visit = (node: ParentNode): void => {
       if (added >= limit || pendingQueue.size >= MAX_PENDING_QUEUE) {
+        truncated = true;
         return;
       }
       if (node.nodeType === Node.ELEMENT_NODE) {
         const el = node as Element;
+        if (completedSubtrees?.has(el)) {
+          return;
+        }
         if (el.localName !== 'body' && el.localName !== 'html') {
           if (isSelfExcluded(el)) {
             return;
           }
-          pendingQueue.add(el);
-          added++;
+          if (!pendingQueue.has(el)) {
+            pendingQueue.add(el);
+            added++;
+          }
           if (el.shadowRoot && !visitedShadows?.has(el.shadowRoot)) {
-            visitedShadows?.add(el.shadowRoot);
             visit(el.shadowRoot);
+            if (!truncated) {
+              visitedShadows?.add(el.shadowRoot);
+            }
           }
         }
       }
       for (const child of node.children) {
         if (added >= limit || pendingQueue.size >= MAX_PENDING_QUEUE) {
+          truncated = true;
           return;
         }
         visit(child);
@@ -522,6 +552,7 @@ export function createThemeHealer(
     };
     visit(root);
     scheduleFlush(opts?.delayMs);
+    return !truncated;
   };
 
   const flushSlice = (deadline?: IdleDeadline): void => {
@@ -675,9 +706,41 @@ export function createThemeHealer(
     clearAllHeals();
   });
 
+  const enqueueDocumentPrioritized = (): void => {
+    const visitedShadows = new Set<ShadowRoot>();
+    const completedSubtrees = new Set<Element>();
+    if (env.doc.body) {
+      // Queue primary content, sidebars, and active overlays FIRST so visible surfaces
+      // heal in the very first 4ms idle slice on already-loaded tabs, then cover the
+      // remainder of the document cleanly in subsequent budgeted slices.
+      for (const selector of PRIORITY_LANDMARK_SELECTORS) {
+        const landmark = env.doc.querySelector(selector);
+        if (
+          landmark &&
+          !completedSubtrees.has(landmark) &&
+          enqueueSubtree(landmark, 1200, { visitedShadows, completedSubtrees })
+        ) {
+          completedSubtrees.add(landmark);
+        }
+      }
+      enqueueSubtree(env.doc.body, MAX_PENDING_QUEUE, { visitedShadows, completedSubtrees });
+    }
+    for (const shadow of env.shadowRoots) {
+      if (shadow.host.isConnected && !isOwnUiElement(shadow.host) && !visitedShadows.has(shadow)) {
+        visitedShadows.add(shadow);
+        enqueueSubtree(shadow, 400, { visitedShadows, completedSubtrees });
+      }
+    }
+  };
+
   return {
-    setPalette(palette) {
-      if (disposed || samePalette(palette, activePalette)) {
+    setPalette(palette, hostScheme) {
+      const nextHostScheme = palette ? hostScheme : undefined;
+      if (
+        disposed ||
+        (!palette && !activePalette) ||
+        (samePalette(palette, activePalette) && nextHostScheme === activeHostScheme)
+      ) {
         return;
       }
       cancelScheduled();
@@ -685,6 +748,7 @@ export function createThemeHealer(
       removeStyle = undefined;
       clearAllHeals();
       activePalette = palette;
+      activeHostScheme = nextHostScheme;
       if (!palette) {
         return;
       }
@@ -697,20 +761,7 @@ export function createThemeHealer(
         doc: env.doc,
         env,
       });
-      const visitedShadows = new Set<ShadowRoot>();
-      if (env.doc.body) {
-        enqueueSubtree(env.doc.body, 250, { visitedShadows });
-      }
-      for (const shadow of env.shadowRoots) {
-        if (
-          shadow.host.isConnected &&
-          !isOwnUiElement(shadow.host) &&
-          !visitedShadows.has(shadow)
-        ) {
-          visitedShadows.add(shadow);
-          enqueueSubtree(shadow, 100, { visitedShadows });
-        }
-      }
+      enqueueDocumentPrioritized();
     },
     setBackdropActive(active) {
       if (disposed || backdropActive === active) {
@@ -724,7 +775,7 @@ export function createThemeHealer(
           }
         }
       } else if (activePalette && env.doc.body) {
-        enqueueSubtree(env.doc.body, 160);
+        enqueueDocumentPrioritized();
       }
     },
     healNow,

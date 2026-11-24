@@ -655,4 +655,110 @@ describe('first-class multi-site theming engine', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(headlessDoc.querySelector('#feed_sanity_user_theme')).toBeNull();
   });
+
+  it('never locks an unconfirmed light fallback on unstyled boot, picks up CSSOM insertRule() RNW classes, and re-verifies polarity on Studio -> Light toggle', async () => {
+    const env = createDomEnvironment();
+    cleanups.push(() => env.dispose());
+
+    const controller = createThemeController(
+      env,
+      { rootSelectors: [':root'], adaptive: { enabled: true } },
+      vi.fn(),
+    );
+    cleanups.push(() => controller.dispose());
+
+    // 1. Apply a dark Studio theme while <body> is still unstyled/transparent (no confirmed polarity yet).
+    const darkStudio = {
+      palette: BUILTIN_THEMES.find((t) => t.id === 'crimson-velvet')!.palette,
+      effects: { ...DEFAULT_THEME_EFFECTS, backdrop: 'silk' as const, surface: 'glass' as const },
+    };
+    controller.apply(darkStudio);
+
+    // 2. Host dark stylesheet arrives AFTER boot, painting body dark and defining an RNW-style dark card + light text class.
+    const rnwStyle = document.createElement('style');
+    rnwStyle.textContent =
+      'body { background-color: rgb(0, 0, 0); } .r-dark-card { background-color: rgb(22, 24, 28); } .r-light-ink { color: rgb(231, 233, 234); }';
+    document.head.append(rnwStyle);
+
+    // Wait for debounced adaptive recompile to confirm hostScheme === 'dark'.
+    await vi.waitFor(() => {
+      const adaptive = document.querySelector('#feed_sanity_adaptive_theme')?.textContent ?? '';
+      expect(adaptive).toContain('.r-dark-card');
+      expect(adaptive).toContain('.r-light-ink');
+    });
+
+    // 3. Simulate React Native Web dynamically appending a new dark class via CSSOM `sheet.insertRule()`
+    //    when a new tweet renders (no new <style> element added to DOM).
+    rnwStyle.sheet?.insertRule(
+      '.r-late-dark-pill { background-color: rgb(32, 35, 39); color: rgb(239, 243, 244); }',
+      rnwStyle.sheet.cssRules.length,
+    );
+    const lateTweet = document.createElement('div');
+    lateTweet.className = 'r-late-dark-pill';
+    document.body.append(lateTweet);
+
+    await vi.waitFor(
+      () => {
+        const adaptive = document.querySelector('#feed_sanity_adaptive_theme')?.textContent ?? '';
+        expect(adaptive).toContain('.r-late-dark-pill');
+      },
+      { timeout: 1500 },
+    );
+
+    // 4. Toggle from dark Studio theme to Warm Paper (light): Layer 1 must remap BOTH dark surfaces
+    //    AND light text classes to Warm Paper's light surface & dark text (never light-on-light!).
+    const warmPaper = BUILTIN_THEMES.find((t) => t.id === 'warm-paper')!.palette;
+    controller.apply({ palette: warmPaper });
+
+    const adaptiveAfterToggle =
+      document.querySelector('#feed_sanity_adaptive_theme')?.textContent ?? '';
+    expect(adaptiveAfterToggle).toContain('.r-dark-card');
+    expect(adaptiveAfterToggle).toContain(warmPaper.surface);
+    expect(adaptiveAfterToggle).toContain('.r-light-ink');
+    expect(adaptiveAfterToggle).toContain(warmPaper.text);
+    expect(adaptiveAfterToggle).toContain('.r-late-dark-pill');
+  });
+
+  it('re-verifies stale cached host polarity on Appearance Panel preview() -> apply() -> clearPreview() transitions', () => {
+    const env = createDomEnvironment();
+    cleanups.push(() => env.dispose());
+
+    // Start with a confirmed native light canvas so `detectedHostScheme` caches `'light'`.
+    const style = document.createElement('style');
+    style.textContent =
+      'body { background-color: rgb(255, 255, 255); } .r-dark-card { background-color: rgb(22, 24, 28); } .r-light-ink { color: rgb(231, 233, 234); }';
+    document.head.append(style);
+
+    const controller = createThemeController(
+      env,
+      { rootSelectors: [':root'], adaptive: { enabled: true } },
+      vi.fn(),
+    );
+    cleanups.push(() => controller.dispose());
+
+    const darkStudio = {
+      palette: BUILTIN_THEMES.find((t) => t.id === 'crimson-velvet')!.palette,
+      effects: { ...DEFAULT_THEME_EFFECTS, backdrop: 'silk' as const, surface: 'glass' as const },
+    };
+    controller.apply(darkStudio);
+
+    // Host flips dark purely via CSSOM rule insertion (no html/body attribute mutation, so the
+    // attribute observer does not fire and the cached scheme remains stale `'light'`).
+    style.sheet?.insertRule(
+      'body { background-color: rgb(0, 0, 0); }',
+      style.sheet.cssRules.length,
+    );
+
+    // Simulate an Appearance Panel click on Warm Paper (`preview()` -> `apply()` -> `clearPreview()`).
+    const warmPaper = BUILTIN_THEMES.find((t) => t.id === 'warm-paper')!.palette;
+    controller.preview({ palette: warmPaper });
+    controller.apply({ palette: warmPaper });
+    controller.clearPreview();
+
+    const adaptive = document.querySelector('#feed_sanity_adaptive_theme')?.textContent ?? '';
+    expect(adaptive).toContain('.r-dark-card');
+    expect(adaptive).toContain(warmPaper.surface);
+    expect(adaptive).toContain('.r-light-ink');
+    expect(adaptive).toContain(warmPaper.text);
+  });
 });

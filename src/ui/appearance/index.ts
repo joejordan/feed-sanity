@@ -45,17 +45,19 @@ export function initSiteTheme(
     writeEarlyThemeCss(earlyCacheSiteId, effective ? (controller.compiledHostCss?.() ?? '') : '');
   };
 
-  const sync = (): void => {
+  const sync = (clearPreview = false): void => {
     const effective = active ? resolveTheme(saved.get()) : null;
-    controller.apply(effective);
+    controller.apply(effective, clearPreview ? { clearPreview: true } : undefined);
     if (loaded || !active) {
       syncCache(effective);
     }
   };
 
-  const stopWatch = saved.onChange(() => {
+  const stopWatch = saved.onChange((_next, source) => {
     loaded = true;
-    sync();
+    // External updates (e.g. QuickPopup toolbar toggle or another tab) clear any
+    // lingering in-page preview atomically in one render.
+    sync(source === 'external');
   });
   void saved.ready.then(() => {
     if (!loaded) {
@@ -82,8 +84,7 @@ export function initSiteTheme(
       }
       active = next;
       if (!next) {
-        controller.clearPreview();
-        sync();
+        sync(true);
         return;
       }
       // Preserve any synchronously injected early-theme `<style>` while initial

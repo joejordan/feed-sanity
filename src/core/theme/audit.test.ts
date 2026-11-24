@@ -114,4 +114,24 @@ describe('core/theme/audit', () => {
       expect(v.selector).not.toContain('svg');
     }
   });
+
+  it('uses hostScheme to distinguish ordinary dark-mode buttons from intentional inverted CTAs', () => {
+    document.body.style.backgroundColor = warmPaper.background;
+    document.body.innerHTML = `
+      <button id="host-pill" type="button" style="background-color: rgb(22, 24, 28); color: rgb(231, 233, 234);">
+        Follow
+      </button>
+    `;
+    const btn = document.querySelector('#host-pill') as HTMLElement;
+    btn.getBoundingClientRect = () => new DOMRect(0, 0, 96, 36);
+
+    // On a natively dark host under a Light theme, a dark button is a polarity leak, not an inverted CTA.
+    const onDarkHost = auditThemeCoverage(document, warmPaper, { hostScheme: 'dark' });
+    expect(onDarkHost.summary.polarityLeak).toBe(1);
+
+    // On a natively light host under a Light theme, the same dark button is an intentional inverted CTA.
+    const onLightHost = auditThemeCoverage(document, warmPaper, { hostScheme: 'light' });
+    expect(onLightHost.summary.polarityLeak).toBe(0);
+    expect(onLightHost.score).toBe(100);
+  });
 });

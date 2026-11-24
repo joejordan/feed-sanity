@@ -308,6 +308,7 @@ div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${IN_VIDEO}, [data-te
 .r-54znze${NOT_IN_VIDEO},
 [style*="color: rgb(231, 233, 234)"]${NOT_IN_VIDEO},
 [style*="color: rgb(239, 243, 244)"]${NOT_IN_VIDEO},
+[style*="color: rgb(247, 249, 249)"]${NOT_IN_VIDEO},
 article[data-testid="tweet"],
 [data-testid="tweetText"],
 [data-testid="tweetTextarea_0"],

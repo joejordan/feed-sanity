@@ -43,6 +43,8 @@ export interface AdaptiveCompilerOptions {
   readonly backdropActive?: boolean;
   /** Optional user typography stack compiled onto host rules that explicitly declare a non-icon `font-family`. */
   readonly fontFamily?: string;
+  /** Optional callback receiving the total accessible host CSSOM rule count inspected for this root. */
+  readonly onSheetRuleCount?: (count: number) => void;
 }
 
 const SAFE_CUSTOM_PROP = /^--[A-Za-z0-9_-]+$/;
@@ -84,7 +86,7 @@ const MEDIA_SELECTOR_HINT =
 const PURE_ROOT_SELECTOR =
   /^(?::root|:host(?:\([^)]*\))?|html(?:\.[A-Za-z0-9_-]+|\[[^\]]+\])*|body(?:\.[A-Za-z0-9_-]+|\[[^\]]+\])*|\[data-theme(?:=[^\]]+)?\]|\.__fb-(?:dark|light)-mode)$/i;
 const HOST_PSEUDO_HINT = /:host(?:-context)?\b/i;
-const MAX_RULES_PER_ROOT = 4000;
+const MAX_RULES_PER_ROOT = 12_000;
 const FONT_EXCLUDE_CLAUSE = `:not(:where([${OWN_ATTR}], [${OWN_ATTR}] *, code, pre, kbd, samp, svg *))`;
 
 interface ParsedPaintDecl {
@@ -160,12 +162,20 @@ function collectStyleSheets(
   root: Document | ShadowRoot,
   skipIds: ReadonlySet<string> | undefined,
 ): CSSStyleSheet[] {
-  const ownSheets = collectOwnSheets(root, skipIds);
   const seen = new Set<CSSStyleSheet>();
+  let ownSheets: Set<CSSStyleSheet> | undefined;
   const add = (sheet: CSSStyleSheet | null | undefined): void => {
-    if (sheet && !ownSheets.has(sheet)) {
-      seen.add(sheet);
+    if (!sheet || seen.has(sheet) || isOwnStyleSheet(sheet, skipIds)) {
+      return;
     }
+    // Only fall back to scanning `<style>` elements when `ownerNode` is absent.
+    if (!sheet.ownerNode) {
+      ownSheets ??= collectOwnSheets(root, skipIds);
+      if (ownSheets.has(sheet)) {
+        return;
+      }
+    }
+    seen.add(sheet);
   };
   const styleSheetCount = root.styleSheets?.length ?? 0;
   if (root.styleSheets && styleSheetCount > 0) {
@@ -175,7 +185,9 @@ function collectStyleSheets(
   } else {
     // Fallback for DOM implementations where `shadowRoot.styleSheets` or detached `doc.styleSheets` is unpopulated.
     for (const styleEl of root.querySelectorAll('style')) {
-      add((styleEl as HTMLStyleElement).sheet);
+      if (!isOwnStyleElement(styleEl, skipIds)) {
+        add((styleEl as HTMLStyleElement).sheet);
+      }
     }
   }
   if ('adoptedStyleSheets' in root && Array.isArray(root.adoptedStyleSheets)) {
@@ -184,6 +196,26 @@ function collectStyleSheets(
     }
   }
   return [...seen];
+}
+
+/**
+ * Counts accessible CSSOM rules across non-own stylesheets in `root` without
+ * scanning the DOM. Used to detect runtime `sheet.insertRule()` growth
+ * (e.g. React Native Web on X) which does not emit DOM `MutationObserver` records.
+ */
+export function countStyleSheetRules(
+  root: Document | ShadowRoot,
+  skipIds?: ReadonlySet<string>,
+): number {
+  let total = 0;
+  for (const sheet of collectStyleSheets(root, skipIds)) {
+    try {
+      total += sheet.cssRules.length;
+    } catch {
+      // Ignore cross-origin stylesheets.
+    }
+  }
+  return total;
 }
 
 /**
@@ -668,18 +700,17 @@ export function compileAdaptiveRootCss(
   };
 
   let totalInspected = 0;
+  let totalRuleCount = 0;
   for (const sheet of collectStyleSheets(root, skipIds)) {
-    if (totalInspected >= MAX_RULES_PER_ROOT) {
-      break;
-    }
-    if (isOwnStyleSheet(sheet, skipIds)) {
-      continue;
-    }
     let rules: CSSRuleList;
     try {
       rules = sheet.cssRules;
     } catch {
       // Cross-origin stylesheet: handled in real time by Layer 2 (`ThemeHealer`).
+      continue;
+    }
+    totalRuleCount += rules.length;
+    if (totalInspected >= MAX_RULES_PER_ROOT) {
       continue;
     }
     const extracted = extractSheet(
@@ -719,6 +750,7 @@ export function compileAdaptiveRootCss(
       }
     }
   }
+  options.onSheetRuleCount?.(totalRuleCount);
 
   const chunks: string[] = [];
   if (discoveredVars.size > 0) {

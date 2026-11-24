@@ -4,6 +4,9 @@ import { createLogger } from './log';
 
 const log = createLogger('saved');
 
+/** Origin of a `Saved` change notification. */
+export type SavedChangeSource = 'init' | 'local' | 'external';
+
 /**
  * One value kept in the store under its own key, for data that is not an
  * option: a list the user builds, such as their post filters.
@@ -15,7 +18,7 @@ export class Saved<T> {
   readonly #store: Store;
   readonly #key: string;
   readonly #read: (stored: unknown) => T;
-  readonly #listeners = new Listeners<[T]>(log);
+  readonly #listeners = new Listeners<[T, SavedChangeSource]>(log);
   #value: T;
   /** Saves made here that storage has not finished writing. */
   #pendingSaves = 0;
@@ -47,7 +50,7 @@ export class Saved<T> {
       throw new Error(`'${this.#key}' could not be read, so it is not overwritten`);
     }
     this.#value = value;
-    this.#listeners.emit(value);
+    this.#listeners.emit(value, 'local');
     this.#pendingSaves++;
     try {
       await this.#store.set(this.#key, value);
@@ -57,7 +60,7 @@ export class Saved<T> {
   }
 
   /** Calls `listener` after every change, including saves made in other tabs. Returns a function that stops the calls. */
-  onChange(listener: (value: T) => void): () => void {
+  onChange(listener: (value: T, source: SavedChangeSource) => void): () => void {
     return this.#listeners.add(listener);
   }
 
@@ -82,7 +85,7 @@ export class Saved<T> {
     if (this.#disposed) {
       return;
     }
-    this.#listeners.emit(this.#value);
+    this.#listeners.emit(this.#value, 'init');
     const stop = this.#store.onChange(this.#key, (_before, after) => {
       // While a save from here is on its way, its value is the newer one.
       // The store also reports saves made here, which change nothing.
@@ -92,7 +95,7 @@ export class Saved<T> {
       const value = this.#read(after);
       if (JSON.stringify(value) !== JSON.stringify(this.#value)) {
         this.#value = value;
-        this.#listeners.emit(value);
+        this.#listeners.emit(value, 'external');
       }
     });
     if (typeof stop === 'function') {

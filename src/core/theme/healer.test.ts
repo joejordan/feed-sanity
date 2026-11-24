@@ -5,6 +5,7 @@ import { findThemePreset } from '../theming';
 import { createThemeHealer, HEAL_BG_ATTR, HEAL_FG_ATTR, HEALER_STYLE_ID } from './healer';
 
 const warmPaper = findThemePreset('warm-paper')!.palette;
+const crimsonVelvet = findThemePreset('crimson-velvet')!.palette;
 
 describe('core/theme/healer', () => {
   afterEach(() => {
@@ -287,5 +288,58 @@ describe('core/theme/healer', () => {
       vi.useRealTimers();
       vi.unstubAllGlobals();
     }
+  });
+
+  it('heals ordinary dark-mode host buttons under a Light theme while keeping inverted light CTAs, and heals main content beyond 250 DOM nodes', async () => {
+    document.body.style.backgroundColor = warmPaper.background;
+    // Pad the left header with >300 DOM nodes so a naive 250-node walk from <body> would never reach <main>.
+    const navSpam = Array.from({ length: 320 }, (_, i) => `<div id="nav-${i}"></div>`).join('');
+    document.body.innerHTML = `
+      <header role="banner">${navSpam}</header>
+      <main role="main">
+        <div id="deep-dark-card" style="background-color: rgb(22, 24, 28);">
+          <span id="deep-light-text" style="color: rgb(231, 233, 234);">Tweet body</span>
+        </div>
+        <button id="dark-host-btn" type="button" style="background-color: rgb(22, 24, 28); color: rgb(231, 233, 234);">
+          More
+        </button>
+        <button id="white-cta-btn" type="button" style="background-color: rgb(239, 243, 244); color: rgb(15, 20, 25);">
+          Follow
+        </button>
+      </main>
+    `;
+    const darkBtn = document.querySelector('#dark-host-btn') as HTMLElement;
+    const whiteBtn = document.querySelector('#white-cta-btn') as HTMLElement;
+    darkBtn.getBoundingClientRect = () => new DOMRect(0, 0, 96, 36);
+    whiteBtn.getBoundingClientRect = () => new DOMRect(0, 0, 96, 36);
+
+    const env = createDomEnvironment();
+    const scope = new Scope();
+    const healer = createThemeHealer(env, scope);
+
+    // On a natively dark host (`hostScheme: 'dark'`), switching to Warm Paper heals both deep <main>
+    // cards AND ordinary dark-mode buttons (`#dark-host-btn`).
+    healer.setPalette(warmPaper, 'dark');
+    await vi.waitFor(() => {
+      expect(document.querySelector('#deep-dark-card')?.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+      expect(document.querySelector('#deep-light-text')?.getAttribute(HEAL_FG_ATTR)).toBe('text');
+      expect(darkBtn.getAttribute(HEAL_BG_ATTR)).toBe('surface');
+    });
+
+    // On a natively light host (`hostScheme: 'light'`), the same dark pill is an intentional
+    // inverted CTA (its dark bg opposes `hostScheme === 'light'`) and must be preserved.
+    healer.setPalette(warmPaper, 'light');
+    healer.healNow();
+    expect(darkBtn.hasAttribute(HEAL_BG_ATTR)).toBe(false);
+
+    // On a natively dark host under a Dark theme (`crimsonVelvet`), an inverted white Follow CTA
+    // (`isOppositePolarityNeutral === true`, bg polarity `'light' !== 'dark'`) is preserved.
+    document.body.style.backgroundColor = crimsonVelvet.background;
+    healer.setPalette(crimsonVelvet, 'dark');
+    healer.healNow();
+    expect(whiteBtn.hasAttribute(HEAL_BG_ATTR)).toBe(false);
+
+    scope.dispose();
+    env.dispose();
   });
 });
