@@ -1,27 +1,14 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { SavedValue } from '../../core/saved';
-import type { ThemeAuditReport } from '../../core/theme';
-import type {
-  BackdropEffectId,
-  ClickEffectId,
-  RainCharsetName,
-  RainLookName,
-  StudioVibe,
-  SurfaceFinishId,
-  ThemeEffectsConfig,
-} from '../../core/theme-effects';
+import type { StudioVibe, ThemeEffectsConfig } from '../../core/theme-effects';
 import type { THEME_FONT_STACKS, ThemeConfig, ThemeController } from '../../core/theming';
 import type { OptionsPanel, PanelProps, PanelSearchItem } from '../options-dialog/panel';
+import type { AuditState } from './health-disclosure';
 import {
-  BACKDROP_OPTIONS,
-  CLICK_EFFECT_OPTIONS,
   DEFAULT_THEME_EFFECTS,
   hasActiveEffects,
-  RAIN_CHARSET_NAMES,
-  RAIN_LOOK_NAMES,
   readThemeEffectsConfig,
   STUDIO_VIBES,
-  SURFACE_FINISH_OPTIONS,
 } from '../../core/theme-effects';
 import {
   applyStudioVibe,
@@ -40,32 +27,14 @@ import {
   SegmentedControl,
   SettingCard,
   SettingRow,
-  Switch,
+  TextInput,
 } from '../primitives';
 import css from './appearance-panel.css?inline';
+import { CustomCssDisclosure } from './custom-css-disclosure';
+import { ThemeHealthDisclosure } from './health-disclosure';
+import { CreativeStudioCard, StudioVibesCard } from './studio-section';
 
 export { readThemeConfig, THEME_DATA_KEY } from '../../core/theming';
-
-const RAIN_LOOK_LABELS: Record<RainLookName, string> = {
-  theme: 'Match active theme',
-  phosphor: 'Matrix Phosphor',
-  ultraviolet: 'Ultraviolet',
-  ember: 'Solar Ember',
-  glacier: 'Arctic Glacier',
-  newsprint: 'Newsprint Ink (Light)',
-  blueprint: 'Blueprint Ink (Light)',
-};
-
-const RAIN_CHARSET_LABELS: Record<RainCharsetName, string> = {
-  matrix: 'Classic Matrix (Katakana + Digits)',
-  katakana: 'Half-width Katakana',
-  binary: 'Binary (0 / 1)',
-  decimal: 'Decimal (0–9)',
-  hex: 'Hexadecimal (0–F)',
-  latin: 'Latin (A–Z)',
-  symbols: 'Code Symbols',
-  braille: 'Braille Patterns',
-};
 
 const FONT_LABELS: Record<keyof typeof THEME_FONT_STACKS, string> = {
   default: 'Site default',
@@ -107,15 +76,6 @@ function pickAccessibleText(background: string, surface: string): string {
   return whiteMin > darkMin ? '#ffffff' : '#111111';
 }
 
-interface AuditState {
-  readonly report: ThemeAuditReport;
-  readonly runCount: number;
-  readonly ranAt: string;
-  readonly lastAction: 'audit' | 'heal';
-  readonly healedCount?: number;
-  readonly beforeScore?: number;
-}
-
 function formatScanTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 }
@@ -128,7 +88,6 @@ function AppearancePanelView({
   controller,
 }: PanelProps<ThemeConfig> & { controller: ThemeController }) {
   const fontId = useId();
-  const externalCssId = useId();
   const [auditState, setAuditState] = useState<AuditState | null>(null);
   const [schemeFilter, setSchemeFilter] = useState<SchemeFilter>('all');
   const hasExternalCssOption = useMemo(
@@ -196,6 +155,7 @@ function AppearancePanelView({
       setColorsOpen(true);
     }
   }, [lowContrast]);
+
   const applyEdit = (next: ThemeConfig, toastLabel?: string): void => {
     const previous = value;
     controller.preview(resolveTheme(next));
@@ -271,16 +231,6 @@ function AppearancePanelView({
     }));
   };
 
-  const auditReport = auditState?.report ?? null;
-  const healableCount = auditReport
-    ? auditReport.summary.contrast + auditReport.summary.polarityLeak
-    : null;
-  const geometryIssues = auditReport
-    ? auditReport.summary.layoutShift + auditReport.summary.headerOcclusion
-    : 0;
-  const healDisabled = healableCount === 0;
-  const healNeedsAttention = healableCount !== null && healableCount > 0;
-
   const filteredPresets = BUILTIN_THEMES.filter(
     (preset) => schemeFilter === 'all' || preset.palette.colorScheme === schemeFilter,
   );
@@ -294,38 +244,7 @@ function AppearancePanelView({
 
   return (
     <section className="theme-panel">
-      <SettingCard
-        title="Studio Vibes"
-        action={<Badge tone="accent">Live preview · Reversible</Badge>}
-      >
-        <div className="theme-studio-pad">
-          <p className="theme-studio-intro">
-            Transform this site in one click — every vibe pairs a high-contrast palette with live
-            backgrounds, surface finishes, and click effects you can remix below.
-          </p>
-          <div className="theme-vibe-grid" role="group" aria-label="Studio vibes">
-            {STUDIO_VIBES.map((vibe) => (
-              <button
-                key={vibe.id}
-                type="button"
-                className="theme-vibe-card"
-                aria-pressed={isVibeActive(vibe)}
-                onClick={() => applyVibe(vibe)}
-              >
-                <span
-                  className="theme-vibe-banner"
-                  aria-hidden="true"
-                  style={{ background: vibe.swatch }}
-                />
-                <span className="theme-vibe-body">
-                  <span className="theme-card-name">{vibe.name}</span>
-                  <span className="theme-card-desc">{vibe.tagline}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </SettingCard>
+      <StudioVibesCard isVibeActive={isVibeActive} onApplyVibe={applyVibe} />
 
       <div className="theme-actions">
         <SegmentedControl
@@ -386,231 +305,11 @@ function AppearancePanelView({
         ))}
       </div>
 
-      <SettingCard
-        title="Creative Studio"
-        action={
-          effectsActive ? (
-            <button
-              type="button"
-              className="theme-inline-reset"
-              onClick={() => updateEffects({ ...DEFAULT_THEME_EFFECTS }, 'Cleared studio effects')}
-            >
-              Reset effects
-            </button>
-          ) : (
-            <Badge>Contrast-safe</Badge>
-          )
-        }
-      >
-        <div className="theme-studio-pad">
-          <div className="theme-studio-subhead">
-            <span className="theme-studio-label">Live background</span>
-            <span className="theme-studio-hint">
-              Pauses in background tabs and follows your reduced-motion setting.
-            </span>
-          </div>
-          <div className="theme-backdrop-grid" role="group" aria-label="Live background effect">
-            {BACKDROP_OPTIONS.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                className="theme-backdrop-chip"
-                aria-pressed={effects.backdrop === opt.id}
-                onClick={() =>
-                  updateEffects(
-                    { backdrop: opt.id as BackdropEffectId },
-                    opt.id === 'none' ? 'Background effect off' : `Background: ${opt.name}`,
-                  )
-                }
-              >
-                <span
-                  className="theme-backdrop-swatch"
-                  aria-hidden="true"
-                  style={{ background: opt.preview }}
-                />
-                <span className="theme-backdrop-text">
-                  <span className="theme-backdrop-name">{opt.name}</span>
-                  <span className="theme-backdrop-tag">{opt.tagline}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {effects.backdrop === 'digital-rain' && (
-            <div className="theme-tuner-box" role="group" aria-label="Matrix Rain settings">
-              <div className="theme-tuner-grid">
-                <label className="theme-color-row">
-                  <span>Rain style</span>
-                  <select
-                    className="field"
-                    aria-label="Rain style"
-                    value={effects.rainLook}
-                    onChange={(event) =>
-                      updateEffects({ rainLook: event.currentTarget.value as RainLookName })
-                    }
-                  >
-                    {RAIN_LOOK_NAMES.map((name) => (
-                      <option key={name} value={name}>
-                        {RAIN_LOOK_LABELS[name]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="theme-color-row">
-                  <span>Glyph charset</span>
-                  <select
-                    className="field"
-                    aria-label="Glyph charset"
-                    value={effects.rainCharset}
-                    onChange={(event) =>
-                      updateEffects({ rainCharset: event.currentTarget.value as RainCharsetName })
-                    }
-                  >
-                    {RAIN_CHARSET_NAMES.map((name) => (
-                      <option key={name} value={name}>
-                        {RAIN_CHARSET_LABELS[name]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <label className="theme-slider-row">
-                <span className="theme-slider-meta">
-                  <span>Rain density</span>
-                  <strong>{Math.round(effects.rainDensity * 100)}%</strong>
-                </span>
-                <input
-                  type="range"
-                  className="theme-range"
-                  aria-label="Rain density"
-                  min={0.15}
-                  max={0.9}
-                  step={0.05}
-                  value={effects.rainDensity}
-                  onInput={(event) =>
-                    updateEffects({ rainDensity: Number.parseFloat(event.currentTarget.value) })
-                  }
-                />
-              </label>
-            </div>
-          )}
-
-          {effects.backdrop !== 'none' && (
-            <div className="theme-tuner-box" role="group" aria-label="Background tuning">
-              <div className="theme-slider-grid">
-                <label className="theme-slider-row">
-                  <span className="theme-slider-meta">
-                    <span>Visibility</span>
-                    <strong>{Math.round(effects.intensity * 100)}%</strong>
-                  </span>
-                  <input
-                    type="range"
-                    className="theme-range"
-                    aria-label="Background visibility"
-                    min={0.15}
-                    max={1}
-                    step={0.05}
-                    value={effects.intensity}
-                    onInput={(event) =>
-                      updateEffects({ intensity: Number.parseFloat(event.currentTarget.value) })
-                    }
-                  />
-                </label>
-                <label className="theme-slider-row">
-                  <span className="theme-slider-meta">
-                    <span>Motion speed</span>
-                    <strong>{effects.speed.toFixed(2).replace(/\.00$/, '')}×</strong>
-                  </span>
-                  <input
-                    type="range"
-                    className="theme-range"
-                    aria-label="Motion speed"
-                    min={0.25}
-                    max={2}
-                    step={0.05}
-                    value={effects.speed}
-                    onInput={(event) =>
-                      updateEffects({ speed: Number.parseFloat(event.currentTarget.value) })
-                    }
-                  />
-                </label>
-                <label className="theme-slider-row">
-                  <span className="theme-slider-meta">
-                    <span>Card glass</span>
-                    <strong>{Math.round((effects.glassStrength / 0.65) * 100)}%</strong>
-                  </span>
-                  <input
-                    type="range"
-                    className="theme-range"
-                    aria-label="Card glass translucency"
-                    min={0}
-                    max={0.65}
-                    step={0.05}
-                    value={effects.glassStrength}
-                    onInput={(event) =>
-                      updateEffects({ glassStrength: Number.parseFloat(event.currentTarget.value) })
-                    }
-                  />
-                </label>
-              </div>
-              <div className="theme-tuner-switches">
-                <span className="theme-inline-toggle">
-                  <span>Pointer reactive</span>
-                  <Switch
-                    checked={effects.interactive}
-                    ariaLabel="Pointer reactive background"
-                    onChange={(next) => updateEffects({ interactive: next })}
-                  />
-                </span>
-                <span className="theme-inline-toggle">
-                  <span>Pause motion</span>
-                  <Switch
-                    checked={effects.paused}
-                    ariaLabel="Pause background motion"
-                    onChange={(next) => updateEffects({ paused: next })}
-                  />
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <SettingRow
-          title="Surface finish"
-          description="Layer frosted glass, gradient sheen, or neon rims across cards and buttons."
-        >
-          <SegmentedControl
-            ariaLabel="Surface finish"
-            value={effects.surface}
-            options={SURFACE_FINISH_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-            onChange={(next) =>
-              updateEffects(
-                { surface: next as SurfaceFinishId },
-                `Surface finish: ${SURFACE_FINISH_OPTIONS.find((o) => o.value === next)?.label ?? next}`,
-              )
-            }
-          />
-        </SettingRow>
-
-        <SettingRow
-          title="Click effects"
-          description="A subtle accent touch on buttons, links, and tabs. Selecting text stays quiet."
-        >
-          <SegmentedControl
-            ariaLabel="Click effects"
-            value={effects.click}
-            options={CLICK_EFFECT_OPTIONS}
-            onChange={(next) =>
-              updateEffects(
-                { click: next as ClickEffectId },
-                next === 'none'
-                  ? 'Click effects off'
-                  : `Click effect: ${CLICK_EFFECT_OPTIONS.find((o) => o.value === next)?.label ?? next}`,
-              )
-            }
-          />
-        </SettingRow>
-      </SettingCard>
+      <CreativeStudioCard
+        effects={effects}
+        effectsActive={effectsActive}
+        onUpdateEffects={updateEffects}
+      />
 
       <SettingCard>
         <SettingRow
@@ -659,13 +358,12 @@ function AppearancePanelView({
                         value={pickerValue}
                         onChange={(event) => update({ [key]: event.currentTarget.value })}
                       />
-                      <input
-                        type="text"
+                      <TextInput
                         className="field theme-hex"
-                        aria-label={label}
+                        ariaLabel={label}
                         placeholder={fallbackHex}
                         value={value[key]}
-                        onChange={(event) => update({ [key]: event.currentTarget.value })}
+                        onValueChange={(nextHex) => update({ [key]: nextHex })}
                       />
                     </span>
                   </label>
@@ -695,210 +393,27 @@ function AppearancePanelView({
         </Disclosure>
 
         {effective && controller.audit && (
-          <Disclosure
-            label="Theme health & layout check"
-            badge={
-              auditReport ? (
-                <Badge tone={auditReport.violations.length === 0 ? 'success' : 'warning'}>
-                  {auditReport.score}%
-                </Badge>
-              ) : undefined
-            }
+          <ThemeHealthDisclosure
             open={healthOpen}
             onToggle={() => setHealthOpen((open) => !open)}
-          >
-            <div className="theme-drawer-pad">
-              <div className="theme-actions">
-                <span className="theme-audit-subtitle">
-                  Adaptive theming automatically heals new elements and contrast on every visit.
-                </span>
-                <div className="theme-audit-buttons">
-                  <button className="button" type="button" onClick={runAudit}>
-                    Audit page
-                  </button>
-                  {controller.healNow && (
-                    <button
-                      className={healNeedsAttention ? 'button theme-heal-ready' : 'button'}
-                      type="button"
-                      disabled={healDisabled}
-                      title={
-                        healDisabled
-                          ? 'No contrast or unthemed surface issues to heal'
-                          : 'Re-compile adaptive styles and fix contrast or unthemed surfaces now'
-                      }
-                      onClick={runHealAndAudit}
-                    >
-                      Auto-heal now
-                    </button>
-                  )}
-                </div>
-              </div>
-              {auditState && auditReport && (
-                <div
-                  key={auditState.runCount}
-                  className="theme-audit-result"
-                  data-healthy={auditReport.violations.length === 0 ? 'true' : 'false'}
-                  role="status"
-                >
-                  <div className="theme-audit-bar-row">
-                    <span className="theme-audit-score">
-                      <strong>{auditReport.score}% coverage</strong> ({auditReport.totalChecked}{' '}
-                      elements checked)
-                    </span>
-                    <span className="theme-audit-time">Checked {auditState.ranAt}</span>
-                  </div>
-                  <div className="theme-audit-meter" aria-hidden="true">
-                    <div
-                      className="theme-audit-meter-fill"
-                      style={{ width: `${Math.max(0, Math.min(100, auditReport.score))}%` }}
-                    />
-                  </div>
-                  {auditState.lastAction === 'heal' && (
-                    <p className="theme-audit-feedback">
-                      {(() => {
-                        if (auditState.healedCount && auditState.healedCount > 0) {
-                          const delta =
-                            auditState.beforeScore !== undefined &&
-                            auditState.beforeScore !== auditReport.score
-                              ? ` (${auditState.beforeScore}% → ${auditReport.score}%)`
-                              : '';
-                          const noun = auditState.healedCount === 1 ? 'element' : 'elements';
-                          return `Fixed ${auditState.healedCount} ${noun} on this page${delta}. Adaptive healing stays active automatically on future visits.`;
-                        }
-                        if (healableCount === 0) {
-                          return 'Re-compiled styles and scanned the page — no unhealed contrast or surface issues found.';
-                        }
-                        const remaining = healableCount ?? 0;
-                        const phrase = remaining === 1 ? 'issue needs' : 'issues need';
-                        return `Re-compiled styles — ${remaining} remaining contrast/surface ${phrase} a higher-contrast palette or custom CSS.`;
-                      })()}
-                    </p>
-                  )}
-                  <p className="theme-audit-summary">
-                    <span data-has-issue={auditReport.summary.contrast > 0 ? 'true' : undefined}>
-                      {auditReport.summary.contrast} contrast
-                    </span>
-                    ,{' '}
-                    <span
-                      data-has-issue={auditReport.summary.polarityLeak > 0 ? 'true' : undefined}
-                    >
-                      {auditReport.summary.polarityLeak} unthemed surfaces
-                    </span>
-                    ,{' '}
-                    <span data-has-issue={auditReport.summary.layoutShift > 0 ? 'true' : undefined}>
-                      {auditReport.summary.layoutShift} layout shifts
-                    </span>
-                    ,{' '}
-                    <span
-                      data-has-issue={auditReport.summary.headerOcclusion > 0 ? 'true' : undefined}
-                    >
-                      {auditReport.summary.headerOcclusion} header overlaps
-                    </span>
-                    .
-                  </p>
-                  {geometryIssues > 0 && auditState.lastAction === 'heal' && (
-                    <p className="theme-audit-note">
-                      Layout shifts and header overlaps are reported for inspection and are not
-                      auto-modified.
-                    </p>
-                  )}
-                  {auditReport.violations.length > 0 && (
-                    <ul className="theme-audit-list">
-                      {(() => {
-                        const seen = new Map<string, number>();
-                        return auditReport.violations.slice(0, 6).map((v) => {
-                          const base = `${v.kind}:${v.selector}:${v.detail}`;
-                          const count = (seen.get(base) ?? 0) + 1;
-                          seen.set(base, count);
-                          return (
-                            <li key={`${base}#${count}`}>
-                              <code>{v.selector}</code> ({v.kind}): {v.detail}
-                            </li>
-                          );
-                        });
-                      })()}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
-          </Disclosure>
+            auditState={auditState}
+            hasHeal={Boolean(controller.healNow)}
+            onRunAudit={runAudit}
+            onRunHeal={runHealAndAudit}
+          />
         )}
 
-        <Disclosure
-          label="Custom CSS"
-          badge={
-            value.customCss.trim() || savedExternalCssUrl.trim() ? (
-              <Badge tone="accent">Active</Badge>
-            ) : undefined
-          }
+        <CustomCssDisclosure
           open={cssOpen}
           onToggle={() => setCssOpen((open) => !open)}
-        >
-          <div className="theme-drawer-pad">
-            <label className="theme-color-row">
-              <span>Custom CSS</span>
-              <textarea
-                className="field"
-                rows={4}
-                aria-label="Custom CSS"
-                placeholder="Write custom CSS rules layered on top of this site's theme"
-                spellCheck={false}
-                value={value.customCss}
-                onChange={(event) => update({ customCss: event.currentTarget.value })}
-              />
-            </label>
-            {hasExternalCssOption && (
-              <div className="theme-color-row">
-                <label htmlFor={externalCssId}>External stylesheet URL</label>
-                <div className="theme-external-css-row">
-                  <input
-                    id={externalCssId}
-                    type="text"
-                    inputMode="url"
-                    className="field theme-hex"
-                    aria-label="External CSS url"
-                    placeholder="https://example.com/custom.css"
-                    spellCheck={false}
-                    value={externalCssDraft}
-                    onInput={(event) => setExternalCssDraft(event.currentTarget.value)}
-                    onChange={(event) => setExternalCssDraft(event.currentTarget.value)}
-                    onBlur={(event) => commitExternalCssUrl(event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        commitExternalCssUrl(event.currentTarget.value);
-                      }
-                    }}
-                  />
-                  {externalCssDraft.trim() !== savedExternalCssUrl && (
-                    <button
-                      type="button"
-                      className="button primary"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => commitExternalCssUrl(externalCssDraft)}
-                    >
-                      Apply
-                    </button>
-                  )}
-                  {savedExternalCssUrl && externalCssDraft.trim() === savedExternalCssUrl && (
-                    <button
-                      type="button"
-                      className="button"
-                      onClick={() => commitExternalCssUrl('')}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-                <span className="theme-studio-hint">
-                  Optional HTTPS stylesheet URL (served as <code>text/css</code>). Use inline CSS,
-                  an external URL, or both.
-                </span>
-              </div>
-            )}
-          </div>
-        </Disclosure>
+          customCss={value.customCss}
+          onCustomCssChange={(nextCss) => update({ customCss: nextCss })}
+          hasExternalCssOption={hasExternalCssOption}
+          savedExternalCssUrl={savedExternalCssUrl}
+          externalCssDraft={externalCssDraft}
+          onExternalCssDraftChange={setExternalCssDraft}
+          onCommitExternalCssUrl={commitExternalCssUrl}
+        />
       </SettingCard>
     </section>
   );

@@ -31,6 +31,71 @@ export interface SwitchProps {
   readonly onChange: (checked: boolean) => void;
 }
 
+export interface TextInputProps {
+  readonly id?: string;
+  readonly className?: string;
+  readonly type?: 'text' | 'number' | 'search' | 'url';
+  readonly inputMode?: 'text' | 'url' | 'numeric' | 'decimal' | 'search';
+  readonly value: string;
+  readonly placeholder?: string;
+  readonly spellCheck?: boolean;
+  readonly ariaLabel?: string;
+  readonly ariaDescribedBy?: string;
+  readonly ariaInvalid?: boolean;
+  readonly onValueChange: (value: string) => void;
+  readonly onBlur?: (event: {
+    currentTarget: HTMLInputElement;
+    relatedTarget: EventTarget | null;
+  }) => void;
+  readonly onKeyDown?: (event: {
+    key: string;
+    currentTarget: HTMLInputElement;
+    preventDefault: () => void;
+    stopPropagation: () => void;
+  }) => void;
+}
+
+/**
+ * Controlled text/number/url input normalized for `preact/compat` so keystrokes
+ * always fire `onValueChange` immediately regardless of `type` (`url`, `search`, etc.).
+ */
+export function TextInput({
+  id,
+  className = 'field',
+  type = 'text',
+  inputMode,
+  value,
+  placeholder,
+  spellCheck,
+  ariaLabel,
+  ariaDescribedBy,
+  ariaInvalid,
+  onValueChange,
+  onBlur,
+  onKeyDown,
+}: TextInputProps) {
+  const effectiveType = type === 'url' ? 'text' : type;
+  const effectiveMode = inputMode ?? (type === 'url' ? 'url' : undefined);
+  return (
+    <input
+      id={id}
+      className={className}
+      type={effectiveType}
+      inputMode={effectiveMode}
+      value={value}
+      placeholder={placeholder}
+      spellCheck={spellCheck}
+      aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
+      aria-invalid={ariaInvalid || undefined}
+      onInput={(event) => onValueChange(event.currentTarget.value)}
+      onChange={(event) => onValueChange(event.currentTarget.value)}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
+    />
+  );
+}
+
 /** Tactile pill switch backed by a native `<input type="checkbox">`. */
 export function Switch({
   id,

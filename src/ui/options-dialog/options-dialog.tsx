@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { OptionSpec, Options, OptionValue } from '../../core/options';
+import type { IndexedSearchHit } from './command-jump';
+import type { Edit } from './option-row';
 import type { OptionsPanel } from './panel';
 import { OPTIONS_TITLE } from '../../../project';
 import { createLogger } from '../../core/log';
@@ -9,231 +10,23 @@ import {
   Disclosure,
   getSiteMark,
   SettingCard,
-  SettingRow,
   Switch,
   Toast,
   UiIcon,
   useDraggable,
   useToast,
 } from '../primitives';
-import { useOptionValue } from '../use-option-value';
+import { CommandJumpOverlay } from './command-jump';
+import { groupSectionOptions, OptionRow } from './option-row';
 import { getSectionMeta, orderSections } from './sections';
 
 const log = createLogger('options');
 const TOAST_MS = 4000;
-const MAX_SEARCH_HITS = 10;
 const EMPTY_PANELS: readonly OptionsPanel[] = [];
-
-interface Edit {
-  input: boolean | string;
-  value: OptionValue | undefined;
-}
-
-function toEdit(spec: OptionSpec, input: boolean | string): Edit {
-  if (typeof spec.default !== 'number') {
-    return { input, value: input };
-  }
-  const number = typeof input === 'string' && input.trim() !== '' ? Number(input) : Number.NaN;
-  return { input, value: Number.isFinite(number) ? number : undefined };
-}
-
-interface IndexedSearchHit {
-  readonly id: string;
-  readonly title: string;
-  readonly description?: string;
-  readonly section: string;
-  readonly haystack: string;
-  readonly optionKey?: string;
-  readonly groupKey?: string;
-  readonly onSelect?: () => void;
-}
 
 export interface SiteIdentity {
   readonly id: string;
   readonly displayName: string;
-}
-
-interface OptionRowProps {
-  readonly optionKey: string;
-  readonly spec: OptionSpec;
-  readonly options: Options;
-  readonly edit: Edit | undefined;
-  readonly dimmed: boolean;
-  readonly pulse: boolean;
-  readonly onInstantSave: (key: string, spec: OptionSpec, next: OptionValue) => void;
-  readonly onDraftEdit: (key: string, edit: Edit | undefined) => void;
-  readonly onCommitDraft: (key: string, spec: OptionSpec, edit: Edit) => void;
-}
-
-function OptionRow({
-  optionKey,
-  spec,
-  options,
-  edit,
-  dimmed,
-  pulse,
-  onInstantSave,
-  onDraftEdit,
-  onCommitDraft,
-}: OptionRowProps) {
-  const id = useId();
-  const saved = useOptionValue(options, optionKey);
-  const shown = edit ? edit.input : saved;
-  const isInvalid = Boolean(edit && edit.value === undefined);
-  const isDirty = Boolean(edit && edit.value !== undefined && edit.value !== saved);
-  const inputId = `${id}-input`;
-  const descId = spec.description ? `${id}-description` : undefined;
-
-  const commitIfValid = (): void => {
-    if (edit && edit.value !== undefined && edit.value !== saved) {
-      onCommitDraft(optionKey, spec, edit);
-    } else if (edit && edit.value === saved) {
-      onDraftEdit(optionKey, undefined);
-    }
-  };
-
-  const handleEditorBlur = (event: {
-    currentTarget: HTMLElement;
-    relatedTarget: EventTarget | null;
-  }): void => {
-    const related = event.relatedTarget as Node | null;
-    if (related && event.currentTarget.closest('.inline-editor')?.contains(related)) {
-      return;
-    }
-    commitIfValid();
-  };
-
-  let field: ReactNode;
-  if (spec.choices) {
-    field = (
-      <select
-        id={inputId}
-        className="field"
-        aria-describedby={descId}
-        value={String(saved)}
-        onChange={(event) => onInstantSave(optionKey, spec, event.currentTarget.value)}
-      >
-        {spec.choices.map(({ value, label }) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
-    );
-  } else if (typeof spec.default === 'boolean') {
-    field = (
-      <Switch
-        id={inputId}
-        checked={saved === true}
-        {...(descId ? { ariaDescribedBy: descId } : {})}
-        onChange={(checked) => onInstantSave(optionKey, spec, checked)}
-      />
-    );
-  } else if (spec.multiline) {
-    field = (
-      <div className="inline-editor stacked">
-        <textarea
-          id={inputId}
-          className="field"
-          rows={5}
-          aria-describedby={descId}
-          aria-invalid={isInvalid || undefined}
-          value={String(shown)}
-          onChange={(event) => onDraftEdit(optionKey, toEdit(spec, event.currentTarget.value))}
-          onBlur={handleEditorBlur}
-        />
-        {isDirty && (
-          <div className="inline-editor-actions">
-            <button
-              type="button"
-              className="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onDraftEdit(optionKey, undefined)}
-            >
-              Reset
-            </button>
-            <button
-              type="button"
-              className="button primary"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={commitIfValid}
-            >
-              Apply
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  } else {
-    field = (
-      <div className="inline-editor">
-        <input
-          id={inputId}
-          className="field"
-          type={typeof spec.default === 'number' ? 'number' : 'text'}
-          aria-describedby={descId}
-          aria-invalid={isInvalid || undefined}
-          value={String(shown)}
-          onChange={(event) => onDraftEdit(optionKey, toEdit(spec, event.currentTarget.value))}
-          onBlur={handleEditorBlur}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              commitIfValid();
-            }
-          }}
-        />
-        {isDirty && (
-          <button
-            type="button"
-            className="button primary"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={commitIfValid}
-          >
-            Apply
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <SettingRow
-      title={spec.title}
-      {...(spec.description ? { description: spec.description } : {})}
-      htmlFor={inputId}
-      {...(descId ? { descriptionId: descId } : {})}
-      stacked={Boolean(spec.multiline)}
-      dimmed={dimmed}
-      pulse={pulse}
-    >
-      {field}
-    </SettingRow>
-  );
-}
-
-interface OptionGroupBucket {
-  readonly group: string;
-  readonly primary: Array<[string, OptionSpec]>;
-  readonly advanced: Array<[string, OptionSpec]>;
-}
-
-function groupSectionOptions(entries: readonly [string, OptionSpec][]): OptionGroupBucket[] {
-  const buckets = new Map<string, OptionGroupBucket>();
-  for (const entry of entries) {
-    const group = entry[1].group ?? '';
-    let bucket = buckets.get(group);
-    if (!bucket) {
-      bucket = { group, primary: [], advanced: [] };
-      buckets.set(group, bucket);
-    }
-    if (entry[1].advanced) {
-      bucket.advanced.push(entry);
-    } else {
-      bucket.primary.push(entry);
-    }
-  }
-  return [...buckets.values()];
 }
 
 export interface OptionsDialogProps {
@@ -273,7 +66,6 @@ export function OptionsDialog({
   onClose,
 }: OptionsDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const cmdInputRef = useRef<HTMLInputElement>(null);
   const panelsRef = useRef(panels);
   panelsRef.current = panels;
   const drag = useDraggable(dialog);
@@ -363,12 +155,6 @@ export function OptionsDialog({
     }
     return onSiteEnabledChange((next) => setEnabledHere(next));
   }, [onSiteEnabledChange]);
-
-  useEffect(() => {
-    if (cmdOpen) {
-      cmdInputRef.current?.focus();
-    }
-  }, [cmdOpen]);
 
   const openCommandJump = (toggle = false): void => {
     setCmdOpen((open) => (toggle ? !open : true));
@@ -560,23 +346,23 @@ export function OptionsDialog({
     }
   };
 
-  const { sectionOptions, sectionGroups } = useMemo(() => {
-    const filtered = all.filter(([, spec]) => spec.section === section && !spec.hiddenInList);
-    return { sectionOptions: filtered, sectionGroups: groupSectionOptions(filtered) };
-  }, [all, section]);
-
-  const shownPanels = useMemo(
-    () => panels.filter((panel) => panel.section === section),
-    [panels, section],
+  const sectionOptions = useMemo(
+    () => all.filter(([, spec]) => spec.section === section && !spec.hiddenInList),
+    [all, section],
   );
+  const sectionGroups = useMemo(() => groupSectionOptions(sectionOptions), [sectionOptions]);
+  const shownPanels = panels.filter((panel) => panel.section === section);
   const sectionMeta = section ? getSectionMeta(section) : undefined;
 
   const invalidOptions =
     edits.size === 0
       ? []
-      : all.flatMap(([key, spec]) => {
-          const edit = edits.get(key);
-          return edit && edit.value === undefined ? [spec.title] : [];
+      : [...edits].flatMap(([key, edit]) => {
+          if (edit.value !== undefined) {
+            return [];
+          }
+          const title = all.find(([k]) => k === key)?.[1].title ?? key;
+          return [title];
         });
   const problems = [
     ...(invalidOptions.length > 0
@@ -868,71 +654,18 @@ export function OptionsDialog({
       </div>
 
       {cmdOpen && (
-        <div
-          className="cmd-backdrop"
-          role="presentation"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) {
-              setCmdOpen(false);
-            }
+        <CommandJumpOverlay
+          query={cmdQuery}
+          activeIndex={cmdIndex}
+          hits={searchHits}
+          onQueryChange={(nextQuery) => {
+            setCmdQuery(nextQuery);
+            setCmdIndex(0);
           }}
-        >
-          <div className="cmd-box" role="dialog" aria-label="Search settings">
-            <div className="cmd-input-row">
-              <UiIcon name="search" size={15} />
-              <input
-                ref={cmdInputRef}
-                className="cmd-input"
-                type="search"
-                aria-label="Jump to setting"
-                placeholder="Search settings, themes, rules, sites, or actions…"
-                value={cmdQuery}
-                onChange={(event) => {
-                  setCmdQuery(event.currentTarget.value);
-                  setCmdIndex(0);
-                }}
-                onKeyDown={(event) => {
-                  const max = Math.min(searchHits.length, MAX_SEARCH_HITS);
-                  if (event.key === 'ArrowDown' && max > 0) {
-                    event.preventDefault();
-                    setCmdIndex((i) => (i + 1) % max);
-                  } else if (event.key === 'ArrowUp' && max > 0) {
-                    event.preventDefault();
-                    setCmdIndex((i) => (i - 1 + max) % max);
-                  } else if (event.key === 'Enter' && searchHits[cmdIndex]) {
-                    event.preventDefault();
-                    jumpToHit(searchHits[cmdIndex]);
-                  } else if (event.key === 'Escape') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setCmdOpen(false);
-                  }
-                }}
-              />
-            </div>
-            <div className="cmd-list">
-              {searchHits.length === 0 ? (
-                <div className="cmd-empty">No options match.</div>
-              ) : (
-                searchHits.slice(0, MAX_SEARCH_HITS).map((hit, idx) => (
-                  <button
-                    key={hit.id}
-                    type="button"
-                    className="cmd-item"
-                    data-active={idx === cmdIndex ? 'true' : undefined}
-                    onClick={() => jumpToHit(hit)}
-                  >
-                    <span className="cmd-item-main">
-                      <span className="cmd-item-title">{hit.title}</span>
-                      {hit.description && <span className="cmd-item-desc">{hit.description}</span>}
-                    </span>
-                    <Badge>{hit.section}</Badge>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
+          onActiveIndexChange={setCmdIndex}
+          onSelect={jumpToHit}
+          onClose={() => setCmdOpen(false)}
+        />
       )}
     </dialog>
   );
