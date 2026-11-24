@@ -1,4 +1,4 @@
-import { anyOf } from '../../core/locator';
+import { anyOf, firstOf } from '../../core/locator';
 
 /** Tweet cards in X's virtualized timeline and detail threads. */
 export const X_TWEET = anyOf('x-tweet', [
@@ -42,4 +42,11 @@ export const X_NAV_EXPLORE = anyOf('x-nav-explore', [
 /** Timeline tab buttons ("For you", "Following", pinned Lists) on `/home`. */
 export const X_TIMELINE_TAB = anyOf('x-timeline-tab', [
   { selector: '[data-testid="primaryColumn"] [role="tab"]', seen: '2026-11-22' },
+]);
+
+/** Detail pane on `x.com/settings/display` (Settings right column, primary column fallback, or modal). */
+export const X_DISPLAY_SETTINGS = firstOf('x-display-settings', [
+  { selector: 'section[aria-labelledby="detail-header"]', seen: '2026-11-24' },
+  { selector: '[data-testid="primaryColumn"]', seen: '2026-11-24' },
+  { selector: '[role="dialog"]', seen: '2026-11-24' },
 ]);

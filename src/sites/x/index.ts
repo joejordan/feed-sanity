@@ -12,6 +12,7 @@ import { readThemeConfig, THEME_DATA_KEY } from '../../ui/appearance';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createXPage, X_LOCATOR_OVERRIDES } from './feature';
 import xDefaultFollowing from './features/default-following';
+import xDisplayNotice from './features/display-notice';
 import xFeedFilters from './features/feed-filters';
 import xHideClutter from './features/hide-clutter';
 import xVideoScrubber from './features/video-controls';
@@ -24,6 +25,7 @@ import { isXHost } from './urls';
 
 export const xFeatures: readonly Feature<XPage>[] = [
   xDefaultFollowing,
+  xDisplayNotice,
   xFeedFilters,
   xHideClutter,
   xVideoScrubber,

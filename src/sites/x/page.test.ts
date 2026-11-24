@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scrubXPii, xAccountId, xPageType } from './page';
+import { isXDisplaySettingsPath, scrubXPii, xAccountId, xPageType } from './page';
 import { isXHost, isXMediaAddress } from './urls';
 
 describe('x page context, URLs, and PII scrubbing', () => {
@@ -18,8 +18,14 @@ describe('x page context, URLs, and PII scrubbing', () => {
     expect(xPageType({ pathname: '/i/grok' })).toBe('grok');
     expect(xPageType({ pathname: '/i/bookmarks' })).toBe('bookmarks');
     expect(xPageType({ pathname: '/search' })).toBe('search');
+    expect(xPageType({ pathname: '/settings/display' })).toBe('settings');
     expect(xPageType({ pathname: '/someuser/status/2124521710376423470' })).toBe('status');
     expect(xPageType({ pathname: '/someuser' })).toBe('profile');
+
+    expect(isXDisplaySettingsPath({ pathname: '/settings/display' })).toBe(true);
+    expect(isXDisplaySettingsPath({ pathname: '/settings/display/' })).toBe(true);
+    expect(isXDisplaySettingsPath({ pathname: '/settings/account' })).toBe(false);
+    expect(isXDisplaySettingsPath({ pathname: '/home' })).toBe(false);
   });
 
   it('scrubs X URLs, status paths, handles, and numeric IDs', () => {

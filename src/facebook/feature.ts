@@ -1,3 +1,4 @@
+import type { DomEnvironment } from '../core/dom-env';
 import type { Binder, Feature, FeatureDefinition, PageFactory } from '../core/feature';
 import type { Locate, Locator, LocatorSpec } from '../core/locator';
 import type { OptionSpecs } from '../core/options';
@@ -64,6 +65,8 @@ export interface FacebookPage {
    * class names or the user's selectors change.
    */
   watch: PageWatcher['watch'];
+  /** Opens Feed Sanity's Options dialog, optionally jumping straight to `initialSection`. */
+  openOptions?: (initialSection?: string) => void;
 }
 
 /** The page-world bridge as features use it, with Facebook's readers. */
@@ -274,6 +277,7 @@ export function bindPage(page: PageServices): PageFactory<FacebookPage> {
         const watching = page.watch(selector, handlers, options);
         return Object.assign(scope.add(watching), { refresh: () => watching.refresh() });
       },
+      ...(page.openOptions ? { openOptions: page.openOptions } : {}),
     };
   };
 }
@@ -296,6 +300,8 @@ export interface PageStats {
 export function createPage(
   data: FeatureData,
   installPageWorld: () => Promise<void>,
+  _env?: DomEnvironment,
+  openOptions?: (initialSection?: string) => void,
 ): PageFactory<FacebookPage> & { readonly stats: PageStats } {
   const atoms = new Atoms();
   const locators = new Locators(atoms, Object.values(selectors).filter(isLocatorSpec));
@@ -323,6 +329,7 @@ export function createPage(
     videos: new Videos(locate),
     bridge,
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
+    ...(openOptions ? { openOptions } : {}),
   });
   return Object.assign(page, { stats: { atoms, locators, posts, bridge } });
 }

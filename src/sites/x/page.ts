@@ -17,6 +17,7 @@ export type XPageType =
   | 'other'
   | 'profile'
   | 'search'
+  | 'settings'
   | 'status';
 
 /**
@@ -49,6 +50,9 @@ export function xPageType(loc: Pick<Location, 'pathname'> = location): XPageType
   if (path === '/search') {
     return 'search';
   }
+  if (path === '/settings' || path.startsWith('/settings/')) {
+    return 'settings';
+  }
   if (/^\/[^/]+\/status\/\d+/.test(path)) {
     return 'status';
   }
@@ -56,6 +60,11 @@ export function xPageType(loc: Pick<Location, 'pathname'> = location): XPageType
     return 'profile';
   }
   return 'other';
+}
+
+/** True when `loc` is X's Display settings route (`/settings/display`). */
+export function isXDisplaySettingsPath(loc: Pick<Location, 'pathname'> = location): boolean {
+  return /^\/settings\/display(?:\/|$)/i.test(loc.pathname);
 }
 
 /**

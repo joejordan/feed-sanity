@@ -40,6 +40,8 @@ export interface XPage extends CapablePage {
   readonly locate: Locate;
   readonly watch: PageWatcher['watch'];
   readonly onUrlChange: (listener: () => void) => () => void;
+  /** Opens Feed Sanity's Options dialog, optionally jumping straight to `initialSection`. */
+  readonly openOptions: (initialSection?: string) => void;
   /** Enables or disables MAIN-world Network Tap stripping of promoted timeline entries. */
   readonly setStripPromoted: (enabled: boolean) => void;
   readonly feed: Pick<
@@ -59,6 +61,7 @@ export function createXPage(
   data: SavedData,
   installPageWorld: () => Promise<void>,
   sharedEnv?: DomEnvironment,
+  openOptions: (initialSection?: string) => void = () => undefined,
 ): PageFactory<XPage> & { readonly stats: XStats } {
   const env: DomEnvironment = sharedEnv ?? createDomEnvironment({ log: createLogger('x-dom') });
   const locators = new Locators(IDENTITY_RESOLVER, Object.values(selectors).filter(isLocatorSpec));
@@ -112,6 +115,7 @@ export function createXPage(
       locate: bindLocate(locate, binder),
       watch: bindWatch(env, binder),
       onUrlChange: (listener) => binder.listen((guarded) => env.onUrlChange(guarded), listener),
+      openOptions,
       setStripPromoted: (enabled) => {
         if (enabled === stripPromoted) {
           return;

@@ -48,11 +48,12 @@ export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory
   readonly storagePrefix: (accountId: string) => string;
   /** Strips site-specific personal identifiers (handles, slugs, post IDs) from diagnostics. */
   readonly scrubPii: (message: string) => string;
-  /** Creates the site's page factory bound to saved data, page-world installer, and shared `DomEnvironment`. */
+  /** Creates the site's page factory bound to saved data, page-world installer, shared `DomEnvironment`, and Options trigger. */
   readonly createPage: (
     data: SavedData,
     installPageWorld: () => Promise<void>,
     env?: DomEnvironment,
+    openOptions?: (initialSection?: string) => void,
   ) => F;
   /** Features enabled on this site, in start order. */
   readonly features: readonly Feature<P>[];
@@ -180,7 +181,12 @@ export async function startSite<P, F extends PageFactory<P>>(
           earlyCacheSiteId: site.id,
         })
       : undefined;
-    const page = site.createPage(data, () => platform.installPageWorld(), env);
+    const page = site.createPage(
+      data,
+      () => platform.installPageWorld(),
+      env,
+      (section) => openOptions(section),
+    );
     const runner = new FeatureRunner(site.features, options, page, data);
     let cachedPanels: OptionsPanel[] | undefined;
     const ensurePanels = (): OptionsPanel[] => {
