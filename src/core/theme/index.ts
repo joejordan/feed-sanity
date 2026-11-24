@@ -8,7 +8,7 @@ export type {
   ThemeViolationKind,
 } from './audit';
 export type { OklchColor, PaintPropertyKind, RgbaColor } from './color';
-export type { AdaptiveCompilerOptions } from './compiler';
+export type { AdaptiveCompilerOptions, RootCssomSnapshot } from './compiler';
 export type { ThemeHealer, ThemeHealerOptions } from './healer';
 export { auditThemeCoverage, captureLayoutSnapshot } from './audit';
 export {
@@ -16,6 +16,7 @@ export {
   compositeOver,
   detectConfirmedHostColorScheme,
   detectHostColorScheme,
+  HOST_SCHEME_ATTRS,
   hexWithAlpha,
   isNeutralColor,
   isOppositePolarityNeutral,
@@ -26,7 +27,12 @@ export {
   rgbaLuminance,
   rgbToOklch,
 } from './color';
-export { compileAdaptiveRootCss, countStyleSheetRules, splitSelectorList } from './compiler';
+export {
+  captureCssomSnapshot,
+  compileAdaptiveRootCss,
+  sameCssomSnapshot,
+  splitSelectorList,
+} from './compiler';
 export {
   createThemeHealer,
   HEAL_BG_ATTR,

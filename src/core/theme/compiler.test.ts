@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import type { RootCssomSnapshot } from './compiler';
 import { findThemePreset } from '../theming';
-import { compileAdaptiveRootCss, splitSelectorList } from './compiler';
+import {
+  captureCssomSnapshot,
+  compileAdaptiveRootCss,
+  sameCssomSnapshot,
+  splitSelectorList,
+} from './compiler';
 
 const warmPaper = findThemePreset('warm-paper')!.palette;
 
@@ -265,5 +271,51 @@ describe('core/theme/compiler', () => {
     } finally {
       globalThis.matchMedia = origMatchMedia;
     }
+  });
+
+  it('captures weak-ID CSSOM snapshots that match compileAdaptiveRootCss, skip own sheets, and detect insertRule, replaceSync, and adoptedStyleSheets swaps', () => {
+    const host = document.createElement('div');
+    const shadow = host.attachShadow({ mode: 'open' });
+    const hostStyle = document.createElement('style');
+    hostStyle.textContent = '.card { background-color: rgb(24, 24, 24); }';
+    const adoptedA = new CSSStyleSheet();
+    adoptedA.replaceSync('.pill-a { background-color: rgb(32, 32, 32); }');
+    shadow.append(hostStyle);
+    shadow.adoptedStyleSheets = [adoptedA];
+    document.body.append(host);
+
+    let fromCompile: RootCssomSnapshot | undefined;
+    compileAdaptiveRootCss(shadow, warmPaper, {
+      hostScheme: 'dark',
+      onCssomSnapshot: (snap) => {
+        fromCompile = snap;
+      },
+    });
+    expect(fromCompile).toBeDefined();
+    expect(sameCssomSnapshot(fromCompile!, captureCssomSnapshot(shadow))).toBe(true);
+
+    // Injecting our own `feed_sanity_*` stylesheet must NOT invalidate the host snapshot.
+    const ownStyle = document.createElement('style');
+    ownStyle.id = 'feed_sanity_adaptive_theme';
+    ownStyle.textContent = '.ignored { color: red; }';
+    shadow.append(ownStyle);
+    expect(sameCssomSnapshot(fromCompile!, captureCssomSnapshot(shadow))).toBe(true);
+
+    // `insertRule()` invalidates snapshot.
+    hostStyle.sheet?.insertRule('.card-2 { color: rgb(231, 233, 234); }', 1);
+    const afterInsert = captureCssomSnapshot(shadow);
+    expect(sameCssomSnapshot(fromCompile!, afterInsert)).toBe(false);
+
+    // Same-rule-count `replaceSync()` invalidates snapshot.
+    adoptedA.replaceSync('.pill-b { background-color: rgb(36, 36, 36); }');
+    const afterReplace = captureCssomSnapshot(shadow);
+    expect(sameCssomSnapshot(afterInsert, afterReplace)).toBe(false);
+
+    // Swapping `adoptedStyleSheets` to a different sheet with identical rule count invalidates snapshot.
+    const adoptedB = new CSSStyleSheet();
+    adoptedB.replaceSync('.pill-b { background-color: rgb(36, 36, 36); }');
+    shadow.adoptedStyleSheets = [adoptedB];
+    const afterSwap = captureCssomSnapshot(shadow);
+    expect(sameCssomSnapshot(afterReplace, afterSwap)).toBe(false);
   });
 });

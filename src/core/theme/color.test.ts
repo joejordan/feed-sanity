@@ -112,6 +112,55 @@ describe('core/theme/color', () => {
     expect(detectConfirmedHostColorScheme(document)).toBe('dark');
     document.body.innerHTML = '';
 
+    // Detects YouTube-style bare `<html dark>` / `<html light>` boolean attributes (ignoring `"false"` / `"0"`).
+    document.documentElement.setAttribute('dark', '');
+    expect(detectConfirmedHostColorScheme(document)).toBe('dark');
+    document.documentElement.setAttribute('dark', 'false');
+    expect(detectConfirmedHostColorScheme(document)).toBeNull();
+    document.documentElement.setAttribute('dark', '0');
+    expect(detectConfirmedHostColorScheme(document)).toBeNull();
+    document.documentElement.removeAttribute('dark');
+    document.documentElement.setAttribute('light', '');
+    expect(detectConfirmedHostColorScheme(document)).toBe('light');
+    document.documentElement.removeAttribute('light');
+
+    // Detects `data-color-scheme` / `data-bs-theme` even when an earlier attribute is `"auto"`,
+    // checks `document.body` classes/attributes, and ignores unrelated or ambiguous class names.
+    document.documentElement.setAttribute('data-theme', 'auto');
+    document.documentElement.setAttribute('data-color-scheme', 'dark');
+    expect(detectConfirmedHostColorScheme(document)).toBe('dark');
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-color-scheme');
+    document.documentElement.setAttribute('data-bs-theme', 'dark');
+    expect(detectConfirmedHostColorScheme(document)).toBe('dark');
+    document.documentElement.removeAttribute('data-bs-theme');
+    document.documentElement.className = 'highlight spotlight';
+    expect(detectConfirmedHostColorScheme(document)).toBeNull();
+    document.documentElement.className = 'theme-dark theme-light';
+    expect(detectConfirmedHostColorScheme(document)).toBeNull();
+    document.documentElement.className = 'is_darkmode';
+    expect(detectConfirmedHostColorScheme(document)).toBe('dark');
+    document.documentElement.className = '';
+
+    document.body.className = 'theme-dark';
+    expect(detectConfirmedHostColorScheme(document)).toBe('dark');
+    document.body.className = '';
+    document.body.setAttribute('data-theme', 'light');
+    expect(detectConfirmedHostColorScheme(document)).toBe('light');
+    document.body.removeAttribute('data-theme');
+
+    // Detects dark canvas painted on `#root`, `#app`, `#__next`, and `[role="main"]`.
+    for (const html of [
+      '<div id="root" style="background-color: rgb(15, 15, 15);"></div>',
+      '<div id="app" style="background-color: rgb(15, 15, 15);"></div>',
+      '<div id="__next" style="background-color: rgb(15, 15, 15);"></div>',
+      '<div role="main" style="background-color: rgb(15, 15, 15);"></div>',
+    ]) {
+      document.body.innerHTML = html;
+      expect(detectConfirmedHostColorScheme(document)).toBe('dark');
+    }
+    document.body.innerHTML = '';
+
     document.body.style.backgroundColor = 'rgb(0, 0, 0)';
     expect(detectHostColorScheme(document)).toBe('dark');
     document.body.style.backgroundColor = 'rgb(255, 255, 255)';

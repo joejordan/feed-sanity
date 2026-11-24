@@ -28,6 +28,15 @@ import {
   rgbToOklch,
 } from './color';
 
+/**
+ * Weak-identity CSSOM fingerprint (`[sheetId, ruleCount, firstRuleId, lastRuleId, ...]`)
+ * that detects stylesheet swaps, `insertRule()`, `deleteRule()`, and `replaceSync()`
+ * without retaining strong references to `CSSStyleSheet` or `CSSRule` objects.
+ */
+export interface RootCssomSnapshot {
+  readonly signature: readonly number[];
+}
+
 export interface AdaptiveCompilerOptions {
   /** Host site's native color scheme (`'dark' | 'light'`) measured prior to theming. */
   readonly hostScheme: ThemeColorScheme;
@@ -43,8 +52,8 @@ export interface AdaptiveCompilerOptions {
   readonly backdropActive?: boolean;
   /** Optional user typography stack compiled onto host rules that explicitly declare a non-icon `font-family`. */
   readonly fontFamily?: string;
-  /** Optional callback receiving the total accessible host CSSOM rule count inspected for this root. */
-  readonly onSheetRuleCount?: (count: number) => void;
+  /** Optional callback receiving the accessible host CSSOM snapshot inspected for this root. */
+  readonly onCssomSnapshot?: (snapshot: RootCssomSnapshot) => void;
 }
 
 const SAFE_CUSTOM_PROP = /^--[A-Za-z0-9_-]+$/;
@@ -164,12 +173,14 @@ function collectStyleSheets(
 ): CSSStyleSheet[] {
   const seen = new Set<CSSStyleSheet>();
   let ownSheets: Set<CSSStyleSheet> | undefined;
-  const add = (sheet: CSSStyleSheet | null | undefined): void => {
+  const add = (sheet: CSSStyleSheet | null | undefined, checkOwnFallback: boolean): void => {
     if (!sheet || seen.has(sheet) || isOwnStyleSheet(sheet, skipIds)) {
       return;
     }
-    // Only fall back to scanning `<style>` elements when `ownerNode` is absent.
-    if (!sheet.ownerNode) {
+    // Only fall back to scanning `<style>` elements for `root.styleSheets` entries
+    // whose `ownerNode` is absent (`adoptedStyleSheets` always have `ownerNode === null`
+    // and Feed Sanity never adopts sheets into host roots).
+    if (checkOwnFallback && !sheet.ownerNode) {
       ownSheets ??= collectOwnSheets(root, skipIds);
       if (ownSheets.has(sheet)) {
         return;
@@ -177,45 +188,79 @@ function collectStyleSheets(
     }
     seen.add(sheet);
   };
-  const styleSheetCount = root.styleSheets?.length ?? 0;
-  if (root.styleSheets && styleSheetCount > 0) {
-    for (const sheet of Array.from(root.styleSheets)) {
-      add(sheet);
+  const styleSheets = root.styleSheets;
+  const styleSheetCount = styleSheets?.length ?? 0;
+  if (styleSheets && styleSheetCount > 0) {
+    for (let i = 0; i < styleSheetCount; i++) {
+      add(styleSheets[i], true);
     }
   } else {
     // Fallback for DOM implementations where `shadowRoot.styleSheets` or detached `doc.styleSheets` is unpopulated.
     for (const styleEl of root.querySelectorAll('style')) {
       if (!isOwnStyleElement(styleEl, skipIds)) {
-        add((styleEl as HTMLStyleElement).sheet);
+        add((styleEl as HTMLStyleElement).sheet, false);
       }
     }
   }
   if ('adoptedStyleSheets' in root && Array.isArray(root.adoptedStyleSheets)) {
     for (const sheet of root.adoptedStyleSheets) {
-      add(sheet);
+      add(sheet, false);
     }
   }
   return [...seen];
 }
 
+let nextCssomObjectId = 1;
+const cssomObjectIds = new WeakMap<object, number>();
+
+function cssomIdOf(obj: object | undefined): number {
+  if (!obj) {
+    return 0;
+  }
+  let id = cssomObjectIds.get(obj);
+  if (id === undefined) {
+    id = nextCssomObjectId++;
+    cssomObjectIds.set(obj, id);
+  }
+  return id;
+}
+
+function recordCssomSheet(signature: number[], sheet: CSSStyleSheet, rules: CSSRuleList): void {
+  signature.push(cssomIdOf(sheet), rules.length, cssomIdOf(rules[0]), cssomIdOf(lastRuleOf(rules)));
+}
+
 /**
- * Counts accessible CSSOM rules across non-own stylesheets in `root` without
- * scanning the DOM. Used to detect runtime `sheet.insertRule()` growth
- * (e.g. React Native Web on X) which does not emit DOM `MutationObserver` records.
+ * Captures a lightweight, non-retaining CSSOM fingerprint across accessible
+ * non-own stylesheets in `root` (`styleSheets` + `adoptedStyleSheets`) so
+ * callers can detect runtime `insertRule()`, `deleteRule()`, `replaceSync()`,
+ * and `adoptedStyleSheets` swaps in both light DOM and open Shadow Roots.
  */
-export function countStyleSheetRules(
+export function captureCssomSnapshot(
   root: Document | ShadowRoot,
   skipIds?: ReadonlySet<string>,
-): number {
-  let total = 0;
+): RootCssomSnapshot {
+  const signature: number[] = [];
   for (const sheet of collectStyleSheets(root, skipIds)) {
     try {
-      total += sheet.cssRules.length;
+      recordCssomSheet(signature, sheet, sheet.cssRules);
     } catch {
       // Ignore cross-origin stylesheets.
     }
   }
-  return total;
+  return { signature };
+}
+
+/** True when two `RootCssomSnapshot`s represent identical CSSOM stylesheet state. */
+export function sameCssomSnapshot(a: RootCssomSnapshot, b: RootCssomSnapshot): boolean {
+  if (a.signature.length !== b.signature.length) {
+    return false;
+  }
+  for (let i = 0; i < a.signature.length; i++) {
+    if (a.signature[i] !== b.signature[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -700,7 +745,8 @@ export function compileAdaptiveRootCss(
   };
 
   let totalInspected = 0;
-  let totalRuleCount = 0;
+  const onCssomSnapshot = options.onCssomSnapshot;
+  const snapshotSignature: number[] | undefined = onCssomSnapshot ? [] : undefined;
   for (const sheet of collectStyleSheets(root, skipIds)) {
     let rules: CSSRuleList;
     try {
@@ -709,7 +755,9 @@ export function compileAdaptiveRootCss(
       // Cross-origin stylesheet: handled in real time by Layer 2 (`ThemeHealer`).
       continue;
     }
-    totalRuleCount += rules.length;
+    if (snapshotSignature) {
+      recordCssomSheet(snapshotSignature, sheet, rules);
+    }
     if (totalInspected >= MAX_RULES_PER_ROOT) {
       continue;
     }
@@ -750,7 +798,9 @@ export function compileAdaptiveRootCss(
       }
     }
   }
-  options.onSheetRuleCount?.(totalRuleCount);
+  if (onCssomSnapshot && snapshotSignature) {
+    onCssomSnapshot({ signature: snapshotSignature });
+  }
 
   const chunks: string[] = [];
   if (discoveredVars.size > 0) {

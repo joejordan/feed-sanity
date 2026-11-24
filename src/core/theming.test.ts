@@ -761,4 +761,83 @@ describe('first-class multi-site theming engine', () => {
     expect(adaptive).toContain('.r-light-ink');
     expect(adaptive).toContain(warmPaper.text);
   });
+
+  it('tracks YouTube-style <html dark> flips and Shadow DOM CSSOM insertRule() / replaceSync() mutations', async () => {
+    const env = createDomEnvironment({ pierceShadow: true });
+    cleanups.push(() => env.dispose());
+
+    const docStyle = document.createElement('style');
+    docStyle.textContent =
+      '.yt-card { background-color: rgb(15, 15, 15); color: rgb(241, 241, 241); }';
+    document.head.append(docStyle);
+
+    // Mount an open ShadowRoot with both a `<style>` sheet and a constructable adoptedStyleSheet.
+    const host = document.createElement('ytd-test-widget');
+    const shadow = host.attachShadow({ mode: 'open' });
+    const shadowStyle = document.createElement('style');
+    shadowStyle.textContent = '.wc-panel { background-color: rgb(24, 24, 24); }';
+    shadow.append(shadowStyle);
+    const adopted = new CSSStyleSheet();
+    adopted.replaceSync('.wc-chip-v1 { background-color: rgb(32, 32, 32); }');
+    shadow.adoptedStyleSheets = [adopted];
+    document.body.append(host);
+
+    const controller = createThemeController(
+      env,
+      { rootSelectors: [':root'], adaptive: { enabled: true } },
+      vi.fn(),
+    );
+    cleanups.push(() => {
+      controller.dispose();
+      document.documentElement.removeAttribute('dark');
+    });
+
+    const warmPaper = BUILTIN_THEMES.find((t) => t.id === 'warm-paper')!.palette;
+    controller.apply({ palette: warmPaper });
+
+    // 1. Flipping bare `<html dark>` (YouTube dark mode) triggers `schemeObserver` and remaps `.yt-card`.
+    document.documentElement.setAttribute('dark', '');
+    await vi.waitFor(() => {
+      const adaptive = document.querySelector('#feed_sanity_adaptive_theme')?.textContent ?? '';
+      expect(adaptive).toContain('.yt-card');
+      expect(adaptive).toContain(warmPaper.background);
+      expect(adaptive).toContain(warmPaper.text);
+    });
+
+    // 2. Shadow DOM `<style>` `insertRule()` auto-recompiles on child DOM addition.
+    shadowStyle.sheet?.insertRule(
+      '.wc-late-card { background-color: rgb(28, 28, 28); }',
+      shadowStyle.sheet.cssRules.length,
+    );
+    const child1 = document.createElement('div');
+    child1.className = 'wc-late-card';
+    shadow.append(child1);
+
+    await vi.waitFor(
+      () => {
+        const shadowAdaptive =
+          shadow.querySelector('#feed_sanity_adaptive_theme')?.textContent ?? '';
+        expect(shadowAdaptive).toContain('.wc-late-card');
+        expect(shadowAdaptive).toContain('.wc-chip-v1');
+      },
+      { timeout: 1500 },
+    );
+
+    // 3. Isolated `adoptedStyleSheets` `replaceSync()` with identical rule count (`1 -> 1`)
+    //    must still invalidate `RootCssomSnapshot` and recompile `.wc-chip-v2` cleanly.
+    adopted.replaceSync('.wc-chip-v2 { background-color: rgb(36, 36, 36); }');
+    const child2 = document.createElement('div');
+    child2.className = 'wc-chip-v2';
+    shadow.append(child2);
+
+    await vi.waitFor(
+      () => {
+        const shadowAdaptive =
+          shadow.querySelector('#feed_sanity_adaptive_theme')?.textContent ?? '';
+        expect(shadowAdaptive).toContain('.wc-chip-v2');
+        expect(shadowAdaptive).not.toContain('.wc-chip-v1');
+      },
+      { timeout: 1500 },
+    );
+  });
 });

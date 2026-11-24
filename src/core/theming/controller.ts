@@ -1,6 +1,6 @@
 import type { DomEnvironment } from '../dom-env';
 import type { Scope } from '../scope';
-import type { ThemeAuditReport, ThemeHealer } from '../theme';
+import type { RootCssomSnapshot, ThemeAuditReport, ThemeHealer } from '../theme';
 import type { ThemeEffectsConfig } from '../theme-effects';
 import type {
   ResolvedTheme,
@@ -14,13 +14,15 @@ import type {
 import { OWN_ATTR } from '../surface';
 import {
   auditThemeCoverage,
+  captureCssomSnapshot,
   captureLayoutSnapshot,
   compileAdaptiveRootCss,
-  countStyleSheetRules,
   createThemeHealer,
   detectConfirmedHostColorScheme,
   HEALER_STYLE_ID,
+  HOST_SCHEME_ATTRS,
   isOwnUiElement,
+  sameCssomSnapshot,
   samePalette,
 } from '../theme';
 import { createEffectsLayerController } from '../theme-effects';
@@ -30,7 +32,10 @@ import { THEME_STYLE_ID } from './early-cache';
 const ADAPTIVE_STYLE_ID = 'feed_sanity_adaptive_theme';
 const SCHEME_RECHECK_DEBOUNCE_MS = 80;
 const CSSOM_CHECK_DEBOUNCE_MS = 400;
-const SCHEME_ATTR_FILTER = ['class', 'style', 'data-theme', 'data-color-mode'];
+const SCHEME_ATTR_FILTER = ['class', 'style', ...HOST_SCHEME_ATTRS];
+
+const isConnectedRoot = (root: Document | ShadowRoot): boolean =>
+  root.nodeType === Node.DOCUMENT_NODE || (root as ShadowRoot).host.isConnected;
 
 const isOwnShadowRoot = (shadow: ShadowRoot): boolean => isOwnUiElement(shadow.host);
 
@@ -195,7 +200,10 @@ export function createThemeController(
     : {};
   let detectedHostScheme: ThemeColorScheme | undefined;
   const dirtyRoots = new Set<Document | ShadowRoot>();
-  let lastDocSheetRuleCount: number | undefined;
+  const lastCssomSnapshots = new WeakMap<Document | ShadowRoot, RootCssomSnapshot>();
+  const pendingCssomRoots = new Set<Document | ShadowRoot>();
+  const shadowCssomCleanups = new Map<ShadowRoot, () => void>();
+  let cssomWatchActive = false;
   let recompileTimer: ReturnType<typeof setTimeout> | undefined;
   let schemeRecheckTimer: ReturnType<typeof setTimeout> | undefined;
   let cssomCheckTimer: ReturnType<typeof setTimeout> | undefined;
@@ -393,31 +401,25 @@ export function createThemeController(
       return;
     }
     dirtyRoots.delete(root);
+    clearPendingCssomRoot(root);
     const effective = effectiveTheme();
     if (!hasAdaptiveTarget(effective)) {
+      lastCssomSnapshots.delete(root);
       syncNamedRoot(root, ADAPTIVE_STYLE_ID, adaptiveStyles, '');
       return;
     }
     const palette = effective?.palette ?? null;
     const fontFamily = effective?.fontFamily;
     const backdropActive = hasActiveBackdrop(effective);
-    const isMainDoc = root === env.doc;
-    if (isMainDoc) {
-      cancelCssomCheck();
-    }
     const css = compileAdaptiveRootCss(root, palette, {
       hostScheme: resolvedHostScheme ?? getHostScheme(),
       rootSelectors: mapping.rootSelectors,
       backdropActive,
       ...(fontFamily ? { fontFamily } : {}),
       ...(adaptiveConfig.brandColors ? { brandColors: adaptiveConfig.brandColors } : {}),
-      ...(isMainDoc
-        ? {
-            onSheetRuleCount: (count) => {
-              lastDocSheetRuleCount = count;
-            },
-          }
-        : {}),
+      onCssomSnapshot: (snapshot) => {
+        lastCssomSnapshots.set(root, snapshot);
+      },
       ...mediaOpt,
     });
     const userStyle = findExistingStyle(root, THEME_STYLE_ID, styles);
@@ -467,20 +469,78 @@ export function createThemeController(
         scheme = getHostScheme();
       }
       for (const dirty of batch) {
-        if (dirty.nodeType === Node.DOCUMENT_NODE || (dirty as ShadowRoot).host.isConnected) {
+        if (isConnectedRoot(dirty)) {
           syncAdaptiveForRoot(dirty, scheme);
         }
       }
     }, 100);
   };
 
-  // Detect CSSOM `sheet.insertRule()` growth (e.g. React Native Web on X) without
-  // polling timers by checking `document.styleSheets` rule counts on debounced DOM additions.
+  // Detect CSSOM `sheet.insertRule()` / `replaceSync()` / `adoptedStyleSheets`
+  // changes across both the main document and open Shadow Roots without polling
+  // timers by checking lightweight CSSOM snapshots on debounced DOM additions.
   const cancelCssomCheck = (): void => {
     if (cssomCheckTimer !== undefined) {
       clearTimeout(cssomCheckTimer);
       cssomCheckTimer = undefined;
     }
+    pendingCssomRoots.clear();
+  };
+
+  const clearPendingCssomRoot = (root: Document | ShadowRoot): void => {
+    if (pendingCssomRoots.delete(root) && pendingCssomRoots.size === 0) {
+      cancelCssomCheck();
+    }
+  };
+
+  const scheduleCssomCheck = (root: Document | ShadowRoot): void => {
+    if (
+      disposed ||
+      pendingCssomRoots.has(root) ||
+      dirtyRoots.has(root) ||
+      !hasAdaptiveTarget(effectiveTheme())
+    ) {
+      return;
+    }
+    pendingCssomRoots.add(root);
+    if (cssomCheckTimer !== undefined) {
+      return;
+    }
+    cssomCheckTimer = setTimeout(() => {
+      cssomCheckTimer = undefined;
+      if (disposed || !hasAdaptiveTarget(effectiveTheme())) {
+        pendingCssomRoots.clear();
+        return;
+      }
+      const rootsToCheck = [...pendingCssomRoots];
+      pendingCssomRoots.clear();
+      for (const candidate of rootsToCheck) {
+        if (dirtyRoots.has(candidate) || !isConnectedRoot(candidate)) {
+          continue;
+        }
+        const current = captureCssomSnapshot(candidate);
+        const prev = lastCssomSnapshots.get(candidate);
+        if (!prev || !sameCssomSnapshot(prev, current)) {
+          scheduleAdaptiveRecompile(candidate);
+        }
+      }
+    }, CSSOM_CHECK_DEBOUNCE_MS);
+  };
+
+  const watchShadowCssom = (shadow: ShadowRoot): void => {
+    if (!adaptiveConfig || !cssomWatchActive || disposed || shadowCssomCleanups.has(shadow)) {
+      return;
+    }
+    const shadowWatcher = env.shadowWatcherOf(shadow);
+    if (!shadowWatcher) {
+      return;
+    }
+    shadowCssomCleanups.set(
+      shadow,
+      shadowWatcher.watchTree({
+        added: () => scheduleCssomCheck(shadow),
+      }),
+    );
   };
 
   const setCssomWatcherActive = (active: boolean): void => {
@@ -488,31 +548,28 @@ export function createThemeController(
       return;
     }
     if (!active) {
+      cssomWatchActive = false;
       stopCssomWatch?.();
       stopCssomWatch = undefined;
+      for (const stopShadow of shadowCssomCleanups.values()) {
+        stopShadow();
+      }
+      shadowCssomCleanups.clear();
       cancelCssomCheck();
       return;
     }
-    if (stopCssomWatch || disposed) {
+    if (cssomWatchActive || disposed) {
       return;
     }
+    cssomWatchActive = true;
     stopCssomWatch = env.watcher.watchTree({
-      added: () => {
-        if (disposed || cssomCheckTimer !== undefined || dirtyRoots.has(env.doc)) {
-          return;
-        }
-        cssomCheckTimer = setTimeout(() => {
-          cssomCheckTimer = undefined;
-          if (disposed || dirtyRoots.has(env.doc) || !hasAdaptiveTarget(effectiveTheme())) {
-            return;
-          }
-          const currentCount = countStyleSheetRules(env.doc);
-          if (currentCount !== lastDocSheetRuleCount) {
-            scheduleAdaptiveRecompile(env.doc);
-          }
-        }, CSSOM_CHECK_DEBOUNCE_MS);
-      },
+      added: () => scheduleCssomCheck(env.doc),
     });
+    for (const shadow of env.shadowRoots) {
+      if (!isOwnShadowRoot(shadow)) {
+        watchShadowCssom(shadow);
+      }
+    }
   };
   cleanups.push(() => setCssomWatcherActive(false));
 
@@ -717,6 +774,7 @@ export function createThemeController(
 
     if (adaptiveChanged) {
       cancelAdaptiveRecompile();
+      cancelCssomCheck();
       lastAdaptiveScheme = adaptiveTarget ? currentScheme : undefined;
     }
 
@@ -815,7 +873,13 @@ export function createThemeController(
         return;
       }
       syncRoot(shadow, getShadowCss());
+      watchShadowCssom(shadow);
       rootScope.add(() => {
+        shadowCssomCleanups.get(shadow)?.();
+        shadowCssomCleanups.delete(shadow);
+        clearPendingCssomRoot(shadow);
+        dirtyRoots.delete(shadow);
+        lastCssomSnapshots.delete(shadow);
         styles.get(shadow)?.remove();
         styles.delete(shadow);
         adaptiveStyles.get(shadow)?.remove();
@@ -838,6 +902,8 @@ export function createThemeController(
       }
       childEnv.scope.add(() => {
         iframeDocs.delete(childEnv.doc);
+        dirtyRoots.delete(childEnv.doc);
+        lastCssomSnapshots.delete(childEnv.doc);
         styles.get(childEnv.doc)?.remove();
         styles.delete(childEnv.doc);
         adaptiveStyles.get(childEnv.doc)?.remove();
@@ -957,7 +1023,6 @@ export function createThemeController(
       lastCssTheme = null;
       lastCssScheme = undefined;
       lastAdaptiveScheme = undefined;
-      lastDocSheetRuleCount = undefined;
       lastEffectsConfig = undefined;
       lastEffectsPalette = null;
       lastEffectsScheme = undefined;
