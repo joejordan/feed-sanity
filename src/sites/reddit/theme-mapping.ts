@@ -76,7 +76,7 @@ header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
 :where(a, .subreddit-link) {
   color: ${p.accent};
 }
-:where(input, textarea, select) {
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"], [type="submit"], [type="button"], [role="switch"]), textarea, select) {
   background-color: ${p.surfaceAlt} !important;
   border-color: ${p.border} !important;
   color: ${p.text} !important;
@@ -92,7 +92,8 @@ header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
   surfaces: {
     transparentShell: [
       'shreddit-app',
-      'shreddit-app div:has(main):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      'shreddit-app > div:has(main):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      'shreddit-app > div > div:has(main):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
       'main',
       'reddit-header-large',
     ],

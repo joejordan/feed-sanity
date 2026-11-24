@@ -720,14 +720,24 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(fbCss).not.toContain('body > :not(');
     expect(fbCss).toContain('--popover-background:');
     expect(fbCss).toContain('--card-background-wash: transparent !important;');
-    expect(fbCss).toContain('[id^="mount_0_0"] div:has([role="main"])');
+    expect(fbCss).toContain('--progress-ring-neutral-foreground:');
+    expect(fbCss).toContain('--glimmer-spinner-icon:');
+    expect(fbCss).toContain('[role="progressbar"]');
+    expect(fbCss).toContain('[id^="mount_0_0"] > div:has([role="main"])');
+    expect(fbCss).not.toContain('[id^="mount_0_0"] div:has([role="main"])');
     expect(fbCss).not.toMatch(/\[role="banner"\][^}]*backdrop-filter/s);
 
-    // Intermediate root wrappers on X (Dim/Lights Out/Light) and healer overrides stay transparent.
+    // Intermediate root wrappers on X (Dim/Lights Out/Light), What's happening trend rows,
+    // and dialog toggle switches stay clean (no opaque blocks over backdrops or switches,
+    // and zero unbounded descendant `:has()` invalidation traps on `#react-root`).
     expect(xCss).toContain('#react-root > div:not(');
-    expect(xCss).toContain('#react-root div:has(main[role="main"])');
+    expect(xCss).toContain('main[role="main"] > div:not(');
+    expect(xCss).not.toContain('#react-root div:has(');
     expect(xCss).toContain('.r-yfoy6g');
     expect(xCss).toContain('[data-fs-heal-bg]');
+    expect(xCss).toContain('[data-testid="sidebarColumn"] section [data-testid="trend"]');
+    expect(xCss).toContain('[role="dialog"] input:not([type="checkbox"]');
+    expect(xCss).not.toContain('[role="dialog"] input,');
 
     const layer = createEffectsLayerController(document);
     cleanups.push(() => layer.dispose());

@@ -44,19 +44,33 @@ const MENU_INTERACTION_WINDOW_MS = 500;
 const MENU_CONTAINER_SELECTOR = [
   '[role="menu"]',
   '[role="listbox"]',
-  '[role="dialog"]',
   '[data-testid="Dropdown"]',
   '[data-testid="sheetDialog"]',
   '[data-testid="videoPlayer"]',
   '[data-testid="videoComponent"]',
   '#layers > *',
 ].join(', ');
+const VIDEO_MENU_SCOPE_SELECTOR =
+  '[role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="sheetDialog"], [data-testid="videoPlayer"], [data-testid="videoComponent"]';
+const TWEET_ARTICLE_SELECTOR = 'article[data-testid="tweet"]';
+const MAX_LABEL_SCAN_CHARS = 64;
 const SPEED_ITEM_SELECTOR =
   '[role="menuitem"], [role="menuitemradio"], [role="radio"], [role="option"], [role="button"], button, label, [tabindex="0"]';
 const VIDEO_ENFORCE_EVENTS = ['loadedmetadata', 'play', 'playing', 'ratechange'] as const;
-const PARENT_SPEED_ROW_RE =
-  /^playback\s+speed(?:\s*[·•-]?\s*(?:normal(?:\s*\(\s*1(?:\.0+)?\s*[x×]\s*\))?|\d+(?:\.\d+)?\s*[x×](?:\s*\(\s*normal\s*\))?))?$/i;
-const PARENT_SPEED_LABEL_RE = /^playback\s+speed$/i;
+const DOT_SEP = '[·•∙⋅‧\\-–—:/|]';
+const NATIVE_SPEED_TOKEN =
+  '(?:normal(?:\\s*\\(\\s*1(?:\\.0+)?\\s*[x×]\\s*\\))?|\\d+(?:\\.\\d+)?\\s*[x×](?:\\s*\\(\\s*normal\\s*\\))?)';
+const PARENT_SPEED_ROW_RE = new RegExp(
+  `^playback\\s+speed(?:\\s*${DOT_SEP}?\\s*${NATIVE_SPEED_TOKEN})?$`,
+  'i',
+);
+const PARENT_SPEED_LABEL_RE = new RegExp(`^playback\\s+speed(?:\\s*${DOT_SEP})?$`, 'i');
+const PARENT_SPEED_INLINE_RE = new RegExp(
+  `^(playback\\s+speed)(?:\\s*${DOT_SEP}\\s*(?:${NATIVE_SPEED_TOKEN})?|\\s+${NATIVE_SPEED_TOKEN})$`,
+  'i',
+);
+const NATIVE_SPEED_VALUE_RE = new RegExp(`^(?:${DOT_SEP}|\\s)*${NATIVE_SPEED_TOKEN}$`, 'i');
+const SEPARATOR_ONLY_RE = new RegExp(`^${DOT_SEP}$`);
 const NATIVE_HIDDEN_ATTR = 'data-fs-speed-native-hidden';
 const HIDE_CHECK_ATTR = 'data-fs-speed-hide-check';
 const SELECTED_ROW_ATTR = 'data-fs-speed-selected';
@@ -104,6 +118,9 @@ interface SpeedMenuActivity {
 function extractVisibleText(root: Node): string {
   let out = '';
   for (let child = root.firstChild; child; child = child.nextSibling) {
+    if (out.length > MAX_LABEL_SCAN_CHARS) {
+      break;
+    }
     if (child.nodeType === Node.TEXT_NODE) {
       out += child.nodeValue ?? '';
     } else if (child.nodeType === Node.ELEMENT_NODE) {
@@ -186,12 +203,46 @@ function detectSpeedMenu(container: Element): DetectedSpeedMenu | null {
 
 function detectParentSpeedRows(container: Element): Element[] {
   const candidates: Array<{ el: Element }> = [];
+  const seen = new Set<Element>();
+  const addCandidate = (el: Element): void => {
+    if (!seen.has(el) && el.childElementCount <= 12) {
+      seen.add(el);
+      candidates.push({ el });
+    }
+  };
   for (const el of container.querySelectorAll(SPEED_ITEM_SELECTOR)) {
     if (el.closest(`[${OWN_ATTR}]`)) {
       continue;
     }
     if (PARENT_SPEED_ROW_RE.test(extractVisibleText(el))) {
-      candidates.push({ el });
+      addCandidate(el);
+    }
+  }
+  // Fallback for video settings popovers whose rows are plain clickable <div>s
+  // without ARIA menuitem/button roles or tabindex="0". Never scan tweet threads.
+  if (candidates.length === 0 && !container.querySelector(TWEET_ARTICLE_SELECTOR)) {
+    for (const el of container.querySelectorAll('span, div, p, li, a')) {
+      if (el.closest(`[${OWN_ATTR}]`) || el.childElementCount > 6) {
+        continue;
+      }
+      const text = extractVisibleText(el);
+      if (!PARENT_SPEED_LABEL_RE.test(text) && !PARENT_SPEED_ROW_RE.test(text)) {
+        continue;
+      }
+      let row: Element = el;
+      for (let depth = 0; depth < 3; depth++) {
+        const parent = row.parentElement;
+        if (
+          !parent ||
+          parent === container ||
+          parent.childElementCount > 12 ||
+          !PARENT_SPEED_ROW_RE.test(extractVisibleText(parent))
+        ) {
+          break;
+        }
+        row = parent;
+      }
+      addCandidate(row);
     }
   }
   return keepInnermost(candidates).map((item) => item.el);
@@ -203,7 +254,8 @@ function findPlaybackSpeedLabelHost(rowEl: Element): Element {
     if (child.closest(`[${OWN_ATTR}]`) || child.tagName.toUpperCase() === 'SVG') {
       continue;
     }
-    if (PARENT_SPEED_LABEL_RE.test(extractVisibleText(child))) {
+    const text = extractVisibleText(child);
+    if (PARENT_SPEED_LABEL_RE.test(text) || PARENT_SPEED_INLINE_RE.test(text)) {
       deepest = child;
     }
   }
@@ -220,11 +272,28 @@ function findNativeSpeedValueElements(rowEl: Element): Element[] {
     ) {
       continue;
     }
-    if (parseNativeSpeedLabel(extractVisibleText(child)) !== null) {
+    const text = extractVisibleText(child);
+    if (parseNativeSpeedLabel(text) !== null || NATIVE_SPEED_VALUE_RE.test(text)) {
       matches.push({ el: child });
     }
   }
-  return keepInnermost(matches).map((item) => item.el);
+  const innermost = keepInnermost(matches).map((item) => item.el);
+  const result = new Set<Element>(innermost);
+  for (const el of innermost) {
+    // Also hide a standalone separator sibling (e.g. `<span>·</span><span>1.75x</span>`)
+    // so replacing the native speed never leaves a dangling middot.
+    for (const candidate of [el.previousElementSibling, el.parentElement?.previousElementSibling]) {
+      if (
+        candidate &&
+        rowEl.contains(candidate) &&
+        !candidate.closest(`[${OWN_ATTR}]`) &&
+        SEPARATOR_ONLY_RE.test(extractVisibleText(candidate))
+      ) {
+        result.add(candidate);
+      }
+    }
+  }
+  return [...result];
 }
 
 /**
@@ -507,8 +576,37 @@ function attachVideoSpeedEnforcer(
   };
 }
 
-function isOnlyOwnMutation(records: readonly MutationRecord[]): boolean {
+function isIgnorableMutation(records: readonly MutationRecord[]): boolean {
   for (const rec of records) {
+    if (rec.type === 'characterData') {
+      const parent = rec.target.parentElement;
+      if (parent?.closest(`[${OWN_ATTR}]`)) {
+        continue;
+      }
+      // Comment/timeline tweet updates (e.g. clicking Like on /photo/1 replies)
+      // outside any video player or menu popover cannot affect video speed menus.
+      if (parent?.closest(TWEET_ARTICLE_SELECTOR) && !parent.closest(VIDEO_MENU_SCOPE_SELECTOR)) {
+        continue;
+      }
+      return false;
+    }
+    const targetEl = rec.target.nodeType === Node.ELEMENT_NODE ? (rec.target as Element) : null;
+    if (targetEl?.closest(TWEET_ARTICLE_SELECTOR) && !targetEl.closest(VIDEO_MENU_SCOPE_SELECTOR)) {
+      let addedVideoOrMenu = false;
+      for (const node of rec.addedNodes) {
+        if (
+          node.nodeType === Node.ELEMENT_NODE &&
+          ((node as Element).matches(VIDEO_MENU_SCOPE_SELECTOR) ||
+            (node as Element).querySelector(VIDEO_MENU_SCOPE_SELECTOR) !== null)
+        ) {
+          addedVideoOrMenu = true;
+          break;
+        }
+      }
+      if (!addedVideoOrMenu) {
+        continue;
+      }
+    }
     for (const node of rec.addedNodes) {
       if (node.nodeType !== Node.ELEMENT_NODE || !(node as Element).hasAttribute(OWN_ATTR)) {
         return false;
@@ -533,6 +631,7 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
   interface EnhancedParentRow {
     readonly badge: HTMLSpanElement;
     readonly hiddenNodes: Set<Element>;
+    readonly trimmedTexts: Map<Text, string>;
   }
 
   scope.add(addStyle(PAGE_STYLE_ID, PAGE_SPEED_CSS, page.doc));
@@ -590,6 +689,12 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
       node.removeAttribute(NATIVE_HIDDEN_ATTR);
     }
     entry.hiddenNodes.clear();
+    for (const [textNode, original] of entry.trimmedTexts) {
+      if (textNode.isConnected) {
+        textNode.nodeValue = original;
+      }
+    }
+    entry.trimmedTexts.clear();
   };
 
   const formatParentBadgeText = (rate: number): string => ` · ${formatSpeedLabel(rate)}`;
@@ -599,7 +704,7 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
     if (!entry) {
       const badge = page.doc.createElement('span');
       badge.setAttribute(OWN_ATTR, OWN_PARENT_BADGE_VALUE);
-      entry = { badge, hiddenNodes: new Set() };
+      entry = { badge, hiddenNodes: new Set(), trimmedTexts: new Map() };
       parentRows.set(rowEl, entry);
     }
     for (const nativeValueEl of findNativeSpeedValueElements(rowEl)) {
@@ -607,6 +712,21 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
       entry.hiddenNodes.add(nativeValueEl);
     }
     const labelHost = findPlaybackSpeedLabelHost(rowEl);
+    // Handle single-text-node rows like `<span>Playback speed · 1.75x</span>` cleanly.
+    for (let child = labelHost.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType !== Node.TEXT_NODE) {
+        continue;
+      }
+      const textNode = child as Text;
+      const val = textNode.nodeValue ?? '';
+      const inlineMatch = PARENT_SPEED_INLINE_RE.exec(val.trim());
+      if (inlineMatch?.[1]) {
+        if (!entry.trimmedTexts.has(textNode)) {
+          entry.trimmedTexts.set(textNode, val);
+        }
+        textNode.nodeValue = inlineMatch[1];
+      }
+    }
     if (entry.badge.parentElement !== labelHost) {
       labelHost.append(entry.badge);
     }
@@ -720,16 +840,38 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
       }
     };
 
+    const resolveScanRoots = (): Element[] => {
+      // Full-screen photo/reply modals inside `#layers > *` contain dozens of
+      // comment tweets; never scan the whole modal — only scan actual menu or
+      // video player subtrees inside it.
+      if (!menu.matches(VIDEO_MENU_SCOPE_SELECTOR) && menu.querySelector(TWEET_ARTICLE_SELECTOR)) {
+        return [...menu.querySelectorAll(VIDEO_MENU_SCOPE_SELECTOR)];
+      }
+      return [menu];
+    };
+
     const syncMenu = (): void => {
       if (scope.disposed || !menu.isConnected) {
         teardownOwnedMenu();
         teardownOwnedRows();
         return;
       }
-      const detected = detectSpeedMenu(menu);
+      const scanRoots = resolveScanRoots();
+      let detected: DetectedSpeedMenu | null = null;
+      for (const root of scanRoots) {
+        detected = detectSpeedMenu(root);
+        if (detected) {
+          break;
+        }
+      }
       if (!detected) {
         teardownOwnedMenu();
-        const foundRows = new Set(detectParentSpeedRows(menu));
+        const foundRows = new Set<Element>();
+        for (const root of scanRoots) {
+          for (const row of detectParentSpeedRows(root)) {
+            foundRows.add(row);
+          }
+        }
         teardownOwnedRows(foundRows);
         for (const rowEl of foundRows) {
           ownedRows.add(rowEl);
@@ -777,12 +919,24 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
       syncNativeSpeedItems(items);
     };
 
-    const observer = new MutationObserver((records) => {
-      if (!isOnlyOwnMutation(records)) {
+    let syncScheduled = false;
+    const scheduleSync = (): void => {
+      if (syncScheduled || scope.disposed) {
+        return;
+      }
+      syncScheduled = true;
+      queueMicrotask(() => {
+        syncScheduled = false;
         syncMenu();
+      });
+    };
+
+    const observer = new MutationObserver((records) => {
+      if (!isIgnorableMutation(records)) {
+        scheduleSync();
       }
     });
-    observer.observe(menu, { childList: true, subtree: true });
+    observer.observe(menu, { childList: true, subtree: true, characterData: true });
     syncMenu();
 
     menuCleanups.set(menu, () => {

@@ -49,7 +49,9 @@ export const instagramThemeMapping: SiteThemeMapping = {
   surfaces: {
     transparentShell: [
       '[id^="mount_0_0"]',
-      '[id^="mount_0_0"] div:has(main[role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[id^="mount_0_0"] > div:has(main[role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[id^="mount_0_0"] > div > div:has(main[role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[id^="mount_0_0"] > div > div > div:has(main[role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
       'section',
       'main[role="main"]',
     ],

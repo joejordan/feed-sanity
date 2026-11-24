@@ -414,5 +414,85 @@ describe('x_video_speed feature', () => {
         custom: true,
       });
     });
+
+    // Returning to parent gear popover (roleless div rows with "· 1.75x", separate "·" span,
+    // or single inline text node) replaces X's native speed with our saved 1.42x cleanly.
+    const player = document.querySelector('[data-testid="videoPlayer"]') as HTMLElement;
+    const gearPopover = document.createElement('div');
+    gearPopover.innerHTML = `
+      <div class="gear-row" id="row-middot">
+        <svg><circle/></svg>
+        <span class="lbl">Playback speed</span><span class="val"> · 1.75x</span>
+      </div>
+      <div class="gear-row" id="row-inline">
+        <svg><circle/></svg>
+        <span class="inline-lbl">Playback speed · 1.75x</span>
+      </div>
+      <div class="gear-row" id="row-split">
+        <svg><circle/></svg>
+        <span class="lbl">Playback speed</span><span class="sep"> · </span><span class="val">1.75x</span>
+      </div>
+    `;
+    player.append(gearPopover);
+
+    await vi.waitFor(() => {
+      expect(
+        gearPopover.querySelector('#row-middot [data-feed-sanity="x-speed-parent-value"]')
+          ?.textContent,
+      ).toBe(' · 1.42x');
+    });
+    expect(
+      gearPopover.querySelector('#row-middot .val')?.getAttribute('data-fs-speed-native-hidden'),
+    ).toBe('true');
+    expect(
+      gearPopover.querySelector('#row-inline [data-feed-sanity="x-speed-parent-value"]')
+        ?.textContent,
+    ).toBe(' · 1.42x');
+    expect(gearPopover.querySelector('#row-inline .inline-lbl')?.textContent).toBe(
+      'Playback speed · 1.42x',
+    );
+    expect(
+      gearPopover.querySelector('#row-split .sep')?.getAttribute('data-fs-speed-native-hidden'),
+    ).toBe('true');
+    expect(
+      gearPopover.querySelector('#row-split .val')?.getAttribute('data-fs-speed-native-hidden'),
+    ).toBe('true');
+    expect(
+      gearPopover.querySelector('#row-split [data-feed-sanity="x-speed-parent-value"]')
+        ?.textContent,
+    ).toBe(' · 1.42x');
+  });
+
+  it('ignores comment-tweet like button mutations inside a #layers photo modal without scanning replies', async () => {
+    document.body.innerHTML = `
+      <div id="layers">
+        <div id="photo-layer">
+          <div role="dialog" id="photo-modal">
+            <article data-testid="tweet" id="reply-1">
+              <div data-testid="tweetText">Reply text</div>
+              <button data-testid="like" type="button"><span id="like-count">41</span></button>
+            </article>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const { platform, store } = fakePlatform();
+    storesToStop.push(store);
+    expect(await startSite(xSite, platform)).toEqual([]);
+
+    const photoLayer = document.querySelector('#photo-layer') as HTMLElement;
+    const spy = vi.spyOn(photoLayer, 'querySelectorAll');
+    const likeCount = document.querySelector('#like-count') as HTMLElement;
+    const likeBtn = document.querySelector('[data-testid="like"]') as HTMLElement;
+
+    // Simulate clicking Like on a comment tweet: text change + heart burst span insertion.
+    likeCount.textContent = '42';
+    const burst = document.createElement('span');
+    burst.textContent = '♥';
+    likeBtn.append(burst);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(spy).not.toHaveBeenCalled();
   });
 });

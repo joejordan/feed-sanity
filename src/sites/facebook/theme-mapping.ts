@@ -47,19 +47,50 @@ export const facebookThemeMapping: SiteThemeMapping = {
     '--primary-deemphasized-button-hovered': (p) => hexWithAlpha(p.accent, 0.24),
     '--primary-deemphasized-button-text': (p) => p.accent,
     '--negative': (p) => p.danger,
+    '--progress-ring-neutral-background': (p) => hexWithAlpha(p.textMuted, 0.24),
+    '--progress-ring-neutral-foreground': (p) => p.accent,
+    '--progress-ring-blue-background': (p) => hexWithAlpha(p.accent, 0.24),
+    '--progress-ring-blue-foreground': (p) => p.accent,
+    '--progress-ring-on-media-background': (p) => hexWithAlpha(p.text, 0.24),
+    '--progress-ring-on-media-foreground': (p) => p.accent,
+    '--glimmer-spinner-icon': (p) => p.accent,
+    '--glimmer-base-opaque': (p) => p.surfaceAlt,
+    '--glimmer-high-contrast-base-opaque': (p) => p.border,
     '--hover-overlay': (p) =>
       p.colorScheme === 'dark' ? 'rgb(255 255 255 / 7%)' : 'rgb(0 0 0 / 5%)',
     '--press-overlay': (p) =>
       p.colorScheme === 'dark' ? 'rgb(255 255 255 / 13%)' : 'rgb(0 0 0 / 10%)',
   },
   extraCss: (p) =>
-    `body { background-color: ${p.background} !important; color: ${p.text} !important; }`,
+    `
+body {
+  background-color: ${p.background} !important;
+  color: ${p.text} !important;
+}
+[role="progressbar"]:not([data-feed-sanity], [data-feed-sanity] *) {
+  color: ${p.accent} !important;
+}
+[role="progressbar"]:not([data-feed-sanity], [data-feed-sanity] *) svg circle:first-of-type:not(:only-of-type) {
+  stroke: ${hexWithAlpha(p.textMuted, 0.25)} !important;
+}
+[role="progressbar"]:not([data-feed-sanity], [data-feed-sanity] *) svg :is(circle:last-of-type, path)[stroke]:not([stroke="none"]) {
+  stroke: ${p.accent} !important;
+}
+[role="progressbar"]:not([data-feed-sanity], [data-feed-sanity] *) svg :is(circle:last-of-type, path)[fill]:not([fill="none"]) {
+  fill: ${p.accent} !important;
+}
+`.trim(),
   surfaces: {
     transparentShell: [
       '[id^="mount_0_0"]',
-      '[id^="mount_0_0"] div:has([role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[id^="mount_0_0"] > div:has([role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[id^="mount_0_0"] > div > div:has([role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[id^="mount_0_0"] > div > div > div:has([role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[id^="mount_0_0"] > div > div > div > div:has([role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[id^="mount_0_0"] > div > div > div > div > div:has([role="main"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
       '[role="main"]',
-      '[role="main"] div:has([role="feed"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[role="main"] > div:has([role="feed"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
+      '[role="main"] > div > div:has([role="feed"]):not(:where([role="dialog"], [role="menu"], [role="listbox"]))',
       '[role="feed"]',
     ],
     popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],

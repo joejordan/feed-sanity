@@ -7,6 +7,8 @@ const ALPHA_PERCENTS = [
 
 const IN_VIDEO = '[data-testid="videoComponent"] *, [data-testid="videoPlayer"] *';
 const NOT_IN_VIDEO = `:not(:where(${IN_VIDEO}))`;
+const TEXT_INPUT =
+  'input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"], [type="submit"], [type="button"], [role="switch"])';
 
 const NEUTRAL_STEPS = [
   ['000', 0.96],
@@ -203,7 +205,7 @@ html, body, #react-root, header[role="banner"], main[role="main"] {
 /* === 3. React Native Web dark & light canvas/surface/border/text atomic palette === */
 /* Dark host canvas (Lights Out #000 + Dim #15202b) */
 .r-kemksi${NOT_IN_VIDEO},
-.r-14lw9ot:not(:where(button, [role="button"], ${IN_VIDEO})),
+.r-14lw9ot:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${IN_VIDEO})),
 div[style*="background-color: rgb(0, 0, 0)"]:not(:where(${IN_VIDEO}, [data-testid="mask"])),
 div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${IN_VIDEO}, [data-testid="mask"])) {
   background-color: ${p.background} !important;
@@ -382,7 +384,6 @@ button[aria-label="Manage timelines"] svg,
 /* Individual right-sidebar module cards (Today's News, Live on X, NFL/NBA/NHL, Trends, Who to follow) */
 [data-testid="sidebarColumn"] section,
 [data-testid="sidebarColumn"] aside[role="complementary"],
-[data-testid="sidebarColumn"] [data-testid="trend"],
 [data-testid="sidebarColumn"] [data-testid="news_sidebar"],
 [data-testid="sidebarColumn"] .r-1867qdf.r-1kqtdi0,
 [data-testid="sidebarColumn"] .r-1867qdf.r-1phboty {
@@ -447,11 +448,13 @@ button[aria-label="Manage timelines"] svg,
 [data-testid="sheetDialog"] svg {
   color: ${p.text} !important;
 }
-/* Search inputs, comboboxes, poll inputs, and schedule selects inside dialogs/popovers */
-[role="dialog"] input,
+/* Search inputs, comboboxes, poll inputs, and schedule selects inside dialogs/popovers.
+ * Never paint checkbox/radio/switch inputs (X overlays transparent <input type="checkbox">
+ * controls on top of toggle switches, e.g. Snooze Topics). */
+[role="dialog"] ${TEXT_INPUT},
 [role="dialog"] select,
 [role="dialog"] textarea,
-[data-testid="HoverCard"] input,
+[data-testid="HoverCard"] ${TEXT_INPUT},
 [data-testid="HoverCard"] [role="combobox"] > div,
 [role="dialog"] [role="combobox"] > div,
 [data-testid="attachments"] > div {
@@ -524,7 +527,7 @@ svg[data-testid="icon-verified"] {
   color: ${p.text};
   scrollbar-color: ${p.border} ${p.background};
 }
-:where(input, textarea, select, [contenteditable="true"]) {
+:where(${TEXT_INPUT}, textarea, select, [contenteditable="true"]) {
   background-color: ${p.surfaceAlt} !important;
   border-color: ${p.border} !important;
   color: ${p.text} !important;
@@ -543,11 +546,14 @@ svg[data-testid="icon-verified"] {
       '#react-root > div:not(:where(#layers, [role="dialog"], [data-testid="sheetDialog"]))',
       '#react-root > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [data-testid="sheetDialog"]))',
       '#react-root > div:not(#layers) > div:not(#layers) > div:not(:where(#layers, [role="dialog"], [data-testid="sheetDialog"]))',
-      '#react-root div:has(main[role="main"]):not(:where(#layers, #layers *, [role="dialog"], [data-testid="sheetDialog"]))',
       'header[role="banner"]',
-      'header[role="banner"] div:has(nav[role="navigation"]):not(:where([role="dialog"], [role="menu"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
+      'header[role="banner"] > div:not(:where([role="dialog"], [role="menu"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
+      'header[role="banner"] > div > div:not(:where([role="dialog"], [role="menu"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
+      'header[role="banner"] > div > div > div:not(:where([role="dialog"], [role="menu"], [data-testid="Dropdown"], [data-testid="HoverCard"]))',
       'main[role="main"]',
-      'main[role="main"] div:has([data-testid="primaryColumn"]):not(:where([role="dialog"], [data-testid="sheetDialog"]))',
+      'main[role="main"] > div:not(:where([role="dialog"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
+      'main[role="main"] > div > div:not(:where([role="dialog"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
+      'main[role="main"] > div > div > div:not(:where([role="dialog"], [data-testid="sheetDialog"], [data-testid="primaryColumn"]))',
       '[data-testid="sidebarColumn"]',
       '[data-testid="sidebarColumn"] > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"]))',
       '[data-testid="sidebarColumn"] > div > div > div > div > div:not(:where([role="listbox"], [id^="typeaheadDropdown"]))',
@@ -576,7 +582,8 @@ svg[data-testid="icon-verified"] {
       '[data-testid="Dropdown"]',
       '[data-testid="HoverCard"]',
     ],
-    extraRevealCss: () => {
+    extraRevealCss: (p) => {
+      const hoverTint = hexWithAlpha(p?.text ?? '#ffffff', 0.06);
       const keepOpaque = [
         '#layers',
         '#layers *',
@@ -610,11 +617,17 @@ svg[data-testid="icon-verified"] {
       return `
 #react-root .r-kemksi:not(:where(${keepOpaque})),
 #react-root .r-yfoy6g:not(:where(${keepOpaque})),
-#react-root .r-14lw9ot:not(:where(button, [role="button"], ${keepOpaque})),
+#react-root .r-14lw9ot:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${keepOpaque})),
 #react-root div[style*="background-color: rgb(0, 0, 0)"]:not(:where(${keepOpaque})),
 #react-root div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${keepOpaque})),
-#react-root div[style*="background-color: rgb(255, 255, 255)"]:not(:where(button, [role="button"], ${keepOpaque})) {
+#react-root div[style*="background-color: rgb(255, 255, 255)"]:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${keepOpaque})),
+[data-testid="sidebarColumn"] section [data-testid="trend"],
+[data-testid="sidebarColumn"] section [data-testid="cellInnerDiv"],
+[data-testid="sidebarColumn"] section [data-testid="cellInnerDiv"] > div {
   background-color: transparent !important;
+}
+[data-testid="sidebarColumn"] section [data-testid="trend"]:hover {
+  background-color: ${hoverTint} !important;
 }`.trim();
     },
   },
