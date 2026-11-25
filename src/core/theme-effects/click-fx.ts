@@ -11,7 +11,7 @@
 import type { ThemePalette } from '../theming';
 import type { ClickEffectId } from './model';
 import { OWN_ATTR } from '../surface';
-import { hexWithAlpha } from '../theme';
+import { hexWithAlpha } from '../theming/color';
 import { CLICK_FX_OWN_VALUE } from './surfaces';
 
 const MATRIX_BURST_GLYPHS = ['ｱ', 'ｳ', 'ｶ', 'ｷ', 'ﾈ', '0', '1', '7', 'Ξ', 'λ'];

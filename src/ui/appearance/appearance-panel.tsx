@@ -1,10 +1,8 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import type { SavedValue } from '../../core/saved';
-import type { StudioVibe, ThemeEffectsConfig } from '../../core/theme-effects';
+import type { StudioVibe, ThemeEffectsConfig } from '../../core/theme-effects/model';
 import type {
-  PaletteMood,
   SavedThemeEntry,
-  THEME_FONT_STACKS,
   ThemeController,
   ThemeDocumentV1,
   ThemeFontId,
@@ -12,10 +10,9 @@ import type {
 } from '../../core/theming';
 import type { OptionsPanel, PanelProps, PanelSearchItem } from '../options-dialog/panel';
 import type { AuditState } from './health-disclosure';
-import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from '../../core/theme-effects';
+import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from '../../core/theme-effects/model';
 import {
   analyzeThemeDocument,
-  applyGeneratedPalette,
   applyStudioVibe,
   applyThemeDocument,
   applyThemePreset,
@@ -25,37 +22,21 @@ import {
   documentEffectsToConfig,
   findActiveStudioVibe,
   findActiveThemePreset,
-  flipThemeColorScheme,
   getPaletteSwatches,
-  hasPaletteOverrides,
   isCustomImportedDocument,
   isThemeFontId,
-  minTextContrast,
-  normalizeHex,
-  PALETTE_MOODS,
-  pickAccessibleText,
   resolveTheme,
-  updateThemeChrome,
   updateThemeCustomCss,
   updateThemeEffects,
-  updateThemePalette,
   updateThemeTypography,
-  WCAG_AA_TEXT_CONTRAST,
 } from '../../core/theming';
 import { definePanel } from '../options-dialog/panel';
-import {
-  Badge,
-  Disclosure,
-  previewLeaveProps,
-  SegmentedControl,
-  SettingCard,
-  SettingRow,
-  Switch,
-  TextInput,
-} from '../primitives';
+import { Badge, previewLeaveProps, SegmentedControl, SettingCard, SettingRow } from '../primitives';
+import { useThemePreview } from '../use-theme-preview';
 import css from './appearance-panel.css?inline';
 import { CustomCssDisclosure } from './custom-css-disclosure';
 import { ThemeHealthDisclosure } from './health-disclosure';
+import { PaletteCustomizationDisclosure } from './palette-section';
 import { CreativeStudioCard, StudioVibesCard } from './studio-section';
 import { ThemeLibraryCard } from './theme-library-card';
 import {
@@ -66,7 +47,7 @@ import {
 
 export { readThemeDocument, THEME_DATA_KEY } from '../../core/theming';
 
-const FONT_LABELS: Record<keyof typeof THEME_FONT_STACKS, string> = {
+const FONT_LABELS: Record<ThemeFontId, string> = {
   default: 'Site default',
   system: 'System Sans',
   rounded: 'Rounded Sans',
@@ -74,27 +55,7 @@ const FONT_LABELS: Record<keyof typeof THEME_FONT_STACKS, string> = {
   mono: 'Monospace',
 };
 
-type ColorFieldKey = 'accent' | 'accentSecondary' | 'background' | 'surface' | 'text';
-
-const COLOR_FIELDS: ReadonlyArray<{
-  readonly key: ColorFieldKey;
-  readonly label: string;
-}> = [
-  { key: 'accent', label: 'Accent' },
-  { key: 'accentSecondary', label: 'Secondary accent' },
-  { key: 'background', label: 'Canvas background' },
-  { key: 'surface', label: 'Card surface' },
-  { key: 'text', label: 'Primary text' },
-];
-
-const MOOD_LABELS: Record<PaletteMood, string> = {
-  midnight: 'Midnight',
-  'soft-dark': 'Soft Dark',
-  neon: 'Neon',
-  'warm-paper': 'Warm Paper',
-  'crisp-light': 'Crisp Light',
-  pastel: 'Pastel',
-};
+const FONT_IDS = Object.keys(FONT_LABELS) as readonly ThemeFontId[];
 
 type SchemeFilter = 'all' | 'dark' | 'light';
 
@@ -120,9 +81,7 @@ function AppearancePanelView({
   library?: ThemeLibraryClient;
 }) {
   const fontId = useId();
-  const hoverPreviewActiveRef = useRef(false);
-  const [seedColor, setSeedColor] = useState(() => value.palette?.accent ?? '#3b82f6');
-  const [seedMood, setSeedMood] = useState<PaletteMood>('midnight');
+  const [draftResetKey, setDraftResetKey] = useState(0);
   const [libraryEntries, setLibraryEntries] = useState<readonly SavedThemeEntry[]>(() =>
     library ? library.list() : [],
   );
@@ -149,19 +108,6 @@ function AppearancePanelView({
   const savedInLibrary = Boolean(library && analyzedLibrary.fingerprints.has(activeFingerprint));
   const [auditState, setAuditState] = useState<AuditState | null>(null);
   const [schemeFilter, setSchemeFilter] = useState<SchemeFilter>('all');
-  const [colorDrafts, setColorDrafts] = useState<Partial<Record<ColorFieldKey, string>>>({});
-  const colorError = useMemo(() => {
-    for (const { key, label } of COLOR_FIELDS) {
-      const draft = colorDrafts[key];
-      if (draft !== undefined) {
-        const trimmed = draft.trim();
-        if (trimmed && !normalizeHex(trimmed)) {
-          return `${label} must be a hex color like #3b82f6.`;
-        }
-      }
-    }
-    return null;
-  }, [colorDrafts]);
 
   const hasExternalCssOption = useMemo(
     () => Boolean(options?.list().some(([key]) => key === 'custom_stylesheet_url')),
@@ -183,9 +129,7 @@ function AppearancePanelView({
     });
   }, [hasExternalCssOption, options]);
 
-  const hasCustomColors = useMemo(() => hasPaletteOverrides(value), [value]);
   const isImported = useMemo(() => isCustomImportedDocument(value), [value]);
-  const [colorsOpen, setColorsOpen] = useState(hasCustomColors);
   const [transferOpen, setTransferOpen] = useState(isImported);
   const [cssOpen, setCssOpen] = useState(
     Boolean((value.customCss ?? '').trim() || savedExternalCssUrl.trim()),
@@ -214,72 +158,37 @@ function AppearancePanelView({
 
   const effective = value.palette;
   const activePreset = useMemo(() => findActiveThemePreset(value), [value]);
-  const minContrast = useMemo(
-    () =>
-      effective ? minTextContrast(effective.text, effective.background, effective.surface) : null,
-    [effective],
-  );
-  const lowContrast = minContrast !== null && minContrast < WCAG_AA_TEXT_CONTRAST;
-
-  useEffect(() => {
-    if (lowContrast) {
-      setColorsOpen(true);
-    }
-  }, [lowContrast]);
 
   const clearColorDrafts = (): void => {
-    setColorDrafts({});
+    setDraftResetKey((k) => k + 1);
   };
 
-  const valueJson = useMemo(() => JSON.stringify(value), [value]);
-
-  useEffect(
-    () => () => {
-      if (hoverPreviewActiveRef.current) {
-        hoverPreviewActiveRef.current = false;
+  const handlePreview = useCallback(
+    (doc: ThemeDocumentV1 | null): void => {
+      if (doc === null) {
         controller.clearPreview();
+      } else {
+        controller.preview(resolveTheme(doc));
       }
     },
     [controller],
   );
+  const hoverPreview = useThemePreview(value, handlePreview);
 
-  const clearHoverPreview = (): void => {
-    if (!hoverPreviewActiveRef.current) {
-      return;
-    }
-    hoverPreviewActiveRef.current = false;
-    controller.clearPreview();
-  };
-
-  const previewCandidate = (candidate: ThemeDocumentV1 | null): void => {
-    if (!candidate) {
-      clearHoverPreview();
-      return;
-    }
-    if (
-      candidate === value ||
-      (candidate.id === value.id && JSON.stringify(candidate) === valueJson)
-    ) {
-      clearHoverPreview();
-      return;
-    }
-    hoverPreviewActiveRef.current = true;
-    controller.preview(resolveTheme(candidate));
+  const commitDocument = (next: ThemeDocumentV1): void => {
+    hoverPreview.markCommitted();
+    controller.preview(resolveTheme(next));
+    onChange(next);
+    setAuditState(null);
   };
 
   const applyEdit = (next: ThemeDocumentV1, toastLabel?: string): void => {
     const previous = value;
-    hoverPreviewActiveRef.current = false;
-    controller.preview(resolveTheme(next));
-    onChange(next);
-    setAuditState(null);
+    commitDocument(next);
     if (toastLabel && notify) {
       notify(toastLabel, () => {
         clearColorDrafts();
-        hoverPreviewActiveRef.current = false;
-        controller.preview(resolveTheme(previous));
-        onChange(previous);
-        setAuditState(null);
+        commitDocument(previous);
       });
     }
   };
@@ -320,7 +229,7 @@ function AppearancePanelView({
 
   const runLibraryAction = <R,>(
     run: (client: ThemeLibraryClient) => Promise<R>,
-    onSuccess: (result: R, client: ThemeLibraryClient) => void,
+    onSuccess: ((result: R) => void) | undefined,
     fallbackError: string,
   ): Promise<boolean> => {
     if (!library) {
@@ -328,7 +237,7 @@ function AppearancePanelView({
     }
     return run(library).then(
       (result) => {
-        onSuccess(result, library);
+        onSuccess?.(result);
         return true;
       },
       (error: unknown) => {
@@ -381,7 +290,7 @@ function AppearancePanelView({
   };
 
   const handleDeleteLibraryEntry = (entry: SavedThemeEntry): void => {
-    clearHoverPreview();
+    hoverPreview.clear();
     void runLibraryAction(
       (client) => client.removeTheme(entry.id),
       (removed) => {
@@ -389,7 +298,7 @@ function AppearancePanelView({
           notify?.(`Deleted "${removed.document.meta.name}"`, () => {
             void runLibraryAction(
               (client) => client.restoreTheme(removed),
-              () => undefined,
+              undefined,
               'Could not restore deleted theme',
             );
           });
@@ -399,90 +308,47 @@ function AppearancePanelView({
     );
   };
 
-  const clearDraftKey = (key: ColorFieldKey): void => {
-    setColorDrafts((prev) => {
-      if (!(key in prev)) {
-        return prev;
-      }
-      const { [key]: _removed, ...next } = prev;
-      return next;
+  const recordAudit = (
+    lastAction: 'audit' | 'heal',
+    extra?: { readonly healedCount: number; readonly beforeScore?: number },
+  ): void => {
+    setHealthOpen(true);
+    const report = controller.audit?.() ?? null;
+    if (!report) {
+      setAuditState(null);
+      return;
+    }
+    setAuditState((prev) => ({
+      report,
+      runCount: (prev?.runCount ?? 0) + 1,
+      ranAt: formatScanTime(new Date()),
+      lastAction,
+      ...(extra ?? {}),
+    }));
+  };
+
+  const runAudit = (): void => recordAudit('audit');
+
+  const runHealAndAudit = (): void => {
+    const beforeScore = auditState?.report.score;
+    const healedCount = controller.healNow?.() ?? 0;
+    recordAudit('heal', {
+      healedCount,
+      ...(beforeScore === undefined ? {} : { beforeScore }),
     });
   };
 
-  const handleColorHexInput = (key: ColorFieldKey, raw: string): void => {
-    const trimmed = raw.trim();
-    if (!trimmed) {
-      if (key === 'accentSecondary') {
-        clearDraftKey(key);
-        const presetSecondary = activePreset?.palette.accentSecondary;
-        applyEdit(updateThemePalette(value, { accentSecondary: presetSecondary ?? '' }));
-        return;
-      }
-      if (activePreset) {
-        clearDraftKey(key);
-        applyEdit(updateThemePalette(value, { [key]: activePreset.palette[key] }));
-      } else {
-        setColorDrafts((prev) => ({ ...prev, [key]: '' }));
-      }
-      return;
-    }
-    const normalized = normalizeHex(trimmed);
-    if (!normalized) {
-      setColorDrafts((prev) => ({ ...prev, [key]: raw }));
-      return;
-    }
-    if (trimmed.toLowerCase() === normalized) {
-      clearDraftKey(key);
-    } else {
-      setColorDrafts((prev) => ({ ...prev, [key]: raw }));
-    }
-    applyEdit(updateThemePalette(value, { [key]: normalized }));
-  };
-
-  const runAudit = (): void => {
-    setHealthOpen(true);
-    const report = controller.audit?.() ?? null;
-    if (!report) {
-      setAuditState(null);
-      return;
-    }
-    setAuditState((prev) => ({
-      report,
-      runCount: (prev?.runCount ?? 0) + 1,
-      ranAt: formatScanTime(new Date()),
-      lastAction: 'audit',
-    }));
-  };
-
-  const runHealAndAudit = (): void => {
-    setHealthOpen(true);
-    const beforeScore = auditState?.report.score;
-    const healedCount = controller.healNow?.() ?? 0;
-    const report = controller.audit?.() ?? null;
-    if (!report) {
-      setAuditState(null);
-      return;
-    }
-    setAuditState((prev) => ({
-      report,
-      runCount: (prev?.runCount ?? 0) + 1,
-      ranAt: formatScanTime(new Date()),
-      lastAction: 'heal',
-      healedCount,
-      ...(beforeScore === undefined ? {} : { beforeScore }),
-    }));
-  };
-
-  const filteredPresets = BUILTIN_THEMES.filter(
-    (preset) => schemeFilter === 'all' || preset.palette.colorScheme === schemeFilter,
+  const filteredPresets = useMemo(
+    () =>
+      BUILTIN_THEMES.filter(
+        (preset) => schemeFilter === 'all' || preset.palette.colorScheme === schemeFilter,
+      ),
+    [schemeFilter],
   );
 
-  let colorsBadge;
-  if (lowContrast) {
-    colorsBadge = <Badge tone="warning">Low contrast</Badge>;
-  } else if (hasCustomColors) {
-    colorsBadge = <Badge tone="accent">Customized</Badge>;
-  }
+  const previewPreset = (presetId: string): void => {
+    hoverPreview.preview(`preset:${presetId}`, () => applyThemePreset(value, presetId));
+  };
 
   const fontPreset: ThemeFontId = value.typography?.preset ?? 'default';
   const hasImportedCustomStack = Boolean(fontPreset === 'default' && value.typography?.customStack);
@@ -548,7 +414,13 @@ function AppearancePanelView({
             void handleSaveToLibrary(value, { name });
           }}
           onApplyEntry={handleApplyLibraryEntry}
-          onPreviewEntry={(entry) => previewCandidate(entry ? entry.document : null)}
+          onPreviewEntry={(entry) => {
+            if (entry) {
+              hoverPreview.previewDocument(`saved:${entry.id}`, entry.document);
+            } else {
+              hoverPreview.clear();
+            }
+          }}
           onApplyAllSites={handleApplyAllSites}
           onRenameEntry={handleRenameLibraryEntry}
           onDeleteEntry={handleDeleteLibraryEntry}
@@ -559,7 +431,13 @@ function AppearancePanelView({
       <StudioVibesCard
         activeVibe={activeVibe}
         onApplyVibe={applyVibe}
-        onPreviewVibe={(vibe) => previewCandidate(vibe ? applyStudioVibe(value, vibe) : null)}
+        onPreviewVibe={(vibe) => {
+          if (vibe) {
+            hoverPreview.preview(`vibe:${vibe.id}`, () => applyStudioVibe(value, vibe));
+          } else {
+            hoverPreview.clear();
+          }
+        }}
       />
 
       <SettingCard
@@ -594,14 +472,14 @@ function AppearancePanelView({
             className="theme-grid"
             role="group"
             aria-label="Theme presets"
-            {...previewLeaveProps(clearHoverPreview)}
+            {...previewLeaveProps(hoverPreview.clear)}
           >
             <button
               type="button"
               className="theme-card"
               aria-pressed={!effectsActive && value.id === 'default'}
-              onMouseEnter={() => previewCandidate(applyThemePreset(value, 'default'))}
-              onFocus={() => previewCandidate(applyThemePreset(value, 'default'))}
+              onMouseEnter={() => previewPreset('default')}
+              onFocus={() => previewPreset('default')}
               onClick={() => selectColorTheme('default', 'Site Default')}
             >
               <span className="theme-card-name">Site Default</span>
@@ -614,8 +492,8 @@ function AppearancePanelView({
                 className="theme-card"
                 aria-pressed={!effectsActive && activePreset?.id === preset.id}
                 data-base={effectsActive && activePreset?.id === preset.id ? 'true' : undefined}
-                onMouseEnter={() => previewCandidate(applyThemePreset(value, preset.id))}
-                onFocus={() => previewCandidate(applyThemePreset(value, preset.id))}
+                onMouseEnter={() => previewPreset(preset.id)}
+                onFocus={() => previewPreset(preset.id)}
                 onClick={() => selectColorTheme(preset.id, preset.name)}
               >
                 <ThemeSwatches swatches={getPaletteSwatches(preset.palette, preset.swatches)} />
@@ -649,7 +527,7 @@ function AppearancePanelView({
             onChange={(event) => selectFont(event.currentTarget.value)}
           >
             {hasImportedCustomStack && <option value="__imported__">Custom (imported)</option>}
-            {(Object.keys(FONT_LABELS) as Array<keyof typeof FONT_LABELS>).map((id) => (
+            {FONT_IDS.map((id) => (
               <option key={id} value={id}>
                 {FONT_LABELS[id]}
               </option>
@@ -657,154 +535,12 @@ function AppearancePanelView({
           </select>
         </SettingRow>
 
-        <Disclosure
-          label="Customize colors"
-          badge={colorsBadge}
-          open={colorsOpen}
-          onToggle={() => setColorsOpen((open) => !open)}
-        >
-          <div className="theme-drawer-pad">
-            <div className="theme-palette-gen" role="group" aria-label="Palette generator">
-              <span className="theme-palette-gen-label">Generate palette</span>
-              <input
-                type="color"
-                className="theme-picker"
-                aria-label="Palette seed color"
-                value={seedColor}
-                onChange={(event) => setSeedColor(event.currentTarget.value)}
-              />
-              <select
-                className="field"
-                aria-label="Palette mood"
-                value={seedMood}
-                onChange={(event) => setSeedMood(event.currentTarget.value as PaletteMood)}
-              >
-                {PALETTE_MOODS.map((mood) => (
-                  <option key={mood} value={mood}>
-                    {MOOD_LABELS[mood]}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="button primary"
-                onClick={() => {
-                  clearColorDrafts();
-                  applyEdit(
-                    applyGeneratedPalette(value, seedColor, seedMood),
-                    `Generated ${MOOD_LABELS[seedMood]} palette`,
-                  );
-                }}
-              >
-                Generate
-              </button>
-              {effective && (
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() => {
-                    clearColorDrafts();
-                    const nextScheme = effective.colorScheme === 'dark' ? 'light' : 'dark';
-                    applyEdit(flipThemeColorScheme(value), `Flipped to ${nextScheme} mode`);
-                  }}
-                >
-                  Flip {effective.colorScheme === 'dark' ? 'Light' : 'Dark'}
-                </button>
-              )}
-            </div>
-
-            <div className="theme-controls">
-              {COLOR_FIELDS.map(({ key, label }) => {
-                const defaultFallback =
-                  key === 'accentSecondary' ? (effective?.danger ?? '#a855f7') : '#3b82f6';
-                const fallbackHex = effective?.[key] ?? defaultFallback;
-                const currentToken = effective?.[key] ?? '';
-                const presetToken = activePreset?.palette[key] ?? '';
-                const savedOverride =
-                  effective && (!activePreset || currentToken !== presetToken) ? currentToken : '';
-                const inputVal = colorDrafts[key] ?? savedOverride;
-                const pickerValue = normalizeHex(inputVal) ?? fallbackHex;
-                return (
-                  <label key={key} className="theme-color-row">
-                    <span>{label}</span>
-                    <span className="theme-color-inputs">
-                      <input
-                        type="color"
-                        className="theme-picker"
-                        aria-label={`${label} picker`}
-                        value={pickerValue}
-                        onChange={(event) => handleColorHexInput(key, event.currentTarget.value)}
-                      />
-                      <TextInput
-                        className="field theme-hex"
-                        ariaLabel={label}
-                        placeholder={fallbackHex}
-                        value={inputVal}
-                        onValueChange={(nextHex) => handleColorHexInput(key, nextHex)}
-                      />
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-
-            <div className="theme-chrome-row" role="group" aria-label="Chrome accents">
-              <span className="theme-inline-toggle">
-                <span>Top accent ribbon</span>
-                <Switch
-                  checked={Boolean(value.chrome?.ribbon?.enabled)}
-                  ariaLabel="Top accent ribbon"
-                  onChange={(enabled) =>
-                    applyEdit(
-                      updateThemeChrome(value, { ribbon: enabled }),
-                      enabled ? 'Top accent ribbon on' : 'Top accent ribbon off',
-                    )
-                  }
-                />
-              </span>
-              <span className="theme-inline-toggle">
-                <span>Ambient corner glow</span>
-                <Switch
-                  checked={Boolean(value.chrome?.ambientGlow?.enabled)}
-                  ariaLabel="Ambient corner glow"
-                  onChange={(enabled) =>
-                    applyEdit(
-                      updateThemeChrome(value, { ambientGlow: enabled }),
-                      enabled ? 'Ambient corner glow on' : 'Ambient corner glow off',
-                    )
-                  }
-                />
-              </span>
-            </div>
-            {colorError && (
-              <div className="theme-contrast-warn" role="alert">
-                <span>{colorError}</span>
-              </div>
-            )}
-            {lowContrast && effective && (
-              <div className="theme-contrast-warn" role="status">
-                <span>
-                  Low text contrast ({minContrast.toFixed(1)}:1 — WCAG AA recommends 4.5:1+).
-                </span>
-                <button
-                  className="button"
-                  type="button"
-                  onClick={() => {
-                    clearDraftKey('text');
-                    applyEdit(
-                      updateThemePalette(value, {
-                        text: pickAccessibleText(effective.background, effective.surface),
-                      }),
-                      'Fixed text contrast',
-                    );
-                  }}
-                >
-                  Fix contrast
-                </button>
-              </div>
-            )}
-          </div>
-        </Disclosure>
+        <PaletteCustomizationDisclosure
+          value={value}
+          activePreset={activePreset}
+          draftResetKey={draftResetKey}
+          onApplyEdit={applyEdit}
+        />
 
         <ThemeTransferDisclosure
           open={transferOpen}

@@ -4,7 +4,7 @@
 import type { RainCharsetName } from './digital-rain/charsets';
 import type { RainLookName } from './digital-rain/settings';
 import { isRecord } from '../storage';
-import { normalizeHex } from '../theming/color-utils';
+import { normalizeHex } from '../theming/color';
 import { RAIN_CHARSETS } from './digital-rain/charsets';
 import { RAIN_INTROS } from './digital-rain/settings';
 

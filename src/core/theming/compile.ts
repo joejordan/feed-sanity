@@ -4,15 +4,15 @@ import type {
   ThemeChromeConfig,
   ThemeColorScheme,
   ThemePalette,
-  ThemeRibbonSpec,
 } from './types';
-import { hexWithAlpha } from '../theme';
+import { compileBackdropRevealCss, compileSurfaceFinishCss } from '../theme-effects/surfaces';
+import { hexToRgbTriplet, hexWithAlpha } from './color';
 import {
-  compileBackdropRevealCss,
-  compileSurfaceFinishCss,
-  compileUiSurfaceCss,
-} from '../theme-effects';
-import { hexToRgbTriplet } from './color-utils';
+  clampNumber,
+  compileChromeUiCss,
+  compileRibbonRule,
+  compileUiThemeCss,
+} from './compile-ui';
 import {
   formatRootSelectors,
   TEXT_INPUT_SELECTOR,
@@ -20,29 +20,10 @@ import {
   wrapThemeLayer,
 } from './types';
 
+export { compileChromeUiCss, compileUiThemeCss };
+
 const IMPORTANT_RE = /!\s*important\b/i;
-
-function clampNumber(value: number, min: number, max: number, decimals = 0): number {
-  const factor = 10 ** decimals;
-  return Math.round(Math.min(max, Math.max(min, value)) * factor) / factor;
-}
-
-function compileRibbonRule(
-  ribbon: ThemeRibbonSpec | undefined,
-  selector: string,
-  position: 'fixed' | 'absolute',
-  zIndex: number,
-): string {
-  if (!ribbon?.enabled || ribbon.stops.length === 0) {
-    return '';
-  }
-  const stops = ribbon.stops.length === 1 ? [ribbon.stops[0], ribbon.stops[0]] : ribbon.stops;
-  const angle = clampNumber(ribbon.angle ?? 90, 0, 360, 0);
-  const height = clampNumber(ribbon.height ?? 3, 1, 6, 0);
-  const inset = ribbon.position === 'bottom' ? 'auto 0 0 0' : '0 0 auto 0';
-  const bg = `linear-gradient(${angle}deg, ${stops.join(', ')})`;
-  return `${selector} { content: ""; position: ${position}; inset: ${inset}; height: ${height}px; pointer-events: none; z-index: ${zIndex}; background: ${bg}; }`;
-}
+const IMPORTANT_AT_INDEX_RE = /!\s*important\b/iy;
 
 /** Compiles declarative `chrome` niceties (`ribbon` + `ambientGlow`) into safe host CSS. */
 export function compileChromeHostCss(
@@ -71,11 +52,6 @@ export function compileChromeHostCss(
     );
   }
   return rules.join('\n');
-}
-
-/** Compiles declarative `chrome.ribbon` into Feed Sanity's Shadow DOM UI header bar. */
-export function compileChromeUiCss(chrome: ThemeChromeConfig | undefined): string {
-  return compileRibbonRule(chrome?.ribbon, '.dialog::before, .qp-root::before', 'absolute', 50);
 }
 
 function buildPaletteDeclarations(palette: ThemePalette, mapping: SiteThemeMapping): string[] {
@@ -183,8 +159,8 @@ function formatUserCustomCss(customCss: string): string {
       continue;
     }
     if (ch === '!' && !blockHasImportant) {
-      const rest = customCss.slice(i);
-      if (/^!\s*important\b/i.test(rest)) {
+      IMPORTANT_AT_INDEX_RE.lastIndex = i;
+      if (IMPORTANT_AT_INDEX_RE.test(customCss)) {
         blockHasImportant = true;
       }
     }
@@ -226,25 +202,38 @@ function formatUserCustomCss(customCss: string): string {
   return parts.join('\n\n');
 }
 
+function buildMappingParts(
+  theme: ResolvedTheme,
+  mapping: SiteThemeMapping,
+  target: 'host' | 'shadow',
+): string[] {
+  const parts: string[] = [];
+  if (theme.palette) {
+    const decls = buildPaletteDeclarations(theme.palette, mapping);
+    const selectors = formatRootSelectors(
+      mapping.rootSelectors,
+      target === 'shadow' ? { shadow: true } : undefined,
+    );
+    parts.push(`${selectors} {\n  ${decls.join('\n  ')}\n}`);
+  }
+  if (theme.fontFamily) {
+    parts.push(compileFontOverrideCss(theme.fontFamily, target));
+  }
+  const extraFn = target === 'shadow' ? mapping.shadowExtraCss : mapping.extraCss;
+  const extra = theme.palette ? extraFn?.(theme.palette).trim() : undefined;
+  if (extra) {
+    parts.push(extra);
+  }
+  return parts;
+}
+
 /** Compiles `theme` + `mapping` into layered host-document CSS. */
 export function compileHostThemeCss(
   theme: ResolvedTheme,
   mapping: SiteThemeMapping,
   hostScheme: ThemeColorScheme = theme.palette?.colorScheme ?? 'dark',
 ): string {
-  const mappingParts: string[] = [];
-  if (theme.palette) {
-    const decls = buildPaletteDeclarations(theme.palette, mapping);
-    const selectors = formatRootSelectors(mapping.rootSelectors);
-    mappingParts.push(`${selectors} {\n  ${decls.join('\n  ')}\n}`);
-  }
-  if (theme.fontFamily) {
-    mappingParts.push(compileFontOverrideCss(theme.fontFamily, 'host'));
-  }
-  const extra = theme.palette ? mapping.extraCss?.(theme.palette).trim() : undefined;
-  if (extra) {
-    mappingParts.push(extra);
-  }
+  const mappingParts = buildMappingParts(theme, mapping, 'host');
   const hasLiveBackdrop = Boolean(theme.effects && theme.effects.backdrop !== 'none');
   const chromeCss = compileChromeHostCss(theme.chrome, hasLiveBackdrop);
   if (chromeCss) {
@@ -282,19 +271,7 @@ export function compileHostThemeCss(
  * `:root` never matches inside a Shadow Tree per CSS Scoping Level 1.
  */
 export function compileShadowThemeCss(theme: ResolvedTheme, mapping: SiteThemeMapping): string {
-  const mappingParts: string[] = [];
-  if (theme.palette) {
-    const decls = buildPaletteDeclarations(theme.palette, mapping);
-    const selectors = formatRootSelectors(mapping.rootSelectors, { shadow: true });
-    mappingParts.push(`${selectors} {\n  ${decls.join('\n  ')}\n}`);
-  }
-  if (theme.fontFamily) {
-    mappingParts.push(compileFontOverrideCss(theme.fontFamily, 'shadow'));
-  }
-  const shadowExtra = theme.palette ? mapping.shadowExtraCss?.(theme.palette).trim() : undefined;
-  if (shadowExtra) {
-    mappingParts.push(shadowExtra);
-  }
+  const mappingParts = buildMappingParts(theme, mapping, 'shadow');
   const layers: string[] = [];
   if (mappingParts.length > 0) {
     layers.push(wrapThemeLayer('fs-mapping', mappingParts.join('\n\n')));
@@ -303,54 +280,4 @@ export function compileShadowThemeCss(theme: ResolvedTheme, mapping: SiteThemeMa
     layers.push(formatUserCustomCss(theme.customCss));
   }
   return withThemeLayerOrder(layers);
-}
-
-/** Compiles `theme` into Feed Sanity's own Shadow DOM `--fs-*` token overrides. */
-export function compileUiThemeCss(theme: ResolvedTheme): string {
-  const lines: string[] = [];
-  if (theme.palette) {
-    const p = theme.palette;
-    const hoverOverlay = p.colorScheme === 'dark' ? 'rgb(255 255 255 / 7%)' : 'rgb(0 0 0 / 5%)';
-    const pressOverlay = p.colorScheme === 'dark' ? 'rgb(255 255 255 / 13%)' : 'rgb(0 0 0 / 10%)';
-    lines.push(
-      `color-scheme: ${p.colorScheme};`,
-      `--fs-background: ${p.surface};`,
-      `--fs-surface: ${p.background};`,
-      `--fs-dialog-bg: ${p.surface};`,
-      `--fs-sidebar-bg: ${p.background};`,
-      `--fs-card-bg: ${p.colorScheme === 'dark' ? p.surfaceAlt : p.background};`,
-      `--fs-control-bg: ${p.colorScheme === 'dark' ? p.background : p.surface};`,
-      `--fs-hover: ${hoverOverlay};`,
-      `--fs-press: ${pressOverlay};`,
-      `--fs-icon: ${p.text};`,
-      `--fs-icon-secondary: ${p.textMuted};`,
-      `--fs-text: ${p.text};`,
-      `--fs-text-secondary: ${p.textMuted};`,
-      `--fs-divider: ${p.border};`,
-      `--fs-accent: ${p.accent};`,
-      `--fs-accent-surface: ${hexWithAlpha(p.accent, 0.16)};`,
-      `--fs-accent-text: ${p.accentText};`,
-      `--fs-button-secondary: ${p.surfaceAlt};`,
-      `--fs-comment: ${p.surfaceAlt};`,
-      `--fs-shadow-2: ${p.colorScheme === 'dark' ? 'rgb(0 0 0 / 45%)' : 'rgb(0 0 0 / 18%)'};`,
-      `--fs-input: ${p.background};`,
-      `--fs-error: ${p.danger};`,
-    );
-  }
-  if (theme.fontFamily) {
-    lines.push(`--fs-font: ${theme.fontFamily};`);
-  }
-  const parts: string[] = [];
-  if (lines.length > 0) {
-    parts.push(`:host {\n  ${lines.join('\n  ')}\n}`);
-  }
-  const chromeUiCss = compileChromeUiCss(theme.chrome);
-  if (chromeUiCss) {
-    parts.push(chromeUiCss);
-  }
-  const uiFxCss = compileUiSurfaceCss(theme.palette, theme.effects);
-  if (uiFxCss) {
-    parts.push(uiFxCss);
-  }
-  return parts.join('\n\n');
 }

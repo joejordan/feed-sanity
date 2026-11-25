@@ -203,6 +203,20 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     expect(oversized.truncated).toBe(true);
     expect(oversized.css.length).toBeLessThanOrEqual(MAX_CUSTOM_CSS_BYTES);
 
+    // CSS Syntax Level 3 string escapes (escaped CRLF continuation and hex-escape + newline)
+    // must not desynchronize quote parity to smuggle url(...) past the sanitizer.
+    const crlfBypass = sanitizeCustomCss(
+      'a { content: "x\\\r\ny"; background: url(https://evil.example/crlf); --a: ""; }',
+    );
+    expect(crlfBypass.strippedCount).toBe(1);
+    expect(crlfBypass.css).not.toMatch(/evil\.example/i);
+
+    const hexNewlineBypass = sanitizeCustomCss(
+      'a { content: "\\41\n"; background: url(https://evil.example/hex); --a: ""; }',
+    );
+    expect(hexNewlineBypass.strippedCount).toBe(1);
+    expect(hexNewlineBypass.css).not.toMatch(/evil\.example/i);
+
     // applyThemeDocument respects includeCustomCss: false (opt-in safety)
     const parsed = parseThemeDocument({
       format: THEME_FILE_FORMAT,

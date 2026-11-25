@@ -1,4 +1,4 @@
-import type { ThemeAuditReport } from '../../core/theme';
+import type { ThemeAuditReport } from '../../core/theming/audit';
 import { Badge, Disclosure } from '../primitives';
 
 export interface AuditState {

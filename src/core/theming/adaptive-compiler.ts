@@ -15,10 +15,9 @@
 //    splits selectors only on top-level commas, rejects unbalanced brackets or
 //    unquoted braces, and isolates `::` pseudo-element rules.
 
-import type { ThemeColorScheme, ThemePalette } from '../theming';
 import type { OklchColor, PaintPropertyKind, RgbaColor } from './color';
+import type { ThemeColorScheme, ThemePalette } from './types';
 import { OWN_ATTR } from '../surface';
-import { formatRootSelectors, withThemeLayerOrder, wrapThemeLayer } from '../theming/types';
 import {
   hexWithAlpha,
   isNeutralColor,
@@ -27,6 +26,7 @@ import {
   parseCssColor,
   rgbToOklch,
 } from './color';
+import { formatRootSelectors, withThemeLayerOrder, wrapThemeLayer } from './types';
 
 /**
  * Weak-identity CSSOM fingerprint (`[sheetId, ruleCount, firstRuleId, lastRuleId, ...]`)

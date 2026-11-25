@@ -1,8 +1,8 @@
 // Canonical ThemeDocumentV1 state model, built-in catalog materializers,
 // and immutable document editors.
 
-import type { StudioVibe, ThemeEffectsConfig } from '../theme-effects';
-import type { PaletteMood } from './color-utils';
+import type { StudioVibe, ThemeEffectsConfig } from '../theme-effects/model';
+import type { PaletteMood } from './color';
 import type { ThemeDocumentV1 } from './document';
 import type {
   ResolvedTheme,
@@ -13,13 +13,12 @@ import type {
   ThemePreset,
 } from './types';
 import { isRecord } from '../storage';
-import { samePalette } from '../theme';
 import {
   DEFAULT_THEME_EFFECTS,
   mergeEffectsPatch,
   readThemeEffectsConfig,
   STUDIO_VIBES,
-} from '../theme-effects';
+} from '../theme-effects/model';
 import {
   contrastingText,
   flipPaletteScheme,
@@ -28,7 +27,8 @@ import {
   hydratePalette,
   normalizeHex,
   relativeLuminance,
-} from './color-utils';
+  samePalette,
+} from './color';
 import {
   configEffectsToDocument,
   documentEffectsToConfig,

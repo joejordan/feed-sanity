@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
 import type { PopupTabState } from '../../core/platform';
 import type { ThemeDocumentV1 } from '../../core/theming/document';
-import { compileUiThemeCss } from '../../core/theming/compile';
+import { compileUiThemeCss } from '../../core/theming/compile-ui';
 import { resolveTheme } from '../../core/theming/config';
 import { extensionStore } from '../../platform/extension-store';
 import {
@@ -169,13 +169,19 @@ function PopupApp() {
     [],
   );
 
-  const handleThemeChange = useCallback((doc: ThemeDocumentV1) => {
-    const css = compilePopupUiTheme(doc);
-    savedThemeCssRef.current = css;
-    if (!previewingRef.current) {
-      injectStyle('fs-popup-user-theme', css);
-    }
-  }, []);
+  const handleThemeChange = useCallback(
+    (doc: ThemeDocumentV1, meta?: { readonly committed?: boolean }) => {
+      const css = compilePopupUiTheme(doc);
+      savedThemeCssRef.current = css;
+      if (meta?.committed) {
+        previewingRef.current = false;
+      }
+      if (!previewingRef.current) {
+        injectStyle('fs-popup-user-theme', css);
+      }
+    },
+    [],
+  );
 
   const handlePreviewTheme = useCallback(
     (doc: ThemeDocumentV1 | null) => {

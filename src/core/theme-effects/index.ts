@@ -16,6 +16,7 @@ export type {
   SurfaceFinishId,
   ThemeEffectsConfig,
 } from './model';
+export { compileUiSurfaceCss } from '../theming/compile-ui';
 export { BACKDROP_REGISTRY } from './backdrops';
 export { mountClickEffects } from './click-fx';
 export { createEffectsLayerController } from './controller';
@@ -53,7 +54,6 @@ export {
   CLICK_FX_OWN_VALUE,
   compileBackdropRevealCss,
   compileSurfaceFinishCss,
-  compileUiSurfaceCss,
   DEFAULT_POPUPS,
   DEFAULT_SHELL_LANDMARKS,
   resolveGlassMetrics,

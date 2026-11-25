@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { findThemePreset } from '../theming';
 import {
   compositeOver,
-  detectConfirmedHostColorScheme,
-  detectHostColorScheme,
   isNeutralColor,
   isOppositePolarityNeutral,
   mapHostNeutralToPalette,
@@ -12,11 +9,13 @@ import {
   rgbaContrastRatio,
   rgbToOklch,
 } from './color';
+import { detectConfirmedHostColorScheme, detectHostColorScheme } from './host-scheme';
+import { findThemePreset } from './presets';
 
 const warmPaper = findThemePreset('warm-paper')!.palette;
 const mocha = findThemePreset('catppuccin-mocha')!.palette;
 
-describe('core/theme/color', () => {
+describe('core/theming/color', () => {
   it('parses hex, rgb, rgba, modern slash rgb, hsl, and named colors', () => {
     expect(parseCssColor('#0f1419')).toEqual({ r: 15, g: 20, b: 25, a: 1 });
     expect(parseCssColor('#fff')).toEqual({ r: 255, g: 255, b: 255, a: 1 });

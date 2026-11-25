@@ -1,7 +1,8 @@
 import type { DomEnvironment } from '../dom-env';
 import type { Scope } from '../scope';
-import type { RootCssomSnapshot, ThemeAuditReport, ThemeHealer } from '../theme';
-import type { ThemeEffectsConfig } from '../theme-effects';
+import type { ThemeEffectsConfig } from '../theme-effects/model';
+import type { ThemeAuditReport } from './audit';
+import type { ThemeHealer } from './healer';
 import type {
   ResolvedTheme,
   SiteThemeMapping,
@@ -11,37 +12,22 @@ import type {
   ThemePalette,
   ThemeRibbonSpec,
 } from './types';
-import { OWN_ATTR, SHELL_ATTR } from '../surface';
-import {
-  auditThemeCoverage,
-  captureCssomSnapshot,
-  captureLayoutSnapshot,
-  compileAdaptiveRootCss,
-  createThemeHealer,
-  detectConfirmedHostColorScheme,
-  HEALER_STYLE_ID,
-  HOST_SCHEME_ATTRS,
-  isOwnUiElement,
-  sameCssomSnapshot,
-  samePalette,
-} from '../theme';
-import {
-  createEffectsLayerController,
-  DEFAULT_POPUPS,
-  DEFAULT_SHELL_LANDMARKS,
-  sameEffectParams,
-} from '../theme-effects';
+import { isOwnUiElement, OWN_ATTR } from '../surface';
+import { createEffectsLayerController } from '../theme-effects/controller';
+import { sameEffectParams } from '../theme-effects/model';
+import { compileAdaptiveRootCss } from './adaptive-compiler';
+import { auditThemeCoverage, captureLayoutSnapshot } from './audit';
+import { createBackdropShellManager } from './backdrop-shells';
+import { samePalette } from './color';
 import { compileHostThemeCss, compileShadowThemeCss, compileUiThemeCss } from './compile';
+import { createCssomWatcher, isConnectedRoot } from './cssom-watcher';
 import { THEME_STYLE_ID } from './early-cache';
+import { createThemeHealer, HEALER_STYLE_ID } from './healer';
+import { detectConfirmedHostColorScheme, HOST_SCHEME_ATTRS } from './host-scheme';
 
 const ADAPTIVE_STYLE_ID = 'feed_sanity_adaptive_theme';
 const SCHEME_RECHECK_DEBOUNCE_MS = 80;
-const CSSOM_CHECK_DEBOUNCE_MS = 400;
-const SHELL_SYNC_DEBOUNCE_MS = 50;
 const SCHEME_ATTR_FILTER = ['class', 'style', ...HOST_SCHEME_ATTRS];
-
-const isConnectedRoot = (root: Document | ShadowRoot): boolean =>
-  root.nodeType === Node.DOCUMENT_NODE || (root as ShadowRoot).host.isConnected;
 
 const isOwnShadowRoot = (shadow: ShadowRoot): boolean => isOwnUiElement(shadow.host);
 
@@ -203,20 +189,11 @@ export function createThemeController(
     : {};
   let detectedHostScheme: ThemeColorScheme | undefined;
   const dirtyRoots = new Set<Document | ShadowRoot>();
-  const lastCssomSnapshots = new WeakMap<Document | ShadowRoot, RootCssomSnapshot>();
-  const pendingCssomRoots = new Set<Document | ShadowRoot>();
-  const shadowCssomCleanups = new Map<ShadowRoot, () => void>();
-  let cssomWatchActive = false;
   let recompileTimer: ReturnType<typeof setTimeout> | undefined;
   let schemeRecheckTimer: ReturnType<typeof setTimeout> | undefined;
-  let cssomCheckTimer: ReturnType<typeof setTimeout> | undefined;
-  let shellSyncTimer: ReturnType<typeof setTimeout> | undefined;
   let backdropHealQueued = false;
-  let shellsSyncedForBody = false;
   let stopBackdropWatch: (() => void) | undefined;
-  let stopCssomWatch: (() => void) | undefined;
   let schemeObserverActive = false;
-  const markedShells = new Set<Element>();
   const linkLoadAbort = new AbortController();
 
   const styles = new Map<Document | ShadowRoot, HTMLStyleElement>();
@@ -297,20 +274,15 @@ export function createThemeController(
   const getHostScheme = (): ThemeColorScheme =>
     detectedHostScheme ?? refreshHostScheme() ?? 'light';
 
-  const forEachHostRoot = (
-    fn: (root: Document | ShadowRoot) => void,
-    includeIframes = true,
-  ): void => {
+  const forEachHostRoot = (fn: (root: Document | ShadowRoot) => void): void => {
     fn(env.doc);
     for (const shadow of env.shadowRoots) {
       if (!isOwnShadowRoot(shadow)) {
         fn(shadow);
       }
     }
-    if (includeIframes) {
-      for (const iframeDoc of iframeDocs) {
-        fn(iframeDoc);
-      }
+    for (const iframeDoc of iframeDocs) {
+      fn(iframeDoc);
     }
   };
 
@@ -407,10 +379,10 @@ export function createThemeController(
       return;
     }
     dirtyRoots.delete(root);
-    clearPendingCssomRoot(root);
+    cssomWatcher?.clearPending(root);
     const effective = effectiveTheme();
     if (!hasAdaptiveTarget(effective)) {
-      lastCssomSnapshots.delete(root);
+      cssomWatcher?.deleteSnapshot(root);
       syncNamedRoot(root, ADAPTIVE_STYLE_ID, adaptiveStyles, '');
       return;
     }
@@ -424,7 +396,7 @@ export function createThemeController(
       ...(fontFamily ? { fontFamily } : {}),
       ...(adaptiveConfig.brandColors ? { brandColors: adaptiveConfig.brandColors } : {}),
       onCssomSnapshot: (snapshot) => {
-        lastCssomSnapshots.set(root, snapshot);
+        cssomWatcher?.recordSnapshot(root, snapshot);
       },
       ...mediaOpt,
     });
@@ -482,102 +454,14 @@ export function createThemeController(
     }, 100);
   };
 
-  // Detect CSSOM `sheet.insertRule()` / `replaceSync()` / `adoptedStyleSheets`
-  // changes across both the main document and open Shadow Roots without polling
-  // timers by checking lightweight CSSOM snapshots on debounced DOM additions.
-  const cancelCssomCheck = (): void => {
-    if (cssomCheckTimer !== undefined) {
-      clearTimeout(cssomCheckTimer);
-      cssomCheckTimer = undefined;
-    }
-    pendingCssomRoots.clear();
-  };
-
-  const clearPendingCssomRoot = (root: Document | ShadowRoot): void => {
-    if (pendingCssomRoots.delete(root) && pendingCssomRoots.size === 0) {
-      cancelCssomCheck();
-    }
-  };
-
-  const scheduleCssomCheck = (root: Document | ShadowRoot): void => {
-    if (
-      disposed ||
-      pendingCssomRoots.has(root) ||
-      dirtyRoots.has(root) ||
-      !hasAdaptiveTarget(effectiveTheme())
-    ) {
-      return;
-    }
-    pendingCssomRoots.add(root);
-    if (cssomCheckTimer !== undefined) {
-      return;
-    }
-    cssomCheckTimer = setTimeout(() => {
-      cssomCheckTimer = undefined;
-      if (disposed || !hasAdaptiveTarget(effectiveTheme())) {
-        pendingCssomRoots.clear();
-        return;
-      }
-      const rootsToCheck = [...pendingCssomRoots];
-      pendingCssomRoots.clear();
-      for (const candidate of rootsToCheck) {
-        if (dirtyRoots.has(candidate) || !isConnectedRoot(candidate)) {
-          continue;
-        }
-        const current = captureCssomSnapshot(candidate);
-        const prev = lastCssomSnapshots.get(candidate);
-        if (!prev || !sameCssomSnapshot(prev, current)) {
-          scheduleAdaptiveRecompile(candidate);
-        }
-      }
-    }, CSSOM_CHECK_DEBOUNCE_MS);
-  };
-
-  const watchShadowCssom = (shadow: ShadowRoot): void => {
-    if (!adaptiveConfig || !cssomWatchActive || disposed || shadowCssomCleanups.has(shadow)) {
-      return;
-    }
-    const shadowWatcher = env.shadowWatcherOf(shadow);
-    if (!shadowWatcher) {
-      return;
-    }
-    shadowCssomCleanups.set(
-      shadow,
-      shadowWatcher.watchTree({
-        added: () => scheduleCssomCheck(shadow),
-      }),
-    );
-  };
-
-  const setCssomWatcherActive = (active: boolean): void => {
-    if (!adaptiveConfig) {
-      return;
-    }
-    if (!active) {
-      cssomWatchActive = false;
-      stopCssomWatch?.();
-      stopCssomWatch = undefined;
-      for (const stopShadow of shadowCssomCleanups.values()) {
-        stopShadow();
-      }
-      shadowCssomCleanups.clear();
-      cancelCssomCheck();
-      return;
-    }
-    if (cssomWatchActive || disposed) {
-      return;
-    }
-    cssomWatchActive = true;
-    stopCssomWatch = env.watcher.watchTree({
-      added: () => scheduleCssomCheck(env.doc),
-    });
-    for (const shadow of env.shadowRoots) {
-      if (!isOwnShadowRoot(shadow)) {
-        watchShadowCssom(shadow);
-      }
-    }
-  };
-  cleanups.push(() => setCssomWatcherActive(false));
+  const cssomWatcher = adaptiveConfig
+    ? createCssomWatcher(env, {
+        isActiveTarget: () => !disposed && hasAdaptiveTarget(effectiveTheme()),
+        isDirty: (root) => dirtyRoots.has(root),
+        onChanged: scheduleAdaptiveRecompile,
+      })
+    : undefined;
+  cleanups.push(() => cssomWatcher?.setActive(false));
 
   const syncRoot = (
     root: Document | ShadowRoot,
@@ -615,184 +499,8 @@ export function createThemeController(
     effectsLayer.sync(effects, palette, scheme);
   };
 
-  // Automatically mark outer layout wrapper ancestors (`data-fs-shell`) between
-  // `<body>` and semantic landmarks (`main`, `[role="main"]`, columns, cards) so
-  // Studio backdrops shine through without brittle per-site `> div > div` chains.
-  interface SelectorGroup {
-    readonly basic: string;
-    readonly hasList: readonly string[];
-  }
-  const compileSelectorGroup = (selectors: readonly string[]): SelectorGroup => {
-    const unique = [...new Set(selectors)];
-    return {
-      basic: unique.filter((sel) => !sel.includes(':has(')).join(', '),
-      hasList: unique.filter((sel) => sel.includes(':has(')),
-    };
-  };
-  const matchesGroup = (el: Element, group: SelectorGroup): boolean => {
-    if (group.basic) {
-      try {
-        if (el.matches(group.basic)) {
-          return true;
-        }
-      } catch {
-        // Invalid or unsupported selector syntax on host engine.
-      }
-    }
-    for (const hasSel of group.hasList) {
-      try {
-        if (el.matches(hasSel)) {
-          return true;
-        }
-      } catch {
-        // Older engines without `:has()` support skip only that rule.
-      }
-    }
-    return false;
-  };
-  const queryGroup = (group: SelectorGroup): Element[] => {
-    if (!env.doc.body) {
-      return [];
-    }
-    const found: Element[] = [];
-    if (group.basic) {
-      try {
-        for (const el of env.doc.body.querySelectorAll(group.basic)) {
-          found.push(el);
-        }
-      } catch {
-        // Ignore invalid selector group.
-      }
-    }
-    for (const hasSel of group.hasList) {
-      try {
-        for (const el of env.doc.body.querySelectorAll(hasSel)) {
-          found.push(el);
-        }
-      } catch {
-        // Ignore unsupported `:has()` rule.
-      }
-    }
-    return found;
-  };
-
-  const surfaces = mapping.surfaces;
-  const popups = surfaces?.popups?.length ? surfaces.popups : DEFAULT_POPUPS;
-  const contentSurfaces = [
-    ...new Set([
-      ...(surfaces?.columns ?? []),
-      ...(surfaces?.leafCards ?? []),
-      ...(surfaces?.softSurfaces ?? []),
-      ...(surfaces?.feedCards ?? []),
-    ]),
-  ];
-  const popupGroup = compileSelectorGroup(popups);
-  const opaqueSurfaceGroup = compileSelectorGroup([
-    ...contentSurfaces,
-    ...(surfaces?.searchContainers ?? []),
-  ]);
-  const landmarkAnchorGroup = compileSelectorGroup(DEFAULT_SHELL_LANDMARKS);
-  const parentAnchorGroup = compileSelectorGroup([
-    ...contentSurfaces,
-    ...(surfaces?.shellAnchors ?? []),
-  ]);
-  const allAnchorGroup = compileSelectorGroup([
-    ...DEFAULT_SHELL_LANDMARKS,
-    ...contentSurfaces,
-    ...(surfaces?.shellAnchors ?? []),
-  ]);
-
-  const cancelShellSync = (): void => {
-    if (shellSyncTimer !== undefined) {
-      clearTimeout(shellSyncTimer);
-      shellSyncTimer = undefined;
-    }
-  };
-
-  const clearBackdropShells = (): void => {
-    cancelShellSync();
-    shellsSyncedForBody = false;
-    for (const el of markedShells) {
-      el.removeAttribute(SHELL_ATTR);
-    }
-    markedShells.clear();
-  };
-
-  const syncBackdropShells = (): void => {
-    if (disposed || !env.doc.body) {
-      return;
-    }
-    shellsSyncedForBody = true;
-    const visited = new Set<Element>();
-    const blocked = new Set<Element>();
-    const nextMarked = new Set<Element>();
-    const markAncestors = (start: Element | null): void => {
-      const path: Element[] = [];
-      let abortedByBoundary = false;
-      for (
-        let cur = start;
-        cur && cur !== env.doc.body && cur !== env.doc.documentElement;
-        cur = cur.parentElement
-      ) {
-        if (blocked.has(cur) || isOwnUiElement(cur) || matchesGroup(cur, popupGroup)) {
-          blocked.add(cur);
-          visited.add(cur);
-          abortedByBoundary = true;
-          break;
-        }
-        if (visited.has(cur)) {
-          break;
-        }
-        path.push(cur);
-      }
-      if (abortedByBoundary) {
-        for (const el of path) {
-          blocked.add(el);
-          visited.add(el);
-        }
-        return;
-      }
-      for (const el of path) {
-        visited.add(el);
-        if (!matchesGroup(el, opaqueSurfaceGroup)) {
-          nextMarked.add(el);
-        }
-      }
-    };
-    for (const landmark of queryGroup(landmarkAnchorGroup)) {
-      // When a site omits declarative `surfaces`, `compileBackdropRevealCss` paints
-      // `main` / `[role="main"]` as fallback translucent cards, so only mark wrappers above them.
-      markAncestors(surfaces ? landmark : landmark.parentElement);
-    }
-    for (const surface of queryGroup(parentAnchorGroup)) {
-      markAncestors(surface.parentElement);
-    }
-    for (const prev of markedShells) {
-      if (!prev.isConnected || !nextMarked.has(prev)) {
-        prev.removeAttribute(SHELL_ATTR);
-        markedShells.delete(prev);
-      }
-    }
-    for (const el of nextMarked) {
-      if (!markedShells.has(el)) {
-        el.setAttribute(SHELL_ATTR, '');
-        markedShells.add(el);
-      }
-    }
-  };
-
-  const scheduleShellSync = (): void => {
-    if (disposed || shellSyncTimer !== undefined || !hasActiveBackdrop(effectiveTheme())) {
-      return;
-    }
-    shellSyncTimer = setTimeout(() => {
-      shellSyncTimer = undefined;
-      if (disposed || !hasActiveBackdrop(effectiveTheme())) {
-        return;
-      }
-      syncBackdropShells();
-    }, SHELL_SYNC_DEBOUNCE_MS);
-  };
+  const backdropShells = createBackdropShellManager(env.doc, mapping.surfaces);
+  const isBackdropActive = (): boolean => !disposed && hasActiveBackdrop(effectiveTheme());
 
   // Self-heal if the host SPA (e.g. React/Shreddit re-hydration) detaches our live backdrop host,
   // and keep `data-fs-shell` ancestors synced across SPA route changes.
@@ -801,7 +509,7 @@ export function createThemeController(
     if (!active) {
       stopBackdropWatch?.();
       stopBackdropWatch = undefined;
-      clearBackdropShells();
+      backdropShells.clear();
       return;
     }
     if (stopBackdropWatch || disposed) {
@@ -809,13 +517,21 @@ export function createThemeController(
     }
     stopBackdropWatch = env.watcher.watchTree({
       added: (el) => {
-        if (el.childElementCount > 0 || matchesGroup(el, allAnchorGroup)) {
-          scheduleShellSync();
+        if (
+          !backdropShells.isSyncScheduled() &&
+          (el.childElementCount > 0 || backdropShells.matchesAnchor(el))
+        ) {
+          backdropShells.scheduleSync(isBackdropActive);
         }
       },
       removed: (el) => {
-        if (el.childElementCount > 0 || markedShells.has(el) || matchesGroup(el, allAnchorGroup)) {
-          scheduleShellSync();
+        if (
+          !backdropShells.isSyncScheduled() &&
+          (el.childElementCount > 0 ||
+            backdropShells.hasMarked(el) ||
+            backdropShells.matchesAnchor(el))
+        ) {
+          backdropShells.scheduleSync(isBackdropActive);
         }
         if (disposed || backdropHealQueued || effectsLayer.isBackdropConnected()) {
           return;
@@ -939,32 +655,28 @@ export function createThemeController(
     }
     setSchemeObserverActive(Boolean(effective));
     setBackdropWatcherActive(backdropActive);
-    if (backdropActive && !shellsSyncedForBody) {
-      syncBackdropShells();
+    if (backdropActive && !backdropShells.isSyncedForBody()) {
+      backdropShells.sync();
     }
-    setCssomWatcherActive(adaptiveTarget);
+    cssomWatcher?.setActive(adaptiveTarget);
+
+    const paletteChanged = !samePalette(nextPalette, lastCssTheme?.palette ?? null);
 
     // Re-verify native host polarity on palette transitions (including Appearance Panel
     // `preview()` / `clearPreview()` flows) so toggling from a dark Studio theme to a
     // Light preset never inherits a stale cached scheme.
-    if (
-      effective &&
-      env.doc.body &&
-      detectedHostScheme !== undefined &&
-      !samePalette(nextPalette, lastCssTheme?.palette ?? null)
-    ) {
+    if (effective && env.doc.body && detectedHostScheme !== undefined && paletteChanged) {
       refreshHostScheme();
     }
 
     const currentScheme: ThemeColorScheme = effective ? getHostScheme() : 'dark';
     const adaptiveChanged =
       !hasRenderedCss ||
-      !samePalette(nextPalette, lastCssTheme?.palette ?? null) ||
+      paletteChanged ||
       nextFont !== lastCssTheme?.fontFamily ||
       backdropActive !== hasActiveBackdrop(lastCssTheme) ||
       (adaptiveTarget && currentScheme !== lastAdaptiveScheme);
-    const shadowChanged =
-      !hasRenderedCss || adaptiveChanged || !sameShadowRelevantTheme(lastCssTheme, effective);
+    const shadowChanged = adaptiveChanged || !sameShadowRelevantTheme(lastCssTheme, effective);
     const cssChanged =
       adaptiveChanged ||
       currentScheme !== lastCssScheme ||
@@ -972,7 +684,7 @@ export function createThemeController(
 
     if (adaptiveChanged) {
       cancelAdaptiveRecompile();
-      cancelCssomCheck();
+      cssomWatcher?.cancel();
       lastAdaptiveScheme = adaptiveTarget ? currentScheme : undefined;
     }
 
@@ -986,12 +698,11 @@ export function createThemeController(
       }
       const uiCss = effective ? compileUiThemeCss(effective) : '';
       setUiThemeCss(uiCss);
-      const resolvedScheme = adaptiveChanged ? currentScheme : undefined;
       forEachHostRoot((root) => {
         if (root.nodeType === Node.DOCUMENT_NODE) {
-          syncRoot(root, hostCss, adaptiveChanged, resolvedScheme);
+          syncRoot(root, hostCss, adaptiveChanged, currentScheme);
         } else if (shadowChanged) {
-          syncRoot(root, getShadowCss(), adaptiveChanged, resolvedScheme);
+          syncRoot(root, getShadowCss(), adaptiveChanged, currentScheme);
         }
       });
     }
@@ -1036,16 +747,12 @@ export function createThemeController(
             return;
           }
           const root = el.getRootNode();
-          if (
-            root.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
-            'host' in root &&
-            isOwnShadowRoot(root as ShadowRoot)
-          ) {
+          const isShadow = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in root;
+          if (isShadow && isOwnShadowRoot(root as ShadowRoot)) {
             return;
           }
           const targetRoot =
-            root.nodeType === Node.DOCUMENT_NODE ||
-            (root.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in root)
+            root.nodeType === Node.DOCUMENT_NODE || isShadow
               ? (root as Document | ShadowRoot)
               : env.doc;
           if (el.localName === 'link') {
@@ -1065,23 +772,26 @@ export function createThemeController(
     );
   }
 
+  const cleanupRootStyles = (root: Document | ShadowRoot): void => {
+    dirtyRoots.delete(root);
+    styles.get(root)?.remove();
+    styles.delete(root);
+    adaptiveStyles.get(root)?.remove();
+    adaptiveStyles.delete(root);
+  };
+
   cleanups.push(
     env.onShadowRoot((shadow, rootScope) => {
       if (isOwnShadowRoot(shadow)) {
         return;
       }
-      syncRoot(shadow, getShadowCss());
-      watchShadowCssom(shadow);
+      if (effectiveTheme()) {
+        syncRoot(shadow, getShadowCss());
+      }
+      cssomWatcher?.watchShadow(shadow);
       rootScope.add(() => {
-        shadowCssomCleanups.get(shadow)?.();
-        shadowCssomCleanups.delete(shadow);
-        clearPendingCssomRoot(shadow);
-        dirtyRoots.delete(shadow);
-        lastCssomSnapshots.delete(shadow);
-        styles.get(shadow)?.remove();
-        styles.delete(shadow);
-        adaptiveStyles.get(shadow)?.remove();
-        adaptiveStyles.delete(shadow);
+        cssomWatcher?.unwatchShadow(shadow);
+        cleanupRootStyles(shadow);
       });
     }),
   );
@@ -1089,7 +799,9 @@ export function createThemeController(
   cleanups.push(
     env.onIframe((childEnv) => {
       iframeDocs.add(childEnv.doc);
-      syncRoot(childEnv.doc, hostCss);
+      if (effectiveTheme()) {
+        syncRoot(childEnv.doc, hostCss);
+      }
       const stopChildHead = watchHead(childEnv);
       if (stopChildHead) {
         iframeCleanups.add(stopChildHead);
@@ -1100,12 +812,8 @@ export function createThemeController(
       }
       childEnv.scope.add(() => {
         iframeDocs.delete(childEnv.doc);
-        dirtyRoots.delete(childEnv.doc);
-        lastCssomSnapshots.delete(childEnv.doc);
-        styles.get(childEnv.doc)?.remove();
-        styles.delete(childEnv.doc);
-        adaptiveStyles.get(childEnv.doc)?.remove();
-        adaptiveStyles.delete(childEnv.doc);
+        cssomWatcher?.deleteSnapshot(childEnv.doc);
+        cleanupRootStyles(childEnv.doc);
       });
     }),
   );
@@ -1136,8 +844,8 @@ export function createThemeController(
           ) {
             render();
           } else if (effective.effects) {
-            if (hasActiveBackdrop(effective) && !shellsSyncedForBody) {
-              syncBackdropShells();
+            if (hasActiveBackdrop(effective) && !backdropShells.isSyncedForBody()) {
+              backdropShells.sync();
             }
             syncEffectsIfNeeded(effective.effects, effective.palette, scheme, true);
           }

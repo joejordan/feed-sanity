@@ -11,7 +11,8 @@ import type {
 } from '../theming/types';
 import type { ThemeEffectsConfig } from './model';
 import { OWN_ATTR, SHELL_ATTR } from '../surface';
-import { hexWithAlpha, splitSelectorList } from '../theme';
+import { splitSelectorList } from '../theming/adaptive-compiler';
+import { hexWithAlpha } from '../theming/color';
 import { formatRootSelectors, TEXT_INPUT_SELECTOR, wrapThemeLayer } from '../theming/types';
 import { THEME_EFFECT_BOUNDS } from './model';
 
@@ -291,23 +292,4 @@ export function compileSurfaceFinishCss(
     );
   }
   return blocks.join('\n\n');
-}
-
-/** Subtle matching surface finish polish inside Feed Sanity's own Shadow DOM UI. */
-export function compileUiSurfaceCss(
-  palette: ThemePalette | null,
-  effects: ThemeEffectsConfig | undefined,
-): string {
-  if (!effects || effects.surface === 'default') {
-    return '';
-  }
-  const accent = palette?.accent ?? '#3b82f6';
-  const secondary = palette?.accentSecondary ?? palette?.danger ?? '#ec4899';
-  if (effects.surface === 'neon') {
-    return `.dialog, .qp-root { box-shadow: 0 0 0 1px ${hexWithAlpha(accent, 0.45)}, 0 18px 48px ${hexWithAlpha(accent, 0.22)}; }`;
-  }
-  if (effects.surface === 'gradient') {
-    return `.dialog-main, .qp-body { background-image: linear-gradient(160deg, ${hexWithAlpha(accent, 0.08)} 0%, transparent 45%, ${hexWithAlpha(secondary, 0.06)} 100%); }`;
-  }
-  return '';
 }

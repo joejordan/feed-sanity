@@ -1,9 +1,9 @@
 // Palette harmonization helpers shared by the Canvas 2D and WebGL backdrop
 // renderers: parse theme colors once, mix them, and format them for canvas.
 
-import type { ThemeColorScheme } from '../../theming';
+import type { ThemeColorScheme } from '../../theming/types';
 import type { BackdropContext } from './types';
-import { parseCssColor } from '../../theme';
+import { parseCssColor } from '../../theming/color';
 import { clamp, lerp } from '../digital-rain/math';
 
 /** RGB triple with channels in `0..255`. */

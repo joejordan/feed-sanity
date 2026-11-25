@@ -9,8 +9,8 @@
 //    below (`header-occlusion`, catching bugs like X's "Post" header covering
 //    the top of a post)
 
-import type { ThemeColorScheme, ThemePalette } from '../theming';
 import type { RgbaColor } from './color';
+import type { ThemeColorScheme, ThemePalette } from './types';
 import { containsAcrossShadows } from '../dom';
 import { scrubCommonPii } from '../pii';
 import { isOppositePolarityNeutral, parseCssColor, rgbaContrastRatio } from './color';

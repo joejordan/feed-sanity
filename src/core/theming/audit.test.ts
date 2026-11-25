@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { findThemePreset } from '../theming';
 import { auditThemeCoverage, captureLayoutSnapshot } from './audit';
+import { findThemePreset } from './presets';
 
 const warmPaper = findThemePreset('warm-paper')!.palette;
 
-describe('core/theme/audit', () => {
+describe('core/theming/audit', () => {
   afterEach(() => {
     document.body.replaceChildren();
     document.body.style.backgroundColor = '';

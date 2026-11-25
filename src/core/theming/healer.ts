@@ -11,11 +11,10 @@
 
 import type { DomEnvironment } from '../dom-env';
 import type { Scope } from '../scope';
-import type { ThemeColorScheme, ThemePalette } from '../theming';
 import type { RgbaColor } from './color';
+import type { ThemeColorScheme, ThemePalette } from './types';
 import { parentAcrossShadows } from '../dom';
 import { addStyleAcrossRoots, isOwnUiElement, OWN_ATTR, OWN_UI_TAG, SHELL_ATTR } from '../surface';
-import { withThemeLayerOrder, wrapThemeLayer } from '../theming/types';
 import {
   colorSchemeOf,
   compositeOver,
@@ -24,7 +23,9 @@ import {
   parseCssColor,
   rgbaContrastRatio,
   rgbToOklch,
+  samePalette,
 } from './color';
+import { withThemeLayerOrder, wrapThemeLayer } from './types';
 
 export const HEAL_BG_ATTR = 'data-fs-heal-bg';
 export const HEAL_FG_ATTR = 'data-fs-heal-fg';
@@ -215,28 +216,6 @@ function buildHealerCss(palette: ThemePalette): string {
       ].join('\n'),
     ),
   ]);
-}
-
-export function samePalette(a: ThemePalette | null, b: ThemePalette | null): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (!a || !b) {
-    return false;
-  }
-  return (
-    a.colorScheme === b.colorScheme &&
-    a.background === b.background &&
-    a.surface === b.surface &&
-    a.surfaceAlt === b.surfaceAlt &&
-    a.text === b.text &&
-    a.textMuted === b.textMuted &&
-    a.border === b.border &&
-    a.accent === b.accent &&
-    a.accentSecondary === b.accentSecondary &&
-    a.accentText === b.accentText &&
-    a.danger === b.danger
-  );
 }
 
 type HealFgRole = 'muted' | 'text' | 'contrast-light' | 'contrast-dark';

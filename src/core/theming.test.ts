@@ -5,7 +5,6 @@ import { xThemeMapping } from '../sites/x/theme-mapping';
 import { HOST_TAG, renderInShadow, setUserThemeCss } from '../ui/mount';
 import { createDomEnvironment } from './dom-env';
 import { SHELL_ATTR } from './surface';
-import { samePalette } from './theme';
 import { BACKDROP_SELECTOR, DEFAULT_THEME_EFFECTS } from './theme-effects';
 import {
   applyEarlyThemeCss,
@@ -33,6 +32,7 @@ import {
   updateThemeTypography,
   writeEarlyThemeCss,
 } from './theming';
+import { samePalette } from './theming/color';
 
 describe('first-class multi-site theming engine', () => {
   const cleanups: Array<() => void> = [];

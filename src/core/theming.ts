@@ -6,10 +6,25 @@
 // Shadow Roots (`:host`), same-origin iframes, and Feed Sanity's own Shadow DOM
 // UI. Strictly Trusted Types safe (`style.textContent`) and 100% reversible.
 
-export type { StudioVibe, ThemeEffectsConfig } from './theme-effects';
-export { hexWithAlpha } from './theme';
-export { DEFAULT_THEME_EFFECTS, hasActiveEffects, readThemeEffectsConfig } from './theme-effects';
+export type { StudioVibe, ThemeEffectsConfig } from './theme-effects/model';
+export type {
+  ElementLayoutSample,
+  LayoutSnapshot,
+  ThemeAuditOptions,
+  ThemeAuditReport,
+  ThemeAuditSummary,
+  ThemeViolation,
+  ThemeViolationKind,
+} from './theming/audit';
 export {
+  DEFAULT_THEME_EFFECTS,
+  hasActiveEffects,
+  readThemeEffectsConfig,
+} from './theme-effects/model';
+export { auditThemeCoverage, captureLayoutSnapshot } from './theming/audit';
+export {
+  colorSchemeOf,
+  compositeOver,
   contrastingText,
   contrastRatio,
   flipPaletteScheme,
@@ -17,17 +32,30 @@ export {
   getPaletteSwatches,
   hexToHslTriplet,
   hexToRgbTriplet,
+  hexWithAlpha,
   hydratePalette,
+  isNeutralColor,
+  isOppositePolarityNeutral,
+  mapHostNeutralToPalette,
+  matchesBrandHue,
   minTextContrast,
   mixHex,
   normalizeHex,
+  type OklchColor,
   PALETTE_MOODS,
+  type PaintPropertyKind,
   type PaletteMood,
+  parseCssColor,
   pickAccessibleText,
+  type RgbaColor,
   relativeLuminance,
+  rgbaContrastRatio,
+  rgbaLuminance,
+  rgbToOklch,
+  samePalette,
   WCAG_AA_ACCENT_CONTRAST,
   WCAG_AA_TEXT_CONTRAST,
-} from './theming/color-utils';
+} from './theming/color';
 export {
   compileChromeHostCss,
   compileChromeUiCss,
@@ -100,6 +128,21 @@ export {
   THEME_STYLE_ID,
   writeEarlyThemeCss,
 } from './theming/early-cache';
+export {
+  createThemeHealer,
+  HEAL_BG_ATTR,
+  HEAL_BORDER_ATTR,
+  HEAL_FG_ATTR,
+  HEALER_STYLE_ID,
+  resolveEffectiveBackground,
+  type ThemeHealer,
+  type ThemeHealerOptions,
+} from './theming/healer';
+export {
+  detectConfirmedHostColorScheme,
+  detectHostColorScheme,
+  HOST_SCHEME_ATTRS,
+} from './theming/host-scheme';
 export {
   createThemeLibrary,
   EMPTY_THEME_LIBRARY,

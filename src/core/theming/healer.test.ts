@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDomEnvironment } from '../dom-env';
 import { Scope } from '../scope';
 import { SHELL_ATTR } from '../surface';
-import { findThemePreset } from '../theming';
 import { createThemeHealer, HEAL_BG_ATTR, HEAL_FG_ATTR, HEALER_STYLE_ID } from './healer';
+import { findThemePreset } from './presets';
 
 const warmPaper = findThemePreset('warm-paper')!.palette;
 const crimsonVelvet = findThemePreset('crimson-velvet')!.palette;
 
-describe('core/theme/healer', () => {
+describe('core/theming/healer', () => {
   afterEach(() => {
     document.head.replaceChildren();
     document.body.replaceChildren();

@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { RootCssomSnapshot } from './compiler';
-import { findThemePreset } from '../theming';
+import type { RootCssomSnapshot } from './adaptive-compiler';
 import {
   captureCssomSnapshot,
   compileAdaptiveRootCss,
   sameCssomSnapshot,
   splitSelectorList,
-} from './compiler';
+} from './adaptive-compiler';
+import { findThemePreset } from './presets';
 
 const warmPaper = findThemePreset('warm-paper')!.palette;
 
-describe('core/theme/compiler', () => {
+describe('core/theming/adaptive-compiler', () => {
   afterEach(() => {
     document.head.replaceChildren();
     document.body.replaceChildren();

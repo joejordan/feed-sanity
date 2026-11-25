@@ -9,6 +9,7 @@ import { STUDIO_VIBES } from '../../core/theme-effects';
 import {
   applyStudioVibe,
   applyThemeDocument,
+  applyThemePreset,
   createThemeLibrary,
   DEFAULT_THEME_DOCUMENT,
   isCustomImportedDocument,
@@ -422,5 +423,150 @@ describe('QuickPopup', () => {
       expect(libraryState.globalTheme?.document.meta.name).toBe('Matrix Everywhere');
     });
     expect(chip.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('isolates per-key hydration so mutating a hydrated key before load resolves keeps the local choice while sibling keys still hydrate', async () => {
+    const backing = inMemoryStore({
+      'x/123/options': { x_hide_sponsored: true, x_hide_suggested: true, x_hide_grok: true },
+      [`x/123/${THEME_DATA_KEY}`]: applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'),
+    });
+    let releaseLoad!: () => void;
+    const delayedStore: typeof backing = {
+      get: (key) => backing.get(key),
+      getMany: async (keys) => {
+        await new Promise<void>((resolve) => {
+          releaseLoad = resolve;
+        });
+        return Object.fromEntries(
+          await Promise.all(keys.map(async (k) => [k, await backing.get(k)])),
+        );
+      },
+      set: (key, value) => backing.set(key, value),
+      onChange: (key, listener) => backing.onChange(key, listener),
+    };
+
+    const onThemeChange = vi.fn();
+    render(
+      <QuickPopup
+        store={delayedStore}
+        activeTab={{
+          siteId: 'x',
+          displayName: 'X (Twitter)',
+          storagePrefix: 'x/123',
+          enabled: true,
+          hiddenCount: 0,
+        }}
+        onThemeChange={onThemeChange}
+        onOpenSettings={vi.fn()}
+        onOpenSiteUrl={vi.fn()}
+      />,
+    );
+
+    // Mutate themeKey (a hydrated key) while initial readStoreMany is still pending.
+    await userEvent.click(screen.getByRole('button', { name: 'Catppuccin Mocha theme' }));
+    expect(onThemeChange).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'catppuccin-mocha' }),
+      { committed: true },
+    );
+
+    // Releasing stale initial hydration must preserve Catppuccin Mocha while still hydrating optionsKey!
+    releaseLoad();
+    await vi.waitFor(() => {
+      expect(
+        screen.getByRole<HTMLInputElement>('checkbox', { name: 'Hide Grok & drawer' }).checked,
+      ).toBe(true);
+    });
+    expect(screen.getByText('Catppuccin Mocha')).toBeTruthy();
+  });
+
+  it('suppresses self-echoes per key while applying external updates to sibling keys immediately', async () => {
+    const backing = inMemoryStore({
+      'x/123/options': { x_hide_sponsored: true, x_hide_suggested: true, x_hide_grok: false },
+      [`x/123/${THEME_DATA_KEY}`]: DEFAULT_THEME_DOCUMENT,
+    });
+    const listeners = new Map<string, Set<(oldValue: unknown, newValue: unknown) => void>>();
+    const releaseRef: { current: (() => void) | null } = { current: null };
+    const controlledStore: typeof backing = {
+      get: (key) => backing.get(key),
+      getMany: async (keys) =>
+        Object.fromEntries(await Promise.all(keys.map(async (k) => [k, await backing.get(k)]))),
+      set: async (key, value) => {
+        if (key === 'x/123/options') {
+          await new Promise<void>((resolve) => {
+            releaseRef.current = resolve;
+          });
+        }
+        await backing.set(key, value);
+      },
+      onChange: (key, listener) => {
+        let set = listeners.get(key);
+        if (!set) {
+          set = new Set();
+          listeners.set(key, set);
+        }
+        set.add(listener);
+        const unsubBacking = backing.onChange(key, listener);
+        return () => {
+          set.delete(listener);
+          unsubBacking?.();
+        };
+      },
+    };
+    const emitExternal = (key: string, value: unknown): void => {
+      for (const listener of listeners.get(key) ?? []) {
+        listener(undefined, value);
+      }
+    };
+
+    render(
+      <QuickPopup
+        store={controlledStore}
+        activeTab={{
+          siteId: 'x',
+          displayName: 'X (Twitter)',
+          storagePrefix: 'x/123',
+          enabled: true,
+          hiddenCount: 0,
+        }}
+        onOpenSettings={vi.fn()}
+        onOpenSiteUrl={vi.fn()}
+      />,
+    );
+
+    const grokToggle = await screen.findByRole<HTMLInputElement>('checkbox', {
+      name: 'Hide Grok & drawer',
+    });
+    expect(grokToggle.checked).toBe(false);
+
+    // Start an optionsKey write that stays in-flight.
+    await userEvent.click(grokToggle);
+    expect(grokToggle.checked).toBe(true);
+    await vi.waitFor(() => expect(releaseRef.current).not.toBeNull());
+
+    // While optionsKey is saving:
+    // 1. A stale echo on optionsKey must be suppressed (toggle stays checked).
+    emitExternal('x/123/options', {
+      x_hide_sponsored: true,
+      x_hide_suggested: true,
+      x_hide_grok: false,
+    });
+    expect(grokToggle.checked).toBe(true);
+
+    // 2. An external update on sibling themeKey must apply immediately.
+    emitExternal(`x/123/${THEME_DATA_KEY}`, applyThemePreset(DEFAULT_THEME_DOCUMENT, 'nord'));
+    await vi.waitFor(() => expect(screen.getByText('Nord Frost')).toBeTruthy());
+
+    // 3. Once the optionsKey save completes, subsequent external optionsKey updates apply again.
+    releaseRef.current?.();
+    await vi.waitFor(async () => {
+      const saved = (await backing.get('x/123/options')) as Record<string, unknown>;
+      expect(saved.x_hide_grok).toBe(true);
+    });
+    emitExternal('x/123/options', {
+      x_hide_sponsored: true,
+      x_hide_suggested: true,
+      x_hide_grok: false,
+    });
+    await vi.waitFor(() => expect(grokToggle.checked).toBe(false));
   });
 });
