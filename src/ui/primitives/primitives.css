@@ -6,6 +6,18 @@
   vertical-align: middle;
 }
 
+/* Visually hidden text that stays in the accessibility tree. */
+.fs-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .fs-kicker-row {
   display: flex;
   align-items: center;

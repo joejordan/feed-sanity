@@ -79,6 +79,7 @@ export {
   compileShadowThemeCss,
   compileUiThemeCss,
 } from './theming/compile';
+export { compileRibbonBackground } from './theming/compile-ui';
 export {
   applyGeneratedPalette,
   applyStudioVibe,

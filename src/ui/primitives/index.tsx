@@ -54,6 +54,8 @@ export interface TextInputProps {
   readonly ariaLabel?: string;
   readonly ariaDescribedBy?: string;
   readonly ariaInvalid?: boolean;
+  /** Focuses the input and selects its text once when it mounts (inline rename/save forms). */
+  readonly selectOnMount?: boolean;
   readonly onValueChange: (value: string) => void;
   readonly onBlur?: (event: {
     currentTarget: HTMLInputElement;
@@ -82,14 +84,23 @@ export function TextInput({
   ariaLabel,
   ariaDescribedBy,
   ariaInvalid,
+  selectOnMount,
   onValueChange,
   onBlur,
   onKeyDown,
 }: TextInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (selectOnMount) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [selectOnMount]);
   const effectiveType = type === 'url' ? 'text' : type;
   const effectiveMode = inputMode ?? (type === 'url' ? 'url' : undefined);
   return (
     <input
+      ref={inputRef}
       id={id}
       className={className}
       type={effectiveType}

@@ -1,7 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { SavedThemeEntry, ThemeCapabilities, ThemeDocumentV1 } from '../../core/theming';
-import { MAX_LIBRARY_THEMES } from '../../core/theming';
-import { Badge, previewLeaveProps, SettingCard, TextInput } from '../primitives';
+import {
+  getBackdropDisplayName,
+  getClickEffectLabel,
+  getSurfaceFinishLabel,
+} from '../../core/theme-effects';
+import {
+  compileRibbonBackground,
+  MAX_LIBRARY_THEMES,
+  THEME_FILE_EXTENSION,
+} from '../../core/theming';
+import { Badge, previewLeaveProps, SettingCard, TextInput, UiIcon } from '../primitives';
 import { downloadThemeDocumentFile, ThemeSwatches } from './theme-transfer';
 
 export interface AnalyzedLibraryEntry {
@@ -51,14 +60,72 @@ function handleInlineFormKeyDown(
   }
 }
 
+/**
+ * Inline CSS custom properties that paint a saved theme's own palette and edge ribbon onto its
+ * preview stage. Site-default themes (`palette: null`) keep the stylesheet's `--fs-*` defaults.
+ */
+function themeStageVars(doc: ThemeDocumentV1): Record<string, string> {
+  const vars: Record<string, string> = {};
+  const palette = doc.palette;
+  if (palette) {
+    vars['--stage-bg'] = palette.background;
+    vars['--stage-surface'] = palette.surface;
+    vars['--stage-surface-alt'] = palette.surfaceAlt;
+    vars['--stage-text'] = palette.text;
+    vars['--stage-muted'] = palette.textMuted;
+    vars['--stage-border'] = palette.border;
+    vars['--stage-accent'] = palette.accent;
+    vars['--stage-accent-2'] = palette.accentSecondary ?? palette.danger;
+  }
+  const ribbon = compileRibbonBackground(doc.chrome?.ribbon);
+  if (ribbon) {
+    vars['--stage-ribbon'] = ribbon;
+  }
+  return vars;
+}
+
+interface ThemeStageProps {
+  readonly doc: ThemeDocumentV1;
+  readonly size?: 'card' | 'thumb';
+  readonly tag?: string | null;
+  readonly isActive?: boolean;
+}
+
+/** Decorative mini mock-up of a theme: canvas wash, accent glow, ribbon, and a tiny post card. */
+function ThemeStage({ doc, size = 'card', tag = null, isActive = false }: ThemeStageProps) {
+  const vars = useMemo(() => themeStageVars(doc), [doc]);
+  return (
+    <span className="theme-library-stage" aria-hidden="true" data-size={size} style={vars}>
+      {vars['--stage-ribbon'] && (
+        <span
+          className="theme-library-stage-ribbon"
+          data-position={doc.chrome?.ribbon?.position ?? 'top'}
+        />
+      )}
+      <span className="theme-library-stage-mock">
+        <span className="theme-library-stage-avatar" />
+        <span className="theme-library-stage-lines">
+          <span />
+          <span />
+        </span>
+        {size === 'card' && <span className="theme-library-stage-cta" />}
+      </span>
+      {tag && <span className="theme-library-stage-tag">{tag}</span>}
+      {isActive && (
+        <span className="theme-library-stage-check">
+          <UiIcon name="check" size={11} />
+        </span>
+      )}
+    </span>
+  );
+}
+
 interface SavedThemeItemProps {
   readonly item: AnalyzedLibraryEntry;
   readonly isActive: boolean;
   readonly isRenaming: boolean;
-  readonly renameDraft: string;
-  readonly onRenameDraftChange: (value: string) => void;
   readonly onStartRename: () => void;
-  readonly onCommitRename: () => void;
+  readonly onCommitRename: (nextName: string) => void;
   readonly onCancelRename: () => void;
   readonly onApply: () => void;
   readonly onPreview: () => void;
@@ -67,35 +134,100 @@ interface SavedThemeItemProps {
   readonly onDelete: () => void;
 }
 
-function libraryTrustLabel(trust: ThemeCapabilities['trust']): string {
+function libraryTrustLabel(trust: Exclude<ThemeCapabilities['trust'], 'data-only'>): string {
   switch (trust) {
-    case 'data-only':
-      return 'Verified';
     case 'custom-css':
       return 'Custom CSS';
     case 'custom-shader':
-      return 'GPU Shader';
+      return 'Custom shader';
     case 'custom-css-and-shader':
-      return 'CSS + Shader';
+      return 'CSS + shader';
   }
 }
 
+/** Human-friendly live background name for the stage pill (never a raw engine slug). */
 function libraryBackdropLabel(caps: ThemeCapabilities): string | null {
-  if (caps.hasCustomScene) {
-    return `Scene · ${caps.sceneLayerCount}L`;
-  }
+  // Custom shaders are already named by the trust badge; skip the duplicate "GPU Shader" pill.
   if (caps.hasCustomShader) {
-    return 'GPU Shader';
+    return null;
   }
-  return caps.backdropEngine;
+  const name = caps.backdropEngine ? getBackdropDisplayName(caps.backdropEngine) : undefined;
+  if (!name) {
+    return null;
+  }
+  if (!caps.hasCustomScene) {
+    return name;
+  }
+  const layers = caps.sceneLayerCount;
+  return `${name} · ${layers} ${layers === 1 ? 'layer' : 'layers'}`;
+}
+
+function libraryColorSchemeLabel(caps: ThemeCapabilities): string {
+  if (caps.colorScheme === 'dark') {
+    return 'Dark';
+  }
+  return caps.colorScheme === 'light' ? 'Light' : 'Site colors';
+}
+
+/** Concise "Dark · Glass · Sparks" trait summary built from the theme's capabilities. */
+function libraryTraits(caps: ThemeCapabilities): string {
+  const surface = caps.surfaceFinish && getSurfaceFinishLabel(caps.surfaceFinish);
+  const click = caps.clickEffect && getClickEffectLabel(caps.clickEffect);
+  return [libraryColorSchemeLabel(caps), surface, click].filter(Boolean).join(' · ');
+}
+
+interface InlineNameFormProps {
+  readonly className: string;
+  readonly ariaLabel: string;
+  readonly initialValue: string;
+  readonly placeholder?: string;
+  readonly onCommit: (trimmedValue: string) => void;
+  readonly onCancel: () => void;
+}
+
+/** Name input + Save/Cancel that focuses and selects its text on open (Enter saves, Esc cancels). */
+function InlineNameForm({
+  className,
+  ariaLabel,
+  initialValue,
+  placeholder,
+  onCommit,
+  onCancel,
+}: InlineNameFormProps) {
+  const [draft, setDraft] = useState(initialValue);
+  const submit = (): void => {
+    const trimmed = draft.trim();
+    if (trimmed) {
+      onCommit(trimmed);
+    }
+  };
+  return (
+    <div className={className}>
+      <TextInput
+        className="field theme-library-name-input"
+        ariaLabel={ariaLabel}
+        {...(placeholder ? { placeholder } : {})}
+        value={draft}
+        selectOnMount
+        onValueChange={setDraft}
+        onKeyDown={(event) => handleInlineFormKeyDown(event, submit, onCancel)}
+      />
+      <div className="theme-library-form-buttons">
+        <button type="button" className="button primary" disabled={!draft.trim()} onClick={submit}>
+          Save
+        </button>
+        <button type="button" className="button theme-library-ghost" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function SavedThemeItem({
   item,
   isActive,
   isRenaming,
-  renameDraft,
-  onRenameDraftChange,
   onStartRename,
   onCommitRename,
   onCancelRename,
@@ -108,32 +240,35 @@ function SavedThemeItem({
   const { entry, capabilities, swatches } = item;
   const name = entry.document.meta.name;
   const backdropLabel = libraryBackdropLabel(capabilities);
+  const stage = <ThemeStage doc={entry.document} tag={backdropLabel} isActive={isActive} />;
+  const iconActions = [
+    { icon: 'pencil', verb: 'Rename', title: 'Rename', onClick: onStartRename },
+    {
+      icon: 'download',
+      verb: 'Export',
+      title: `Export ${THEME_FILE_EXTENSION}`,
+      onClick: onExport,
+    },
+    { icon: 'trash', verb: 'Delete', title: 'Delete', onClick: onDelete },
+  ] as const;
 
   return (
-    <div className="theme-library-card" data-active={isActive ? 'true' : undefined}>
+    <div
+      className="theme-library-card"
+      data-active={isActive ? 'true' : undefined}
+      data-renaming={isRenaming ? 'true' : undefined}
+    >
       {isRenaming ? (
-        <div className="theme-library-rename">
-          <TextInput
-            className="field"
+        <>
+          {stage}
+          <InlineNameForm
+            className="theme-library-rename"
             ariaLabel="Rename saved theme"
-            value={renameDraft}
-            onValueChange={onRenameDraftChange}
-            onKeyDown={(event) => handleInlineFormKeyDown(event, onCommitRename, onCancelRename)}
+            initialValue={name}
+            onCommit={onCommitRename}
+            onCancel={onCancelRename}
           />
-          <div className="theme-transfer-actions">
-            <button
-              type="button"
-              className="button primary"
-              disabled={!renameDraft.trim()}
-              onClick={onCommitRename}
-            >
-              Save
-            </button>
-            <button type="button" className="button" onClick={onCancelRename}>
-              Cancel
-            </button>
-          </div>
-        </div>
+        </>
       ) : (
         <>
           <button
@@ -144,48 +279,54 @@ function SavedThemeItem({
             onFocus={onPreview}
             onClick={onApply}
           >
-            <ThemeSwatches swatches={swatches} />
-            <span className="theme-card-name">{name}</span>
-            <span className="theme-transfer-pills">
-              <Badge tone={capabilities.trust === 'data-only' ? 'accent' : 'warning'}>
-                {libraryTrustLabel(capabilities.trust)}
-              </Badge>
-              {backdropLabel && <Badge tone="neutral">{backdropLabel}</Badge>}
+            {stage}
+            <span className="theme-library-body">
+              <span className="theme-card-name theme-library-name" title={name}>
+                {name}
+              </span>
+              <span className="theme-library-meta">
+                <ThemeSwatches swatches={swatches} />
+                <span className="theme-library-traits">{libraryTraits(capabilities)}</span>
+                {capabilities.trust === 'data-only' ? (
+                  <span
+                    className="theme-library-verified"
+                    title="Verified: colors and effects only"
+                  >
+                    <UiIcon name="shield" size={12} />
+                    <span className="fs-sr-only">Verified</span>
+                  </span>
+                ) : (
+                  <Badge tone="warning">{libraryTrustLabel(capabilities.trust)}</Badge>
+                )}
+              </span>
             </span>
           </button>
           <div className="theme-library-card-actions">
             <button
               type="button"
-              className="theme-inline-reset"
+              className="theme-library-allsites"
               aria-label={`Apply ${name} to all sites`}
+              title="Apply to all sites"
               onClick={onApplyAllSites}
             >
+              <UiIcon name="globe" size={12} />
               All sites
             </button>
-            <button
-              type="button"
-              className="theme-inline-reset"
-              aria-label={`Rename ${name}`}
-              onClick={onStartRename}
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              className="theme-inline-reset"
-              aria-label={`Export ${name}`}
-              onClick={onExport}
-            >
-              Export
-            </button>
-            <button
-              type="button"
-              className="theme-inline-reset"
-              aria-label={`Delete ${name}`}
-              onClick={onDelete}
-            >
-              Delete
-            </button>
+            <span className="theme-library-icon-actions">
+              {iconActions.map((action) => (
+                <button
+                  key={action.verb}
+                  type="button"
+                  className="theme-library-icon-button"
+                  data-tone={action.icon === 'trash' ? 'danger' : undefined}
+                  aria-label={`${action.verb} ${name}`}
+                  title={action.title}
+                  onClick={action.onClick}
+                >
+                  <UiIcon name={action.icon} size={13} />
+                </button>
+              ))}
+            </span>
           </div>
         </>
       )}
@@ -205,34 +346,35 @@ export function ThemeLibraryCard({
   onDeleteEntry,
   onExportEntry,
 }: ThemeLibraryCardProps) {
-  const [savingOpen, setSavingOpen] = useState(false);
-  const [saveNameDraft, setSaveNameDraft] = useState('');
+  const [saveForm, setSaveForm] = useState<{
+    readonly key: number;
+    readonly initialValue: string;
+  } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState('');
+  const activeRenamingId =
+    renamingId !== null && items.some((item) => item.entry.id === renamingId) ? renamingId : null;
+
+  useEffect(() => {
+    if (renamingId !== null && activeRenamingId === null) {
+      setRenamingId(null);
+    }
+  }, [renamingId, activeRenamingId]);
 
   const openSaveForm = (): void => {
-    setSaveNameDraft(suggestSaveName(activeDocument, items));
-    setSavingOpen(true);
+    setSaveForm((prev) => ({
+      key: (prev?.key ?? 0) + 1,
+      initialValue: suggestSaveName(activeDocument, items),
+    }));
   };
 
-  const commitSave = (): void => {
-    const trimmed = saveNameDraft.trim();
-    if (!trimmed) {
-      return;
-    }
+  const commitSave = (trimmed: string): void => {
     onSaveCurrent(trimmed);
-    setSavingOpen(false);
-    setSaveNameDraft('');
+    setSaveForm(null);
   };
 
-  const commitRename = (entryId: string): void => {
-    const trimmed = renameDraft.trim();
-    if (!trimmed) {
-      return;
-    }
+  const commitRename = (entryId: string, trimmed: string): void => {
     onRenameEntry(entryId, trimmed);
     setRenamingId(null);
-    setRenameDraft('');
   };
 
   const isLibraryFull = items.length >= MAX_LIBRARY_THEMES;
@@ -262,40 +404,29 @@ export function ThemeLibraryCard({
       }
     >
       <div className="theme-studio-pad">
-        {savingOpen && (
-          <div className="theme-library-inline-form" role="group" aria-label="Save current theme">
-            <TextInput
-              className="field theme-library-name-input"
+        {saveForm && (
+          <div className="theme-library-save" role="group" aria-label="Save current theme">
+            <ThemeStage doc={activeDocument} size="thumb" />
+            <InlineNameForm
+              key={saveForm.key}
+              className="theme-library-inline-form"
               ariaLabel="Saved theme name"
               placeholder="e.g. Midnight Rain"
-              value={saveNameDraft}
-              onValueChange={setSaveNameDraft}
-              onKeyDown={(event) =>
-                handleInlineFormKeyDown(event, commitSave, () => setSavingOpen(false))
-              }
+              initialValue={saveForm.initialValue}
+              onCommit={commitSave}
+              onCancel={() => setSaveForm(null)}
             />
-            <button
-              type="button"
-              className="button primary"
-              disabled={!saveNameDraft.trim()}
-              onClick={commitSave}
-            >
-              Save
-            </button>
-            <button type="button" className="button" onClick={() => setSavingOpen(false)}>
-              Cancel
-            </button>
           </div>
         )}
 
         {items.length === 0 ? (
           <p className="theme-studio-intro">
-            Save customized themes or imported <code>.fstheme.json</code> files here to switch in
-            one click or apply across every site.
+            Save customized themes or imported <code>{THEME_FILE_EXTENSION}</code> files here to
+            switch in one click or apply across every site.
           </p>
         ) : (
           <div
-            className="theme-grid"
+            className="theme-library-grid"
             role="group"
             aria-label="Saved themes"
             {...previewLeaveProps(() => onPreviewEntry?.(null))}
@@ -305,19 +436,16 @@ export function ThemeLibraryCard({
                 key={item.entry.id}
                 item={item}
                 isActive={item.capabilities.fingerprint === activeFingerprint}
-                isRenaming={renamingId === item.entry.id}
-                renameDraft={renameDraft}
-                onRenameDraftChange={setRenameDraft}
+                isRenaming={activeRenamingId === item.entry.id}
                 onStartRename={() => {
                   onPreviewEntry?.(null);
                   setRenamingId(item.entry.id);
-                  setRenameDraft(item.entry.document.meta.name);
                 }}
-                onCommitRename={() => commitRename(item.entry.id)}
+                onCommitRename={(nextName) => commitRename(item.entry.id, nextName)}
                 onCancelRename={() => setRenamingId(null)}
                 onApply={() => onApplyEntry(item.entry)}
                 onPreview={() => {
-                  if (renamingId === null) {
+                  if (activeRenamingId === null) {
                     onPreviewEntry?.(item.entry);
                   }
                 }}

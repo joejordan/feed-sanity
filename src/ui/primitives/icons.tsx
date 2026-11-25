@@ -17,7 +17,11 @@ export type UiIconName =
   | 'grip'
   | 'refresh'
   | 'sun'
-  | 'moon';
+  | 'moon'
+  | 'pencil'
+  | 'download'
+  | 'trash'
+  | 'check';
 
 export interface UiIconProps {
   readonly name: UiIconName;
@@ -137,6 +141,28 @@ export function UiIcon({ name, size = 15, className }: UiIconProps) {
         </>
       )}
       {name === 'moon' && <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />}
+      {name === 'pencil' && (
+        <>
+          <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+          <line x1="15" y1="5" x2="19" y2="9" />
+        </>
+      )}
+      {name === 'download' && (
+        <>
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </>
+      )}
+      {name === 'trash' && (
+        <>
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+          <path d="M10 11v6M14 11v6" />
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+        </>
+      )}
+      {name === 'check' && <polyline points="20 6 9 17 4 12" />}
     </svg>
   );
 }

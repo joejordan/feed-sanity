@@ -12,6 +12,7 @@ import {
   compileChromeHostCss,
   compileChromeUiCss,
   compileHostThemeCss,
+  compileRibbonBackground,
   DEFAULT_THEME_DOCUMENT,
   flipThemeColorScheme,
   generateThemePalette,
@@ -254,6 +255,14 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     const uiCss = compileChromeUiCss(chrome);
     expect(uiCss).toContain('.dialog::before, .qp-root::before');
     expect(uiCss).toContain('linear-gradient(90deg, #22d3ee, #c084fc)');
+
+    // compileRibbonBackground edge cases: off/empty return null, single stop duplicates, angle clamps.
+    expect(compileRibbonBackground(undefined)).toBeNull();
+    expect(compileRibbonBackground({ enabled: false, stops: ['#22d3ee'] })).toBeNull();
+    expect(compileRibbonBackground({ enabled: true, stops: [] })).toBeNull();
+    expect(compileRibbonBackground({ enabled: true, stops: ['#22d3ee'], angle: 999 })).toBe(
+      'linear-gradient(360deg, #22d3ee, #22d3ee)',
+    );
   });
 
   it('keeps mixed !important and normal custom CSS rules in their proper cascade layers', () => {

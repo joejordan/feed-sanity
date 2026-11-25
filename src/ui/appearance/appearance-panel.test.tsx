@@ -768,7 +768,13 @@ describe('appearancePanel & initSiteTheme', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
       await vi.waitFor(() => expect(library.list()).toHaveLength(1));
-      expect(screen.getByRole('button', { name: /^Night Matrix/i })).toBeTruthy();
+      const matrixCardBtn = screen.getByRole('button', { name: /^Night Matrix/i });
+      expect(matrixCardBtn).toBeTruthy();
+      // Redesigned card renders human-readable backdrop name (not raw slug) and palette stage vars.
+      expect(within(matrixCardBtn).getByText('Matrix Rain')).toBeTruthy();
+      expect(within(matrixCardBtn).getByText('Dark · Glass · Glyphs')).toBeTruthy();
+      const stageEl = matrixCardBtn.querySelector<HTMLElement>('.theme-library-stage');
+      expect(stageEl?.style.getPropertyValue('--stage-bg')).toMatch(/^#[0-9a-f]{6}$/i);
 
       // Switch to Warm Paper, then click the saved theme card to re-apply it.
       await userEvent.click(screen.getByRole('button', { name: /Warm Paper/i }));
@@ -780,7 +786,15 @@ describe('appearancePanel & initSiteTheme', () => {
         expect(saved.get().effects?.backdrop?.id).toBe('digital-rain');
       });
 
-      // Rename the saved entry inline.
+      // Rename the saved entry inline (Escape cancels, Enter/Save commits).
+      await userEvent.click(screen.getByRole('button', { name: 'Rename Night Matrix' }));
+      const cancelableInput = screen.getByRole<HTMLInputElement>('textbox', {
+        name: 'Rename saved theme',
+      });
+      expect(document.activeElement).toBe(cancelableInput);
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('textbox', { name: 'Rename saved theme' })).toBeNull();
+
       await userEvent.click(screen.getByRole('button', { name: 'Rename Night Matrix' }));
       const renameInput = screen.getByRole<HTMLInputElement>('textbox', {
         name: 'Rename saved theme',

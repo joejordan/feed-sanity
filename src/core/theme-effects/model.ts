@@ -985,6 +985,24 @@ export const CLICK_EFFECT_OPTIONS: ReadonlyArray<{
   { value: 'supernova', label: 'Supernova' },
 ];
 
+const SURFACE_FINISH_LABEL_BY_ID: ReadonlyMap<SurfaceFinishId, string> = new Map(
+  SURFACE_FINISH_OPTIONS.map((option) => [option.value, option.label]),
+);
+
+const CLICK_EFFECT_LABEL_BY_ID: ReadonlyMap<ClickEffectId, string> = new Map(
+  CLICK_EFFECT_OPTIONS.map((option) => [option.value, option.label]),
+);
+
+/** Returns the human-friendly surface finish label (e.g. `Glass`) in O(1) time. */
+export function getSurfaceFinishLabel(id: SurfaceFinishId): string | undefined {
+  return SURFACE_FINISH_LABEL_BY_ID.get(id);
+}
+
+/** Returns the human-friendly click effect label (e.g. `Sparks`) in O(1) time. */
+export function getClickEffectLabel(id: ClickEffectId): string | undefined {
+  return CLICK_EFFECT_LABEL_BY_ID.get(id);
+}
+
 export interface StudioVibe {
   readonly id: string;
   readonly name: string;

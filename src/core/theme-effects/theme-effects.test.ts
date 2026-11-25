@@ -27,12 +27,15 @@ import {
   BACKDROP_OWN_VALUE,
   BACKDROP_PARAM_SPECS,
   BACKDROP_REGISTRY,
+  CLICK_EFFECT_IDS,
   CLICK_FX_OWN_VALUE,
   compileBackdropRevealCss,
   compileSurfaceFinishCss,
   createEffectsLayerController,
   DEFAULT_THEME_EFFECTS,
   deriveEffectParams,
+  getClickEffectLabel,
+  getSurfaceFinishLabel,
   hasActiveEffects,
   mergeEffectsPatch,
   mountClickEffects,
@@ -40,6 +43,7 @@ import {
   resolveEffectParams,
   resolveGlassMetrics,
   STUDIO_VIBES,
+  SURFACE_FINISH_IDS,
   sameEffectParams,
   validateEffectParams,
 } from './index';
@@ -333,6 +337,12 @@ describe('Creative Theme & Effects Studio engine', () => {
       if (opt.id !== 'none') {
         expect(BACKDROP_REGISTRY[opt.id]).toBeDefined();
       }
+    }
+    for (const id of SURFACE_FINISH_IDS) {
+      expect(getSurfaceFinishLabel(id)?.length).toBeGreaterThan(0);
+    }
+    for (const id of CLICK_EFFECT_IDS) {
+      expect(getClickEffectLabel(id)?.length).toBeGreaterThan(0);
     }
     for (const vibe of STUDIO_VIBES) {
       expect(BUILTIN_THEMES.some((theme) => theme.id === vibe.preset)).toBe(true);

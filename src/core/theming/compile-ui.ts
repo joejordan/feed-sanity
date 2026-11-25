@@ -11,6 +11,16 @@ export function clampNumber(value: number, min: number, max: number, decimals = 
   return Math.round(Math.min(max, Math.max(min, value)) * factor) / factor;
 }
 
+/** Returns the CSS `linear-gradient` background for an enabled ribbon, or `null` when it is off. */
+export function compileRibbonBackground(ribbon: ThemeRibbonSpec | undefined): string | null {
+  if (!ribbon?.enabled || ribbon.stops.length === 0) {
+    return null;
+  }
+  const stops = ribbon.stops.length === 1 ? [ribbon.stops[0], ribbon.stops[0]] : ribbon.stops;
+  const angle = clampNumber(ribbon.angle ?? 90, 0, 360, 0);
+  return `linear-gradient(${angle}deg, ${stops.join(', ')})`;
+}
+
 /** Compiles a declarative `ThemeRibbonSpec` into a safe fixed/absolute edge ribbon rule. */
 export function compileRibbonRule(
   ribbon: ThemeRibbonSpec | undefined,
@@ -18,14 +28,12 @@ export function compileRibbonRule(
   position: 'fixed' | 'absolute',
   zIndex: number,
 ): string {
-  if (!ribbon?.enabled || ribbon.stops.length === 0) {
+  const bg = compileRibbonBackground(ribbon);
+  if (!ribbon || !bg) {
     return '';
   }
-  const stops = ribbon.stops.length === 1 ? [ribbon.stops[0], ribbon.stops[0]] : ribbon.stops;
-  const angle = clampNumber(ribbon.angle ?? 90, 0, 360, 0);
   const height = clampNumber(ribbon.height ?? 3, 1, 6, 0);
   const inset = ribbon.position === 'bottom' ? 'auto 0 0 0' : '0 0 auto 0';
-  const bg = `linear-gradient(${angle}deg, ${stops.join(', ')})`;
   const layerHint = position === 'fixed' ? ' contain: strict; transform: translateZ(0);' : '';
   return `${selector} { content: ""; position: ${position}; inset: ${inset}; height: ${height}px; pointer-events: none; z-index: ${zIndex};${layerHint} background: ${bg}; }`;
 }

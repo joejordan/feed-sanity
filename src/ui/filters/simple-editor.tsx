@@ -37,7 +37,7 @@ export function PillSwitch({ label, checked, hideLabel, onChange }: SwitchProps)
         aria-label={hideLabel ? label : undefined}
         onChange={(event) => onChange(event.target.checked)}
       />
-      {hideLabel ? <span className="fr-sr-only">{label}</span> : <span>{label}</span>}
+      {hideLabel ? <span className="fs-sr-only">{label}</span> : <span>{label}</span>}
     </label>
   );
 }
@@ -599,7 +599,7 @@ export function SimpleFilterBuilder({
             }}
           />
         </div>
-        <span className="fr-sr-only" aria-live="polite">
+        <span className="fs-sr-only" aria-live="polite">
           {liveMessage}
         </span>
 
