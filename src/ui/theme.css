@@ -20,6 +20,9 @@
   --fs-control-bg: var(--fs-background);
   --fs-divider-subtle: color-mix(in srgb, var(--fs-divider) 65%, transparent);
   --fs-focus-ring: color-mix(in srgb, var(--fs-accent) 45%, transparent);
+  --fs-scrollbar-thumb: color-mix(in srgb, var(--fs-text-secondary) 32%, transparent);
+  --fs-scrollbar-thumb-hover: color-mix(in srgb, var(--fs-text-secondary) 54%, transparent);
+  --fs-scrollbar-thumb-active: color-mix(in srgb, var(--fs-accent) 72%, transparent);
   --fs-success: #16a34a;
   --fs-warning: #d97706;
 }
@@ -28,6 +31,43 @@
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+/* Slim, theme-aware scrollbars across Options, Quick Popup, and panels */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--fs-scrollbar-thumb);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--fs-scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--fs-scrollbar-thumb-active);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox fallback: Chromium ignores ::-webkit-scrollbar if scrollbar-width is set unconditionally. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--fs-scrollbar-thumb) transparent;
+  }
 }
 
 button,

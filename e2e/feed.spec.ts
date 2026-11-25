@@ -511,14 +511,27 @@ test('treats all sites equally in Sites and toggles Facebook off and back on liv
   await expect(dialog(page).getByText('Built-in')).toHaveCount(0);
   await expect(dialog(page).getByRole('button', { name: 'Disable Facebook' })).toBeVisible();
   await expect(dialog(page).getByRole('button', { name: 'Disable X (Twitter)' })).toBeVisible();
-  // Experimental sites stay hidden and disabled by default until revealed via the toggle.
+  // Experimental sites stay hidden and disabled by default until revealed via the toggle,
+  // and expanding them keeps a stable scrollbar gutter with zero horizontal layout shift.
   await expect(dialog(page).getByRole('button', { name: /Instagram/ })).toHaveCount(0);
   await expect(dialog(page).getByRole('button', { name: /Gmail/ })).toHaveCount(0);
+  const fbDisableBefore = await dialog(page)
+    .getByRole('button', { name: 'Disable Facebook' })
+    .boundingBox();
   await dialog(page).getByRole('checkbox', { name: 'Show experimental sites' }).click();
   await expect(dialog(page).getByText(/things will be broken/i)).toBeVisible();
   await expect(dialog(page).getByRole('button', { name: 'Enable Instagram' })).toBeVisible();
   await expect(dialog(page).getByRole('button', { name: 'Enable Reddit' })).toBeVisible();
   await expect(dialog(page).getByRole('button', { name: 'Enable Gmail' })).toBeVisible();
+  const fbDisableAfter = await dialog(page)
+    .getByRole('button', { name: 'Disable Facebook' })
+    .boundingBox();
+  expect(fbDisableBefore).not.toBeNull();
+  expect(fbDisableAfter).not.toBeNull();
+  expect(Math.abs((fbDisableAfter?.x ?? 0) - (fbDisableBefore?.x ?? 0))).toBeLessThanOrEqual(0.5);
+  expect(
+    Math.abs((fbDisableAfter?.width ?? 0) - (fbDisableBefore?.width ?? 0)),
+  ).toBeLessThanOrEqual(0.5);
 
   // Disabling Facebook turns off its features immediately and keeps the badge clear.
   await dialog(page).getByRole('button', { name: 'Disable Facebook' }).click();
