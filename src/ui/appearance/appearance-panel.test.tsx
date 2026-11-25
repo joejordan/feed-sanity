@@ -903,6 +903,25 @@ describe('appearancePanel & initSiteTheme', () => {
       } finally {
         saveSpy.mockRestore();
       }
+      // Delete the second of two saved themes and confirm focus hands off cleanly to the
+      // remaining card's select button (and to Save current when deleting the last theme).
+      await userEvent.click(screen.getByRole('button', { name: 'Delete Deep Ocean' }));
+      const deleteOceanDialog = screen.getByRole('alertdialog');
+      await userEvent.click(
+        within(deleteOceanDialog).getByRole('button', { name: 'Delete theme' }),
+      );
+      await vi.waitFor(() => expect(library.list()).toHaveLength(1));
+      await vi.waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Cyber Matrix/i })),
+      );
+
+      await userEvent.click(screen.getByRole('button', { name: 'Delete Cyber Matrix' }));
+      const deleteLastDialog = screen.getByRole('alertdialog');
+      await userEvent.click(within(deleteLastDialog).getByRole('button', { name: 'Delete theme' }));
+      await vi.waitFor(() => expect(library.list()).toHaveLength(0));
+      await vi.waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save current' })),
+      );
     } finally {
       library.dispose();
     }
@@ -1398,16 +1417,29 @@ describe('appearancePanel & initSiteTheme', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: 'Aurora veil' }));
     await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.aurora).toBe(false));
 
-    // The new Moonlit finish and Tide click effect are selected, with their tuners.
-    expect(screen.getByRole('button', { name: 'Moonlit' }).getAttribute('aria-pressed')).toBe(
-      'true',
-    );
+    // The new Moonlit finish and Tide click effect are selected, with their tuners and tooltips.
+    const moonlitBtn = screen.getByRole('button', { name: 'Moonlit' });
+    expect(moonlitBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(moonlitBtn.getAttribute('title')).toBe('Moonlit');
     expect(screen.getByRole('slider', { name: 'Moonlight sheen' })).toBeTruthy();
     expect(screen.getByRole('slider', { name: 'Underglow' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Tide' }).getAttribute('aria-pressed')).toBe('true');
+    const tideBtn = screen.getByRole('button', { name: 'Tide' });
+    expect(tideBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(tideBtn.getAttribute('title')).toBe('Tide');
     const splashStyle = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Splash style' });
     await userEvent.selectOptions(splashStyle, 'sparkle');
     await vi.waitFor(() => expect(saved.get().effects?.click?.params?.style).toBe('sparkle'));
+
+    // Per-section Reset tuners button restores modified shader params back to defaults without disabling the Live Theme.
+    const resetShaderTuners = screen.getByRole('button', { name: 'Reset GPU Shader tuners' });
+    await userEvent.click(resetShaderTuners);
+    await vi.waitFor(() => {
+      expect(saved.get().effects?.backdrop?.id).toBe('custom-shader');
+      expect(saved.get().effects?.backdrop?.params?.sky).toBe('night');
+      expect(saved.get().effects?.backdrop?.params?.moon).toBe('real');
+      expect(saved.get().effects?.backdrop?.params?.meteors).toBe(false);
+    });
+    expect(screen.queryByRole('button', { name: 'Reset GPU Shader tuners' })).toBeNull();
 
     // Both new primitives work on their own with any other theme.
     await userEvent.click(screen.getByRole('button', { name: 'Neon' }));

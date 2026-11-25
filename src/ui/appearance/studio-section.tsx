@@ -12,7 +12,9 @@ import {
   CLICK_EFFECT_OPTIONS,
   getActiveBackdropParamSpecs,
   getBackdropDisplayName,
+  getClickEffectLabel,
   getClickParamSpecs,
+  getSurfaceFinishLabel,
   getSurfaceParamSpecs,
   mergeEffectsPatch,
   resolveEffectParams,
@@ -94,31 +96,33 @@ function formatParamNumber(value: number, unit: EffectParamUnit | undefined): st
   return String(value);
 }
 
-function optionLabel<T extends string>(
-  options: readonly { readonly value: T; readonly label: string }[],
-  value: T,
-): string {
-  return options.find((opt) => opt.value === value)?.label ?? value;
-}
-
 function PluginParamsBox({
   groupName,
   specs,
   rawValues,
+  defaultValues,
   onUpdateParam,
   onInputParam,
+  onResetParams,
   onDragStart,
   onCommit,
 }: {
   readonly groupName: string;
   readonly specs: readonly EffectParamSpec[];
   readonly rawValues: EffectParamValues | undefined;
+  readonly defaultValues?: EffectParamValues | undefined;
   readonly onUpdateParam: (key: string, value: EffectParamValue) => void;
   readonly onInputParam: (key: string, value: EffectParamValue) => void;
+  readonly onResetParams: (defaults: EffectParamValues) => void;
   readonly onDragStart: () => void;
   readonly onCommit: () => void;
 }) {
   const values = useMemo(() => resolveEffectParams(specs, rawValues), [specs, rawValues]);
+  const defaults = useMemo(() => resolveEffectParams(specs, defaultValues), [specs, defaultValues]);
+  const hasCustomParams = useMemo(
+    () => specs.some((spec) => values[spec.key] !== defaults[spec.key]),
+    [specs, values, defaults],
+  );
   const grouped = useMemo(() => {
     const enums: Extract<EffectParamSpec, { kind: 'enum' }>[] = [];
     const numbers: Extract<EffectParamSpec, { kind: 'number' }>[] = [];
@@ -149,6 +153,19 @@ function PluginParamsBox({
 
   return (
     <div className="theme-tuner-box" role="group" aria-label={`${groupName} settings`}>
+      {hasCustomParams && (
+        <div className="theme-tuner-box-head">
+          <span className="theme-studio-hint">{groupName} tuners</span>
+          <button
+            type="button"
+            className="theme-inline-reset"
+            aria-label={`Reset ${groupName} tuners`}
+            onClick={() => onResetParams(defaults)}
+          >
+            Reset tuners
+          </button>
+        </div>
+      )}
       {grouped.enums.length > 0 && (
         <div className="theme-tuner-grid">
           {grouped.enums.map((spec) => (
@@ -462,6 +479,7 @@ export function StudioVibesCard({
 export interface CreativeStudioCardProps {
   readonly effects: ThemeEffectsConfig;
   readonly effectsActive: boolean;
+  readonly activeVibe?: StudioVibe | undefined;
   readonly onPreviewEffects?: (patch: Partial<ThemeEffectsConfig>) => void;
   readonly onUpdateEffects: (patch: Partial<ThemeEffectsConfig>, toastLabel?: string) => void;
   readonly onResetEffects: () => void;
@@ -470,6 +488,7 @@ export interface CreativeStudioCardProps {
 export function CreativeStudioCard({
   effects,
   effectsActive,
+  activeVibe,
   onPreviewEffects,
   onUpdateEffects,
   onResetEffects,
@@ -482,9 +501,17 @@ export function CreativeStudioCard({
   const backdropSpecs = getActiveBackdropParamSpecs(effects);
   const activeBackdropName = getBackdropDisplayName(effects.backdrop) ?? effects.backdrop;
   const surfaceSpecs = getSurfaceParamSpecs(effects.surface);
-  const activeSurfaceLabel = optionLabel(SURFACE_FINISH_OPTIONS, effects.surface);
+  const activeSurfaceLabel = getSurfaceFinishLabel(effects.surface) ?? effects.surface;
   const clickSpecs = getClickParamSpecs(effects.click);
-  const activeClickLabel = optionLabel(CLICK_EFFECT_OPTIONS, effects.click);
+  const activeClickLabel = getClickEffectLabel(effects.click) ?? effects.click;
+  const vibeBackdropDefaults =
+    activeVibe?.effects.backdrop === effects.backdrop
+      ? activeVibe.effects.backdropParams
+      : undefined;
+  const vibeSurfaceDefaults =
+    activeVibe?.effects.surface === effects.surface ? activeVibe.effects.surfaceParams : undefined;
+  const vibeClickDefaults =
+    activeVibe?.effects.click === effects.click ? activeVibe.effects.clickParams : undefined;
 
   return (
     <SettingCard
@@ -557,8 +584,12 @@ export function CreativeStudioCard({
             groupName={activeBackdropName}
             specs={backdropSpecs}
             rawValues={displayEffects.backdropParams}
+            defaultValues={vibeBackdropDefaults}
             onUpdateParam={(key, val) => onUpdateEffects({ backdropParams: { [key]: val } })}
             onInputParam={(key, val) => handleInput({ backdropParams: { [key]: val } })}
+            onResetParams={(defaults) =>
+              onUpdateEffects({ backdropParams: defaults }, `Reset ${activeBackdropName} tuners`)
+            }
             onDragStart={onDragStart}
             onCommit={commitDraft}
           />
@@ -640,7 +671,7 @@ export function CreativeStudioCard({
             onChange={(next) =>
               onUpdateEffects(
                 { surface: next },
-                `Surface finish: ${optionLabel(SURFACE_FINISH_OPTIONS, next)}`,
+                `Surface finish: ${getSurfaceFinishLabel(next) ?? next}`,
               )
             }
           />
@@ -649,8 +680,15 @@ export function CreativeStudioCard({
               groupName={`${activeSurfaceLabel} surface`}
               specs={surfaceSpecs}
               rawValues={displayEffects.surfaceParams}
+              defaultValues={vibeSurfaceDefaults}
               onUpdateParam={(key, val) => onUpdateEffects({ surfaceParams: { [key]: val } })}
               onInputParam={(key, val) => handleInput({ surfaceParams: { [key]: val } })}
+              onResetParams={(defaults) =>
+                onUpdateEffects(
+                  { surfaceParams: defaults },
+                  `Reset ${activeSurfaceLabel} surface tuners`,
+                )
+              }
               onDragStart={onDragStart}
               onCommit={commitDraft}
             />
@@ -674,7 +712,7 @@ export function CreativeStudioCard({
                 { click: next },
                 next === 'none'
                   ? 'Click effects off'
-                  : `Click effect: ${optionLabel(CLICK_EFFECT_OPTIONS, next)}`,
+                  : `Click effect: ${getClickEffectLabel(next) ?? next}`,
               )
             }
           />
@@ -683,8 +721,12 @@ export function CreativeStudioCard({
               groupName={`${activeClickLabel} click effect`}
               specs={clickSpecs}
               rawValues={displayEffects.clickParams}
+              defaultValues={vibeClickDefaults}
               onUpdateParam={(key, val) => onUpdateEffects({ clickParams: { [key]: val } })}
               onInputParam={(key, val) => handleInput({ clickParams: { [key]: val } })}
+              onResetParams={(defaults) =>
+                onUpdateEffects({ clickParams: defaults }, `Reset ${activeClickLabel} click tuners`)
+              }
               onDragStart={onDragStart}
               onCommit={commitDraft}
             />

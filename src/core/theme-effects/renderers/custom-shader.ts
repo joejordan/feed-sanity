@@ -5,18 +5,18 @@
 // custom `u_<paramKey>` uniforms, and guards the host tab with a slow-frame
 // watchdog and automatic static CSS fallback on compile error or context loss.
 
-import type { EffectParamValue, EffectParamValues } from '../model';
+import type { EffectParamValue } from '../model';
 import type {
   CustomShaderParamSpec,
   CustomShaderSpec,
   StandardShaderUniformName,
 } from '../scene-schema';
 import type { Rgb, ScenePalette } from './palette';
-import type { Scene, SceneFactory } from './scene-host';
+import type { SceneFactory } from './scene-host';
 import type { BackdropContext, BackdropInstance } from './types';
 import { createLogger } from '../../log';
 import { dayPhaseAt, moonPhaseAt } from '../celestial';
-import { resolveEffectParams, sameEffectParams } from '../model';
+import { resolveEffectParams } from '../model';
 import {
   MAX_SHADER_CLICKS,
   STANDARD_SHADER_UNIFORMS,
@@ -25,13 +25,10 @@ import {
 import { hexRgb, rgbCss, rgbUnit } from './palette';
 import { mountScene } from './scene-host';
 import {
+  createFullscreenWebglScene,
   GLSL_NOISE,
   GLSL_PRECISION,
   GLSL_SHADER_HELPERS,
-  linkFullscreenProgram,
-  releaseWebglContext,
-  setupFullscreenTriangle,
-  WEBGL_CONTEXT_ATTRIBUTES,
 } from './webgl';
 
 const log = createLogger('custom-shader');
@@ -94,111 +91,60 @@ export function encodeShaderParam(
   }
 }
 
+function uploadRgb(gl: WebGLRenderingContext, loc: WebGLUniformLocation | null, rgb: Rgb): void {
+  if (!loc) {
+    return;
+  }
+  const [r, g, b] = rgbUnit(rgb);
+  gl.uniform3f(loc, r, g, b);
+}
+
 function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
-  return (canvas, hooks) => {
-    const fragmentSource = buildCustomFragmentSource(spec);
-    if (!fragmentSource) {
-      return null;
-    }
-    const gl = canvas.getContext('webgl', WEBGL_CONTEXT_ATTRIBUTES);
-    if (!gl) {
-      return null;
-    }
-
-    let program: WebGLProgram | null = null;
-    let buffer: WebGLBuffer | null = null;
-    try {
-      program = linkFullscreenProgram(gl, fragmentSource, (stage, info) => {
-        log.error(`custom shader ${stage} failed: ${info.slice(0, 240)}`);
-      });
-      buffer = program ? setupFullscreenTriangle(gl, program) : null;
-      if (!program || !buffer) {
-        throw new Error('Custom WebGL program setup failed');
-      }
-    } catch {
-      if (buffer) gl.deleteBuffer(buffer);
-      if (program) gl.deleteProgram(program);
-      releaseWebglContext(gl);
-      return null;
-    }
-
-    const linked = program;
-    const vertexBuffer = buffer;
-    const std = Object.fromEntries(
-      STANDARD_SHADER_UNIFORMS.map(([name, type]) => [
-        name,
-        gl.getUniformLocation(linked, type.includes('[') ? `u_${name}[0]` : `u_${name}`),
-      ]),
-    ) as Readonly<Record<StandardShaderUniformName, WebGLUniformLocation | null>>;
-    const clicksBuf = new Float32Array(MAX_SHADER_CLICKS * 4);
-    let clicksSettled = false;
-    let lastClickCount = -1;
-    let lastSkyClockAt = 0;
-
-    /** Refreshes the slow local-clock uniforms (`u_dayPhase`, `u_moonPhase`) every 30 seconds. */
-    const syncSkyClock = (): void => {
-      if (!std.dayPhase && !std.moonPhase) {
-        return;
-      }
-      const nowMs = Date.now();
-      if (lastSkyClockAt !== 0 && nowMs - lastSkyClockAt <= 30_000) {
-        return;
-      }
-      lastSkyClockAt = nowMs;
-      if (std.dayPhase) {
-        gl.uniform1f(std.dayPhase, dayPhaseAt(new Date(nowMs)));
-      }
-      if (std.moonPhase) {
-        gl.uniform1f(std.moonPhase, moonPhaseAt(nowMs));
-      }
-    };
-
-    const uploadRgb = (loc: WebGLUniformLocation | null, rgb: Rgb): void => {
-      if (!loc) {
-        return;
-      }
-      const [r, g, b] = rgbUnit(rgb);
-      gl.uniform3f(loc, r, g, b);
-    };
-
-    const paramSpecs: readonly CustomShaderParamSpec[] = spec.params ?? [];
-    const paramLocations = new Map<string, WebGLUniformLocation | null>(
-      paramSpecs.map((param) => [param.key, gl.getUniformLocation(linked, `u_${param.key}`)]),
-    );
-
-    let boundPalette: ScenePalette | null = null;
-    let boundParams: EffectParamValues | undefined | null = null;
-    let boundWidth = 0;
-    let boundHeight = 0;
-    let lost = false;
-
-    const onContextLost = (event: Event): void => {
-      event.preventDefault();
-      lost = true;
-      hooks.fallback({ recoverable: true });
-    };
-    canvas.addEventListener('webglcontextlost', onContextLost);
-
-    const syncResolution = (width: number, height: number): void => {
-      if (width !== boundWidth || height !== boundHeight) {
-        boundWidth = width;
-        boundHeight = height;
-        gl.uniform2f(std.resolution, width, height);
-      }
-    };
-
-    const uploadPalette = (palette: ScenePalette): void => {
-      uploadRgb(std.bg, palette.background);
-      uploadRgb(std.surface, palette.surface);
-      uploadRgb(std.text, palette.text);
-      uploadRgb(std.border, palette.border);
-      uploadRgb(std.accent, palette.accent);
-      uploadRgb(std.accent2, palette.alt);
-      uploadRgb(std.danger, palette.danger);
+  const fragmentSource = buildCustomFragmentSource(spec);
+  if (!fragmentSource) {
+    return () => null;
+  }
+  const paramSpecs: readonly CustomShaderParamSpec[] = spec.params ?? [];
+  return createFullscreenWebglScene({
+    fragment: fragmentSource,
+    renderScale: spec.renderScale ?? 0.5,
+    maxPixels: 480_000,
+    onError(stage, info) {
+      log.error(`custom shader ${stage} failed: ${info.slice(0, 240)}`);
+    },
+    init(gl, program) {
+      const std = Object.fromEntries(
+        STANDARD_SHADER_UNIFORMS.map(([name, type]) => [
+          name,
+          gl.getUniformLocation(program, type.includes('[') ? `u_${name}[0]` : `u_${name}`),
+        ]),
+      ) as Readonly<Record<StandardShaderUniformName, WebGLUniformLocation | null>>;
+      const paramLocations = new Map<string, WebGLUniformLocation | null>(
+        paramSpecs.map((param) => [param.key, gl.getUniformLocation(program, `u_${param.key}`)]),
+      );
+      return {
+        std,
+        paramLocations,
+        clicksBuf: new Float32Array(MAX_SHADER_CLICKS * 4),
+        clicksSettled: false,
+        lastClickCount: -1,
+        lastSkyClockAt: 0,
+      };
+    },
+    onResize(gl, { std }, width, height) {
+      gl.uniform2f(std.resolution, width, height);
+    },
+    onPalette(gl, { std }, palette) {
+      uploadRgb(gl, std.bg, palette.background);
+      uploadRgb(gl, std.surface, palette.surface);
+      uploadRgb(gl, std.text, palette.text);
+      uploadRgb(gl, std.border, palette.border);
+      uploadRgb(gl, std.accent, palette.accent);
+      uploadRgb(gl, std.accent2, palette.alt);
+      uploadRgb(gl, std.danger, palette.danger);
       gl.uniform1f(std.isDark, palette.scheme === 'dark' ? 1 : 0);
-    };
-
-    const uploadParams = (raw: EffectParamValues | undefined): void => {
+    },
+    onParams(gl, { paramLocations }, raw) {
       if (paramSpecs.length === 0) {
         return;
       }
@@ -215,111 +161,78 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
           gl.uniform1f(loc, encoded[0]);
         }
       }
-    };
-
-    const scene: Scene = {
-      kind: 'webgl',
-      renderScale: spec.renderScale ?? 0.5,
-      maxPixels: 480_000,
-      resize(view) {
-        if (!lost) {
-          gl.viewport(0, 0, view.width, view.height);
-          syncResolution(view.width, view.height);
-        }
-      },
-      render(frame) {
-        if (lost) {
-          return;
-        }
-        if (gl.isContextLost()) {
-          lost = true;
-          hooks.fallback({ recoverable: true });
-          return;
-        }
-        if (frame.palette !== boundPalette) {
-          boundPalette = frame.palette;
-          uploadPalette(frame.palette);
-        }
-        if (
-          boundParams === null ||
-          !sameEffectParams(boundParams, frame.ctx.effects.backdropParams)
-        ) {
-          boundParams = frame.ctx.effects.backdropParams;
-          uploadParams(boundParams);
-        }
-        syncResolution(frame.view.width, frame.view.height);
-        if (std.time) {
-          gl.uniform1f(std.time, frame.time);
-        }
-        if (std.delta) {
-          gl.uniform1f(std.delta, frame.dt);
-        }
-        if (std.frame) {
-          gl.uniform1f(std.frame, frame.frameIndex);
-        }
-        if (std.pointer) {
-          gl.uniform4f(
-            std.pointer,
-            frame.pointer.nx,
-            1 - frame.pointer.ny,
-            frame.pointer.presence,
-            frame.ctx.effects.interactive ? 1 : 0,
-          );
-        }
-        if (std.pointerVel) {
-          gl.uniform2f(
-            std.pointerVel,
-            frame.ctx.effects.interactive ? frame.pointer.vx : 0,
-            frame.ctx.effects.interactive ? -frame.pointer.vy : 0,
-          );
-        }
-        if (std.click) {
-          gl.uniform4f(
-            std.click,
-            frame.click.x,
-            1 - frame.click.y,
-            frame.click.age,
-            frame.click.count,
-          );
-        }
-        if (std.clicks && (frame.click.count !== lastClickCount || !clicksSettled)) {
-          let allSettled = true;
-          for (let i = 0; i < MAX_SHADER_CLICKS; i++) {
-            const slot = frame.clicks[i];
-            const offset = i * 4;
-            clicksBuf[offset] = slot ? slot.x : 0.5;
-            clicksBuf[offset + 1] = slot ? 1 - slot.y : 0.5;
-            clicksBuf[offset + 2] = slot ? slot.age : 999;
-            clicksBuf[offset + 3] = slot ? slot.active : 0;
-            if (frame.click.count !== 0 && slot && slot.active !== 0 && slot.age < 30) {
-              allSettled = false;
-            }
+    },
+    onRender(gl, state, frame) {
+      const { std } = state;
+      if (std.time) {
+        gl.uniform1f(std.time, frame.time);
+      }
+      if (std.delta) {
+        gl.uniform1f(std.delta, frame.dt);
+      }
+      if (std.frame) {
+        gl.uniform1f(std.frame, frame.frameIndex);
+      }
+      if (std.pointer) {
+        gl.uniform4f(
+          std.pointer,
+          frame.pointer.nx,
+          1 - frame.pointer.ny,
+          frame.pointer.presence,
+          frame.ctx.effects.interactive ? 1 : 0,
+        );
+      }
+      if (std.pointerVel) {
+        gl.uniform2f(
+          std.pointerVel,
+          frame.ctx.effects.interactive ? frame.pointer.vx : 0,
+          frame.ctx.effects.interactive ? -frame.pointer.vy : 0,
+        );
+      }
+      if (std.click) {
+        gl.uniform4f(
+          std.click,
+          frame.click.x,
+          1 - frame.click.y,
+          frame.click.age,
+          frame.click.count,
+        );
+      }
+      if (std.clicks && (frame.click.count !== state.lastClickCount || !state.clicksSettled)) {
+        let allSettled = true;
+        for (let i = 0; i < MAX_SHADER_CLICKS; i++) {
+          const slot = frame.clicks[i];
+          const offset = i * 4;
+          state.clicksBuf[offset] = slot ? slot.x : 0.5;
+          state.clicksBuf[offset + 1] = slot ? 1 - slot.y : 0.5;
+          state.clicksBuf[offset + 2] = slot ? slot.age : 999;
+          state.clicksBuf[offset + 3] = slot ? slot.active : 0;
+          if (frame.click.count !== 0 && slot && slot.active !== 0 && slot.age < 30) {
+            allSettled = false;
           }
-          gl.uniform4fv(std.clicks, clicksBuf);
-          lastClickCount = frame.click.count;
-          clicksSettled = allSettled;
         }
-        if (std.scroll) {
-          gl.uniform2f(std.scroll, frame.scroll.y, frame.scroll.velocity);
+        gl.uniform4fv(std.clicks, state.clicksBuf);
+        state.lastClickCount = frame.click.count;
+        state.clicksSettled = allSettled;
+      }
+      if (std.scroll) {
+        gl.uniform2f(std.scroll, frame.scroll.y, frame.scroll.velocity);
+      }
+      // Refresh slow local-clock uniforms (`u_dayPhase`, `u_moonPhase`) every 30 seconds.
+      if (std.dayPhase || std.moonPhase) {
+        const nowMs = Date.now();
+        if (state.lastSkyClockAt === 0 || nowMs - state.lastSkyClockAt > 30_000) {
+          state.lastSkyClockAt = nowMs;
+          if (std.dayPhase) {
+            gl.uniform1f(std.dayPhase, dayPhaseAt(new Date(nowMs)));
+          }
+          if (std.moonPhase) {
+            gl.uniform1f(std.moonPhase, moonPhaseAt(nowMs));
+          }
         }
-        syncSkyClock();
-        gl.drawArrays(gl.TRIANGLES, 0, 3);
-      },
-      dispose() {
-        canvas.removeEventListener('webglcontextlost', onContextLost);
-        if (!lost && !gl.isContextLost()) {
-          gl.bindBuffer(gl.ARRAY_BUFFER, null);
-          // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API method, not a React hook
-          gl.useProgram(null);
-          gl.deleteBuffer(vertexBuffer);
-          gl.deleteProgram(linked);
-        }
-        releaseWebglContext(gl);
-        lost = true;
-      },
-    };
-    return scene;
-  };
+      }
+    },
+  });
 }
 
 function buildShaderCssFallback(spec: CustomShaderSpec | undefined, palette: ScenePalette): string {

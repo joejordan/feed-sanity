@@ -4,6 +4,7 @@ import type { StudioVibe, ThemeEffectsConfig } from '../../core/theme-effects/mo
 import type {
   SavedThemeEntry,
   SaveLibraryThemeOptions,
+  ThemeCapabilities,
   ThemeController,
   ThemeDocumentFilterOptions,
   ThemeDocumentV1,
@@ -79,6 +80,30 @@ const SCHEME_FILTERS = [
   { value: 'light', label: 'Light' },
 ] as const;
 
+const BUILTIN_PRESET_SWATCHES: ReadonlyMap<string, readonly string[]> = new Map(
+  BUILTIN_THEMES.map((preset) => [preset.id, getPaletteSwatches(preset.palette, preset.swatches)]),
+);
+
+interface LibraryDocAnalysis {
+  readonly capabilities: ThemeCapabilities;
+  readonly swatches: readonly string[];
+}
+
+/** WeakMap cache keyed by immutable ThemeDocumentV1 object identity so switching tabs skips re-hashing unchanged library items. */
+const LIBRARY_ANALYSIS_CACHE = new WeakMap<ThemeDocumentV1, LibraryDocAnalysis>();
+
+function analyzeLibraryDocument(doc: ThemeDocumentV1): LibraryDocAnalysis {
+  let cached = LIBRARY_ANALYSIS_CACHE.get(doc);
+  if (!cached) {
+    cached = {
+      capabilities: analyzeThemeDocument(doc),
+      swatches: getPaletteSwatches(doc.palette, doc.meta.swatches, true),
+    };
+    LIBRARY_ANALYSIS_CACHE.set(doc, cached);
+  }
+  return cached;
+}
+
 function formatScanTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 }
@@ -118,15 +143,14 @@ function AppearancePanelView({
     return library.onChange(syncLibraryState);
   }, [library]);
   const activeFingerprint = useMemo(
-    () => (library ? analyzeThemeDocument(value).fingerprint : ''),
+    () => (library ? analyzeLibraryDocument(value).capabilities.fingerprint : ''),
     [library, value],
   );
   const analyzedLibrary = useMemo(() => {
-    const items = libraryEntries.map((entry) => ({
-      entry,
-      capabilities: analyzeThemeDocument(entry.document),
-      swatches: getPaletteSwatches(entry.document.palette, entry.document.meta.swatches, true),
-    }));
+    const items = libraryEntries.map((entry) => {
+      const { capabilities, swatches } = analyzeLibraryDocument(entry.document);
+      return { entry, capabilities, swatches };
+    });
     const fingerprints = new Set(items.map((item) => item.capabilities.fingerprint));
     return { items, fingerprints };
   }, [libraryEntries]);
@@ -604,7 +628,7 @@ function AppearancePanelView({
                 onFocus={() => previewPreset(preset.id)}
                 onClick={() => selectColorTheme(preset.id, preset.name)}
               >
-                <ThemeSwatches swatches={getPaletteSwatches(preset.palette, preset.swatches)} />
+                <ThemeSwatches swatches={BUILTIN_PRESET_SWATCHES.get(preset.id) ?? []} />
                 <span className="theme-card-name">{preset.name}</span>
                 <p className="theme-card-desc">{preset.description}</p>
               </button>
@@ -616,6 +640,7 @@ function AppearancePanelView({
       <CreativeStudioCard
         effects={effects}
         effectsActive={effectsActive}
+        activeVibe={activeVibe}
         onPreviewEffects={previewEffects}
         onUpdateEffects={updateEffects}
         onResetEffects={resetEffects}

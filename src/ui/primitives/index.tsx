@@ -253,6 +253,7 @@ export function SegmentedControl<T extends string>({
           key={opt.value}
           type="button"
           className="fs-segmented-btn"
+          title={opt.label}
           aria-pressed={value === opt.value}
           data-armed={armedValue === opt.value ? 'true' : undefined}
           onClick={() => onChange(opt.value)}

@@ -12,6 +12,7 @@ import { EVENT_HORIZON_SHADER } from './event-horizon-shader';
 import { LUMINOUS_TIDE_SHADER } from './luminous-tide-shader';
 import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from './model';
 import { buildCustomFragmentSource } from './renderers/custom-shader';
+import { BACKGROUND_WEBGL_RELEASE_MS } from './renderers/scene-host';
 import {
   MAX_CUSTOM_SHADER_BYTES,
   MAX_CUSTOM_SHADER_PARAMS,
@@ -1203,5 +1204,62 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
     }
     expect(document.querySelector('canvas')).toBeNull();
     expect(document.querySelector('[data-feed-sanity="theme-click-fx"]')).toBeNull();
+  });
+
+  it('proactively releases WebGL contexts after a long background hide and remounts cleanly on wake', () => {
+    vi.useFakeTimers();
+    const fake = makeFakeWebGLContext({ compileOk: true });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((kind: string) =>
+      kind === 'webgl' ? fake.gl : null) as HTMLCanvasElement['getContext']);
+    mockCanvasSize(800, 600);
+    let hidden = false;
+    const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+
+    const controller = createEffectsLayerController(document);
+    try {
+      controller.sync(
+        {
+          ...DEFAULT_THEME_EFFECTS,
+          backdrop: 'custom-shader',
+          customShader: { fragment: 'void main() { gl_FragColor = vec4(u_accent, 1.0); }' },
+          paused: false,
+        },
+        DARK_PALETTE,
+        'dark',
+      );
+      expect(document.querySelector('canvas[data-fs-renderer="webgl"]')).not.toBeNull();
+      expect(fake.loseContext).not.toHaveBeenCalled();
+
+      // Hide tab: before the timeout expires the WebGL context stays alive.
+      hidden = true;
+      document.dispatchEvent(new Event('visibilitychange'));
+      vi.advanceTimersByTime(BACKGROUND_WEBGL_RELEASE_MS - 1);
+      expect(document.querySelector('canvas[data-fs-renderer="webgl"]')).not.toBeNull();
+      expect(fake.loseContext).not.toHaveBeenCalled();
+
+      // After BACKGROUND_WEBGL_RELEASE_MS the WebGL context is proactively released without CSS fallback.
+      vi.advanceTimersByTime(1);
+      expect(document.querySelector('canvas')).toBeNull();
+      expect(document.querySelector('[data-fs-renderer="css"]')).toBeNull();
+      expect(fake.loseContext).toHaveBeenCalledTimes(1);
+
+      // Returning to visibility remounts WebGL cleanly (repeat 4 cycles to prove error budget isn't spent).
+      for (let cycle = 0; cycle < 4; cycle++) {
+        hidden = false;
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(document.querySelector('canvas[data-fs-renderer="webgl"]')).not.toBeNull();
+        hidden = true;
+        document.dispatchEvent(new Event('visibilitychange'));
+        vi.advanceTimersByTime(BACKGROUND_WEBGL_RELEASE_MS);
+        expect(document.querySelector('canvas')).toBeNull();
+      }
+      hidden = false;
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(document.querySelector('canvas[data-fs-renderer="webgl"]')).not.toBeNull();
+    } finally {
+      controller.dispose();
+      hiddenSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

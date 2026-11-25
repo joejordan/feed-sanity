@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   SavedThemeEntry,
   ThemeCapabilities,
@@ -132,6 +132,7 @@ interface SavedThemeItemProps {
   readonly viewMode: ThemeLibraryViewMode;
   readonly isActive: boolean;
   readonly isRenaming: boolean;
+  readonly registerSelectButton: (id: string, el: HTMLButtonElement | null) => void;
   readonly onStartRename: () => void;
   readonly onCommitRename: (nextName: string) => void;
   readonly onCancelRename: () => void;
@@ -237,6 +238,7 @@ function SavedThemeItem({
   viewMode,
   isActive,
   isRenaming,
+  registerSelectButton,
   onStartRename,
   onCommitRename,
   onCancelRename,
@@ -247,6 +249,10 @@ function SavedThemeItem({
   onDelete,
 }: SavedThemeItemProps) {
   const { entry, capabilities, swatches } = item;
+  const selectButtonRef = useCallback(
+    (el: HTMLButtonElement | null) => registerSelectButton(entry.id, el),
+    [registerSelectButton, entry.id],
+  );
   const name = entry.document.meta.name;
   const isCompact = viewMode === 'list';
   const backdropLabel = isCompact ? null : libraryBackdropLabel(capabilities);
@@ -290,6 +296,7 @@ function SavedThemeItem({
       ) : (
         <>
           <button
+            ref={selectButtonRef}
             type="button"
             className="theme-library-select"
             aria-pressed={isActive}
@@ -370,6 +377,7 @@ function DeleteThemeConfirmDialog({ item, onCancel, onConfirm }: DeleteThemeConf
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const pointerDownOnBackdropRef = useRef(false);
+  const confirmedRef = useRef(false);
   const name = item.entry.document.meta.name;
 
   useEffect(() => {
@@ -385,7 +393,8 @@ function DeleteThemeConfirmDialog({ item, onCancel, onConfirm }: DeleteThemeConf
       if (el?.open && typeof el.close === 'function') {
         el.close();
       }
-      if (prevFocus?.isConnected) {
+      // Restore focus to the trigger only on cancel; confirmed deletes hand focus to the neighbor item.
+      if (!confirmedRef.current && prevFocus?.isConnected) {
         prevFocus.focus();
       }
     };
@@ -458,7 +467,10 @@ function DeleteThemeConfirmDialog({ item, onCancel, onConfirm }: DeleteThemeConf
             ref={confirmRef}
             type="button"
             className="button theme-confirm-danger"
-            onClick={onConfirm}
+            onClick={() => {
+              confirmedRef.current = true;
+              onConfirm();
+            }}
           >
             Delete theme
           </button>
@@ -494,10 +506,32 @@ export function ThemeLibraryCard({
   } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
+  const selectButtonsRef = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const pendingFocusAfterDeleteRef = useRef<{
+    readonly deletedId: string;
+    readonly fallbackId: string | null;
+  } | null>(null);
   const activeRenamingId =
     renamingId !== null && items.some((item) => item.entry.id === renamingId) ? renamingId : null;
   const deletingItem =
     deletingId === null ? null : (items.find((item) => item.entry.id === deletingId) ?? null);
+
+  useEffect(() => {
+    const pending = pendingFocusAfterDeleteRef.current;
+    if (!pending || items.some((item) => item.entry.id === pending.deletedId)) {
+      return;
+    }
+    pendingFocusAfterDeleteRef.current = null;
+    const neighborBtn = pending.fallbackId
+      ? selectButtonsRef.current.get(pending.fallbackId)
+      : undefined;
+    if (neighborBtn?.isConnected) {
+      neighborBtn.focus();
+    } else if (saveButtonRef.current?.isConnected) {
+      saveButtonRef.current.focus();
+    }
+  }, [items]);
 
   useEffect(() => {
     if (renamingId !== null && activeRenamingId === null) {
@@ -510,6 +544,14 @@ export function ThemeLibraryCard({
       setDeletingId(null);
     }
   }, [deletingId, deletingItem]);
+
+  const registerSelectButton = useCallback((id: string, el: HTMLButtonElement | null) => {
+    if (el) {
+      selectButtonsRef.current.set(id, el);
+    } else {
+      selectButtonsRef.current.delete(id);
+    }
+  }, []);
 
   const openSaveForm = (): void => {
     setSaveForm((prev) => ({
@@ -544,6 +586,7 @@ export function ThemeLibraryCard({
             Apply to all sites
           </button>
           <button
+            ref={saveButtonRef}
             type="button"
             className="theme-inline-reset"
             disabled={isLibraryFull}
@@ -606,6 +649,7 @@ export function ThemeLibraryCard({
                 viewMode={viewMode}
                 isActive={item.capabilities.fingerprint === activeFingerprint}
                 isRenaming={activeRenamingId === item.entry.id}
+                registerSelectButton={registerSelectButton}
                 onStartRename={() => {
                   onPreviewEntry?.(null);
                   setRenamingId(item.entry.id);
@@ -639,6 +683,12 @@ export function ThemeLibraryCard({
           onCancel={() => setDeletingId(null)}
           onConfirm={() => {
             const target = deletingItem.entry;
+            const idx = items.findIndex((item) => item.entry.id === target.id);
+            const fallbackEntry = items[idx + 1] ?? items[idx - 1];
+            pendingFocusAfterDeleteRef.current = {
+              deletedId: target.id,
+              fallbackId: fallbackEntry?.entry.id ?? null,
+            };
             setDeletingId(null);
             onDeleteEntry(target);
           }}

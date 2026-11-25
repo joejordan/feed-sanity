@@ -174,7 +174,8 @@ const MAX_RIGHT_RAIL_UP = 6;
 const MAX_RIGHT_RAIL_DEPTH = 16;
 const MAX_RIGHT_RAIL_NODES = 240;
 
-const AD_UNIT_PATTERN = /CometAdsSideFeedUnitItem|CometHomeRightSideEgo/;
+const AD_UNIT_PATTERN =
+  /CometAdsSideFeed|CometHomeRightSideEgo|CometRightSideFeedEgo|CometRightRailAds/;
 
 function componentName(type: unknown): string | undefined {
   if (typeof type === 'function') {

@@ -4,7 +4,7 @@
 
 import type { EffectParamValues } from '../model';
 import type { ScenePalette } from './palette';
-import type { Scene, SceneFactory } from './scene-host';
+import type { Scene, SceneFactory, SceneFrame } from './scene-host';
 import { sameEffectParams } from '../model';
 
 /** Uniforms every shader scene receives from the runner. */
@@ -146,9 +146,39 @@ export function releaseWebglContext(gl: WebGLRenderingContext): void {
   gl.getExtension('WEBGL_lose_context')?.loseContext();
 }
 
-export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<U>): SceneFactory {
+const DEFAULT_WEBGL_RENDER_SCALE = 0.45;
+const DEFAULT_WEBGL_MAX_PIXELS = 640_000;
+
+export interface FullscreenWebglSpec<TState> {
+  readonly fragment: string;
+  readonly renderScale?: number | undefined;
+  readonly maxPixels?: number | undefined;
+  readonly onError?: (stage: 'compile' | 'link', info: string) => void;
+  readonly init: (gl: WebGLRenderingContext, program: WebGLProgram) => TState;
+  readonly onResize?: (
+    gl: WebGLRenderingContext,
+    state: TState,
+    width: number,
+    height: number,
+  ) => void;
+  readonly onPalette?: (gl: WebGLRenderingContext, state: TState, palette: ScenePalette) => void;
+  readonly onParams?: (
+    gl: WebGLRenderingContext,
+    state: TState,
+    params: EffectParamValues | undefined,
+  ) => void;
+  readonly onRender: (gl: WebGLRenderingContext, state: TState, frame: SceneFrame) => void;
+}
+
+/**
+ * Shared WebGL 1 fullscreen-triangle scene factory encapsulating context setup,
+ * error teardown, context-loss recovery, resolution/palette/param dirty-checks,
+ * fullscreen draw, and GPU resource disposal.
+ */
+export function createFullscreenWebglScene<TState>(
+  spec: FullscreenWebglSpec<TState>,
+): SceneFactory {
   return (canvas, hooks) => {
-    // The scene host treats a throw here like `null` and moves to the next fallback.
     const gl = canvas.getContext('webgl', WEBGL_CONTEXT_ATTRIBUTES);
     if (!gl) {
       return null;
@@ -156,7 +186,7 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
     let program: WebGLProgram | null = null;
     let buffer: WebGLBuffer | null = null;
     try {
-      program = linkFullscreenProgram(gl, spec.fragment);
+      program = linkFullscreenProgram(gl, spec.fragment, spec.onError);
       buffer = program ? setupFullscreenTriangle(gl, program) : null;
       if (!program || !buffer) {
         throw new Error('WebGL program setup failed');
@@ -170,15 +200,13 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
 
     const linked = program;
     const vertexBuffer = buffer;
-    const names: ReadonlyArray<U | BuiltinUniform> = [...BUILTIN_UNIFORMS, ...spec.uniforms];
-    const uniforms = Object.fromEntries(
-      names.map((name) => [name, gl.getUniformLocation(linked, name)]),
-    ) as UniformMap<U | BuiltinUniform>;
+    const state = spec.init(gl, linked);
     let boundPalette: ScenePalette | null = null;
     let boundParams: EffectParamValues | undefined | null = null;
     let boundWidth = 0;
     let boundHeight = 0;
     let lost = false;
+
     const onContextLost = (event: Event): void => {
       event.preventDefault();
       lost = true;
@@ -190,14 +218,14 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
       if (width !== boundWidth || height !== boundHeight) {
         boundWidth = width;
         boundHeight = height;
-        gl.uniform2f(uniforms.uResolution, width, height);
+        spec.onResize?.(gl, state, width, height);
       }
     };
 
     const scene: Scene = {
       kind: 'webgl',
-      renderScale: spec.renderScale ?? 0.45,
-      maxPixels: spec.maxPixels ?? 640_000,
+      renderScale: spec.renderScale ?? DEFAULT_WEBGL_RENDER_SCALE,
+      maxPixels: spec.maxPixels ?? DEFAULT_WEBGL_MAX_PIXELS,
       resize(view) {
         if (!lost) {
           gl.viewport(0, 0, view.width, view.height);
@@ -213,25 +241,19 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
           hooks.fallback({ recoverable: true });
           return;
         }
-        if (frame.palette !== boundPalette) {
+        if (spec.onPalette && frame.palette !== boundPalette) {
           boundPalette = frame.palette;
-          spec.bindPalette(gl, uniforms, frame.palette);
+          spec.onPalette(gl, state, frame.palette);
         }
         if (
-          spec.bindParams &&
+          spec.onParams &&
           (boundParams === null || !sameEffectParams(boundParams, frame.ctx.effects.backdropParams))
         ) {
           boundParams = frame.ctx.effects.backdropParams;
-          spec.bindParams(gl, uniforms, boundParams);
+          spec.onParams(gl, state, boundParams);
         }
         syncResolution(frame.view.width, frame.view.height);
-        gl.uniform1f(uniforms.uTime, frame.time);
-        gl.uniform3f(
-          uniforms.uPointer,
-          frame.pointer.nx,
-          1 - frame.pointer.ny,
-          frame.pointer.presence,
-        );
+        spec.onRender(gl, state, frame);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       },
       dispose() {
@@ -249,6 +271,34 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
     };
     return scene;
   };
+}
+
+export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<U>): SceneFactory {
+  return createFullscreenWebglScene({
+    fragment: spec.fragment,
+    renderScale: spec.renderScale,
+    maxPixels: spec.maxPixels,
+    init(gl, program) {
+      const names: ReadonlyArray<U | BuiltinUniform> = [...BUILTIN_UNIFORMS, ...spec.uniforms];
+      return Object.fromEntries(
+        names.map((name) => [name, gl.getUniformLocation(program, name)]),
+      ) as UniformMap<U | BuiltinUniform>;
+    },
+    onResize(gl, uniforms, width, height) {
+      gl.uniform2f(uniforms.uResolution, width, height);
+    },
+    onPalette: spec.bindPalette,
+    ...(spec.bindParams ? { onParams: spec.bindParams } : {}),
+    onRender(gl, uniforms, frame) {
+      gl.uniform1f(uniforms.uTime, frame.time);
+      gl.uniform3f(
+        uniforms.uPointer,
+        frame.pointer.nx,
+        1 - frame.pointer.ny,
+        frame.pointer.presence,
+      );
+    },
+  });
 }
 
 /** Shared GLSL helpers: Ashima/Gustavson 2D simplex noise (MIT) and a sine-free hash. */

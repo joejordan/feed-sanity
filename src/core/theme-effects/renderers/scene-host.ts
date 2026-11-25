@@ -163,6 +163,8 @@ const WATCHDOG_MAX_GAP_MS = 250;
 const RECOVERY_WINDOW_MS = 60_000;
 const RECOVERY_COOLDOWN_MS = 2000;
 const MAX_RECOVERIES_PER_WINDOW = 3;
+/** Proactively release WebGL contexts after a tab stays hidden this long to preserve browser GPU slots. */
+export const BACKGROUND_WEBGL_RELEASE_MS = 60_000;
 
 /**
  * Resolves a crisp but bounded backing-store size: the device pixel ratio is
@@ -226,12 +228,36 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   let scaleMultiplier = 1;
   let destroyed = false;
   let needsPrimaryRecovery = false;
+  let releasedForBackground = false;
+  let bgReleaseTimer: ReturnType<typeof setTimeout> | undefined;
   let recoveryWindowStart = 0;
   let recoveryAttempts = 0;
   let recoveryEarliestAt = 0;
   let sceneHooks: SceneHooks | null = null;
   let sceneAbort: AbortController | null = null;
   let cachedCtx2d: (CanvasRenderingContext2D & { isContextLost?: () => boolean }) | null = null;
+
+  const clearBgReleaseTimer = (): void => {
+    if (bgReleaseTimer !== undefined) {
+      clearTimeout(bgReleaseTimer);
+      bgReleaseTimer = undefined;
+    }
+  };
+
+  const scheduleBgWebglRelease = (): void => {
+    if (destroyed || !doc.hidden || scene?.kind !== 'webgl' || bgReleaseTimer !== undefined) {
+      return;
+    }
+    bgReleaseTimer = setTimeout(() => {
+      bgReleaseTimer = undefined;
+      if (destroyed || !doc.hidden || scene?.kind !== 'webgl') {
+        return;
+      }
+      disposeScene();
+      releasedForBackground = true;
+      needsPrimaryRecovery = true;
+    }, BACKGROUND_WEBGL_RELEASE_MS);
+  };
 
   const scheduleRaf = (cb: FrameRequestCallback): number => {
     rafScheduledAt = performance.now();
@@ -486,21 +512,25 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       return false;
     }
     const now = performance.now();
-    if (!ignoreCooldown && now < recoveryEarliestAt) {
-      return false;
-    }
-    if (recoveryWindowStart === 0 || now - recoveryWindowStart > RECOVERY_WINDOW_MS) {
-      recoveryWindowStart = now;
-      recoveryAttempts = 0;
-    }
-    if (recoveryAttempts >= MAX_RECOVERIES_PER_WINDOW) {
-      needsPrimaryRecovery = false;
-      if (!scene && !cssLayer) {
-        mountCssFallback();
+    const fromBackground = releasedForBackground;
+    if (!fromBackground) {
+      if (!ignoreCooldown && now < recoveryEarliestAt) {
+        return false;
       }
-      return false;
+      if (recoveryWindowStart === 0 || now - recoveryWindowStart > RECOVERY_WINDOW_MS) {
+        recoveryWindowStart = now;
+        recoveryAttempts = 0;
+      }
+      if (recoveryAttempts >= MAX_RECOVERIES_PER_WINDOW) {
+        needsPrimaryRecovery = false;
+        if (!scene && !cssLayer) {
+          mountCssFallback();
+        }
+        return false;
+      }
+      recoveryAttempts += 1;
     }
-    recoveryAttempts += 1;
+    releasedForBackground = false;
     needsPrimaryRecovery = false;
     nextFactory = 0;
     cssLayer?.remove();
@@ -508,7 +538,10 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     mountNext();
     // If the GPU process is still restarting on wake and factory 0 failed to mount,
     // keep recovery armed for a cooled-down retry within the remaining budget.
-    if ((!scene || nextFactory > 1) && recoveryAttempts < MAX_RECOVERIES_PER_WINDOW) {
+    if (
+      (!scene || nextFactory > 1) &&
+      (fromBackground || recoveryAttempts < MAX_RECOVERIES_PER_WINDOW)
+    ) {
       needsPrimaryRecovery = true;
       recoveryEarliestAt = now + RECOVERY_COOLDOWN_MS;
     }
@@ -533,8 +566,9 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     if (destroyed || !animating()) {
       return;
     }
+    const beforeFrame = frameIndex;
     if (recoverIfNeeded(false)) {
-      sync();
+      sync(frameIndex > beforeFrame);
       return;
     }
     if (!scene || cachedCtx2d?.isContextLost?.() === true || (spec.onDemand && pointerSettled())) {
@@ -546,26 +580,40 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     }
   };
 
-  const sync = (): void => {
+  const sync = (alreadyPainted = false): void => {
     if (destroyed) {
       return;
+    }
+    let painted = alreadyPainted;
+    if (!doc.hidden && releasedForBackground) {
+      const beforeFrame = frameIndex;
+      tryRecoverPrimary(true);
+      painted = painted || frameIndex > beforeFrame;
     }
     if (cssLayer) {
       cssLayer.style.background = spec.cssFallback(palette);
     }
     if (!scene || doc.hidden || cachedCtx2d?.isContextLost?.() === true) {
       stop();
+      if (doc.hidden && scene?.kind === 'webgl') {
+        scheduleBgWebglRelease();
+      }
       return;
     }
+    clearBgReleaseTimer();
     if (animating()) {
-      paint(0, false);
+      if (!painted) {
+        paint(0, false);
+      }
       if (!spec.onDemand || !pointerSettled()) {
         start();
       }
       return;
     }
     stop();
-    paint(0, true);
+    if (!painted) {
+      paint(0, true);
+    }
   };
 
   const measure = (hintWidth?: number, hintHeight?: number): void => {
@@ -619,6 +667,7 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   };
 
   const disposeScene = (): void => {
+    clearBgReleaseTimer();
     stop();
     sceneAbort?.abort();
     sceneAbort = null;
@@ -766,9 +815,11 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       sync();
       return;
     }
+    clearBgReleaseTimer();
+    const beforeFrame = frameIndex;
     recoverIfNeeded(true, true);
     clearStaleRaf();
-    sync();
+    sync(frameIndex > beforeFrame);
   };
 
   mountNext();
@@ -788,7 +839,7 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   doc.addEventListener('resume', onWake, { signal });
   win.addEventListener('pageshow', onWake, { signal });
   win.addEventListener('focus', onWake, { signal });
-  reducedMotion?.addEventListener?.('change', sync, { signal });
+  reducedMotion?.addEventListener?.('change', () => sync(), { signal });
   doc.addEventListener('pointermove', onPointerMove, { signal, passive: true, capture: true });
   doc.addEventListener('pointerout', onPointerOut, { signal, passive: true, capture: true });
   if (spec.trackScroll) {
@@ -846,6 +897,7 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
         return;
       }
       destroyed = true;
+      clearBgReleaseTimer();
       abort.abort();
       resizeObserver?.disconnect();
       disposeScene();

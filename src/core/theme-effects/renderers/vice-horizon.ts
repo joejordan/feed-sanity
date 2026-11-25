@@ -353,6 +353,51 @@ function bokehSprite(doc: Document, color: Rgb): HTMLCanvasElement | null {
   ]);
 }
 
+interface SwellRow {
+  readonly baseY: number;
+  readonly amp: number;
+  readonly alphaBase: number;
+  readonly height: number;
+  readonly css: string;
+}
+
+interface ReflectionRow {
+  readonly y: number;
+  readonly thick: number;
+  readonly halfW: number;
+  readonly rowAlpha: number;
+  readonly css: string;
+}
+
+interface NeonRow {
+  readonly y: number;
+  readonly alphaBase: number;
+  readonly wobbleAmp: number;
+  readonly halfW: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+interface StarLayout {
+  readonly x: number;
+  readonly y: number;
+  readonly s: number;
+  readonly alphaBase: number;
+  readonly phase: number;
+  readonly rate: number;
+}
+
+interface GlintLayout {
+  readonly baseX: number;
+  readonly y: number;
+  readonly len: number;
+  readonly height: number;
+  readonly alphaBase: number;
+  readonly speed: number;
+  readonly phase: number;
+  readonly toneIdx: number;
+}
+
 /** Everything that depends only on the viewport, rebuilt on resize. */
 interface ViceFrame {
   readonly horizonY: number;
@@ -370,6 +415,11 @@ interface ViceFrame {
   /** Only the part of the disc above the horizon is ever visible, so only it is drawn. */
   readonly sun: Layer | null;
   readonly sunDisc: CanvasGradient | null;
+  readonly swells: readonly SwellRow[];
+  readonly reflections: readonly ReflectionRow[];
+  readonly neonRows: readonly NeonRow[];
+  readonly starLayout: readonly StarLayout[];
+  readonly glintLayout: readonly GlintLayout[];
 }
 
 function buildFrame(
@@ -377,10 +427,24 @@ function buildFrame(
   doc: Document,
   view: SceneViewport,
   sunScale: number,
+  stars: ReadonlyArray<{
+    readonly x: number;
+    readonly y: number;
+    readonly s: number;
+    readonly phase: number;
+    readonly rate: number;
+  }>,
+  glints: ReadonlyArray<{
+    readonly x: number;
+    readonly s: number;
+    readonly len: number;
+    readonly phase: number;
+  }>,
 ): ViceFrame {
   const w = view.cssWidth;
   const h = view.cssHeight;
   const horizonY = Math.round(h * HORIZON);
+  const oceanH = h - horizonY;
   // Wide enough that the disc's rim peeks past a 600px reading column.
   const sunR = Math.max(95, Math.min(Math.min(w, h) * 0.4, 470) * sunScale);
   const linear = (y0: number, y1: number, stops: ReadonlyArray<readonly [number, string]>) => {
@@ -421,9 +485,58 @@ function buildFrame(
   ] as const) {
     sunDisc?.addColorStop(offset, color);
   }
+  const swells: SwellRow[] = Array.from({ length: 18 }, (_, k) => {
+    const s = (k + 0.5) / 18;
+    return {
+      baseY: horizonY + 3 + oceanH * s ** 1.8,
+      amp: 0.5 + s * 2,
+      alphaBase: (1 - s) * 0.07,
+      height: 0.8 + s * 2.2,
+      css: k % 2 === 0 ? PINK_CSS : VIOLET_CSS,
+    };
+  });
+  const reflections: ReflectionRow[] = Array.from({ length: REFLECTION_ROWS }, (_, k) => {
+    const s = (k + 0.5) / REFLECTION_ROWS;
+    return {
+      y: horizonY + 2 + oceanH * s ** 1.65,
+      thick: 0.7 + s * 2,
+      halfW: sunR * (0.4 + s * 0.6),
+      rowAlpha: (1 - s) ** 1.5 * 0.66,
+      css: REFLECTION_CSS[k] ?? PINK_CSS,
+    };
+  });
+  const neonRows: NeonRow[] = Array.from({ length: 9 }, (_, d) => {
+    const s = d / 9;
+    return {
+      y: horizonY + 3 + s * oceanH * 0.34,
+      alphaBase: (1 - s) * 0.32,
+      wobbleAmp: 1.2 + s * 4,
+      halfW: 1 + s * 2,
+      w: 2 + s * 4,
+      h: 1.6 + s * 4,
+    };
+  });
+  const starLayout: StarLayout[] = stars.map((star) => ({
+    x: star.x * w,
+    y: star.y * horizonY,
+    s: star.s,
+    alphaBase: (1 - star.y / 0.62) * 0.75,
+    phase: star.phase,
+    rate: star.rate,
+  }));
+  const glintLayout: GlintLayout[] = glints.map((glint, i) => ({
+    baseX: glint.x * w,
+    y: horizonY + 3 + oceanH * glint.s ** 1.65,
+    len: (3 + glint.s * 15) * glint.len,
+    height: 0.7 + glint.s * 0.8,
+    alphaBase: 0.07 + glint.s * 0.07,
+    speed: 6 + glint.s * 18,
+    phase: glint.phase,
+    toneIdx: i % 2,
+  }));
   return {
     horizonY,
-    oceanH: h - horizonY,
+    oceanH,
     sunScale,
     sunR,
     sky: linear(0, horizonY, [
@@ -449,6 +562,11 @@ function buildFrame(
     bloom,
     sun,
     sunDisc,
+    swells,
+    reflections,
+    neonRows,
+    starLayout,
+    glintLayout,
   };
 }
 
@@ -565,16 +683,16 @@ const createViceCanvas: SceneFactory = (canvas) => {
 
   const scene: Scene = {
     kind: 'canvas2d',
-    renderScale: 0.75,
+    renderScale: 0.6,
     maxPixelRatio: 1.25,
-    maxPixels: 1_200_000,
+    maxPixels: 800_000,
     resize(view) {
       const prevSunScale = frame?.sunScale ?? 1;
       releaseOffscreenLayers();
       const rand = createRandom(seed);
       const w = view.cssWidth;
       const h = view.cssHeight;
-      frame = buildFrame(c, doc, view, prevSunScale);
+      frame = buildFrame(c, doc, view, prevSunScale, stars, glints);
       sunStaticClean = false;
       skyline = buildSkyline(doc, rand, w, h, view.pixelRatio);
       clouds = buildClouds(doc, rand, w, h * HORIZON);
@@ -615,7 +733,7 @@ const createViceCanvas: SceneFactory = (canvas) => {
       } = viceHorizonParams(ctx.effects.backdropParams);
       if (!frame || frame.sunScale !== sunScale) {
         releaseLayer(frame?.sun ?? null);
-        frame = buildFrame(c, doc, view, sunScale);
+        frame = buildFrame(c, doc, view, sunScale, stars, glints);
         sunStaticClean = false;
       }
       const { horizonY, oceanH, sunR } = frame;
@@ -636,10 +754,11 @@ const createViceCanvas: SceneFactory = (canvas) => {
 
       // 2. Delicate twilight stars, fading as the sky warms.
       c.fillStyle = '#fff1fb';
-      for (const star of stars) {
-        c.globalAlpha =
-          (1 - star.y / 0.62) * 0.75 * (0.55 + 0.45 * Math.sin(time * star.rate + star.phase));
-        c.fillRect(star.x * w - px * 3, star.y * horizonY - py * 2, star.s, star.s);
+      const starShiftX = px * 3;
+      const starShiftY = py * 2;
+      for (const star of frame.starLayout) {
+        c.globalAlpha = star.alphaBase * (0.55 + 0.45 * Math.sin(time * star.rate + star.phase));
+        c.fillRect(star.x - starShiftX, star.y - starShiftY, star.s, star.s);
       }
       c.globalAlpha = 1;
 
@@ -766,55 +885,56 @@ const createViceCanvas: SceneFactory = (canvas) => {
 
       c.globalCompositeOperation = 'lighter';
       // Full-width sky reflections: faint swells that keep the gutters alive.
-      for (let k = 0; k < 18; k++) {
-        const s = (k + 0.5) / 18;
-        const y = horizonY + 3 + oceanH * s ** 1.8 + Math.sin(time * 0.8 + k * 1.7) * (0.5 + s * 2);
-        c.globalAlpha = (1 - s) * 0.07 * (0.6 + 0.4 * Math.sin(time * 1.1 + k * 2.3));
-        c.fillStyle = k % 2 === 0 ? PINK_CSS : VIOLET_CSS;
-        c.fillRect(0, y, w, 0.8 + s * 2.2);
+      for (let k = 0; k < frame.swells.length; k++) {
+        const swell = frame.swells[k]!;
+        const y = swell.baseY + Math.sin(time * 0.8 + k * 1.7) * swell.amp;
+        c.globalAlpha = swell.alphaBase * (0.6 + 0.4 * Math.sin(time * 1.1 + k * 2.3));
+        c.fillStyle = swell.css;
+        c.fillRect(0, y, w, swell.height);
       }
       // Sun reflection: perspective-compressed shimmering bands.
-      for (let k = 0; k < REFLECTION_ROWS; k++) {
-        const s = (k + 0.5) / REFLECTION_ROWS;
-        const y = horizonY + 2 + oceanH * s ** 1.65;
-        const thick = 0.7 + s * 2;
-        const halfW = sunR * (0.4 + s * 0.6);
-        // Deep rows fade fast so the near water stays calm at the column edges.
-        const rowAlpha = (1 - s) ** 1.5 * 0.66;
-        c.fillStyle = REFLECTION_CSS[k] ?? PINK_CSS;
+      for (let k = 0; k < frame.reflections.length; k++) {
+        const row = frame.reflections[k]!;
+        c.fillStyle = row.css;
         for (let j = 0; j < 4; j++) {
           const u = (j - 1.5) / 1.5;
           const shimmer = Math.abs(Math.sin(time * 0.9 + k * 2.7 + j * 1.3));
           const cx =
-            sunX + u * halfW * 0.72 + Math.sin(time * 1.2 + k * 1.9 + j * 2.3) * halfW * 0.1;
-          const segW = halfW * 0.44 * (0.3 + 0.7 * shimmer) * (1 - Math.abs(u) * 0.35);
-          c.globalAlpha = rowAlpha * (0.45 + 0.55 * shimmer);
-          c.fillRect(cx - segW / 2, y, segW, thick);
+            sunX +
+            u * row.halfW * 0.72 +
+            Math.sin(time * 1.2 + k * 1.9 + j * 2.3) * row.halfW * 0.1;
+          const segW = row.halfW * 0.44 * (0.3 + 0.7 * shimmer) * (1 - Math.abs(u) * 0.35);
+          c.globalAlpha = row.rowAlpha * (0.45 + 0.55 * shimmer);
+          c.fillRect(cx - segW / 2, row.y, segW, row.thick);
         }
       }
 
       // Scattered sky glints across the water, cool away from the sun.
-      for (const [i, glint] of glints.entries()) {
-        const y = horizonY + 3 + oceanH * glint.s ** 1.65;
-        const x = wrap(glint.x * w + drift * (6 + glint.s * 18), w);
-        const len = (3 + glint.s * 15) * glint.len;
-        const warmth = Math.exp(-(((x - sunX) / (w * 0.28)) ** 2));
-        c.globalAlpha = Math.max(0, Math.sin(time * 1.3 + glint.phase)) * (0.07 + glint.s * 0.07);
-        c.fillStyle = GLINT_CSS[i % 2]?.[Math.round(warmth * WARMTH_STEPS)] ?? PINK_CSS;
-        c.fillRect(x - len / 2, y, len, 0.7 + glint.s * 0.8);
+      const invWarmSpan = 1 / (w * 0.28);
+      for (const glint of frame.glintLayout) {
+        const alpha = Math.sin(time * 1.3 + glint.phase);
+        if (alpha <= 0) {
+          continue;
+        }
+        const x = wrap(glint.baseX + drift * glint.speed, w);
+        const dx = (x - sunX) * invWarmSpan;
+        const warmth = Math.exp(-(dx * dx));
+        c.globalAlpha = alpha * glint.alphaBase;
+        c.fillStyle = GLINT_CSS[glint.toneIdx]?.[Math.round(warmth * WARMTH_STEPS)] ?? PINK_CSS;
+        c.fillRect(x - glint.len / 2, glint.y, glint.len, glint.height);
       }
 
       // Neon trims reflected as wavering vertical streaks.
       if (skyline) {
-        for (const [i, mark] of skyline.neon.entries()) {
+        for (let i = 0; i < skyline.neon.length; i++) {
+          const mark = skyline.neon[i]!;
           const baseX = mark.x + nearX;
           c.fillStyle = mark.css;
-          for (let d = 0; d < 9; d++) {
-            const s = d / 9;
-            const y = horizonY + 3 + s * oceanH * 0.34;
-            const wobble = Math.sin(time * 2 + d * 1.3 + i) * (1.2 + s * 4);
-            c.globalAlpha = (1 - s) * 0.32 * (0.6 + 0.4 * Math.sin(time * 1.7 + d + i));
-            c.fillRect(baseX + wobble - (1 + s * 2), y, 2 + s * 4, 1.6 + s * 4);
+          for (let d = 0; d < frame.neonRows.length; d++) {
+            const row = frame.neonRows[d]!;
+            const wobble = Math.sin(time * 2 + d * 1.3 + i) * row.wobbleAmp;
+            c.globalAlpha = row.alphaBase * (0.6 + 0.4 * Math.sin(time * 1.7 + d + i));
+            c.fillRect(baseX + wobble - row.halfW, row.y, row.w, row.h);
           }
         }
       }

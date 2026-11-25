@@ -416,6 +416,13 @@
   background: var(--fs-background);
 }
 
+.theme-tuner-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .theme-studio-stack {
   display: flex;
   flex-direction: column;
