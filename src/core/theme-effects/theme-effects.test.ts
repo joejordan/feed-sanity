@@ -631,37 +631,53 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(overlayHost()).toBeNull();
   });
 
-  it('gates click particles to interactive targets, but lets Glyphs cascade Matrix Rain anywhere', () => {
+  it('gates click particles to interactive targets, attaches listeners lazily, and guards disposed triggerAt', () => {
     document.body.innerHTML = `
       <div id="react-root">
         <p id="post-text">Selectable post text</p>
         <a id="link" href="#"><span id="link-label">Open</span></a>
         <div id="tab" role="tab">Following</div>
+        <div id="composer" contenteditable="true"><span id="composer-child">Hi</span></div>
+        <div id="readonly-box" contenteditable="false"><span id="readonly-child">Nope</span></div>
         <div id="shadow-host"></div>
       </div>`;
     const shadow = document.querySelector('#shadow-host')!.attachShadow({ mode: 'open' });
     const shadowButton = document.createElement('button');
     shadow.append(shadowButton);
 
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
     const bursts: Array<[number, number]> = [];
     const fx = mountClickEffects(document, (x, y) => bursts.push([x, y]));
     cleanups.push(() => fx.destroy());
+    // Zero document listeners attached while effect is 'none'.
+    expect(addSpy).not.toHaveBeenCalled();
+
     const postText = document.querySelector('#post-text')!;
     const tab = document.querySelector('#tab')!;
 
     fx.setEffect('ripple', null);
+    // Non-cascading effect attaches pointerdown only, never click.
+    expect(addSpy).toHaveBeenCalledWith('pointerdown', expect.any(Function), expect.any(Object));
+    expect(addSpy).not.toHaveBeenCalledWith('click', expect.any(Function), expect.any(Object));
+
     fire(postText, 'pointerdown');
     fire(document.body, 'pointerdown');
+    fire(document.querySelector('#readonly-child')!, 'pointerdown');
     expect(clickParticles()).toBe(0);
 
     fire(document.querySelector('#link-label')!, 'pointerdown');
     expect(clickParticles()).toBe(1);
     fire(tab, 'pointerdown');
     fire(shadowButton, 'pointerdown');
-    expect(clickParticles()).toBe(3);
+    fire(document.querySelector('#composer-child')!, 'pointerdown');
+    expect(clickParticles()).toBe(4);
+
+    // Turning off detaches pointerdown cleanly; toggling back on re-attaches without duplicates.
+    fx.setEffect('none', null);
+    expect(removeSpy).toHaveBeenCalledWith('pointerdown', expect.any(Function), { capture: true });
 
     // Glyphs alongside Matrix Rain: margins cascade the rain without spraying particles.
-    fx.setEffect('none', null);
     fx.setEffect('matrix-burst', null, { cascade: true });
     fire(postText, 'click');
     expect(bursts.length).toBe(1);
@@ -677,6 +693,12 @@ describe('Creative Theme & Effects Studio engine', () => {
     fx.setEffect('matrix-burst', null, { cascade: false });
     fire(postText, 'click');
     fire(tab, 'pointerdown');
+    expect(bursts.length).toBe(2);
+
+    // Destroyed controller never invokes onBurst via triggerAt.
+    fx.setEffect('matrix-burst', null, { cascade: true });
+    fx.destroy();
+    fx.triggerAt(100, 100);
     expect(bursts.length).toBe(2);
   });
 

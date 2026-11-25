@@ -6,7 +6,7 @@ import type { SurfaceSelectors } from './types';
 import { isOwnUiElement, SHELL_ATTR } from '../surface';
 import { DEFAULT_POPUPS, DEFAULT_SHELL_LANDMARKS } from '../theme-effects/surfaces';
 
-const SHELL_SYNC_DEBOUNCE_MS = 50;
+const SHELL_SYNC_DEBOUNCE_MS = 180;
 
 interface SelectorGroup {
   readonly basic: string;
@@ -74,6 +74,7 @@ export interface BackdropShellManager {
   readonly clear: () => void;
   readonly isSyncedForBody: () => boolean;
   readonly matchesAnchor: (el: Element) => boolean;
+  readonly isInsideContainedSurface: (el: Element) => boolean;
   readonly hasMarked: (el: Element) => boolean;
 }
 
@@ -107,6 +108,12 @@ export function createBackdropShellManager(
     ...(surfaces?.shellAnchors ?? []),
   ]);
 
+  // Popups (hard traversal boundaries) and leaf cards cannot wrap new outer shell ancestors.
+  const containedSurfaceSelector = compileSelectorGroup([
+    ...popups,
+    ...(surfaces?.feedCards ?? []),
+    ...(surfaces?.leafCards ?? []),
+  ]).basic;
   const markedShells = new Set<Element>();
   let shellSyncTimer: ReturnType<typeof setTimeout> | undefined;
   let shellsSyncedForBody = false;
@@ -222,6 +229,16 @@ export function createBackdropShellManager(
     },
     isSyncedForBody: () => shellsSyncedForBody,
     matchesAnchor: (el) => matchesGroup(el, allAnchorGroup),
+    isInsideContainedSurface(el) {
+      if (!containedSurfaceSelector || !el.parentElement) {
+        return false;
+      }
+      try {
+        return el.parentElement.closest(containedSurfaceSelector) !== null;
+      } catch {
+        return false;
+      }
+    },
     hasMarked: (el) => markedShells.has(el),
   };
 }

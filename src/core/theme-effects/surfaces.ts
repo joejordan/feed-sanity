@@ -289,22 +289,22 @@ export function compileSurfaceFinishCss(
     const outerGlow = scaledHex(secondary, (isLight ? 0.1 : 0.14) * glow);
     const angleExpr = `var(${PRISM_ANGLE_VAR}, ${baseAngle}deg)`;
     const blocks: string[] = [
-      `${cardTargets} {\n  background-image: linear-gradient(${angleExpr}, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 42%, ${sheenB} 100%) !important;\n  border-color: ${rim} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 0 0 1px ${scaledHex(accent, 0.18 * glow)}, 0 10px 28px ${outerGlow} !important;\n}`,
-      `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.55 * glow)}, 0 0 16px ${scaledHex(secondary, 0.32 * glow)} !important;\n}`,
+      `${cardTargets} {\n  background-image: linear-gradient(${angleExpr}, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 42%, ${sheenB} 100%) !important;\n  border-color: ${rim} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 0 0 1px ${scaledHex(accent, 0.18 * glow)}, 0 6px 16px ${outerGlow} !important;\n}`,
+      `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.55 * glow)}, 0 0 14px ${scaledHex(secondary, 0.32 * glow)} !important;\n}`,
     ];
     if (feedCardHoverTargets) {
       blocks.push(
-        `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 1px 0 0 ${highlight}, 0 0 20px ${scaledHex(accent, 0.18 * glow)} !important;\n}`,
+        `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 1px 0 0 ${highlight}, inset 0 0 12px ${scaledHex(accent, 0.14 * glow)} !important;\n}`,
       );
     }
     if (ctaTargets) {
       blocks.push(
-        `${ctaTargets} {\n  background-image: linear-gradient(${angleExpr}, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 0 16px ${scaledHex(accent, 0.42 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.28)} !important;\n}`,
+        `${ctaTargets} {\n  background-image: linear-gradient(${angleExpr}, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 0 12px ${scaledHex(accent, 0.4 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.28)} !important;\n}`,
       );
     }
     if (columnTargets) {
       blocks.push(
-        `${columnTargets} {\n  border-color: ${scaledHex(accent, 0.24 * glow)} !important;\n  box-shadow: 0 0 26px ${scaledHex(secondary, 0.16 * glow)} !important;\n}`,
+        `${columnTargets} {\n  border-color: ${scaledHex(accent, 0.24 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(secondary, 0.2 * glow)} !important;\n}`,
       );
     }
     if (searchTargets) {
@@ -318,22 +318,22 @@ export function compileSurfaceFinishCss(
   // 'neon'
   const glow = (sp.glow as number | undefined) ?? 1;
   const blocks: string[] = [
-    `${cardTargets} {\n  border-color: ${scaledHex(accent, 0.45 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.25 * glow)}, 0 0 18px ${scaledHex(accent, 0.16 * glow)} !important;\n}`,
-    `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 0 14px ${scaledHex(accent, 0.28 * glow)} !important;\n}`,
+    `${cardTargets} {\n  border-color: ${scaledHex(accent, 0.45 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.25 * glow)}, 0 0 16px ${scaledHex(accent, 0.16 * glow)} !important;\n}`,
+    `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 0 12px ${scaledHex(accent, 0.28 * glow)} !important;\n}`,
   ];
   if (feedCardHoverTargets) {
     blocks.push(
-      `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, 0 0 16px ${scaledHex(accent, 0.14 * glow)} !important;\n}`,
+      `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 0 12px ${scaledHex(accent, 0.14 * glow)} !important;\n}`,
     );
   }
   if (ctaTargets) {
     blocks.push(
-      `${ctaTargets} {\n  box-shadow: 0 0 16px ${scaledHex(accent, 0.48 * glow)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;\n}`,
+      `${ctaTargets} {\n  box-shadow: 0 0 12px ${scaledHex(accent, 0.46 * glow)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;\n}`,
     );
   }
   if (columnTargets) {
     blocks.push(
-      `${columnTargets} {\n  border-color: ${scaledHex(accent, 0.3 * glow)} !important;\n  box-shadow: 0 0 24px ${scaledHex(border, 0.24 * glow)} !important;\n}`,
+      `${columnTargets} {\n  border-color: ${scaledHex(accent, 0.3 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(border, 0.28 * glow)} !important;\n}`,
     );
   }
   if (searchTargets) {

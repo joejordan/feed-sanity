@@ -26,7 +26,8 @@ export function compileRibbonRule(
   const height = clampNumber(ribbon.height ?? 3, 1, 6, 0);
   const inset = ribbon.position === 'bottom' ? 'auto 0 0 0' : '0 0 auto 0';
   const bg = `linear-gradient(${angle}deg, ${stops.join(', ')})`;
-  return `${selector} { content: ""; position: ${position}; inset: ${inset}; height: ${height}px; pointer-events: none; z-index: ${zIndex}; background: ${bg}; }`;
+  const layerHint = position === 'fixed' ? ' contain: strict; transform: translateZ(0);' : '';
+  return `${selector} { content: ""; position: ${position}; inset: ${inset}; height: ${height}px; pointer-events: none; z-index: ${zIndex};${layerHint} background: ${bg}; }`;
 }
 
 /** Compiles declarative `chrome.ribbon` into Feed Sanity's Shadow DOM UI header bar. */

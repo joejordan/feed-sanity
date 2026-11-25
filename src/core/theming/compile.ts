@@ -48,7 +48,7 @@ export function compileChromeHostCss(
       return `radial-gradient(ellipse ${rx}% ${ry}% at ${x}% ${y}%, ${hexWithAlpha(spot.color, alpha)}, transparent 62%)`;
     });
     rules.push(
-      `body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1; background-image: ${layers.join(', ')}; }`,
+      `body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1; contain: strict; transform: translateZ(0); background-image: ${layers.join(', ')}; }`,
     );
   }
   return rules.join('\n');

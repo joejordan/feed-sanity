@@ -539,6 +539,7 @@ export function createThemeController(
       added: (el) => {
         if (
           !backdropShells.isSyncScheduled() &&
+          !backdropShells.isInsideContainedSurface(el) &&
           (el.childElementCount > 0 || backdropShells.matchesAnchor(el))
         ) {
           backdropShells.scheduleSync(isBackdropActive);

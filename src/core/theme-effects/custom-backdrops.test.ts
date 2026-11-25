@@ -575,7 +575,17 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
 
     document.dispatchEvent(new PointerEvent('pointermove', { clientX: 640, clientY: 200 }));
     await vi.waitFor(() => {
-      expect(document.documentElement.style.getPropertyValue('--fs-ptr-angle')).toMatch(/^\d+deg$/);
+      const val = document.documentElement.style.getPropertyValue('--fs-ptr-angle');
+      expect(val).toMatch(/^\d+deg$/);
+      expect(Number.parseInt(val, 10) % 4).toBe(0);
+    });
+    const firstPrismAngle = document.documentElement.style.getPropertyValue('--fs-ptr-angle');
+    // Moving quickly inside the 66ms throttle window converges via trailing-edge flush (never dropped).
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 20, clientY: 40 }));
+    await vi.waitFor(() => {
+      const nextVal = document.documentElement.style.getPropertyValue('--fs-ptr-angle');
+      expect(nextVal).toMatch(/^\d+deg$/);
+      expect(nextVal).not.toBe(firstPrismAngle);
     });
 
     // Supernova click FX spawns dual rings + 6 orbital embers by default, and respects clickParams.style.

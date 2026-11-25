@@ -109,7 +109,6 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
       ]),
     ) as Readonly<Record<StandardShaderUniformName, WebGLUniformLocation | null>>;
     const clicksBuf = new Float32Array(MAX_SHADER_CLICKS * 4);
-    let clicksUploaded = false;
     let clicksSettled = false;
     let lastClickCount = -1;
     let lastDayPhaseAt = 0;
@@ -199,7 +198,7 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
     const scene: Scene = {
       kind: 'webgl',
       renderScale: spec.renderScale ?? 0.5,
-      maxPixels: 640_000,
+      maxPixels: 480_000,
       resize(view) {
         if (!lost) {
           gl.viewport(0, 0, view.width, view.height);
@@ -222,42 +221,53 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
           uploadParams(boundParams);
         }
         syncResolution(frame.view.width, frame.view.height);
-        gl.uniform1f(std.time, frame.time);
-        gl.uniform1f(std.delta, frame.dt);
-        gl.uniform1f(std.frame, frame.frameIndex);
-        gl.uniform4f(
-          std.pointer,
-          frame.pointer.nx,
-          1 - frame.pointer.ny,
-          frame.pointer.presence,
-          frame.ctx.effects.interactive ? 1 : 0,
-        );
-        gl.uniform4f(
-          std.click,
-          frame.click.x,
-          1 - frame.click.y,
-          frame.click.age,
-          frame.click.count,
-        );
-        if (std.clicks) {
-          const clickChanged = frame.click.count !== lastClickCount;
-          const isIdle = frame.click.count === 0 || frame.click.age >= 999;
-          if (!clicksUploaded || clickChanged || !clicksSettled) {
-            for (let i = 0; i < MAX_SHADER_CLICKS; i++) {
-              const slot = frame.clicks[i];
-              const offset = i * 4;
-              clicksBuf[offset] = slot ? slot.x : 0.5;
-              clicksBuf[offset + 1] = slot ? 1 - slot.y : 0.5;
-              clicksBuf[offset + 2] = slot ? slot.age : 999;
-              clicksBuf[offset + 3] = slot ? slot.active : 0;
-            }
-            gl.uniform4fv(std.clicks, clicksBuf);
-            clicksUploaded = true;
-            lastClickCount = frame.click.count;
-            clicksSettled = isIdle;
-          }
+        if (std.time) {
+          gl.uniform1f(std.time, frame.time);
         }
-        gl.uniform2f(std.scroll, frame.scroll.y, frame.scroll.velocity);
+        if (std.delta) {
+          gl.uniform1f(std.delta, frame.dt);
+        }
+        if (std.frame) {
+          gl.uniform1f(std.frame, frame.frameIndex);
+        }
+        if (std.pointer) {
+          gl.uniform4f(
+            std.pointer,
+            frame.pointer.nx,
+            1 - frame.pointer.ny,
+            frame.pointer.presence,
+            frame.ctx.effects.interactive ? 1 : 0,
+          );
+        }
+        if (std.click) {
+          gl.uniform4f(
+            std.click,
+            frame.click.x,
+            1 - frame.click.y,
+            frame.click.age,
+            frame.click.count,
+          );
+        }
+        if (std.clicks && (frame.click.count !== lastClickCount || !clicksSettled)) {
+          let allSettled = true;
+          for (let i = 0; i < MAX_SHADER_CLICKS; i++) {
+            const slot = frame.clicks[i];
+            const offset = i * 4;
+            clicksBuf[offset] = slot ? slot.x : 0.5;
+            clicksBuf[offset + 1] = slot ? 1 - slot.y : 0.5;
+            clicksBuf[offset + 2] = slot ? slot.age : 999;
+            clicksBuf[offset + 3] = slot ? slot.active : 0;
+            if (frame.click.count !== 0 && slot && slot.active !== 0 && slot.age < 30) {
+              allSettled = false;
+            }
+          }
+          gl.uniform4fv(std.clicks, clicksBuf);
+          lastClickCount = frame.click.count;
+          clicksSettled = allSettled;
+        }
+        if (std.scroll) {
+          gl.uniform2f(std.scroll, frame.scroll.y, frame.scroll.velocity);
+        }
         syncDayPhase();
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       },
@@ -296,7 +306,7 @@ function mountInnerShader(
     startTime: 2,
     trackScroll: true,
     acceptsBursts: true,
-    watchdog: { slowFrameMs: 42, consecutiveLimit: 12 },
+    watchdog: { slowFrameMs: 28, consecutiveLimit: 12 },
   });
 }
 

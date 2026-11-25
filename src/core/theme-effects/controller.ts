@@ -23,51 +23,66 @@ export interface EffectsLayerController {
 
 /**
  * Lightweight rAF-coalesced pointer angle driver for `surface: 'prism'`.
- * Zero `getBoundingClientRect()` or DOM queries; quantizes to 2deg steps,
- * skips touch/hidden tabs, reacts to OS reduced-motion changes, and cleans
- * up immediately when Prism is off or disposed.
+ * Zero `getBoundingClientRect()` or DOM queries; quantizes to 4deg steps at
+ * ~15 Hz, pauses during scroll, skips touch/hidden tabs, reacts to OS
+ * reduced-motion changes, and cleans up immediately when Prism is off or disposed.
  */
 const DEFAULT_PRISM_ANGLE = 132;
 const DEFAULT_PRISM_SWEEP = 56;
+const PRISM_MIN_FLUSH_MS = 66;
+const PRISM_SCROLL_PAUSE_MS = 150;
 
 function createPrismLightDriver(doc: Document) {
+  const win = doc.defaultView ?? globalThis;
   let active = false;
   let wanted = false;
   let baseAngle = DEFAULT_PRISM_ANGLE;
   let sweep = DEFAULT_PRISM_SWEEP;
   let rafId = 0;
   let rafUsesTimeout = false;
-  let pendingAngle = -1;
+  let lastClientX = -1;
+  let lastClientY = -1;
   let lastAngle = -1;
+  let lastFlushAt = 0;
+  let scrollPausedUntil = 0;
   const reducedMotion = doc.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)');
 
   const flush = (): void => {
     rafId = 0;
-    if (!active || pendingAngle === lastAngle || pendingAngle < 0) {
+    if (!active || doc.hidden || lastClientX < 0) {
       return;
     }
-    lastAngle = pendingAngle;
-    doc.documentElement?.style.setProperty(PRISM_ANGLE_VAR, `${pendingAngle}deg`);
+    const now = performance.now();
+    const throttleWait = lastFlushAt === 0 ? 0 : PRISM_MIN_FLUSH_MS - (now - lastFlushAt);
+    const waitMs = Math.max(scrollPausedUntil - now, throttleWait);
+    if (waitMs > 0) {
+      rafUsesTimeout = true;
+      rafId = Number(win.setTimeout(flush, Math.ceil(waitMs)));
+      return;
+    }
+    if (win.innerWidth <= 0 || win.innerHeight <= 0) {
+      return;
+    }
+    const nx = Math.min(1, Math.max(0, lastClientX / win.innerWidth));
+    const ny = Math.min(1, Math.max(0, lastClientY / win.innerHeight));
+    // Maps viewport coordinates to a 4deg-quantized specular sheen angle centered on `baseAngle`.
+    const rawAngle = baseAngle + (nx - 0.5) * sweep + (ny - 0.5) * (sweep * 0.4);
+    const normalized = ((rawAngle % 360) + 360) % 360;
+    const nextAngle = Math.round(normalized / 4) * 4;
+    if (nextAngle === lastAngle) {
+      return;
+    }
+    lastAngle = nextAngle;
+    lastFlushAt = now;
+    doc.documentElement?.style.setProperty(PRISM_ANGLE_VAR, `${nextAngle}deg`);
   };
 
   const onMove = (event: PointerEvent): void => {
     if (event.pointerType === 'touch' || doc.hidden) {
       return;
     }
-    const win = doc.defaultView ?? globalThis;
-    if (win.innerWidth <= 0 || win.innerHeight <= 0) {
-      return;
-    }
-    const nx = Math.min(1, Math.max(0, event.clientX / win.innerWidth));
-    const ny = Math.min(1, Math.max(0, event.clientY / win.innerHeight));
-    // Maps viewport coordinates to a 2deg-quantized specular sheen angle centered on `baseAngle`.
-    const rawAngle = baseAngle + (nx - 0.5) * sweep + (ny - 0.5) * (sweep * 0.4);
-    const normalized = ((rawAngle % 360) + 360) % 360;
-    const nextAngle = Math.round(normalized / 2) * 2;
-    if (nextAngle === lastAngle && rafId === 0) {
-      return;
-    }
-    pendingAngle = nextAngle;
+    lastClientX = event.clientX;
+    lastClientY = event.clientY;
     if (rafId === 0) {
       if (typeof win.requestAnimationFrame === 'function') {
         rafUsesTimeout = false;
@@ -79,9 +94,12 @@ function createPrismLightDriver(doc: Document) {
     }
   };
 
+  const onScroll = (): void => {
+    scrollPausedUntil = performance.now() + PRISM_SCROLL_PAUSE_MS;
+  };
+
   const cancelPendingAngle = (): void => {
     if (rafId !== 0) {
-      const win = doc.defaultView ?? globalThis;
       if (rafUsesTimeout) {
         win.clearTimeout(rafId);
       } else {
@@ -89,8 +107,11 @@ function createPrismLightDriver(doc: Document) {
       }
       rafId = 0;
     }
-    pendingAngle = -1;
+    lastClientX = -1;
+    lastClientY = -1;
     lastAngle = -1;
+    lastFlushAt = 0;
+    scrollPausedUntil = 0;
     doc.documentElement?.style.removeProperty(PRISM_ANGLE_VAR);
   };
 
@@ -100,6 +121,7 @@ function createPrismLightDriver(doc: Document) {
     }
     active = false;
     doc.removeEventListener('pointermove', onMove);
+    win.removeEventListener('scroll', onScroll);
     cancelPendingAngle();
   };
 
@@ -114,6 +136,7 @@ function createPrismLightDriver(doc: Document) {
     }
     active = true;
     doc.addEventListener('pointermove', onMove, { passive: true });
+    win.addEventListener('scroll', onScroll, { passive: true });
   };
 
   reducedMotion?.addEventListener?.('change', reconcile);

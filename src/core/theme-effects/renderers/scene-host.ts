@@ -226,13 +226,20 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     return win.scrollY ?? el?.scrollTop ?? 0;
   };
 
-  const refreshScrollBounds = (seedOnly = false, now = performance.now()): void => {
+  const syncScrollMax = (now: number): boolean => {
     const el = doc.scrollingElement ?? doc.documentElement;
     if (!el) {
-      return;
+      return false;
     }
     scroll.maxPx = Math.max(1, el.scrollHeight - (win.innerHeight || el.clientHeight || 1));
     scroll.boundsAt = now;
+    return true;
+  };
+
+  const refreshScrollBounds = (seedOnly = false, now = performance.now()): void => {
+    if (!syncScrollMax(now)) {
+      return;
+    }
     const currentPx = readScrollPx();
     if (seedOnly) {
       scroll.lastPx = currentPx;
@@ -247,12 +254,8 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     }
     scroll.dirty = false;
     const currentPx = readScrollPx();
-    if (currentPx > scroll.maxPx || now - scroll.boundsAt >= 500) {
-      const el = doc.scrollingElement ?? doc.documentElement;
-      if (el) {
-        scroll.maxPx = Math.max(1, el.scrollHeight - (win.innerHeight || el.clientHeight || 1));
-        scroll.boundsAt = now;
-      }
+    if (currentPx > scroll.maxPx || now - scroll.boundsAt >= 1500) {
+      syncScrollMax(now);
     }
     const delta = currentPx - scroll.lastPx;
     scroll.lastPx = currentPx;
@@ -310,11 +313,25 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     slowStreak = 0;
     if (scaleMultiplier > 0.5) {
       scaleMultiplier = 0.5;
-      measure(false);
+      measure(view.cssWidth, view.cssHeight);
       return;
     }
     stop();
     sceneHooks?.fallback();
+  };
+
+  const frameObj: { -readonly [K in keyof SceneFrame]: SceneFrame[K] } = {
+    ctx,
+    palette,
+    view,
+    pointer,
+    click,
+    clicks,
+    scroll,
+    frameIndex: 0,
+    time: 0,
+    dt: 0,
+    still: false,
   };
 
   const paint = (dt: number, still: boolean, frameOverrunMs = 0): void => {
@@ -323,19 +340,14 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     }
     const started = spec.watchdog && !still ? performance.now() : 0;
     try {
-      scene.render({
-        ctx,
-        palette,
-        view,
-        pointer,
-        click,
-        clicks,
-        scroll,
-        frameIndex,
-        time: clock % CLOCK_WRAP_SECONDS,
-        dt,
-        still,
-      });
+      frameObj.ctx = ctx;
+      frameObj.palette = palette;
+      frameObj.view = view;
+      frameObj.frameIndex = frameIndex;
+      frameObj.time = clock % CLOCK_WRAP_SECONDS;
+      frameObj.dt = dt;
+      frameObj.still = still;
+      scene.render(frameObj);
       frameIndex += 1;
     } catch {
       // A renderer that throws (driver quirk, exotic browser) steps down the
@@ -354,7 +366,8 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     if (destroyed || !scene || !animating()) {
       return;
     }
-    if (lastFrame !== 0 && now - lastFrame < frameInterval - 2) {
+    // 0.88x tolerance prevents 60 Hz vsync jitter from skipping every other 30 FPS tick.
+    if (lastFrame !== 0 && now - lastFrame < frameInterval * 0.88) {
       raf = requestAnimationFrame(tick);
       return;
     }
@@ -410,13 +423,17 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     paint(0, true);
   };
 
-  const measure = (repaint = true): void => {
+  const measure = (hintWidth?: number, hintHeight?: number): void => {
     if (!canvas || !scene) {
       return;
     }
-    const rect = canvas.getBoundingClientRect();
-    const cssWidth = rect.width || win.innerWidth || 0;
-    const cssHeight = rect.height || win.innerHeight || 0;
+    let cssWidth = hintWidth ?? 0;
+    let cssHeight = hintHeight ?? 0;
+    if (cssWidth <= 0 || cssHeight <= 0) {
+      const rect = canvas.getBoundingClientRect();
+      cssWidth = rect.width || win.innerWidth || 0;
+      cssHeight = rect.height || win.innerHeight || 0;
+    }
     if (cssWidth <= 0 || cssHeight <= 0) {
       return;
     }
@@ -449,11 +466,9 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     if (spec.trackScroll) {
       refreshScrollBounds();
     }
-    if (repaint) {
-      // Repaint immediately: resizing clears the canvas, and waiting for the next
-      // capped frame would flash an empty backdrop.
-      paint(0, !animating());
-    }
+    // Repaint immediately: resizing clears the canvas, and waiting for the next
+    // capped frame would flash an empty backdrop.
+    paint(0, !animating());
   };
 
   const disposeScene = (): void => {
@@ -549,7 +564,10 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   // Observe the stable container (not the canvas) so fallbacks keep resizing.
   let resizeObserver: ResizeObserver | undefined;
   if (typeof ResizeObserver === 'function') {
-    resizeObserver = new ResizeObserver(() => measure());
+    resizeObserver = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      measure(box?.width, box?.height);
+    });
     resizeObserver.observe(container);
   } else {
     win.addEventListener('resize', () => measure(), { signal, passive: true });

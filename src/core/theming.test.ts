@@ -978,7 +978,7 @@ describe('first-class multi-site theming engine', () => {
     expect(document.querySelector('#own-ui-inner')?.hasAttribute(SHELL_ATTR)).toBe(false);
     expect(document.querySelector('#own-ui-main')?.hasAttribute(SHELL_ATTR)).toBe(false);
 
-    // Dynamically inserted SPA subtrees get their wrapper ancestors marked automatically.
+    // Dynamically inserted SPA subtrees inside columns & outside popups get their wrapper ancestors marked.
     const lateShell = document.createElement('div');
     lateShell.id = 'late-spa-shell';
     const lateCard = document.createElement('section');
@@ -987,10 +987,26 @@ describe('first-class multi-site theming engine', () => {
     lateShell.append(lateCard);
     document.querySelector('#sidebar-col')?.append(lateShell);
 
+    const colPostWrapper = document.createElement('div');
+    colPostWrapper.id = 'late-col-post-wrapper';
+    const colPost = document.createElement('article');
+    colPost.dataset.testid = 'tweet';
+    colPostWrapper.append(colPost);
+    document.querySelector('#primary-col')?.append(colPostWrapper);
+
     await vi.waitFor(() => {
       expect(lateShell.hasAttribute(SHELL_ATTR)).toBe(true);
+      expect(colPostWrapper.hasAttribute(SHELL_ATTR)).toBe(true);
     });
     expect(lateCard.hasAttribute(SHELL_ATTR)).toBe(false);
+    expect(colPost.hasAttribute(SHELL_ATTR)).toBe(false);
+
+    // Mutations strictly inside a popup dialog never receive SHELL_ATTR or disturb marked shells.
+    const modalChild = document.createElement('div');
+    modalChild.append(document.createElement('span'));
+    document.querySelector('#modal-inner')?.append(modalChild);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(modalChild.hasAttribute(SHELL_ATTR)).toBe(false);
 
     // Turning the backdrop off removes every SHELL_ATTR cleanly.
     controller.apply({ palette: midnight });

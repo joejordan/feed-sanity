@@ -16,8 +16,55 @@ import { getClickParamSpecs, resolveEffectParams } from './model';
 import { CLICK_FX_OWN_VALUE } from './surfaces';
 
 const MATRIX_BURST_GLYPHS = ['ｱ', 'ｳ', 'ｶ', 'ｷ', 'ﾈ', '0', '1', '7', 'Ξ', 'λ'];
-const MAX_ACTIVE_NODES = 40;
+const MAX_ACTIVE_NODES = 24;
 const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
+
+const RIPPLE_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.28)', opacity: 0 },
+  { transform: 'scale(0.42)', opacity: 0.55, offset: 0.14 },
+  { transform: 'scale(1)', opacity: 0 },
+];
+
+const GLOW_PULSE_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.4)', opacity: 0 },
+  { transform: 'scale(0.75)', opacity: 0.35, offset: 0.25 },
+  { transform: 'scale(1.15)', opacity: 0 },
+];
+
+const MATRIX_BURST_KEYFRAMES: readonly Keyframe[][] = Array.from({ length: 5 }, (_, i) => {
+  const angle = -Math.PI / 2 + ((i - 2) * Math.PI) / 5;
+  const tx = Math.cos(angle) * 22;
+  const ty = Math.sin(angle) * 22 + 6;
+  return [
+    { transform: 'translate(0px, 0px) scale(0.85)', opacity: 0 },
+    {
+      transform: `translate(${(tx * 0.35).toFixed(2)}px, ${(ty * 0.35).toFixed(2)}px) scale(1)`,
+      opacity: 0.7,
+      offset: 0.25,
+    },
+    { transform: `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(0.95)`, opacity: 0 },
+  ];
+});
+
+function buildSparkKeyframes(count: number, scale: number): readonly Keyframe[][] {
+  return Array.from({ length: count }, (_, i) => {
+    const angle = (Math.PI * 2 * i) / count + Math.PI / count;
+    const start = 5 * scale;
+    const dist = (18 + (i % 2) * 10) * scale;
+    const mid = start + (dist - start) * 0.45;
+    return [
+      { transform: `rotate(${angle}rad) translateX(${start}px) scaleX(1)`, opacity: 0.95 },
+      {
+        transform: `rotate(${angle}rad) translateX(${mid}px) scaleX(0.8)`,
+        opacity: 0.85,
+        offset: 0.4,
+      },
+      { transform: `rotate(${angle}rad) translateX(${dist}px) scaleX(0.25)`, opacity: 0 },
+    ];
+  });
+}
+
+const DEFAULT_SPARK_KEYFRAMES: readonly Keyframe[][] = buildSparkKeyframes(8, 1);
 
 const SUPERNOVA_INNER_KEYFRAMES: Keyframe[] = [
   { transform: 'scale(0.22)', opacity: 0 },
@@ -54,29 +101,31 @@ function buildSupernovaEmberKeyframes(scale: number): readonly Keyframe[][] {
 
 const SUPERNOVA_EMBER_KEYFRAMES: readonly Keyframe[][] = buildSupernovaEmberKeyframes(1);
 
-/** Targets that earn visual click feedback. */
-const INTERACTIVE_CLICK_SELECTOR = [
+/** O(1) tag & role lookup sets for interactive targets that earn click feedback. */
+const INTERACTIVE_TAGS = new Set([
   'button',
   'a',
-  '[role="button"]',
-  '[role="link"]',
-  '[role="tab"]',
-  '[role="menuitem"]',
-  '[role="menuitemradio"]',
-  '[role="menuitemcheckbox"]',
-  '[role="option"]',
-  '[role="checkbox"]',
-  '[role="radio"]',
-  '[role="switch"]',
-  '[role="combobox"]',
-  '[role="textbox"]',
-  '[contenteditable="true"]',
   'input',
   'textarea',
   'select',
   'summary',
   'label',
-].join(', ');
+]);
+
+const INTERACTIVE_ROLES = new Set([
+  'button',
+  'link',
+  'tab',
+  'menuitem',
+  'menuitemradio',
+  'menuitemcheckbox',
+  'option',
+  'checkbox',
+  'radio',
+  'switch',
+  'combobox',
+  'textbox',
+]);
 
 export interface ClickEffectOptions {
   /**
@@ -110,13 +159,20 @@ function isInteractiveClickTarget(event: Event): boolean {
   const nodes = path.length > 0 ? path : [event.target];
   for (const entry of nodes) {
     const node = entry as Partial<Element> | null;
-    if (!node || typeof node.matches !== 'function') {
+    if (!node || typeof node.getAttribute !== 'function' || typeof node.localName !== 'string') {
       continue;
     }
-    if ((node as Element).localName === 'body') {
+    if (node.localName === 'body') {
       return false;
     }
-    if ((node as Element).matches(INTERACTIVE_CLICK_SELECTOR)) {
+    if (INTERACTIVE_TAGS.has(node.localName)) {
+      return true;
+    }
+    const role = node.getAttribute('role');
+    if (role !== null && INTERACTIVE_ROLES.has(role)) {
+      return true;
+    }
+    if (node.getAttribute('contenteditable') === 'true') {
       return true;
     }
   }
@@ -142,6 +198,7 @@ export function mountClickEffects(
   let resolvedParams: Readonly<Record<string, unknown>> = {};
   let matrixGlyphPool: readonly string[] = MATRIX_BURST_GLYPHS;
   let supernovaEmberFrames: readonly Keyframe[][] = SUPERNOVA_EMBER_KEYFRAMES;
+  let sparkFrames: readonly Keyframe[][] = DEFAULT_SPARK_KEYFRAMES;
   let cascadeEnabled = false;
   let alwaysCascade = false;
   let overlay: HTMLDivElement | null = null;
@@ -183,14 +240,14 @@ export function mountClickEffects(
 
   const cascade = (x: number, y: number): void => {
     const win = doc.defaultView ?? globalThis;
-    if (cascadeEnabled && onBurst && win.innerWidth > 0 && win.innerHeight > 0) {
+    if (!disposed && cascadeEnabled && onBurst && win.innerWidth > 0 && win.innerHeight > 0) {
       onBurst(x / win.innerWidth, y / win.innerHeight);
     }
   };
 
   const particle = (host: ParentNode, css: string): HTMLSpanElement => {
     const el = doc.createElement('span');
-    el.style.cssText = `position:absolute;pointer-events:none;will-change:transform,opacity;${css}`;
+    el.style.cssText = `position:absolute;pointer-events:none;${css}`;
     host.append(el);
     return el;
   };
@@ -216,60 +273,68 @@ export function mountClickEffects(
         parent,
         `left:${x}px;top:${y}px;width:${diameter}px;height:${diameter}px;margin:${-diameter / 2}px 0 0 ${-diameter / 2}px;border-radius:50%;${css}`,
       );
+    const runBatch = (
+      build: (
+        batch: DocumentFragment,
+        queue: (el: HTMLSpanElement, frames: Keyframe[], duration: number) => void,
+      ) => void,
+    ): void => {
+      const batch = doc.createDocumentFragment();
+      const animations: Array<[HTMLSpanElement, Keyframe[], number]> = [];
+      build(batch, (el, frames, duration) => animations.push([el, frames, duration]));
+      host.append(batch);
+      for (const [el, frames, duration] of animations) {
+        animateAndRemove(el, frames, duration);
+      }
+    };
 
     if (effect === 'supernova') {
       const style = (resolvedParams.style as string | undefined) ?? 'both';
       const showRings = style === 'both' || style === 'rings';
       const showEmbers = style === 'both' || style === 'embers';
       // Dual-ring gravitational lensing pulse + 6 orbital photon embers (batched DOM insert).
-      const batch = doc.createDocumentFragment();
-      const animations: Array<[HTMLSpanElement, Keyframe[], number]> = [];
-      if (showRings) {
-        animations.push(
-          [
+      runBatch((batch, queue) => {
+        if (showRings) {
+          queue(
             circleParticle(
               batch,
               Math.round(54 * scale),
-              `border:1.5px solid ${hexWithAlpha(accent, 0.95)};box-shadow:0 0 10px ${hexWithAlpha(accent, 0.45)};opacity:0;`,
+              `border:1.5px solid ${hexWithAlpha(accent, 0.95)};box-shadow:0 0 6px ${hexWithAlpha(accent, 0.45)};opacity:0;`,
             ),
             SUPERNOVA_INNER_KEYFRAMES,
             360,
-          ],
-          [
+          );
+          queue(
             circleParticle(
               batch,
               Math.round(84 * scale),
-              `border:1px solid ${hexWithAlpha(secondary, 0.8)};box-shadow:0 0 16px ${hexWithAlpha(secondary, 0.28)};opacity:0;`,
+              `border:1px solid ${hexWithAlpha(secondary, 0.8)};box-shadow:0 0 8px ${hexWithAlpha(secondary, 0.28)};opacity:0;`,
             ),
             SUPERNOVA_OUTER_KEYFRAMES,
             430,
-          ],
-        );
-      }
-      if (showEmbers) {
-        const emberSize = Math.max(3, Math.round(4 * scale));
-        const emberColors = [accent, secondary, hexWithAlpha(text, 0.9)] as const;
-        for (let i = 0; i < supernovaEmberFrames.length; i++) {
-          const frames = supernovaEmberFrames[i];
-          if (!frames) {
-            continue;
-          }
-          const color = emberColors[i % emberColors.length] ?? accent;
-          animations.push([
-            circleParticle(
-              batch,
-              emberSize,
-              `background:${color};box-shadow:0 0 7px ${color};opacity:0;`,
-            ),
-            frames,
-            410,
-          ]);
+          );
         }
-      }
-      host.append(batch);
-      for (const [el, frames, duration] of animations) {
-        animateAndRemove(el, frames, duration);
-      }
+        if (showEmbers) {
+          const emberSize = Math.max(3, Math.round(4 * scale));
+          const emberColors = [accent, secondary, hexWithAlpha(text, 0.9)] as const;
+          for (let i = 0; i < supernovaEmberFrames.length; i++) {
+            const frames = supernovaEmberFrames[i];
+            if (!frames) {
+              continue;
+            }
+            const color = emberColors[i % emberColors.length] ?? accent;
+            queue(
+              circleParticle(
+                batch,
+                emberSize,
+                `background:radial-gradient(circle, ${color} 0%, ${color} 55%, transparent 100%);opacity:0;`,
+              ),
+              frames,
+              410,
+            );
+          }
+        }
+      });
       return;
     }
 
@@ -280,15 +345,7 @@ export function mountClickEffects(
         Math.round(64 * scale),
         `border:1.25px solid ${hexWithAlpha(accent, 0.9)};box-shadow:0 0 6px ${hexWithAlpha(accent, 0.18)};opacity:0;`,
       );
-      animateAndRemove(
-        ring,
-        [
-          { transform: 'scale(0.28)', opacity: 0 },
-          { transform: 'scale(0.42)', opacity: 0.55, offset: 0.14 },
-          { transform: 'scale(1)', opacity: 0 },
-        ],
-        320,
-      );
+      animateAndRemove(ring, RIPPLE_KEYFRAMES, 320);
       return;
     }
 
@@ -299,119 +356,120 @@ export function mountClickEffects(
         Math.round(48 * scale),
         `background:radial-gradient(circle, ${hexWithAlpha(accent, 0.7)} 0%, ${hexWithAlpha(accent, 0.22)} 42%, transparent 70%);opacity:0;`,
       );
-      animateAndRemove(
-        orb,
-        [
-          { transform: 'scale(0.4)', opacity: 0 },
-          { transform: 'scale(0.75)', opacity: 0.35, offset: 0.25 },
-          { transform: 'scale(1.15)', opacity: 0 },
-        ],
-        360,
-      );
+      animateAndRemove(orb, GLOW_PULSE_KEYFRAMES, 360);
       return;
     }
 
     if (effect === 'spark') {
       // Slender tapered micro-lines radiating outward (after React Bits ClickSpark).
-      const count = Math.round((resolvedParams.count as number | undefined) ?? 8);
-      for (let i = 0; i < count; i++) {
-        const angle = (Math.PI * 2 * i) / count + Math.PI / count;
-        const start = 5 * scale;
-        const dist = (18 + (i % 2) * 10) * scale;
-        const color = i % 4 === 3 ? hexWithAlpha(text, 0.85) : accent;
-        const spark = particle(
-          host,
-          `left:${x}px;top:${y}px;width:5px;height:1.5px;margin-top:-0.75px;border-radius:1px;transform-origin:0 50%;background:linear-gradient(90deg, transparent, ${color} 55%);opacity:0;`,
-        );
-        const mid = start + (dist - start) * 0.45;
-        animateAndRemove(
-          spark,
-          [
-            { transform: `rotate(${angle}rad) translateX(${start}px) scaleX(1)`, opacity: 0.95 },
-            {
-              transform: `rotate(${angle}rad) translateX(${mid}px) scaleX(0.8)`,
-              opacity: 0.85,
-              offset: 0.4,
-            },
-            { transform: `rotate(${angle}rad) translateX(${dist}px) scaleX(0.25)`, opacity: 0 },
-          ],
-          300,
-        );
-      }
+      const bright = hexWithAlpha(text, 0.85);
+      runBatch((batch, queue) => {
+        for (let i = 0; i < sparkFrames.length; i++) {
+          const frames = sparkFrames[i];
+          if (!frames) {
+            continue;
+          }
+          const color = i % 4 === 3 ? bright : accent;
+          queue(
+            particle(
+              batch,
+              `left:${x}px;top:${y}px;width:5px;height:1.5px;margin-top:-0.75px;border-radius:1px;transform-origin:0 50%;background:linear-gradient(90deg, transparent, ${color} 55%);opacity:0;`,
+            ),
+            frames,
+            300,
+          );
+        }
+      });
       return;
     }
 
     // 'matrix-burst': five delicate glyphs drifting gently upward + backdrop cascade.
-    cascade(x, y);
     const pool = matrixGlyphPool;
-    const count = 5;
-    for (let i = 0; i < count; i++) {
-      const angle = -Math.PI / 2 + ((i - (count - 1) / 2) * Math.PI) / 5;
-      const tx = Math.cos(angle) * 22;
-      const ty = Math.sin(angle) * 22 + 6;
-      const glyph = particle(
-        host,
-        `left:${x}px;top:${y}px;margin:-6px 0 0 -4px;font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:${i % 2 === 0 ? accent : hexWithAlpha(text, 0.85)};text-shadow:0 0 6px ${hexWithAlpha(accent, 0.45)};opacity:0;`,
-      );
-      glyph.textContent = pool[(i * 3) % pool.length] ?? '1';
-      animateAndRemove(
-        glyph,
-        [
-          { transform: 'translate(0px, 0px) scale(0.85)', opacity: 0 },
-          {
-            transform: `translate(${tx * 0.35}px, ${ty * 0.35}px) scale(1)`,
-            opacity: 0.7,
-            offset: 0.25,
-          },
-          { transform: `translate(${tx}px, ${ty}px) scale(0.95)`, opacity: 0 },
-        ],
-        380,
-      );
+    const altColor = hexWithAlpha(text, 0.85);
+    const glyphShadow = hexWithAlpha(accent, 0.45);
+    runBatch((batch, queue) => {
+      for (let i = 0; i < MATRIX_BURST_KEYFRAMES.length; i++) {
+        const frames = MATRIX_BURST_KEYFRAMES[i];
+        if (!frames) {
+          continue;
+        }
+        const glyph = particle(
+          batch,
+          `left:${x}px;top:${y}px;margin:-6px 0 0 -4px;font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:${i % 2 === 0 ? accent : altColor};text-shadow:0 0 6px ${glyphShadow};opacity:0;`,
+        );
+        glyph.textContent = pool[(i * 3) % pool.length] ?? '1';
+        queue(glyph, frames, 380);
+      }
+    });
+  };
+
+  let pointerDownAttached = false;
+  let clickAttached = false;
+
+  const onPointerDown = (event: Event): void => {
+    const pe = event as PointerEvent;
+    if (pe.button !== 0 || prefersReducedMotion() || !isInteractiveClickTarget(pe)) {
+      return;
+    }
+    // Cascade BEFORE spawning DOM nodes to avoid a forced synchronous layout read (`innerWidth`).
+    if (alwaysCascade || effect === 'matrix-burst') {
+      cascade(pe.clientX, pe.clientY);
+    }
+    if (effect !== 'none') {
+      spawnAt(pe.clientX, pe.clientY);
     }
   };
 
-  doc.addEventListener(
-    'pointerdown',
-    (event) => {
-      const pe = event as PointerEvent;
-      if (pe.button !== 0 || !isInteractiveClickTarget(pe)) {
-        return;
-      }
-      if (effect !== 'none') {
-        spawnAt(pe.clientX, pe.clientY);
-      }
-      if (alwaysCascade && effect !== 'matrix-burst' && !prefersReducedMotion()) {
-        cascade(pe.clientX, pe.clientY);
-      }
-    },
-    { capture: true, passive: true, signal: abort.signal },
-  );
-
   // Plain clicks on margins cascade interactive backdrops gently; drags that select text never do.
-  doc.addEventListener(
-    'click',
-    (event) => {
-      const me = event as MouseEvent;
-      if (
-        disposed ||
-        (!alwaysCascade && effect !== 'matrix-burst') ||
-        !cascadeEnabled ||
-        me.button !== 0 ||
-        // Keyboard activation and scripted `.click()` report detail 0 and (0, 0) coordinates.
-        me.detail === 0 ||
-        isInteractiveClickTarget(me) ||
-        prefersReducedMotion()
-      ) {
-        return;
+  const onClick = (event: Event): void => {
+    const me = event as MouseEvent;
+    if (
+      disposed ||
+      (!alwaysCascade && effect !== 'matrix-burst') ||
+      !cascadeEnabled ||
+      me.button !== 0 ||
+      // Keyboard activation and scripted `.click()` report detail 0 and (0, 0) coordinates.
+      me.detail === 0 ||
+      prefersReducedMotion() ||
+      isInteractiveClickTarget(me)
+    ) {
+      return;
+    }
+    const selection = doc.getSelection?.();
+    if (selection && !selection.isCollapsed) {
+      return;
+    }
+    cascade(me.clientX, me.clientY);
+  };
+
+  const syncListeners = (): void => {
+    const needPointerDown = !disposed && (effect !== 'none' || (cascadeEnabled && alwaysCascade));
+    if (needPointerDown !== pointerDownAttached) {
+      pointerDownAttached = needPointerDown;
+      if (needPointerDown) {
+        doc.addEventListener('pointerdown', onPointerDown, {
+          capture: true,
+          passive: true,
+          signal: abort.signal,
+        });
+      } else {
+        doc.removeEventListener('pointerdown', onPointerDown, { capture: true });
       }
-      const selection = doc.getSelection?.();
-      if (selection && !selection.isCollapsed) {
-        return;
+    }
+    const needClick = !disposed && cascadeEnabled && (alwaysCascade || effect === 'matrix-burst');
+    if (needClick !== clickAttached) {
+      clickAttached = needClick;
+      if (needClick) {
+        doc.addEventListener('click', onClick, {
+          capture: true,
+          passive: true,
+          signal: abort.signal,
+        });
+      } else {
+        doc.removeEventListener('click', onClick, { capture: true });
       }
-      cascade(me.clientX, me.clientY);
-    },
-    { capture: true, passive: true, signal: abort.signal },
-  );
+    }
+  };
 
   return {
     setEffect(nextEffect, nextPalette, options) {
@@ -425,18 +483,31 @@ export function mountClickEffects(
         const nextScale = (resolvedParams.scale as number | undefined) ?? 1;
         supernovaEmberFrames =
           nextScale === 1 ? SUPERNOVA_EMBER_KEYFRAMES : buildSupernovaEmberKeyframes(nextScale);
+      } else if (nextEffect === 'spark') {
+        const nextCount = Math.round((resolvedParams.count as number | undefined) ?? 8);
+        const nextScale = (resolvedParams.scale as number | undefined) ?? 1;
+        sparkFrames =
+          nextCount === 8 && nextScale === 1
+            ? DEFAULT_SPARK_KEYFRAMES
+            : buildSparkKeyframes(nextCount, nextScale);
       }
       cascadeEnabled = options?.cascade ?? false;
       alwaysCascade = Boolean(options?.alwaysCascade);
       if (effect === 'none') {
         removeOverlay();
       }
+      syncListeners();
     },
     triggerAt(clientX, clientY) {
+      if (effect === 'matrix-burst' && !prefersReducedMotion()) {
+        cascade(clientX, clientY);
+      }
       spawnAt(clientX, clientY);
     },
     destroy() {
       disposed = true;
+      pointerDownAttached = false;
+      clickAttached = false;
       abort.abort();
       removeOverlay();
     },
