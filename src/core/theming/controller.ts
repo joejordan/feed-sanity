@@ -117,6 +117,16 @@ function sameCssRelevantTheme(prev: ResolvedTheme | null, next: ResolvedTheme | 
   return true;
 }
 
+function sameJsonStruct<T>(a: T | undefined, b: T | undefined): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function sameEffectsConfig(
   a: ThemeEffectsConfig | undefined,
   b: ThemeEffectsConfig | undefined,
@@ -135,6 +145,8 @@ function sameEffectsConfig(
     a.paused === b.paused &&
     a.interactive === b.interactive &&
     sameEffectParams(a.backdropParams, b.backdropParams) &&
+    sameJsonStruct(a.customScene, b.customScene) &&
+    sameJsonStruct(a.customShader, b.customShader) &&
     a.surface === b.surface &&
     a.click === b.click
   );

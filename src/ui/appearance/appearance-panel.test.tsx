@@ -1000,4 +1000,192 @@ describe('appearancePanel & initSiteTheme', () => {
     await userEvent.click(palmsSwitch);
     await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.palms).toBe(false));
   });
+
+  it('imports Tier 2 Custom Scenes as Verified data and gates Tier 3 GLSL Shaders with opt-in + auto-generated param sliders', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    await userEvent.click(screen.getByRole('button', { name: /Import \/ Export theme/i }));
+
+    const pasteArea = screen.getByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Paste theme JSON',
+    });
+
+    // 1. Tier 2 Custom Scene imports directly with Verified data trust badge and zero opt-in gate.
+    const sceneJson = JSON.stringify({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      meta: { name: 'Bamboo Mist' },
+      palette: {
+        colorScheme: 'dark',
+        background: '#0a1412',
+        surface: '#11211e',
+        text: '#e8f5f1',
+        accent: '#34d399',
+      },
+      effects: {
+        backdrop: {
+          id: 'custom-scene',
+          scene: {
+            layers: [
+              { kind: 'gradient', style: 'linear', colors: ['background', 'accent'] },
+              {
+                kind: 'particles',
+                shape: 'glow',
+                count: 24,
+                sizeMin: 3,
+                sizeMax: 8,
+                speed: 0.5,
+                angle: 270,
+                spread: 30,
+                color: 'accent',
+              },
+            ],
+          },
+        },
+      },
+    });
+    await userEvent.click(pasteArea);
+    await userEvent.paste(sceneJson);
+    await userEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+    expect(screen.getByText('Verified data')).toBeTruthy();
+    expect(screen.getByText('Scene (2 layers)')).toBeTruthy();
+    expect(screen.queryByRole('checkbox', { name: /Include custom GPU shader/i })).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Apply imported theme' }));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.id).toBe('custom-scene'));
+    expect(screen.getByText(/Custom Scene active \(2 layers\)/i)).toBeTruthy();
+
+    // 2. Tier 3 GLSL Shader strips GPU code when unchecked, and activates + renders custom param controls when checked.
+    const shaderJson = JSON.stringify({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      meta: { name: 'Aurora Shader' },
+      palette: {
+        colorScheme: 'dark',
+        background: '#080c16',
+        surface: '#111829',
+        text: '#e6edf7',
+        accent: '#38bdf8',
+      },
+      effects: {
+        backdrop: {
+          id: 'custom-shader',
+          shader: {
+            fragment:
+              'void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(u_accent * u_glow, 1.0); }',
+            params: [
+              {
+                key: 'glow',
+                kind: 'number',
+                label: 'Shader glow',
+                min: 0.2,
+                max: 2,
+                step: 0.1,
+                defaultValue: 1,
+              },
+            ],
+          },
+        },
+        surface: { finish: 'glass', glassStrength: 0.25 },
+      },
+    });
+
+    await userEvent.click(pasteArea);
+    await userEvent.paste(shaderJson);
+    await userEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+    expect(screen.getByText('Includes GPU shader')).toBeTruthy();
+    const shaderOptIn = screen.getByRole<HTMLInputElement>('checkbox', {
+      name: /Include custom GPU shader/i,
+    });
+    expect(shaderOptIn.checked).toBe(false);
+
+    // Apply WITHOUT opting in -> strips shader, preserves palette & glass surface finish.
+    await userEvent.click(screen.getByRole('button', { name: 'Apply imported theme' }));
+    await vi.waitFor(() => {
+      expect(saved.get().meta.name).toBe('Aurora Shader');
+      expect(saved.get().effects?.backdrop).toBeUndefined();
+      expect(saved.get().effects?.surface?.finish).toBe('glass');
+    });
+
+    // Now re-paste and opt IN -> keeps shader and renders custom Shader glow slider!
+    await userEvent.click(pasteArea);
+    await userEvent.paste(shaderJson);
+    await userEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: /Include custom GPU shader/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'Apply imported theme' }));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.id).toBe('custom-shader'));
+    expect(screen.getByText('Custom GPU Shader active')).toBeTruthy();
+    expect(screen.getByRole('slider', { name: 'Shader glow' })).toBeTruthy();
+  });
+
+  it('strips un-opted Tier 3 GPU shaders when saving straight to My Themes and keeps them when opted in', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    const library = createThemeLibrary(store);
+    await library.ready;
+
+    try {
+      const controller = makeController();
+      const panel = appearancePanel(saved, controller, () => undefined, library);
+
+      render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+      await userEvent.click(screen.getByRole('button', { name: /Import \/ Export theme/i }));
+
+      const pasteArea = screen.getByRole<HTMLTextAreaElement>('textbox', {
+        name: 'Paste theme JSON',
+      });
+      const shaderJson = JSON.stringify({
+        format: THEME_FILE_FORMAT,
+        schemaVersion: 1,
+        meta: { name: 'Plasma Card' },
+        palette: {
+          colorScheme: 'dark',
+          background: '#080c16',
+          surface: '#111829',
+          text: '#e6edf7',
+          accent: '#38bdf8',
+        },
+        effects: {
+          backdrop: {
+            id: 'custom-shader',
+            shader: {
+              fragment: 'void main() { gl_FragColor = vec4(u_accent, 1.0); }',
+            },
+          },
+          surface: { finish: 'glass', glassStrength: 0.22 },
+        },
+      });
+
+      // Save WITHOUT opting in -> saved library entry must NOT contain the shader.
+      await userEvent.click(pasteArea);
+      await userEvent.paste(shaderJson);
+      await userEvent.click(screen.getByRole('button', { name: 'Preview import' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Save to My Themes' }));
+      await vi.waitFor(() => expect(library.list()).toHaveLength(1));
+      expect(library.list()[0]?.document.effects?.backdrop).toBeUndefined();
+      expect(library.list()[0]?.document.effects?.surface?.finish).toBe('glass');
+
+      // Opt IN and save -> saved library entry preserves the shader.
+      await userEvent.click(screen.getByRole('checkbox', { name: /Include custom GPU shader/i }));
+      await userEvent.click(screen.getByRole('button', { name: 'Save to My Themes' }));
+      await vi.waitFor(() => expect(library.list()).toHaveLength(2));
+      expect(library.list()[0]?.document.effects?.backdrop?.id).toBe('custom-shader');
+    } finally {
+      library.dispose();
+    }
+  });
 });

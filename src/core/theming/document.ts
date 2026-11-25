@@ -12,6 +12,7 @@ import type {
   SurfaceFinishId,
   ThemeEffectsConfig,
 } from '../theme-effects/model';
+import type { CustomSceneSpec, CustomShaderSpec } from '../theme-effects/scene-schema';
 import type { SanitizedCssResult } from './css-sanitizer';
 import type {
   ThemeAmbientGlowSpot,
@@ -27,13 +28,19 @@ import {
   CLICK_EFFECT_IDS,
   DEFAULT_THEME_EFFECTS,
   DIGITAL_RAIN_PARAM_SPECS,
-  getBackdropParamSpecs,
+  getActiveBackdropParamSpecs,
   hasActiveEffects,
   readThemeEffectsConfig,
   SURFACE_FINISH_IDS,
   THEME_EFFECT_BOUNDS,
   validateEffectParams,
 } from '../theme-effects/model';
+import {
+  isOneOf,
+  parseCustomScene,
+  parseCustomShader,
+  readClampedNumber,
+} from '../theme-effects/scene-schema';
 import {
   contrastRatio,
   hydratePalette,
@@ -96,6 +103,8 @@ export interface ThemeDocumentEffects {
     readonly paused?: boolean;
     readonly interactive?: boolean;
     readonly params?: EffectParamValues;
+    readonly scene?: CustomSceneSpec;
+    readonly shader?: CustomShaderSpec;
   };
   readonly surface?: {
     readonly finish: SurfaceFinishId;
@@ -121,7 +130,7 @@ export interface ThemeDocumentV1 {
   readonly customCss?: string;
 }
 
-export type ThemeTrustTier = 'data-only' | 'custom-css';
+export type ThemeTrustTier = 'data-only' | 'custom-css' | 'custom-shader' | 'custom-css-and-shader';
 
 /**
  * Deterministic capability & trust manifest derived from a validated `ThemeDocumentV1`.
@@ -133,6 +142,9 @@ export interface ThemeCapabilities {
   readonly hasPalette: boolean;
   readonly colorScheme: ThemeColorScheme | null;
   readonly backdropEngine: Exclude<BackdropEffectId, 'none'> | null;
+  readonly hasCustomScene: boolean;
+  readonly sceneLayerCount: number;
+  readonly hasCustomShader: boolean;
   readonly surfaceFinish: Exclude<SurfaceFinishId, 'default'> | null;
   readonly clickEffect: Exclude<ClickEffectId, 'none'> | null;
   readonly hasChrome: boolean;
@@ -150,6 +162,7 @@ export interface ThemeParseResult {
   readonly errors: readonly string[];
   readonly warnings: readonly string[];
   readonly hadCustomCss: boolean;
+  readonly hadCustomShader: boolean;
   readonly strippedCssRules: number;
 }
 
@@ -160,6 +173,7 @@ export function themeParseFailure(errors: string | readonly string[]): ThemePars
     errors: typeof errors === 'string' ? [errors] : errors,
     warnings: [],
     hadCustomCss: false,
+    hadCustomShader: false,
     strippedCssRules: 0,
   };
 }
@@ -172,23 +186,6 @@ export function slugifyThemeId(input: string, fallback = 'custom-theme'): string
     .replace(/^-+|-+$/g, '')
     .slice(0, 48);
   return slug || fallback;
-}
-
-function readClampedNumber(
-  raw: unknown,
-  min: number,
-  max: number,
-  decimals = 2,
-): number | undefined {
-  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
-    return undefined;
-  }
-  const factor = 10 ** decimals;
-  return Math.round(Math.min(max, Math.max(min, raw)) * factor) / factor;
-}
-
-function isOneOf<T extends string>(raw: unknown, list: readonly T[]): raw is T {
-  return typeof raw === 'string' && (list as readonly string[]).includes(raw);
 }
 
 function cleanHttpsUrl(raw: unknown): string | undefined {
@@ -290,6 +287,8 @@ export function documentEffectsToConfig(
     paused: effects.backdrop?.paused ?? DEFAULT_THEME_EFFECTS.paused,
     interactive: effects.backdrop?.interactive ?? DEFAULT_THEME_EFFECTS.interactive,
     ...(effects.backdrop?.params ? { backdropParams: effects.backdrop.params } : {}),
+    ...(effects.backdrop?.scene ? { customScene: effects.backdrop.scene } : {}),
+    ...(effects.backdrop?.shader ? { customShader: effects.backdrop.shader } : {}),
     surface: effects.surface?.finish ?? DEFAULT_THEME_EFFECTS.surface,
     glassStrength: effects.surface?.glassStrength ?? DEFAULT_THEME_EFFECTS.glassStrength,
     click: effects.click?.id ?? DEFAULT_THEME_EFFECTS.click,
@@ -317,6 +316,8 @@ export function configEffectsToDocument(
       paused: normalized.paused,
       interactive: normalized.interactive,
       ...(normalized.backdropParams ? { params: normalized.backdropParams } : {}),
+      ...(normalized.customScene ? { scene: normalized.customScene } : {}),
+      ...(normalized.customShader ? { shader: normalized.customShader } : {}),
     };
   }
   const surface: ThemeDocumentEffects['surface'] =
@@ -347,44 +348,81 @@ function warnUnsupportedEffect(
   }
 }
 
-function parseEffects(raw: unknown, warnings: string[]): ThemeDocumentEffects | undefined {
-  if (!isRecord(raw)) {
-    return undefined;
+function parseBackdropEffect(
+  rawBackdrop: Record<string, unknown>,
+  errors: string[],
+  warnings: string[],
+): { readonly backdrop?: ThemeDocumentEffects['backdrop']; readonly hadCustomShader: boolean } {
+  if (!isOneOf(rawBackdrop.id, BACKDROP_EFFECT_IDS)) {
+    warnUnsupportedEffect(
+      rawBackdrop.id,
+      'backdrop engine',
+      'falling back to static theme colors',
+      warnings,
+    );
+    return { hadCustomShader: false };
   }
-  let backdrop: ThemeDocumentEffects['backdrop'];
-  if (isRecord(raw.backdrop)) {
-    if (isOneOf(raw.backdrop.id, BACKDROP_EFFECT_IDS)) {
-      const id = raw.backdrop.id;
-      const intensity = readClampedNumber(
-        raw.backdrop.intensity,
-        THEME_EFFECT_BOUNDS.intensity.min,
-        THEME_EFFECT_BOUNDS.intensity.max,
-      );
-      const speed = readClampedNumber(
-        raw.backdrop.speed,
-        THEME_EFFECT_BOUNDS.speed.min,
-        THEME_EFFECT_BOUNDS.speed.max,
-      );
-      const params = validateEffectParams(raw.backdrop.params, getBackdropParamSpecs(id), warnings);
-      backdrop = {
-        id,
-        ...(intensity === undefined ? {} : { intensity }),
-        ...(speed === undefined ? {} : { speed }),
-        ...(typeof raw.backdrop.paused === 'boolean' ? { paused: raw.backdrop.paused } : {}),
-        ...(typeof raw.backdrop.interactive === 'boolean'
-          ? { interactive: raw.backdrop.interactive }
-          : {}),
-        ...(params ? { params } : {}),
-      };
-    } else {
-      warnUnsupportedEffect(
-        raw.backdrop.id,
-        'backdrop engine',
-        'falling back to static theme colors',
-        warnings,
-      );
+  const id = rawBackdrop.id;
+  const intensity = readClampedNumber(
+    rawBackdrop.intensity,
+    THEME_EFFECT_BOUNDS.intensity.min,
+    THEME_EFFECT_BOUNDS.intensity.max,
+  );
+  const speed = readClampedNumber(
+    rawBackdrop.speed,
+    THEME_EFFECT_BOUNDS.speed.min,
+    THEME_EFFECT_BOUNDS.speed.max,
+  );
+  let scene: CustomSceneSpec | undefined;
+  let shader: CustomShaderSpec | undefined;
+  const hadCustomShader = id === 'custom-shader';
+  if (id === 'custom-scene') {
+    scene = parseCustomScene(rawBackdrop.scene, warnings);
+    if (!scene) {
+      errors.push('effects.backdrop.scene must include at least one valid scene layer.');
+      return { hadCustomShader };
     }
+  } else if (id === 'custom-shader') {
+    const parsedShader = parseCustomShader(rawBackdrop.shader, warnings);
+    if (parsedShader.errors.length > 0 || !parsedShader.shader) {
+      errors.push(...parsedShader.errors);
+      return { hadCustomShader };
+    }
+    shader = parsedShader.shader;
   }
+  const paramSpecs = getActiveBackdropParamSpecs({
+    backdrop: id,
+    ...(shader ? { customShader: shader } : {}),
+  });
+  const params = validateEffectParams(rawBackdrop.params, paramSpecs, warnings);
+  return {
+    hadCustomShader,
+    backdrop: {
+      id,
+      ...(intensity === undefined ? {} : { intensity }),
+      ...(speed === undefined ? {} : { speed }),
+      ...(typeof rawBackdrop.paused === 'boolean' ? { paused: rawBackdrop.paused } : {}),
+      ...(typeof rawBackdrop.interactive === 'boolean'
+        ? { interactive: rawBackdrop.interactive }
+        : {}),
+      ...(params ? { params } : {}),
+      ...(scene ? { scene } : {}),
+      ...(shader ? { shader } : {}),
+    },
+  };
+}
+
+function parseEffects(
+  raw: unknown,
+  errors: string[],
+  warnings: string[],
+): { readonly effects?: ThemeDocumentEffects; readonly hadCustomShader: boolean } {
+  if (!isRecord(raw)) {
+    return { hadCustomShader: false };
+  }
+  const { backdrop, hadCustomShader } = isRecord(raw.backdrop)
+    ? parseBackdropEffect(raw.backdrop, errors, warnings)
+    : { backdrop: undefined, hadCustomShader: false };
 
   let surface: ThemeDocumentEffects['surface'];
   if (isRecord(raw.surface)) {
@@ -417,12 +455,15 @@ function parseEffects(raw: unknown, warnings: string[]): ThemeDocumentEffects | 
     (surface !== undefined && surface.finish !== 'default') ||
     (click !== undefined && click.id !== 'none');
   if (!active) {
-    return undefined;
+    return { hadCustomShader };
   }
   return {
-    ...(backdrop ? { backdrop } : {}),
-    ...(surface ? { surface } : {}),
-    ...(click ? { click } : {}),
+    effects: {
+      ...(backdrop ? { backdrop } : {}),
+      ...(surface ? { surface } : {}),
+      ...(click ? { click } : {}),
+    },
+    hadCustomShader,
   };
 }
 
@@ -626,7 +667,7 @@ export function parseThemeDocument(input: unknown): ThemeParseResult {
   const palette = parseDocumentPalette(raw.palette, errors, warnings);
   const typography = parseDocumentTypography(raw.typography, warnings);
   const chrome = parseChrome(raw.chrome);
-  const effects = parseEffects(raw.effects, warnings);
+  const { effects, hadCustomShader } = parseEffects(raw.effects, errors, warnings);
 
   let customCss: string | undefined;
   let hadCustomCss = false;
@@ -649,7 +690,7 @@ export function parseThemeDocument(input: unknown): ThemeParseResult {
   }
 
   if (errors.length > 0 || !name) {
-    return { ok: false, errors, warnings, hadCustomCss, strippedCssRules };
+    return { ok: false, errors, warnings, hadCustomCss, hadCustomShader, strippedCssRules };
   }
 
   const meta = parseDocumentMeta(rawMeta, name);
@@ -673,6 +714,7 @@ export function parseThemeDocument(input: unknown): ThemeParseResult {
     errors: [],
     warnings,
     hadCustomCss,
+    hadCustomShader,
     strippedCssRules,
   };
 }
@@ -708,13 +750,24 @@ function canonicalJsonValue(value: unknown): unknown {
   return value;
 }
 
+const CAPABILITIES_CACHE = new WeakMap<ThemeDocumentV1, ThemeCapabilities>();
+
 /**
  * Computes a deterministic trust & capability summary for a `ThemeDocumentV1`,
  * suitable for import previews, verification badges, and library deduplication.
  */
 export function analyzeThemeDocument(doc: ThemeDocumentV1): ThemeCapabilities {
+  const cached = CAPABILITIES_CACHE.get(doc);
+  if (cached) {
+    return cached;
+  }
   const hasCustomCss = Boolean(doc.customCss && doc.customCss.trim().length > 0);
   const backdropId = doc.effects?.backdrop?.id;
+  const sceneLayerCount =
+    backdropId === 'custom-scene' ? (doc.effects?.backdrop?.scene?.layers.length ?? 0) : 0;
+  const hasCustomScene = sceneLayerCount > 0;
+  const hasCustomShader =
+    backdropId === 'custom-shader' && Boolean(doc.effects?.backdrop?.shader?.fragment);
   const surfaceFinish = doc.effects?.surface?.finish;
   const clickId = doc.effects?.click?.id;
   const hasTypography = Boolean(
@@ -726,6 +779,14 @@ export function analyzeThemeDocument(doc: ThemeDocumentV1): ThemeCapabilities {
         minTextContrast(doc.palette.text, doc.palette.background, doc.palette.surface).toFixed(2),
       )
     : null;
+  let trust: ThemeTrustTier = 'data-only';
+  if (hasCustomCss && hasCustomShader) {
+    trust = 'custom-css-and-shader';
+  } else if (hasCustomShader) {
+    trust = 'custom-shader';
+  } else if (hasCustomCss) {
+    trust = 'custom-css';
+  }
   const fingerprint = stableHashHex(
     JSON.stringify(
       canonicalJsonValue({
@@ -737,11 +798,14 @@ export function analyzeThemeDocument(doc: ThemeDocumentV1): ThemeCapabilities {
       }),
     ),
   );
-  return {
-    trust: hasCustomCss ? 'custom-css' : 'data-only',
+  const result: ThemeCapabilities = {
+    trust,
     hasPalette: doc.palette !== null,
     colorScheme: doc.palette?.colorScheme ?? null,
     backdropEngine: backdropId && backdropId !== 'none' ? backdropId : null,
+    hasCustomScene,
+    sceneLayerCount,
+    hasCustomShader,
     surfaceFinish: surfaceFinish && surfaceFinish !== 'default' ? surfaceFinish : null,
     clickEffect: clickId && clickId !== 'none' ? clickId : null,
     hasChrome,
@@ -750,6 +814,8 @@ export function analyzeThemeDocument(doc: ThemeDocumentV1): ThemeCapabilities {
     minContrastRatio,
     fingerprint,
   };
+  CAPABILITIES_CACHE.set(doc, result);
+  return result;
 }
 
 /** Returns a copy of `doc` with `palette.text` and `palette.accentText` adjusted for WCAG AA contrast. */

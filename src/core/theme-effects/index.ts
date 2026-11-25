@@ -16,6 +16,25 @@ export type {
   SurfaceFinishId,
   ThemeEffectsConfig,
 } from './model';
+export type {
+  CustomSceneSpec,
+  CustomShaderParamSpec,
+  CustomShaderSpec,
+  GradientSceneLayer,
+  GridSceneLayer,
+  ParticleShape,
+  ParticlesSceneLayer,
+  RaysSceneLayer,
+  SceneBlendMode,
+  SceneColorRef,
+  SceneColorToken,
+  SceneLayerBase,
+  SceneLayerSpec,
+  ShaderValidationResult,
+  SilhouetteSceneLayer,
+  SilhouetteStyle,
+  WavesSceneLayer,
+} from './scene-schema';
 export { compileUiSurfaceCss } from '../theming/compile-ui';
 export { BACKDROP_REGISTRY } from './backdrops';
 export { mountClickEffects } from './click-fx';
@@ -33,6 +52,8 @@ export {
   DIGITAL_RAIN_PARAM_SPECS,
   deriveEffectParams,
   findBackdropOption,
+  getActiveBackdropParamSpecs,
+  getBackdropDisplayName,
   getBackdropParamSpecs,
   hasActiveEffects,
   mergeEffectsPatch,
@@ -48,6 +69,19 @@ export {
   THEME_EFFECT_BOUNDS,
   validateEffectParams,
 } from './model';
+export {
+  MAX_CUSTOM_SHADER_BYTES,
+  MAX_CUSTOM_SHADER_PARAMS,
+  MAX_SCENE_LAYERS,
+  MAX_SHADER_LOOP_ITERATIONS,
+  PARTICLE_SHAPES,
+  parseCustomScene,
+  parseCustomShader,
+  SCENE_BLEND_MODES,
+  SCENE_COLOR_TOKENS,
+  SILHOUETTE_STYLES,
+  validateCustomShaderSource,
+} from './scene-schema';
 export {
   BACKDROP_OWN_VALUE,
   BACKDROP_SELECTOR,

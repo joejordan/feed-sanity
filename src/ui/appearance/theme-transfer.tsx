@@ -1,5 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ThemeCapabilities, ThemeDocumentV1, ThemeParseResult } from '../../core/theming';
+import type {
+  ThemeCapabilities,
+  ThemeDocumentFilterOptions,
+  ThemeDocumentV1,
+  ThemeParseResult,
+} from '../../core/theming';
 import {
   analyzeThemeDocument,
   autoFixDocumentContrast,
@@ -13,12 +18,26 @@ import {
 } from '../../core/theming';
 import { Badge, Disclosure } from '../primitives';
 
+export type ThemeImportOptions = Required<ThemeDocumentFilterOptions>;
+
+const DEFAULT_IMPORT_OPTIONS: ThemeImportOptions = {
+  includeCustomCss: false,
+  includeCustomShader: false,
+};
+
+function isContrastWarning(warning: string): boolean {
+  return warning.toLowerCase().includes('contrast');
+}
+
 export interface ThemeTransferDisclosureProps {
   readonly open: boolean;
   readonly onToggle: () => void;
   readonly document: ThemeDocumentV1;
-  readonly onImport: (doc: ThemeDocumentV1, includeCustomCss: boolean) => void;
-  readonly onSaveToLibrary?: (doc: ThemeDocumentV1, includeCustomCss: boolean) => Promise<boolean>;
+  readonly onImport: (doc: ThemeDocumentV1, options: ThemeImportOptions) => void;
+  readonly onSaveToLibrary?: (
+    doc: ThemeDocumentV1,
+    options: ThemeImportOptions,
+  ) => Promise<boolean>;
   readonly notify?: (message: string, onUndo?: () => void) => void;
 }
 
@@ -68,7 +87,12 @@ function describeCapabilities(doc: ThemeDocumentV1, caps: ThemeCapabilities): re
   } else {
     items.push('Native site colors');
   }
-  if (caps.backdropEngine) {
+  if (caps.hasCustomScene) {
+    const noun = caps.sceneLayerCount === 1 ? 'layer' : 'layers';
+    items.push(`Scene (${caps.sceneLayerCount} ${noun})`);
+  } else if (caps.hasCustomShader) {
+    items.push('Custom GPU shader');
+  } else if (caps.backdropEngine) {
     items.push(`Backdrop: ${caps.backdropEngine}`);
   }
   if (caps.surfaceFinish) {
@@ -88,11 +112,24 @@ function describeCapabilities(doc: ThemeDocumentV1, caps: ThemeCapabilities): re
   return items;
 }
 
+function trustBadgeLabel(trust: ThemeCapabilities['trust']): string {
+  switch (trust) {
+    case 'data-only':
+      return 'Verified data';
+    case 'custom-css':
+      return 'Includes custom CSS';
+    case 'custom-shader':
+      return 'Includes GPU shader';
+    case 'custom-css-and-shader':
+      return 'Custom CSS + GPU shader';
+  }
+}
+
 interface ThemeImportPreviewProps {
   readonly doc: ThemeDocumentV1;
   readonly parsed: ThemeParseResult;
-  readonly includeCustomCss: boolean;
-  readonly onIncludeCustomCssChange: (checked: boolean) => void;
+  readonly importOptions: ThemeImportOptions;
+  readonly onImportOptionsChange: (patch: Partial<ThemeImportOptions>) => void;
   readonly onFixContrast: () => void;
   readonly onApply: () => void;
   readonly onSaveToLibrary?: () => void;
@@ -102,8 +139,8 @@ interface ThemeImportPreviewProps {
 function ThemeImportPreview({
   doc,
   parsed,
-  includeCustomCss,
-  onIncludeCustomCssChange,
+  importOptions,
+  onImportOptionsChange,
   onFixContrast,
   onApply,
   onSaveToLibrary,
@@ -118,15 +155,17 @@ function ThemeImportPreview({
     [parsed.capabilities, doc],
   );
   const features = useMemo(() => describeCapabilities(doc, capabilities), [doc, capabilities]);
-  const hasContrastWarning = parsed.warnings.some((warning) =>
-    warning.toLowerCase().includes('contrast'),
-  );
+  const hasContrastWarning = parsed.warnings.some(isContrastWarning);
   const byline = [
     doc.meta.author ? `by ${doc.meta.author}` : '',
     doc.meta.version ? `v${doc.meta.version}` : '',
   ]
     .filter(Boolean)
     .join(' · ');
+  const customShader =
+    parsed.hadCustomShader && doc.effects?.backdrop?.id === 'custom-shader'
+      ? doc.effects.backdrop.shader
+      : undefined;
 
   return (
     <div className="theme-transfer-preview" role="region" aria-label="Theme import preview">
@@ -142,7 +181,7 @@ function ThemeImportPreview({
 
       <div className="theme-transfer-pills">
         <Badge tone={capabilities.trust === 'data-only' ? 'accent' : 'warning'}>
-          {capabilities.trust === 'data-only' ? 'Verified data' : 'Includes custom CSS'}
+          {trustBadgeLabel(capabilities.trust)}
         </Badge>
         {features.map((item) => (
           <Badge key={item} tone="neutral">
@@ -170,11 +209,29 @@ function ThemeImportPreview({
         <label className="theme-transfer-css-optin">
           <input
             type="checkbox"
-            checked={includeCustomCss}
-            onChange={(event) => onIncludeCustomCssChange(event.currentTarget.checked)}
+            checked={importOptions.includeCustomCss}
+            onChange={(event) =>
+              onImportOptionsChange({ includeCustomCss: event.currentTarget.checked })
+            }
           />
           <span>
             Include custom CSS ({doc.customCss.length} chars; external imports/URLs stripped)
+          </span>
+        </label>
+      )}
+
+      {customShader && (
+        <label className="theme-transfer-css-optin">
+          <input
+            type="checkbox"
+            checked={importOptions.includeCustomShader}
+            onChange={(event) =>
+              onImportOptionsChange({ includeCustomShader: event.currentTarget.checked })
+            }
+          />
+          <span>
+            Include custom GPU shader ({customShader.fragment.length} chars; WebGL sandbox with
+            slow-frame fallback)
           </span>
         </label>
       )}
@@ -209,7 +266,7 @@ export function ThemeTransferDisclosure({
   const readSeqRef = useRef(0);
   const [pasteDraft, setPasteDraft] = useState('');
   const [parsed, setParsed] = useState<ThemeParseResult | null>(null);
-  const [includeCustomCss, setIncludeCustomCss] = useState(false);
+  const [importOptions, setImportOptions] = useState<ThemeImportOptions>(DEFAULT_IMPORT_OPTIONS);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   useEffect(
@@ -219,25 +276,18 @@ export function ThemeTransferDisclosure({
     [],
   );
 
-  const clearPreview = (): void => {
+  const resetPreview = (nextParsed: ThemeParseResult | null, clearStatus = false): void => {
     readSeqRef.current++;
-    setParsed(null);
-    setIncludeCustomCss(false);
+    setParsed(nextParsed);
+    setImportOptions(DEFAULT_IMPORT_OPTIONS);
+    if (clearStatus) {
+      setStatusMessage(null);
+    }
   };
 
-  const setImportError = (message: string): void => {
-    readSeqRef.current++;
-    setParsed(themeParseFailure(message));
-    setIncludeCustomCss(false);
-    setStatusMessage(null);
-  };
-
-  const inspectRawJson = (rawText: string): void => {
-    readSeqRef.current++;
-    setParsed(parseThemeDocument(rawText));
-    setIncludeCustomCss(false);
-    setStatusMessage(null);
-  };
+  const clearPreview = (): void => resetPreview(null);
+  const setImportError = (message: string): void => resetPreview(themeParseFailure(message), true);
+  const inspectRawJson = (rawText: string): void => resetPreview(parseThemeDocument(rawText), true);
 
   const handleExportDownload = (): void => {
     const filename = downloadThemeDocumentFile(activeDoc);
@@ -282,7 +332,7 @@ export function ThemeTransferDisclosure({
         }
         setPasteDraft(text);
         setParsed(parseThemeDocument(text));
-        setIncludeCustomCss(false);
+        setImportOptions(DEFAULT_IMPORT_OPTIONS);
         setStatusMessage(null);
       })
       .catch(() => {
@@ -302,12 +352,13 @@ export function ThemeTransferDisclosure({
     }
     const rechecked = parseThemeDocument(autoFixDocumentContrast(previewDoc));
     const preservedWarnings = (parsed?.warnings ?? []).filter(
-      (warning) => !warning.toLowerCase().includes('contrast'),
+      (warning) => !isContrastWarning(warning),
     );
     setParsed({
       ...rechecked,
       warnings: [...preservedWarnings, ...rechecked.warnings],
       hadCustomCss: parsed?.hadCustomCss ?? rechecked.hadCustomCss,
+      hadCustomShader: parsed?.hadCustomShader ?? rechecked.hadCustomShader,
       strippedCssRules: parsed?.strippedCssRules ?? rechecked.strippedCssRules,
     });
   };
@@ -316,7 +367,7 @@ export function ThemeTransferDisclosure({
     if (!previewDoc) {
       return;
     }
-    onImport(previewDoc, includeCustomCss);
+    onImport(previewDoc, importOptions);
     clearPreview();
     setPasteDraft('');
     setStatusMessage(`Imported "${previewDoc.meta.name}"`);
@@ -328,7 +379,7 @@ export function ThemeTransferDisclosure({
     }
     const seq = readSeqRef.current;
     const savedName = previewDoc.meta.name;
-    void onSaveToLibrary(previewDoc, includeCustomCss).then((ok) => {
+    void onSaveToLibrary(previewDoc, importOptions).then((ok) => {
       if (ok && seq === readSeqRef.current) {
         setStatusMessage(`Saved "${savedName}" to My Themes`);
       }
@@ -434,8 +485,8 @@ export function ThemeTransferDisclosure({
             <ThemeImportPreview
               doc={previewDoc}
               parsed={parsed}
-              includeCustomCss={includeCustomCss}
-              onIncludeCustomCssChange={setIncludeCustomCss}
+              importOptions={importOptions}
+              onImportOptionsChange={(patch) => setImportOptions((prev) => ({ ...prev, ...patch }))}
               onFixContrast={handleFixPreviewContrast}
               onApply={handleApplyImport}
               {...(onSaveToLibrary ? { onSaveToLibrary: handleSaveImportToLibrary } : {})}

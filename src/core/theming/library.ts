@@ -4,6 +4,7 @@
 // contention (each site tracks its own applied global revision locally).
 
 import type { Store } from '../storage';
+import type { ThemeDocumentFilterOptions } from './config';
 import type { ThemeDocumentV1 } from './document';
 import { Listeners } from '../listeners';
 import { createLogger } from '../log';
@@ -41,13 +42,11 @@ export interface ThemeLibraryState {
   readonly globalTheme?: GlobalThemeOverride;
 }
 
-export interface SaveLibraryThemeOptions {
+export interface SaveLibraryThemeOptions extends ThemeDocumentFilterOptions {
   /** Optional display name override (trimmed & capped to 60 chars). */
   readonly name?: string;
   /** When set and found in the library, overwrites that entry in place. */
   readonly entryId?: string;
-  /** Whether to retain sanitized `customCss` on the saved snapshot (default `true`). */
-  readonly includeCustomCss?: boolean;
 }
 
 export interface ThemeLibraryClient {
@@ -63,7 +62,7 @@ export interface ThemeLibraryClient {
   readonly restoreTheme: (entry: SavedThemeEntry) => Promise<void>;
   readonly applyToAllSites: (
     doc: ThemeDocumentV1,
-    options?: { readonly includeCustomCss?: boolean },
+    options?: ThemeDocumentFilterOptions,
   ) => Promise<GlobalThemeOverride>;
   readonly onChange: (listener: (state: ThemeLibraryState) => void) => () => void;
   readonly dispose: () => void;
@@ -165,10 +164,11 @@ function allocateUniqueEntryId(baseId: string, existing: readonly SavedThemeEntr
 
 function prepareLibraryDocument(
   doc: ThemeDocumentV1,
-  options: { readonly name?: string; readonly includeCustomCss?: boolean } = {},
+  options: ThemeDocumentFilterOptions & { readonly name?: string } = {},
 ): ThemeDocumentV1 {
   const filtered = applyThemeDocument(doc, {
     includeCustomCss: options.includeCustomCss ?? true,
+    includeCustomShader: options.includeCustomShader ?? true,
   });
   const customName = options.name === undefined ? undefined : cleanDocumentText(options.name, 60);
   const candidate: ThemeDocumentV1 = customName

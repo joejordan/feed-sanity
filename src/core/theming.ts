@@ -8,6 +8,13 @@
 
 export type { StudioVibe, ThemeEffectsConfig } from './theme-effects/model';
 export type {
+  CustomSceneSpec,
+  CustomShaderParamSpec,
+  CustomShaderSpec,
+  SceneLayerSpec,
+  ShaderValidationResult,
+} from './theme-effects/scene-schema';
+export type {
   ElementLayoutSample,
   LayoutSnapshot,
   ThemeAuditOptions,
@@ -18,9 +25,18 @@ export type {
 } from './theming/audit';
 export {
   DEFAULT_THEME_EFFECTS,
+  getActiveBackdropParamSpecs,
   hasActiveEffects,
   readThemeEffectsConfig,
 } from './theme-effects/model';
+export {
+  MAX_CUSTOM_SHADER_BYTES,
+  MAX_CUSTOM_SHADER_PARAMS,
+  MAX_SCENE_LAYERS,
+  parseCustomScene,
+  parseCustomShader,
+  validateCustomShaderSource,
+} from './theme-effects/scene-schema';
 export { auditThemeCoverage, captureLayoutSnapshot } from './theming/audit';
 export {
   colorSchemeOf,
@@ -80,6 +96,7 @@ export {
   presetToThemeDocument,
   readThemeDocument,
   resolveTheme,
+  type ThemeDocumentFilterOptions,
   type ThemeSummary,
   updateThemeChrome,
   updateThemeCustomCss,

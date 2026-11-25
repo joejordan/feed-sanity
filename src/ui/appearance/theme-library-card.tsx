@@ -67,6 +67,29 @@ interface SavedThemeItemProps {
   readonly onDelete: () => void;
 }
 
+function libraryTrustLabel(trust: ThemeCapabilities['trust']): string {
+  switch (trust) {
+    case 'data-only':
+      return 'Verified';
+    case 'custom-css':
+      return 'Custom CSS';
+    case 'custom-shader':
+      return 'GPU Shader';
+    case 'custom-css-and-shader':
+      return 'CSS + Shader';
+  }
+}
+
+function libraryBackdropLabel(caps: ThemeCapabilities): string | null {
+  if (caps.hasCustomScene) {
+    return `Scene · ${caps.sceneLayerCount}L`;
+  }
+  if (caps.hasCustomShader) {
+    return 'GPU Shader';
+  }
+  return caps.backdropEngine;
+}
+
 function SavedThemeItem({
   item,
   isActive,
@@ -84,6 +107,7 @@ function SavedThemeItem({
 }: SavedThemeItemProps) {
   const { entry, capabilities, swatches } = item;
   const name = entry.document.meta.name;
+  const backdropLabel = libraryBackdropLabel(capabilities);
 
   return (
     <div className="theme-library-card" data-active={isActive ? 'true' : undefined}>
@@ -124,11 +148,9 @@ function SavedThemeItem({
             <span className="theme-card-name">{name}</span>
             <span className="theme-transfer-pills">
               <Badge tone={capabilities.trust === 'data-only' ? 'accent' : 'warning'}>
-                {capabilities.trust === 'data-only' ? 'Verified' : 'Custom CSS'}
+                {libraryTrustLabel(capabilities.trust)}
               </Badge>
-              {capabilities.backdropEngine && (
-                <Badge tone="neutral">{capabilities.backdropEngine}</Badge>
-              )}
+              {backdropLabel && <Badge tone="neutral">{backdropLabel}</Badge>}
             </span>
           </button>
           <div className="theme-library-card-actions">

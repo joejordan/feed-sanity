@@ -3,7 +3,9 @@ import type { SavedValue } from '../../core/saved';
 import type { StudioVibe, ThemeEffectsConfig } from '../../core/theme-effects/model';
 import type {
   SavedThemeEntry,
+  SaveLibraryThemeOptions,
   ThemeController,
+  ThemeDocumentFilterOptions,
   ThemeDocumentV1,
   ThemeFontId,
   ThemeLibraryClient,
@@ -222,9 +224,12 @@ function AppearancePanelView({
     applyEdit(clearThemeEffects(value), 'Cleared studio effects');
   };
 
-  const handleImportDocument = (doc: ThemeDocumentV1, includeCustomCss: boolean): void => {
+  const handleImportDocument = (
+    doc: ThemeDocumentV1,
+    options: ThemeDocumentFilterOptions,
+  ): void => {
     clearColorDrafts();
-    applyEdit(applyThemeDocument(doc, { includeCustomCss }), `Imported theme "${doc.meta.name}"`);
+    applyEdit(applyThemeDocument(doc, options), `Imported theme "${doc.meta.name}"`);
   };
 
   const runLibraryAction = <R,>(
@@ -249,7 +254,7 @@ function AppearancePanelView({
 
   const handleSaveToLibrary = (
     doc: ThemeDocumentV1,
-    saveOptions: { readonly name?: string; readonly includeCustomCss?: boolean } = {},
+    saveOptions: SaveLibraryThemeOptions = {},
   ): Promise<boolean> =>
     runLibraryAction(
       (client) => client.saveTheme(doc, saveOptions),
@@ -547,12 +552,7 @@ function AppearancePanelView({
           onToggle={() => setTransferOpen((open) => !open)}
           document={value}
           onImport={handleImportDocument}
-          {...(library
-            ? {
-                onSaveToLibrary: (doc: ThemeDocumentV1, includeCustomCss: boolean) =>
-                  handleSaveToLibrary(doc, { includeCustomCss }),
-              }
-            : {})}
+          {...(library ? { onSaveToLibrary: handleSaveToLibrary } : {})}
           {...(notify ? { notify } : {})}
         />
 

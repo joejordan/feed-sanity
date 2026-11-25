@@ -379,17 +379,32 @@ export function applyStudioVibe(doc: ThemeDocumentV1, vibe: StudioVibe): ThemeDo
   };
 }
 
-/** Applies a validated imported `ThemeDocumentV1`, optionally stripping its `customCss`. */
+export interface ThemeDocumentFilterOptions {
+  /** Whether to retain sanitized `customCss` (default `true`). */
+  readonly includeCustomCss?: boolean;
+  /** Whether to retain opt-in `custom-shader` GPU code (default `true`). */
+  readonly includeCustomShader?: boolean;
+}
+
+/** Applies a validated imported `ThemeDocumentV1`, optionally stripping its `customCss` and/or `custom-shader`. */
 export function applyThemeDocument(
   doc: ThemeDocumentV1,
-  options: { readonly includeCustomCss?: boolean } = {},
+  options: ThemeDocumentFilterOptions = {},
 ): ThemeDocumentV1 {
   const includeCustomCss = options.includeCustomCss ?? true;
-  if (!includeCustomCss && doc.customCss !== undefined) {
-    const { customCss: _dropped, ...rest } = doc;
-    return rest;
+  const includeCustomShader = options.includeCustomShader ?? true;
+  let next = doc;
+  if (!includeCustomCss && next.customCss !== undefined) {
+    const { customCss: _dropped, ...rest } = next;
+    next = rest;
   }
-  return doc;
+  if (!includeCustomShader && next.effects?.backdrop?.id === 'custom-shader') {
+    const { backdrop: _droppedBackdrop, ...remainingEffects } = next.effects;
+    const cleanedEffects = configEffectsToDocument(documentEffectsToConfig(remainingEffects));
+    const { effects: _oldEffects, ...rest } = next;
+    next = cleanedEffects ? { ...rest, effects: cleanedEffects } : rest;
+  }
+  return next;
 }
 
 function buildPaletteRibbon(palette: ThemePalette | null) {

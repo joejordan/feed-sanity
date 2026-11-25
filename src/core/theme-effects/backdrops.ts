@@ -15,6 +15,8 @@ import { mountDigitalRain } from './digital-rain/mount';
 import { RAIN_PRESETS } from './digital-rain/settings';
 import { DIGITAL_RAIN_PARAM_SPECS, resolveEffectParams } from './model';
 import { AURORA_SCENE } from './renderers/aurora';
+import { mountCustomSceneBackdrop } from './renderers/custom-scene';
+import { mountCustomShaderBackdrop } from './renderers/custom-shader';
 import { CYBER_GRID_SCENE } from './renderers/cyber-grid';
 import { DOT_SPOTLIGHT_SCENE } from './renderers/dot-spotlight';
 import { FALLBACK_COLORS } from './renderers/palette';
@@ -113,4 +115,6 @@ export const BACKDROP_REGISTRY: Readonly<
   'cyber-grid': { id: 'cyber-grid', mount: (ctx) => mountScene(ctx, CYBER_GRID_SCENE) },
   'prism-beams': { id: 'prism-beams', mount: (ctx) => mountScene(ctx, PRISM_BEAMS_SCENE) },
   'dot-spotlight': { id: 'dot-spotlight', mount: (ctx) => mountScene(ctx, DOT_SPOTLIGHT_SCENE) },
+  'custom-scene': { id: 'custom-scene', mount: mountCustomSceneBackdrop },
+  'custom-shader': { id: 'custom-shader', mount: mountCustomShaderBackdrop },
 };

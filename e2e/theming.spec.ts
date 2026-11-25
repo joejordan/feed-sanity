@@ -1,5 +1,6 @@
 import { OPTIONS_TITLE } from '../project';
 import { DEFAULT_THEME_DOCUMENT, updateThemeTypography } from '../src/core/theming/config';
+import { THEME_FILE_FORMAT } from '../src/core/theming/document';
 import { expect, ORIGIN, THEME_KEY, test } from './extension';
 
 const FEED = `${ORIGIN}/`;
@@ -92,4 +93,116 @@ test('keeps Site Default colors untouched when only Typography is customized', a
   expect(styleText).toContain('font-family:');
   expect(styleText).not.toContain('--web-wash');
   expect(styleText).not.toContain('color-scheme');
+});
+
+test('imports Tier 2 Custom Scene (verified data) and Tier 3 Opt-In GLSL Shader with live custom tuners', async ({
+  page,
+  pressToolbarButton,
+}) => {
+  await page.goto(FEED);
+  await pressToolbarButton();
+
+  const dialog = page.getByRole('dialog', { name: OPTIONS_TITLE });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Appearance' }).click();
+  await dialog.getByRole('button', { name: /Import \/ Export theme/i }).click();
+
+  // 1. Tier 2 Custom Scene imports safely as Verified data and mounts a live Canvas 2D backdrop.
+  const customSceneTheme = JSON.stringify({
+    format: THEME_FILE_FORMAT,
+    schemaVersion: 1,
+    meta: { name: 'Sakura Drift' },
+    palette: {
+      colorScheme: 'dark',
+      background: '#130d1e',
+      surface: '#1d1530',
+      text: '#f5ecff',
+      accent: '#f472b6',
+    },
+    effects: {
+      backdrop: {
+        id: 'custom-scene',
+        intensity: 0.85,
+        scene: {
+          fps: 24,
+          layers: [
+            { kind: 'gradient', style: 'linear', colors: ['background', '#2a1640', 'accent'] },
+            {
+              kind: 'particles',
+              shape: 'petal',
+              count: 36,
+              sizeMin: 4,
+              sizeMax: 10,
+              speed: 0.7,
+              angle: 110,
+              spread: 25,
+              color: '#fbcfe8',
+            },
+          ],
+        },
+      },
+      surface: { finish: 'glass', glassStrength: 0.25 },
+    },
+  });
+
+  await dialog.getByRole('textbox', { name: 'Paste theme JSON' }).fill(customSceneTheme);
+  await dialog.getByRole('button', { name: 'Preview import' }).click();
+  await expect(dialog.getByText('Verified data')).toBeVisible();
+  await expect(dialog.getByText('Scene (2 layers)')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Apply imported theme' }).click();
+
+  await expect(dialog.getByText(/Custom Scene active \(2 layers\)/i)).toBeVisible();
+  await expect(page.locator('[data-fs-backdrop="custom-scene"]')).toHaveCount(1);
+  await expect(
+    page.locator('[data-fs-backdrop="custom-scene"] canvas[data-fs-renderer="canvas2d"]'),
+  ).toHaveCount(1);
+
+  // 2. Tier 3 Custom GLSL Shader requires explicit opt-in and renders its custom uniform slider.
+  const customShaderTheme = JSON.stringify({
+    format: THEME_FILE_FORMAT,
+    schemaVersion: 1,
+    meta: { name: 'Neon Plasma' },
+    palette: {
+      colorScheme: 'dark',
+      background: '#080c16',
+      surface: '#111829',
+      text: '#e6edf7',
+      accent: '#38bdf8',
+    },
+    effects: {
+      backdrop: {
+        id: 'custom-shader',
+        intensity: 0.85,
+        shader: {
+          fragment:
+            'void mainImage(out vec4 fragColor, in vec2 fragCoord) { vec2 uv = fragCoord / u_resolution; fragColor = premultiply(mix(u_bg, u_accent, 0.5 + 0.5 * sin(uv.x * u_density + u_time)), 0.85); }',
+          fallbackColors: ['#080c16', '#38bdf8'],
+          params: [
+            {
+              key: 'density',
+              kind: 'number',
+              label: 'Wave density',
+              min: 1,
+              max: 12,
+              step: 1,
+              defaultValue: 6,
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  await dialog.getByRole('textbox', { name: 'Paste theme JSON' }).fill(customShaderTheme);
+  await dialog.getByRole('button', { name: 'Preview import' }).click();
+  await expect(dialog.getByText('Includes GPU shader')).toBeVisible();
+
+  const shaderCheckbox = dialog.getByRole('checkbox', { name: /Include custom GPU shader/i });
+  await expect(shaderCheckbox).not.toBeChecked();
+  await shaderCheckbox.check();
+  await dialog.getByRole('button', { name: 'Apply imported theme' }).click();
+
+  await expect(dialog.getByText('Custom GPU Shader active')).toBeVisible();
+  await expect(dialog.getByRole('slider', { name: 'Wave density' })).toBeVisible();
+  await expect(page.locator('[data-fs-backdrop="custom-shader"]')).toHaveCount(1);
 });

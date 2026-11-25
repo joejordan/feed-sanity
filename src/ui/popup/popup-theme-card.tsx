@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { ThemeDocumentV1 } from '../../core/theming/document';
 import type { SavedThemeEntry } from '../../core/theming/library';
-import { findBackdropOption } from '../../core/theme-effects/model';
+import { findBackdropOption, getBackdropDisplayName } from '../../core/theme-effects/model';
 import {
   describeThemeDocument,
   findActiveStudioVibe,
@@ -53,7 +53,7 @@ export function useAnalyzedSavedThemes(
       savedThemes.map((entry) => {
         const caps = analyzeThemeDocument(entry.document);
         const backdropName = caps.backdropEngine
-          ? findBackdropOption(caps.backdropEngine)?.name
+          ? getBackdropDisplayName(caps.backdropEngine)
           : undefined;
         return {
           entry,
@@ -182,10 +182,12 @@ export function PopupThemeCard({
   }, [theme]);
 
   let studioBarLabel = 'Studio FX';
-  if (activeBackdrop) {
-    studioBarLabel = activeEffects?.paused
-      ? `${activeBackdrop.name} · Paused`
-      : activeBackdrop.name;
+  const activeBackdropName =
+    activeEffects && activeEffects.backdrop !== 'none'
+      ? getBackdropDisplayName(activeEffects.backdrop)
+      : undefined;
+  if (activeBackdropName) {
+    studioBarLabel = activeEffects?.paused ? `${activeBackdropName} · Paused` : activeBackdropName;
   } else if (activeEffects?.paused) {
     studioBarLabel = 'Motion paused';
   }

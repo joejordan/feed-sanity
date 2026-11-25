@@ -52,7 +52,7 @@ precision highp float;
 precision mediump float;
 #endif`;
 
-const CONTEXT_ATTRIBUTES: WebGLContextAttributes = {
+export const WEBGL_CONTEXT_ATTRIBUTES: WebGLContextAttributes = {
   alpha: true,
   premultipliedAlpha: true,
   antialias: false,
@@ -68,6 +68,7 @@ function compileShader(
   gl: WebGLRenderingContext,
   type: number,
   source: string,
+  onError?: (stage: 'compile' | 'link', info: string) => void,
 ): WebGLShader | null {
   const shader = gl.createShader(type);
   if (!shader) {
@@ -76,15 +77,24 @@ function compileShader(
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const info = gl.getShaderInfoLog(shader)?.trim();
+    if (info && onError) {
+      onError('compile', info);
+    }
     gl.deleteShader(shader);
     return null;
   }
   return shader;
 }
 
-function linkProgram(gl: WebGLRenderingContext, fragment: string): WebGLProgram | null {
-  const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SOURCE);
-  const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragment);
+/** Compiles and links a fullscreen-triangle WebGL 1 program for `fragment`. */
+export function linkFullscreenProgram(
+  gl: WebGLRenderingContext,
+  fragment: string,
+  onError?: (stage: 'compile' | 'link', info: string) => void,
+): WebGLProgram | null {
+  const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SOURCE, onError);
+  const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragment, onError);
   const program = vs && fs ? gl.createProgram() : null;
   if (!program || !vs || !fs) {
     if (vs) gl.deleteShader(vs);
@@ -100,45 +110,61 @@ function linkProgram(gl: WebGLRenderingContext, fragment: string): WebGLProgram 
   gl.deleteShader(vs);
   gl.deleteShader(fs);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const info = gl.getProgramInfoLog(program)?.trim();
+    if (info && onError) {
+      onError('link', info);
+    }
     gl.deleteProgram(program);
     return null;
   }
   return program;
 }
 
-function releaseContext(gl: WebGLRenderingContext): void {
+/** Allocates and binds one oversized fullscreen triangle for `program`. */
+export function setupFullscreenTriangle(
+  gl: WebGLRenderingContext,
+  program: WebGLProgram,
+): WebGLBuffer | null {
+  const buffer = gl.createBuffer();
+  if (!buffer) {
+    return null;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  // One oversized triangle covers the viewport with no diagonal seam.
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API method, not a React hook
+  gl.useProgram(program);
+  const position = gl.getAttribLocation(program, 'aPosition');
+  gl.enableVertexAttribArray(position);
+  gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
+  return buffer;
+}
+
+export function releaseWebglContext(gl: WebGLRenderingContext): void {
   gl.getExtension('WEBGL_lose_context')?.loseContext();
 }
 
 export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<U>): SceneFactory {
   return (canvas, hooks) => {
     // The scene host treats a throw here like `null` and moves to the next fallback.
-    const gl = canvas.getContext('webgl', CONTEXT_ATTRIBUTES);
+    const gl = canvas.getContext('webgl', WEBGL_CONTEXT_ATTRIBUTES);
     if (!gl) {
       return null;
     }
     let program: WebGLProgram | null = null;
     let buffer: WebGLBuffer | null = null;
     try {
-      program = linkProgram(gl, spec.fragment);
-      buffer = program ? gl.createBuffer() : null;
+      program = linkFullscreenProgram(gl, spec.fragment);
+      buffer = program ? setupFullscreenTriangle(gl, program) : null;
       if (!program || !buffer) {
         throw new Error('WebGL program setup failed');
       }
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      // One oversized triangle covers the viewport with no diagonal seam.
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-      // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API method, not a React hook
-      gl.useProgram(program);
-      const position = gl.getAttribLocation(program, 'aPosition');
-      gl.enableVertexAttribArray(position);
-      gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-      gl.disable(gl.DEPTH_TEST);
-      gl.disable(gl.BLEND);
     } catch {
       if (buffer) gl.deleteBuffer(buffer);
       if (program) gl.deleteProgram(program);
-      releaseContext(gl);
+      releaseWebglContext(gl);
       return null;
     }
 
@@ -211,7 +237,7 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
           gl.deleteBuffer(vertexBuffer);
           gl.deleteProgram(linked);
         }
-        releaseContext(gl);
+        releaseWebglContext(gl);
         lost = true;
       },
     };

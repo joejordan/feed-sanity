@@ -11,7 +11,7 @@
 
 import type { ScenePalette } from './palette';
 import type { BackdropContext, BackdropInstance } from './types';
-import { easeFactor } from '../digital-rain/math';
+import { clamp, easeFactor } from '../digital-rain/math';
 import { resolveScenePalette } from './palette';
 
 export interface SceneViewport {
@@ -34,12 +34,36 @@ export interface ScenePointer {
   readonly presence: number;
 }
 
+export interface SceneClickState {
+  /** Normalized X (`0..1`) of the most recent burst click. */
+  readonly x: number;
+  /** Normalized Y (`0..1`, top-left origin) of the most recent burst click. */
+  readonly y: number;
+  /** Seconds elapsed since the most recent burst click (`999` before first click). */
+  readonly age: number;
+  /** Total burst clicks received during this scene lifecycle. */
+  readonly count: number;
+}
+
+export interface SceneScrollState {
+  /** Normalized viewport scroll ratio (`0..1`). */
+  readonly y: number;
+  /** Clamped vertical scroll velocity (`-1..1`). */
+  readonly velocity: number;
+}
+
 export interface SceneFrame {
   readonly ctx: BackdropContext;
   /** Resolved theme colors; the same object every frame until the theme changes. */
   readonly palette: ScenePalette;
   readonly view: SceneViewport;
   readonly pointer: ScenePointer;
+  /** Most recent click burst state for interactive scenes & shaders. */
+  readonly click: SceneClickState;
+  /** Viewport scroll parallax state (populated when `trackScroll` is enabled). */
+  readonly scroll: SceneScrollState;
+  /** Monotonic painted frame counter. */
+  readonly frameIndex: number;
   /** Scene clock in seconds, already scaled by the motion speed. */
   readonly time: number;
   /** Speed-scaled seconds since the previous frame (`0` for still frames). */
@@ -59,6 +83,7 @@ export interface Scene extends BackingSizeOptions {
   readonly kind: 'webgl' | 'canvas2d';
   resize?: (view: SceneViewport) => void;
   render: (frame: SceneFrame) => void;
+  burst?: (normX: number, normY: number) => void;
   dispose?: () => void;
 }
 
@@ -68,6 +93,13 @@ export interface SceneHooks {
 }
 
 export type SceneFactory = (canvas: HTMLCanvasElement, hooks: SceneHooks) => Scene | null;
+
+export interface SceneWatchdogSpec {
+  /** Milliseconds per frame above which a frame counts as slow. */
+  readonly slowFrameMs: number;
+  /** Consecutive slow frames before degrading resolution, then falling back. */
+  readonly consecutiveLimit: number;
+}
 
 export interface SceneSpec {
   /** Tried in order until one returns a scene. */
@@ -82,12 +114,19 @@ export interface SceneSpec {
   readonly startTime?: number;
   /** Pointer follow rate per second (default 5). */
   readonly pointerRate?: number;
+  /** Attach a passive scroll listener to populate `frame.scroll`. */
+  readonly trackScroll?: boolean;
+  /** Expose `BackdropInstance.burst` so primary clicks feed into `frame.click` & `scene.burst`. */
+  readonly acceptsBursts?: boolean;
+  /** Optional slow-frame watchdog for untrusted / custom GPU shaders. */
+  readonly watchdog?: SceneWatchdogSpec;
 }
 
 const DEFAULT_MAX_PIXEL_RATIO = 1.25;
 const DEFAULT_MAX_PIXELS = 1_200_000;
 const PRESENCE_RATE = 3.2;
 const SETTLE_EPSILON_PX = 0.35;
+const IDLE_CLICK_AGE = 999;
 /** Shader clocks wrap so float precision never degrades over long sessions. */
 const CLOCK_WRAP_SECONDS = 3600;
 
@@ -147,21 +186,65 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   let raf = 0;
   let lastFrame = 0;
   let clock = spec.startTime ?? 0;
+  let frameIndex = 0;
+  let slowStreak = 0;
+  let scaleMultiplier = 1;
   let destroyed = false;
   let sceneHooks: SceneHooks | null = null;
 
   const target = { x: 0, y: 0, presence: 0, seeded: false };
   const pointer = { x: 0, y: 0, nx: 0.5, ny: 0.5, presence: 0 };
+  const click = { x: 0.5, y: 0.5, age: IDLE_CLICK_AGE, count: 0 };
+  const scroll = { y: 0, velocity: 0, lastPx: 0, maxPx: 1, boundsAt: 0, dirty: false };
 
   const animating = (): boolean =>
     !ctx.effects.paused && !doc.hidden && !(reducedMotion?.matches ?? false);
+
+  const readScrollPx = (): number => {
+    const el = doc.scrollingElement ?? doc.documentElement;
+    return win.scrollY ?? el?.scrollTop ?? 0;
+  };
+
+  const refreshScrollBounds = (seedOnly = false, now = performance.now()): void => {
+    const el = doc.scrollingElement ?? doc.documentElement;
+    if (!el) {
+      return;
+    }
+    scroll.maxPx = Math.max(1, el.scrollHeight - (win.innerHeight || el.clientHeight || 1));
+    scroll.boundsAt = now;
+    const currentPx = readScrollPx();
+    if (seedOnly) {
+      scroll.lastPx = currentPx;
+      scroll.velocity = 0;
+    }
+    scroll.y = clamp(currentPx / scroll.maxPx, 0, 1);
+  };
+
+  const sampleScroll = (now: number): void => {
+    if (!scroll.dirty) {
+      return;
+    }
+    scroll.dirty = false;
+    const currentPx = readScrollPx();
+    if (currentPx > scroll.maxPx || now - scroll.boundsAt >= 500) {
+      const el = doc.scrollingElement ?? doc.documentElement;
+      if (el) {
+        scroll.maxPx = Math.max(1, el.scrollHeight - (win.innerHeight || el.clientHeight || 1));
+        scroll.boundsAt = now;
+      }
+    }
+    const delta = currentPx - scroll.lastPx;
+    scroll.lastPx = currentPx;
+    scroll.velocity = clamp(delta / 120, -1, 1);
+    scroll.y = clamp(currentPx / scroll.maxPx, 0, 1);
+  };
 
   const pointerSettled = (): boolean =>
     Math.abs(target.x - pointer.x) < SETTLE_EPSILON_PX &&
     Math.abs(target.y - pointer.y) < SETTLE_EPSILON_PX &&
     Math.abs(target.presence - pointer.presence) < 0.004;
 
-  const advancePointer = (dt: number): void => {
+  const advancePointer = (dt: number, now: number): void => {
     const follow = easeFactor(pointerRate, dt);
     pointer.x += (target.x - pointer.x) * follow;
     pointer.y += (target.y - pointer.y) * follow;
@@ -173,27 +256,69 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     }
     pointer.nx = view.cssWidth > 0 ? pointer.x / view.cssWidth : 0.5;
     pointer.ny = view.cssHeight > 0 ? pointer.y / view.cssHeight : 0.5;
+    if (click.count > 0 && click.age < IDLE_CLICK_AGE) {
+      click.age = Math.min(IDLE_CLICK_AGE, click.age + dt);
+    }
+    if (spec.trackScroll) {
+      sampleScroll(now);
+      scroll.velocity *= Math.max(0, 1 - dt * 6);
+      if (Math.abs(scroll.velocity) < 0.002) {
+        scroll.velocity = 0;
+      }
+    }
   };
 
-  const paint = (dt: number, still: boolean): void => {
+  const checkWatchdog = (started: number, frameOverrunMs: number): void => {
+    if (!spec.watchdog) {
+      return;
+    }
+    const worstMs = Math.max(performance.now() - started, frameOverrunMs);
+    if (worstMs <= spec.watchdog.slowFrameMs) {
+      slowStreak = 0;
+      return;
+    }
+    slowStreak += 1;
+    if (slowStreak < spec.watchdog.consecutiveLimit) {
+      return;
+    }
+    slowStreak = 0;
+    if (scaleMultiplier > 0.5) {
+      scaleMultiplier = 0.5;
+      measure(false);
+      return;
+    }
+    stop();
+    sceneHooks?.fallback();
+  };
+
+  const paint = (dt: number, still: boolean, frameOverrunMs = 0): void => {
     if (!scene || view.width <= 0 || view.height <= 0) {
       return;
     }
+    const started = spec.watchdog && !still ? performance.now() : 0;
     try {
       scene.render({
         ctx,
         palette,
         view,
         pointer,
+        click,
+        scroll,
+        frameIndex,
         time: clock % CLOCK_WRAP_SECONDS,
         dt,
         still,
       });
+      frameIndex += 1;
     } catch {
       // A renderer that throws (driver quirk, exotic browser) steps down the
       // fallback chain instead of breaking the host page every frame.
       stop();
       sceneHooks?.fallback();
+      return;
+    }
+    if (!still) {
+      checkWatchdog(started, frameOverrunMs);
     }
   };
 
@@ -206,12 +331,16 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       raf = requestAnimationFrame(tick);
       return;
     }
+    const frameOverrunMs = lastFrame === 0 ? 0 : Math.max(0, now - lastFrame - frameInterval);
     const elapsed = lastFrame === 0 ? 1 / fps : Math.min(0.1, (now - lastFrame) / 1000);
     lastFrame = now;
     const dt = elapsed * ctx.effects.speed;
     clock += dt;
-    advancePointer(elapsed);
-    paint(dt, false);
+    advancePointer(elapsed, now);
+    paint(dt, false, frameOverrunMs);
+    if (destroyed || !scene || !animating()) {
+      return;
+    }
     if (spec.onDemand && pointerSettled()) {
       return;
     }
@@ -254,7 +383,7 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     paint(0, true);
   };
 
-  const measure = (): void => {
+  const measure = (repaint = true): void => {
     if (!canvas || !scene) {
       return;
     }
@@ -264,7 +393,14 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     if (cssWidth <= 0 || cssHeight <= 0) {
       return;
     }
-    const size = resolveBackingSize(cssWidth, cssHeight, win.devicePixelRatio || 1, scene);
+    const size = resolveBackingSize(cssWidth, cssHeight, win.devicePixelRatio || 1, {
+      ...scene,
+      renderScale: (scene.renderScale ?? 1) * scaleMultiplier,
+      maxPixels: Math.max(
+        40_000,
+        Math.floor((scene.maxPixels ?? DEFAULT_MAX_PIXELS) * scaleMultiplier * scaleMultiplier),
+      ),
+    });
     if (
       size.width === view.width &&
       size.height === view.height &&
@@ -283,9 +419,14 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       pointer.y = target.y;
     }
     scene.resize?.(view);
-    // Repaint immediately: resizing clears the canvas, and waiting for the next
-    // capped frame would flash an empty backdrop.
-    paint(0, !animating());
+    if (spec.trackScroll) {
+      refreshScrollBounds();
+    }
+    if (repaint) {
+      // Repaint immediately: resizing clears the canvas, and waiting for the next
+      // capped frame would flash an empty backdrop.
+      paint(0, !animating());
+    }
   };
 
   const disposeScene = (): void => {
@@ -309,6 +450,9 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
 
   const mountNext = (): void => {
     disposeScene();
+    scaleMultiplier = 1;
+    slowStreak = 0;
+    lastFrame = 0;
     generation += 1;
     const current = generation;
     const hooks: SceneHooks = {
@@ -381,12 +525,22 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     resizeObserver = new ResizeObserver(() => measure());
     resizeObserver.observe(container);
   } else {
-    win.addEventListener('resize', measure, { signal, passive: true });
+    win.addEventListener('resize', () => measure(), { signal, passive: true });
   }
   doc.addEventListener('visibilitychange', sync, { signal });
   reducedMotion?.addEventListener?.('change', sync, { signal });
   doc.addEventListener('pointermove', onPointerMove, { signal, passive: true, capture: true });
   doc.addEventListener('pointerout', onPointerOut, { signal, passive: true, capture: true });
+  if (spec.trackScroll) {
+    refreshScrollBounds(true);
+    win.addEventListener(
+      'scroll',
+      () => {
+        scroll.dirty = true;
+      },
+      { signal, passive: true },
+    );
+  }
   sync();
 
   return {
@@ -402,6 +556,23 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       }
       sync();
     },
+    ...(spec.acceptsBursts
+      ? {
+          burst(normX: number, normY: number) {
+            if (destroyed || !ctx.effects.interactive) {
+              return;
+            }
+            click.x = clamp(normX, 0, 1);
+            click.y = clamp(normY, 0, 1);
+            click.age = 0;
+            click.count += 1;
+            scene?.burst?.(click.x, click.y);
+            if (spec.onDemand && animating()) {
+              start();
+            }
+          },
+        }
+      : {}),
     destroy() {
       if (destroyed) {
         return;

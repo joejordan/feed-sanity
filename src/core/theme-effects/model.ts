@@ -3,10 +3,12 @@
 
 import type { RainCharsetName } from './digital-rain/charsets';
 import type { RainLookName } from './digital-rain/settings';
+import type { CustomSceneSpec, CustomShaderSpec } from './scene-schema';
 import { isRecord } from '../storage';
 import { normalizeHex } from '../theming/color';
 import { RAIN_CHARSETS } from './digital-rain/charsets';
 import { RAIN_INTROS } from './digital-rain/settings';
+import { isOneOf, parseCustomScene, parseCustomShader, readClampedNumber } from './scene-schema';
 
 export const BACKDROP_EFFECT_IDS = [
   'none',
@@ -18,6 +20,8 @@ export const BACKDROP_EFFECT_IDS = [
   'cyber-grid',
   'prism-beams',
   'dot-spotlight',
+  'custom-scene',
+  'custom-shader',
 ] as const;
 
 export type BackdropEffectId = (typeof BACKDROP_EFFECT_IDS)[number];
@@ -362,6 +366,8 @@ export const BACKDROP_PARAM_SPECS: Readonly<
   'cyber-grid': CYBER_GRID_PARAM_SPECS,
   'prism-beams': PRISM_BEAMS_PARAM_SPECS,
   'dot-spotlight': DOT_SPOTLIGHT_PARAM_SPECS,
+  'custom-scene': [],
+  'custom-shader': [],
 };
 
 const EMPTY_PARAM_SPECS: readonly EffectParamSpec[] = [];
@@ -372,13 +378,6 @@ export function getBackdropParamSpecs(backdropId: BackdropEffectId): readonly Ef
     return EMPTY_PARAM_SPECS;
   }
   return BACKDROP_PARAM_SPECS[backdropId] ?? EMPTY_PARAM_SPECS;
-}
-
-function clampOptionalNumber(value: unknown, min: number, max: number): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return undefined;
-  }
-  return Math.round(Math.min(max, Math.max(min, value)) * 100) / 100;
 }
 
 function stripControlChars(input: string): string {
@@ -397,8 +396,11 @@ function validateParamValue(spec: EffectParamSpec, val: unknown): EffectParamVal
     return undefined;
   }
   switch (spec.kind) {
-    case 'number':
-      return clampOptionalNumber(val, spec.min, spec.max);
+    case 'number': {
+      const decimals = spec.step < 0.01 ? 4 : 2;
+      const rounded = readClampedNumber(val, spec.min, spec.max, decimals);
+      return rounded === undefined ? undefined : Math.min(spec.max, Math.max(spec.min, rounded));
+    }
     case 'enum':
       return typeof val === 'string' && spec.options.includes(val) ? val : undefined;
     case 'boolean':
@@ -528,12 +530,29 @@ export function mergeEffectsPatch(
   } else if (patch.backdropParams !== undefined) {
     nextBackdropParams = { ...base.backdropParams, ...patch.backdropParams };
   }
-  const { backdropParams: _baseParams, ...restBase } = base;
-  const { backdropParams: _patchParams, ...restPatch } = patch;
+  const nextBackdrop = patch.backdrop ?? base.backdrop;
+  const nextCustomScene =
+    nextBackdrop === 'custom-scene' ? (patch.customScene ?? base.customScene) : undefined;
+  const nextCustomShader =
+    nextBackdrop === 'custom-shader' ? (patch.customShader ?? base.customShader) : undefined;
+  const {
+    backdropParams: _baseParams,
+    customScene: _baseScene,
+    customShader: _baseShader,
+    ...restBase
+  } = base;
+  const {
+    backdropParams: _patchParams,
+    customScene: _patchScene,
+    customShader: _patchShader,
+    ...restPatch
+  } = patch;
   return {
     ...restBase,
     ...restPatch,
     ...(nextBackdropParams ? { backdropParams: nextBackdropParams } : {}),
+    ...(nextCustomScene ? { customScene: nextCustomScene } : {}),
+    ...(nextCustomShader ? { customShader: nextCustomShader } : {}),
   };
 }
 
@@ -551,10 +570,24 @@ export interface ThemeEffectsConfig {
   readonly interactive: boolean;
   /** Validated plugin-specific parameters for the active `backdrop` engine. */
   readonly backdropParams?: EffectParamValues;
+  /** Tier 2 declarative multi-layer scene spec when `backdrop === 'custom-scene'`. */
+  readonly customScene?: CustomSceneSpec;
+  /** Tier 3 opt-in WebGL GLSL shader spec when `backdrop === 'custom-shader'`. */
+  readonly customShader?: CustomShaderSpec;
   /** Card, header, and CTA surface treatment. */
   readonly surface: SurfaceFinishId;
   /** Interactive micro-effect triggered on primary clicks. */
   readonly click: ClickEffectId;
+}
+
+/** Returns the active parameter specs for either a built-in backdrop or a Tier 3 custom shader. */
+export function getActiveBackdropParamSpecs(
+  effects: Pick<ThemeEffectsConfig, 'backdrop' | 'customShader'>,
+): readonly EffectParamSpec[] {
+  if (effects.backdrop === 'custom-shader') {
+    return effects.customShader?.params ?? EMPTY_PARAM_SPECS;
+  }
+  return getBackdropParamSpecs(effects.backdrop);
 }
 
 export const DEFAULT_THEME_EFFECTS: ThemeEffectsConfig = {
@@ -569,13 +602,11 @@ export const DEFAULT_THEME_EFFECTS: ThemeEffectsConfig = {
 };
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
-  return clampOptionalNumber(value, min, max) ?? fallback;
+  return readClampedNumber(value, min, max) ?? fallback;
 }
 
 function readEnum<T extends string>(raw: unknown, allowed: readonly T[], fallback: T): T {
-  return typeof raw === 'string' && (allowed as readonly string[]).includes(raw)
-    ? (raw as T)
-    : fallback;
+  return isOneOf(raw, allowed) ? raw : fallback;
 }
 
 /** Validates and clamps `ThemeEffectsConfig` (including active plugin `backdropParams`) safely. */
@@ -583,8 +614,22 @@ export function readThemeEffectsConfig(raw: unknown): ThemeEffectsConfig {
   if (!isRecord(raw)) {
     return { ...DEFAULT_THEME_EFFECTS };
   }
-  const backdrop = readEnum(raw.backdrop, BACKDROP_EFFECT_IDS, DEFAULT_THEME_EFFECTS.backdrop);
-  const backdropParams = validateEffectParams(raw.backdropParams, getBackdropParamSpecs(backdrop));
+  let backdrop = readEnum(raw.backdrop, BACKDROP_EFFECT_IDS, DEFAULT_THEME_EFFECTS.backdrop);
+  const customScene = backdrop === 'custom-scene' ? parseCustomScene(raw.customScene) : undefined;
+  const parsedShader =
+    backdrop === 'custom-shader' ? parseCustomShader(raw.customShader) : undefined;
+  const customShader = parsedShader?.errors.length === 0 ? parsedShader.shader : undefined;
+  if (
+    (backdrop === 'custom-scene' && !customScene) ||
+    (backdrop === 'custom-shader' && !customShader)
+  ) {
+    backdrop = 'none';
+  }
+  const paramSpecs = getActiveBackdropParamSpecs({
+    backdrop,
+    ...(customShader ? { customShader } : {}),
+  });
+  const backdropParams = validateEffectParams(raw.backdropParams, paramSpecs);
   return {
     backdrop,
     intensity: clampNumber(
@@ -609,6 +654,8 @@ export function readThemeEffectsConfig(raw: unknown): ThemeEffectsConfig {
     interactive:
       typeof raw.interactive === 'boolean' ? raw.interactive : DEFAULT_THEME_EFFECTS.interactive,
     ...(backdropParams ? { backdropParams } : {}),
+    ...(customScene ? { customScene } : {}),
+    ...(customShader ? { customShader } : {}),
     surface: readEnum(raw.surface, SURFACE_FINISH_IDS, DEFAULT_THEME_EFFECTS.surface),
     click: readEnum(raw.click, CLICK_EFFECT_IDS, DEFAULT_THEME_EFFECTS.click),
   };
@@ -702,6 +749,17 @@ const BACKDROP_OPTION_BY_ID: ReadonlyMap<BackdropEffectId, BackdropOptionMeta> =
 /** Returns metadata for `id` in O(1) time. */
 export function findBackdropOption(id: BackdropEffectId): BackdropOptionMeta | undefined {
   return BACKDROP_OPTION_BY_ID.get(id);
+}
+
+/** Returns a human-friendly display name for built-in, custom-scene, or custom-shader backdrops. */
+export function getBackdropDisplayName(id: BackdropEffectId): string | undefined {
+  if (id === 'custom-scene') {
+    return 'Custom Scene';
+  }
+  if (id === 'custom-shader') {
+    return 'GPU Shader';
+  }
+  return BACKDROP_OPTION_BY_ID.get(id)?.name;
 }
 
 export const SURFACE_FINISH_OPTIONS: ReadonlyArray<{

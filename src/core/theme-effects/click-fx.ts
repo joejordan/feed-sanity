@@ -48,6 +48,11 @@ export interface ClickEffectOptions {
    * cascade it: on interactive targets with particles, elsewhere without.
    */
   readonly cascade?: boolean;
+  /**
+   * Forward primary non-selection clicks to `onBurst` regardless of the active
+   * `ClickEffectId` (used by Tier 2 `custom-scene` click bursts and Tier 3 `u_click`).
+   */
+  readonly alwaysCascade?: boolean;
 }
 
 export interface ClickEffectsController {
@@ -97,6 +102,7 @@ export function mountClickEffects(
   let effect: ClickEffectId = 'none';
   let palette: ThemePalette | null = null;
   let cascadeEnabled = false;
+  let alwaysCascade = false;
   let overlay: HTMLDivElement | null = null;
   let particleRoot: ParentNode | null = null;
   let disposed = false;
@@ -261,22 +267,27 @@ export function mountClickEffects(
     'pointerdown',
     (event) => {
       const pe = event as PointerEvent;
-      if (pe.button !== 0 || effect === 'none' || !isInteractiveClickTarget(pe)) {
+      if (pe.button !== 0 || !isInteractiveClickTarget(pe)) {
         return;
       }
-      spawnAt(pe.clientX, pe.clientY);
+      if (effect !== 'none') {
+        spawnAt(pe.clientX, pe.clientY);
+      }
+      if (alwaysCascade && effect !== 'matrix-burst' && !prefersReducedMotion()) {
+        cascade(pe.clientX, pe.clientY);
+      }
     },
     { capture: true, passive: true, signal: abort.signal },
   );
 
-  // Plain clicks on margins cascade Matrix Rain gently; drags that select text never do.
+  // Plain clicks on margins cascade interactive backdrops gently; drags that select text never do.
   doc.addEventListener(
     'click',
     (event) => {
       const me = event as MouseEvent;
       if (
         disposed ||
-        effect !== 'matrix-burst' ||
+        (!alwaysCascade && effect !== 'matrix-burst') ||
         !cascadeEnabled ||
         me.button !== 0 ||
         // Keyboard activation and scripted `.click()` report detail 0 and (0, 0) coordinates.
@@ -300,6 +311,7 @@ export function mountClickEffects(
       effect = nextEffect;
       palette = nextPalette;
       cascadeEnabled = options?.cascade ?? false;
+      alwaysCascade = Boolean(options?.alwaysCascade);
       if (effect === 'none') {
         removeOverlay();
       }

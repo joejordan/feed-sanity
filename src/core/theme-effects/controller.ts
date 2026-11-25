@@ -97,10 +97,13 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
       }
       const effects = rawEffects ?? DEFAULT_THEME_EFFECTS;
       syncBackdrop(effects, palette, hostScheme);
-      // Clicks may cascade the backdrop only when it reacts to bursts (Matrix Rain)
-      // and the user keeps pointer reactions on.
+      // Clicks cascade Matrix Rain when Glyphs is active, and always feed Tier 2
+      // custom-scene click bursts & Tier 3 custom-shader `u_click` when interactive.
+      const isCustomBackdrop =
+        effects.backdrop === 'custom-scene' || effects.backdrop === 'custom-shader';
       clickFx.setEffect(effects.click, palette, {
         cascade: effects.interactive && Boolean(activeBackdrop?.burst),
+        alwaysCascade: effects.interactive && isCustomBackdrop,
       });
     },
     isBackdropConnected: () => Boolean(backdropHost?.isConnected),

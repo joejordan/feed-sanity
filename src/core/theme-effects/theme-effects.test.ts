@@ -255,7 +255,7 @@ const rendererKind = (): string | null =>
 
 const SCENE_BACKDROPS = (
   Object.keys(BACKDROP_REGISTRY) as Array<Exclude<BackdropEffectId, 'none'>>
-).filter((id) => id !== 'digital-rain');
+).filter((id) => id !== 'digital-rain' && id !== 'custom-scene' && id !== 'custom-shader');
 
 describe('Creative Theme & Effects Studio engine', () => {
   const cleanups: Array<() => void> = [];
@@ -1154,7 +1154,7 @@ describe('Creative Theme & Effects Studio engine', () => {
 
   it('exposes declarative param specs for every backdrop, memoizes deriveEffectParams, and applies live params in WebGL & Canvas 2D', async () => {
     for (const id of BACKDROP_EFFECT_IDS) {
-      if (id === 'none') {
+      if (id === 'none' || id === 'custom-scene' || id === 'custom-shader') {
         continue;
       }
       expect(BACKDROP_PARAM_SPECS[id].length).toBeGreaterThan(0);

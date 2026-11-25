@@ -10,7 +10,8 @@ import type {
 import {
   BACKDROP_OPTIONS,
   CLICK_EFFECT_OPTIONS,
-  getBackdropParamSpecs,
+  getActiveBackdropParamSpecs,
+  getBackdropDisplayName,
   mergeEffectsPatch,
   resolveEffectParams,
   STUDIO_VIBES,
@@ -29,8 +30,6 @@ import {
 } from '../primitives';
 
 const SLIDER_COMMIT_DEBOUNCE_MS = 250;
-
-const BACKDROP_NAMES = new Map(BACKDROP_OPTIONS.map((opt) => [opt.id, opt.name]));
 
 function EffectSlider({
   min,
@@ -305,7 +304,7 @@ function useEffectSliderDraft(
     }
     prevEffectsRef.current = effects;
     const committed = lastCommittedRef.current;
-    const specs = getBackdropParamSpecs(effects.backdrop);
+    const specs = getActiveBackdropParamSpecs(effects);
     const matchesOwnCommit =
       committed !== null &&
       (Object.keys(committed) as Array<keyof ThemeEffectsConfig>).every((key) =>
@@ -393,7 +392,7 @@ export function StudioVibesCard({ activeVibe, onApplyVibe, onPreviewVibe }: Stud
         >
           {STUDIO_VIBES.map((vibe) => {
             const backdropName = vibe.effects.backdrop
-              ? BACKDROP_NAMES.get(vibe.effects.backdrop)
+              ? getBackdropDisplayName(vibe.effects.backdrop)
               : undefined;
             return (
               <button
@@ -445,12 +444,12 @@ export function CreativeStudioCard({
     onPreviewEffects,
     onUpdateEffects,
   );
-  const backdropSpecs = getBackdropParamSpecs(effects.backdrop);
+  const backdropSpecs = getActiveBackdropParamSpecs(effects);
   const resolvedPluginParams = useMemo(
     () => resolveEffectParams(backdropSpecs, displayEffects.backdropParams),
     [backdropSpecs, displayEffects.backdropParams],
   );
-  const activeBackdropName = BACKDROP_NAMES.get(effects.backdrop) ?? effects.backdrop;
+  const activeBackdropName = getBackdropDisplayName(effects.backdrop) ?? effects.backdrop;
 
   return (
     <SettingCard
@@ -496,6 +495,27 @@ export function CreativeStudioCard({
             </button>
           ))}
         </div>
+
+        {effects.backdrop === 'custom-scene' && effects.customScene && (
+          <div className="theme-tuner-box" role="status">
+            <span className="theme-studio-label">
+              Custom Scene active ({effects.customScene.layers.length}{' '}
+              {effects.customScene.layers.length === 1 ? 'layer' : 'layers'})
+            </span>
+            <span className="theme-studio-hint">
+              Pick any built-in background above to replace it, or tune visibility and motion below.
+            </span>
+          </div>
+        )}
+
+        {effects.backdrop === 'custom-shader' && effects.customShader && (
+          <div className="theme-tuner-box" role="status">
+            <span className="theme-studio-label">Custom GPU Shader active</span>
+            <span className="theme-studio-hint">
+              Running in the WebGL sandbox with automatic slow-frame safety fallback.
+            </span>
+          </div>
+        )}
 
         {backdropSpecs.length > 0 && (
           <PluginParamsBox
