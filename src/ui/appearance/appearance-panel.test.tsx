@@ -709,9 +709,12 @@ describe('appearancePanel & initSiteTheme', () => {
       expect(saved.get().customCss).not.toContain('evil.example');
     });
 
-    // Typography dropdown displays "Custom (imported)" and lets the user revert cleanly to Site default.
+    // Typography dropdown displays custom font stack mode and lets the user revert cleanly to Site default.
     const fontSelect = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Typography' });
-    expect(fontSelect.value).toBe('__imported__');
+    expect(fontSelect.value).toBe('__custom__');
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Custom font stack' }).value).toBe(
+      '"IBM Plex Sans", sans-serif',
+    );
     await userEvent.selectOptions(fontSelect, 'default');
     await vi.waitFor(() => {
       expect(saved.get().typography).toBeUndefined();
@@ -1227,13 +1230,43 @@ describe('appearancePanel & initSiteTheme', () => {
       expect(saved.get().effects?.click?.id).toBe('supernova');
     });
 
-    // Declarative Tier 3 shader params render live controls in Customize Effects.
+    // Declarative Tier 3 shader params (including enum mode) + surface & click tuners render live controls.
+    const cosmicMode = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Cosmic mode' });
+    await userEvent.selectOptions(cosmicMode, 'quasar');
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.mode).toBe('quasar'));
+
     expect(screen.getByRole('slider', { name: 'Gravitational lensing' })).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: 'Spacetime grid' })).toBeTruthy();
     await userEvent.click(screen.getByRole('checkbox', { name: 'Spacetime grid' }));
     await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.showGrid).toBe(false));
 
-    // Extra palette color pickers (surfaceAlt, textMuted, border, danger) open via More colors.
+    // Surface finish (Prism) and Click effect (Supernova) declarative tuners work live.
+    expect(screen.getByRole('slider', { name: 'Prism sheen' })).toBeTruthy();
+    const burstStyle = screen.getByRole<HTMLSelectElement>('combobox', {
+      name: 'Burst style',
+    });
+    await userEvent.selectOptions(burstStyle, 'rings');
+    await vi.waitFor(() => expect(saved.get().effects?.click?.params?.style).toBe('rings'));
+
+    // Custom font stack editor in Typography sanitizes and commits directly, and resets cleanly when cleared.
+    const fontSelect = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Typography' });
+    await userEvent.selectOptions(fontSelect, '__custom__');
+    const customFontInput = screen.getByRole<HTMLInputElement>('textbox', {
+      name: 'Custom font stack',
+    });
+    await userEvent.type(customFontInput, '"Space Grotesk", sans-serif');
+    await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await vi.waitFor(() =>
+      expect(saved.get().typography?.customStack).toBe('"Space Grotesk", sans-serif'),
+    );
+    await userEvent.clear(customFontInput);
+    await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await vi.waitFor(() => {
+      expect(saved.get().typography).toBeUndefined();
+      expect(fontSelect.value).toBe('default');
+    });
+
+    // Extra palette color pickers (surfaceAlt, textMuted, border, danger) + ribbon position/height controls.
     await userEvent.click(screen.getByRole('button', { name: /Customize colors/i }));
     await userEvent.click(screen.getByRole('button', { name: /More colors/i }));
     const borderInput = screen.getByRole<HTMLInputElement>('textbox', {
@@ -1242,5 +1275,14 @@ describe('appearancePanel & initSiteTheme', () => {
     await userEvent.clear(borderInput);
     await userEvent.type(borderInput, '#4c3a7a');
     await vi.waitFor(() => expect(saved.get().palette?.border).toBe('#4c3a7a'));
+
+    const ribbonPos = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Ribbon position' });
+    await userEvent.selectOptions(ribbonPos, 'bottom');
+    const ribbonHeight = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Ribbon height' });
+    await userEvent.selectOptions(ribbonHeight, '5');
+    await vi.waitFor(() => {
+      expect(saved.get().chrome?.ribbon?.position).toBe('bottom');
+      expect(saved.get().chrome?.ribbon?.height).toBe(5);
+    });
   });
 });

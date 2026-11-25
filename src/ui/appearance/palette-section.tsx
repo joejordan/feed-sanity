@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PaletteMood } from '../../core/theming/color';
 import type { ThemeDocumentV1 } from '../../core/theming/document';
 import type { ThemePreset } from '../../core/theming/types';
@@ -68,6 +68,7 @@ export interface PaletteCustomizationDisclosureProps {
   readonly activePreset: ThemePreset | undefined;
   /** Monotonic counter incremented when external edits (presets, vibes, undo) should clear local color drafts. */
   readonly draftResetKey: number;
+  readonly onPreviewEdit?: (next: ThemeDocumentV1) => void;
   readonly onApplyEdit: (next: ThemeDocumentV1, toastLabel?: string) => void;
 }
 
@@ -80,6 +81,7 @@ export function PaletteCustomizationDisclosure({
   value,
   activePreset,
   draftResetKey,
+  onPreviewEdit,
   onApplyEdit,
 }: PaletteCustomizationDisclosureProps) {
   const effective = value.palette;
@@ -102,6 +104,33 @@ export function PaletteCustomizationDisclosure({
   const [seedColor, setSeedColor] = useState(() => effective?.accent ?? '#3b82f6');
   const [seedMood, setSeedMood] = useState<PaletteMood>('midnight');
   const [colorDrafts, setColorDrafts] = useState<Partial<Record<ColorFieldKey, string>>>({});
+  const savedRibbonAngle = value.chrome?.ribbon?.angle ?? 90;
+  const [ribbonAngleDraft, setRibbonAngleDraft] = useState<number | null>(null);
+  const ribbonAngleDraftRef = useRef<number | null>(null);
+
+  const prevRibbonResetRef = useRef({ angle: savedRibbonAngle, key: draftResetKey });
+  useEffect(() => {
+    const prev = prevRibbonResetRef.current;
+    if (prev.angle === savedRibbonAngle && prev.key === draftResetKey) {
+      return;
+    }
+    prevRibbonResetRef.current = { angle: savedRibbonAngle, key: draftResetKey };
+    ribbonAngleDraftRef.current = null;
+    setRibbonAngleDraft(null);
+  }, [savedRibbonAngle, draftResetKey]);
+
+  const commitRibbonAngle = (): void => {
+    const pending = ribbonAngleDraftRef.current;
+    if (pending === null) {
+      return;
+    }
+    ribbonAngleDraftRef.current = null;
+    if (pending === savedRibbonAngle) {
+      setRibbonAngleDraft(null);
+    } else {
+      onApplyEdit(updateThemeChrome(value, { ribbonAngle: pending }));
+    }
+  };
 
   useEffect(() => {
     if (draftResetKey > 0) {
@@ -280,14 +309,14 @@ export function PaletteCustomizationDisclosure({
 
         <div className="theme-chrome-row" role="group" aria-label="Chrome accents">
           <span className="theme-inline-toggle">
-            <span>Top accent ribbon</span>
+            <span>Accent ribbon</span>
             <Switch
               checked={Boolean(value.chrome?.ribbon?.enabled)}
               ariaLabel="Top accent ribbon"
               onChange={(enabled) =>
                 onApplyEdit(
                   updateThemeChrome(value, { ribbon: enabled }),
-                  enabled ? 'Top accent ribbon on' : 'Top accent ribbon off',
+                  enabled ? 'Accent ribbon on' : 'Accent ribbon off',
                 )
               }
             />
@@ -306,6 +335,82 @@ export function PaletteCustomizationDisclosure({
             />
           </span>
         </div>
+
+        {value.chrome?.ribbon?.enabled && (
+          <div className="theme-tuner-box" role="group" aria-label="Accent ribbon settings">
+            <div className="theme-tuner-grid">
+              <label className="theme-color-row">
+                <span>Position</span>
+                <select
+                  className="field"
+                  aria-label="Ribbon position"
+                  value={value.chrome.ribbon.position ?? 'top'}
+                  onChange={(event) => {
+                    const nextPos = event.currentTarget.value === 'bottom' ? 'bottom' : 'top';
+                    onApplyEdit(
+                      updateThemeChrome(value, { ribbonPosition: nextPos }),
+                      `Ribbon position: ${nextPos}`,
+                    );
+                  }}
+                >
+                  <option value="top">Top edge</option>
+                  <option value="bottom">Bottom edge</option>
+                </select>
+              </label>
+              <label className="theme-color-row">
+                <span>Thickness</span>
+                <select
+                  className="field"
+                  aria-label="Ribbon height"
+                  value={String(value.chrome.ribbon.height ?? 3)}
+                  onChange={(event) => {
+                    const nextHeight = Number.parseInt(event.currentTarget.value, 10);
+                    if (Number.isFinite(nextHeight)) {
+                      onApplyEdit(
+                        updateThemeChrome(value, { ribbonHeight: nextHeight }),
+                        `Ribbon thickness: ${nextHeight}px`,
+                      );
+                    }
+                  }}
+                >
+                  {[1, 2, 3, 4, 5, 6].map((px) => (
+                    <option key={px} value={px}>
+                      {px}px
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label className="theme-slider-row">
+              <span className="theme-slider-meta">
+                <span>Gradient angle</span>
+                <strong>{Math.round(ribbonAngleDraft ?? savedRibbonAngle)}°</strong>
+              </span>
+              <input
+                type="range"
+                className="theme-range"
+                aria-label="Ribbon angle"
+                min={0}
+                max={360}
+                step={15}
+                value={ribbonAngleDraft ?? savedRibbonAngle}
+                onInput={(event) => {
+                  const nextAngle = Number.parseInt(event.currentTarget.value, 10);
+                  if (!Number.isFinite(nextAngle)) {
+                    return;
+                  }
+                  ribbonAngleDraftRef.current = nextAngle;
+                  setRibbonAngleDraft(nextAngle);
+                  onPreviewEdit?.(updateThemeChrome(value, { ribbonAngle: nextAngle }));
+                }}
+                onPointerUp={commitRibbonAngle}
+                onPointerCancel={commitRibbonAngle}
+                onKeyUp={commitRibbonAngle}
+                onBlur={commitRibbonAngle}
+              />
+            </label>
+          </div>
+        )}
 
         {colorError && (
           <div className="theme-contrast-warn" role="alert">

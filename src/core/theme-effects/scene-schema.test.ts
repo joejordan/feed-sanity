@@ -301,6 +301,22 @@ describe('Tier 2 Declarative Scene Layers & Tier 3 Opt-In GLSL Shaders schema', 
           { key: 'warp', kind: 'number', label: 'Warp Speed', min: 0.2, max: 3, defaultValue: 1 },
           { key: 'glowTint', kind: 'color', label: 'Glow Tint', defaultValue: '#22d3ee' },
           { key: 'pulse', kind: 'boolean', label: 'Pulse', defaultValue: true },
+          {
+            key: 'variant',
+            kind: 'enum',
+            label: 'Variant',
+            options: ['alpha', 'beta', 'alpha'],
+            optionLabels: { alpha: 'Alpha Mode', beta: 'Beta Mode' },
+            defaultValue: 'beta',
+          },
+          // Invalid enum with < 2 unique options must be skipped cleanly
+          {
+            key: 'solo',
+            kind: 'enum',
+            label: 'Solo',
+            options: ['only'],
+            defaultValue: 'only',
+          },
           // Reserved uniform name must be skipped cleanly
           { key: 'time', kind: 'number', label: 'Shadowed', min: 0, max: 1, defaultValue: 0.5 },
         ],
@@ -309,8 +325,16 @@ describe('Tier 2 Declarative Scene Layers & Tier 3 Opt-In GLSL Shaders schema', 
     );
 
     expect(shaderResult.errors).toEqual([]);
-    expect(shaderResult.shader?.params).toHaveLength(3);
+    expect(shaderResult.shader?.params).toHaveLength(4);
+    const variantSpec = shaderResult.shader?.params?.[3];
+    expect(variantSpec?.kind).toBe('enum');
+    if (variantSpec?.kind === 'enum') {
+      expect(variantSpec.options).toEqual(['alpha', 'beta']);
+      expect(variantSpec.optionLabels).toEqual({ alpha: 'Alpha Mode', beta: 'Beta Mode' });
+      expect(variantSpec.defaultValue).toBe('beta');
+    }
     expect(warnings.some((w) => w.includes('time'))).toBe(true);
+    expect(warnings.some((w) => w.includes('solo'))).toBe(true);
 
     const parsed = parseThemeDocument({
       format: THEME_FILE_FORMAT,

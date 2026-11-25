@@ -13,6 +13,7 @@ export const MAX_SCENE_LAYERS = 6;
 export const MAX_CUSTOM_SHADER_BYTES = 16 * 1024;
 export const MAX_CUSTOM_SHADER_PARAMS = 8;
 export const MAX_SHADER_LOOP_ITERATIONS = 256;
+export const MAX_SHADER_CLICKS = 4;
 
 export const SCENE_BLEND_MODES = [
   'source-over',
@@ -147,7 +148,7 @@ export interface CustomSceneSpec {
 
 export type CustomShaderParamSpec = Extract<
   EffectParamSpec,
-  { readonly kind: 'number' | 'boolean' | 'color' }
+  { readonly kind: 'number' | 'boolean' | 'color' | 'enum' }
 >;
 
 export interface CustomShaderSpec {
@@ -181,12 +182,16 @@ export const STANDARD_SHADER_UNIFORMS = [
   ['frame', 'float'],
   ['pointer', 'vec4'],
   ['click', 'vec4'],
+  ['clicks', `vec4[${MAX_SHADER_CLICKS}]`],
   ['scroll', 'vec2'],
+  ['dayPhase', 'float'],
   ['bg', 'vec3'],
   ['surface', 'vec3'],
   ['text', 'vec3'],
+  ['border', 'vec3'],
   ['accent', 'vec3'],
   ['accent2', 'vec3'],
+  ['danger', 'vec3'],
   ['isDark', 'float'],
 ] as const;
 
@@ -716,6 +721,55 @@ function parseShaderParamSpec(
       key,
       kind: 'color',
       label,
+      defaultValue,
+    };
+  }
+
+  if (raw.kind === 'enum') {
+    if (!Array.isArray(raw.options)) {
+      warnings?.push(`Skipped shader enum parameter "${key}" without options.`);
+      return null;
+    }
+    const options: string[] = [];
+    for (const item of raw.options.slice(0, 12)) {
+      if (typeof item !== 'string') {
+        continue;
+      }
+      const clean = item.trim().slice(0, 28);
+      if (clean && !options.includes(clean)) {
+        options.push(clean);
+      }
+    }
+    const [firstOption] = options;
+    if (options.length < 2 || !firstOption) {
+      warnings?.push(`Skipped shader enum parameter "${key}" (requires at least 2 options).`);
+      return null;
+    }
+    let optionLabels: Record<string, string> | undefined;
+    if (isRecord(raw.optionLabels)) {
+      const labels: Record<string, string> = {};
+      for (const opt of options) {
+        const rawLabel = raw.optionLabels[opt];
+        const trimmed = typeof rawLabel === 'string' ? rawLabel.trim() : '';
+        if (trimmed) {
+          labels[opt] = trimmed.slice(0, 32);
+        }
+      }
+      if (Object.keys(labels).length > 0) {
+        optionLabels = labels;
+      }
+    }
+    const defaultValue =
+      typeof raw.defaultValue === 'string' && options.includes(raw.defaultValue)
+        ? raw.defaultValue
+        : firstOption;
+    seen.add(key);
+    return {
+      key,
+      kind: 'enum',
+      label,
+      options,
+      ...(optionLabels ? { optionLabels } : {}),
       defaultValue,
     };
   }

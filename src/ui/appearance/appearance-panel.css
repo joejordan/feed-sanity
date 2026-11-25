@@ -416,6 +416,13 @@
   background: var(--fs-background);
 }
 
+.theme-studio-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
 .theme-tuner-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

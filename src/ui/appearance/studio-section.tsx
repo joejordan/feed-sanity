@@ -12,6 +12,8 @@ import {
   CLICK_EFFECT_OPTIONS,
   getActiveBackdropParamSpecs,
   getBackdropDisplayName,
+  getClickParamSpecs,
+  getSurfaceParamSpecs,
   mergeEffectsPatch,
   resolveEffectParams,
   STUDIO_VIBES,
@@ -92,25 +94,31 @@ function formatParamNumber(value: number, unit: EffectParamUnit | undefined): st
   return String(value);
 }
 
+function optionLabel<T extends string>(
+  options: readonly { readonly value: T; readonly label: string }[],
+  value: T,
+): string {
+  return options.find((opt) => opt.value === value)?.label ?? value;
+}
+
 function PluginParamsBox({
-  backdropName,
+  groupName,
   specs,
-  values,
   rawValues,
   onUpdateParam,
   onInputParam,
   onDragStart,
   onCommit,
 }: {
-  readonly backdropName: string;
+  readonly groupName: string;
   readonly specs: readonly EffectParamSpec[];
-  readonly values: Readonly<Record<string, EffectParamValue>>;
   readonly rawValues: EffectParamValues | undefined;
   readonly onUpdateParam: (key: string, value: EffectParamValue) => void;
   readonly onInputParam: (key: string, value: EffectParamValue) => void;
   readonly onDragStart: () => void;
   readonly onCommit: () => void;
 }) {
+  const values = useMemo(() => resolveEffectParams(specs, rawValues), [specs, rawValues]);
   const grouped = useMemo(() => {
     const enums: Extract<EffectParamSpec, { kind: 'enum' }>[] = [];
     const numbers: Extract<EffectParamSpec, { kind: 'number' }>[] = [];
@@ -140,7 +148,7 @@ function PluginParamsBox({
   }, [specs]);
 
   return (
-    <div className="theme-tuner-box" role="group" aria-label={`${backdropName} settings`}>
+    <div className="theme-tuner-box" role="group" aria-label={`${groupName} settings`}>
       {grouped.enums.length > 0 && (
         <div className="theme-tuner-grid">
           {grouped.enums.map((spec) => (
@@ -237,7 +245,20 @@ function PluginParamsBox({
   );
 }
 
-function matchesCommittedBackdropParams(
+function getScopedParamSpecs(
+  effects: ThemeEffectsConfig,
+  key: 'backdropParams' | 'surfaceParams' | 'clickParams',
+): readonly EffectParamSpec[] {
+  if (key === 'backdropParams') {
+    return getActiveBackdropParamSpecs(effects);
+  }
+  if (key === 'surfaceParams') {
+    return getSurfaceParamSpecs(effects.surface);
+  }
+  return getClickParamSpecs(effects.click);
+}
+
+function matchesCommittedParams(
   actual: EffectParamValues | undefined,
   committed: EffectParamValues | undefined,
   specs: readonly EffectParamSpec[],
@@ -304,15 +325,23 @@ function useEffectSliderDraft(
     }
     prevEffectsRef.current = effects;
     const committed = lastCommittedRef.current;
-    const specs = getActiveBackdropParamSpecs(effects);
-    const matchesOwnCommit =
-      committed !== null &&
-      (Object.keys(committed) as Array<keyof ThemeEffectsConfig>).every((key) =>
-        key === 'backdropParams'
-          ? matchesCommittedBackdropParams(effects.backdropParams, committed.backdropParams, specs)
-          : effects[key] === committed[key],
-      );
-    if (draftRef.current && matchesOwnCommit) {
+    if (!draftRef.current || !committed) {
+      resetDraft();
+      return;
+    }
+    const matchesOwnCommit = (Object.keys(committed) as Array<keyof ThemeEffectsConfig>).every(
+      (key) => {
+        if (key === 'backdropParams' || key === 'surfaceParams' || key === 'clickParams') {
+          return matchesCommittedParams(
+            effects[key],
+            committed[key],
+            getScopedParamSpecs(effects, key),
+          );
+        }
+        return effects[key] === committed[key];
+      },
+    );
+    if (matchesOwnCommit) {
       lastCommittedRef.current = null;
       return;
     }
@@ -451,11 +480,11 @@ export function CreativeStudioCard({
     onUpdateEffects,
   );
   const backdropSpecs = getActiveBackdropParamSpecs(effects);
-  const resolvedPluginParams = useMemo(
-    () => resolveEffectParams(backdropSpecs, displayEffects.backdropParams),
-    [backdropSpecs, displayEffects.backdropParams],
-  );
   const activeBackdropName = getBackdropDisplayName(effects.backdrop) ?? effects.backdrop;
+  const surfaceSpecs = getSurfaceParamSpecs(effects.surface);
+  const activeSurfaceLabel = optionLabel(SURFACE_FINISH_OPTIONS, effects.surface);
+  const clickSpecs = getClickParamSpecs(effects.click);
+  const activeClickLabel = optionLabel(CLICK_EFFECT_OPTIONS, effects.click);
 
   return (
     <SettingCard
@@ -525,9 +554,8 @@ export function CreativeStudioCard({
 
         {backdropSpecs.length > 0 && (
           <PluginParamsBox
-            backdropName={activeBackdropName}
+            groupName={activeBackdropName}
             specs={backdropSpecs}
-            values={resolvedPluginParams}
             rawValues={displayEffects.backdropParams}
             onUpdateParam={(key, val) => onUpdateEffects({ backdropParams: { [key]: val } })}
             onInputParam={(key, val) => handleInput({ backdropParams: { [key]: val } })}
@@ -603,18 +631,31 @@ export function CreativeStudioCard({
         description="Layer frosted glass, gradient sheen, neon rims, or pointer-tracked Prism light across cards and buttons."
         stacked
       >
-        <SegmentedControl
-          ariaLabel="Surface finish"
-          value={effects.surface}
-          options={SURFACE_FINISH_OPTIONS}
-          fullWidth
-          onChange={(next) =>
-            onUpdateEffects(
-              { surface: next },
-              `Surface finish: ${SURFACE_FINISH_OPTIONS.find((o) => o.value === next)?.label ?? next}`,
-            )
-          }
-        />
+        <div className="theme-studio-stack">
+          <SegmentedControl
+            ariaLabel="Surface finish"
+            value={effects.surface}
+            options={SURFACE_FINISH_OPTIONS}
+            fullWidth
+            onChange={(next) =>
+              onUpdateEffects(
+                { surface: next },
+                `Surface finish: ${optionLabel(SURFACE_FINISH_OPTIONS, next)}`,
+              )
+            }
+          />
+          {surfaceSpecs.length > 0 && (
+            <PluginParamsBox
+              groupName={`${activeSurfaceLabel} surface`}
+              specs={surfaceSpecs}
+              rawValues={displayEffects.surfaceParams}
+              onUpdateParam={(key, val) => onUpdateEffects({ surfaceParams: { [key]: val } })}
+              onInputParam={(key, val) => handleInput({ surfaceParams: { [key]: val } })}
+              onDragStart={onDragStart}
+              onCommit={commitDraft}
+            />
+          )}
+        </div>
       </SettingRow>
 
       <SettingRow
@@ -622,20 +663,33 @@ export function CreativeStudioCard({
         description="A subtle accent touch on buttons, links, and tabs. Selecting text stays quiet."
         stacked
       >
-        <SegmentedControl
-          ariaLabel="Click effects"
-          value={effects.click}
-          options={CLICK_EFFECT_OPTIONS}
-          fullWidth
-          onChange={(next) =>
-            onUpdateEffects(
-              { click: next },
-              next === 'none'
-                ? 'Click effects off'
-                : `Click effect: ${CLICK_EFFECT_OPTIONS.find((o) => o.value === next)?.label ?? next}`,
-            )
-          }
-        />
+        <div className="theme-studio-stack">
+          <SegmentedControl
+            ariaLabel="Click effects"
+            value={effects.click}
+            options={CLICK_EFFECT_OPTIONS}
+            fullWidth
+            onChange={(next) =>
+              onUpdateEffects(
+                { click: next },
+                next === 'none'
+                  ? 'Click effects off'
+                  : `Click effect: ${optionLabel(CLICK_EFFECT_OPTIONS, next)}`,
+              )
+            }
+          />
+          {clickSpecs.length > 0 && (
+            <PluginParamsBox
+              groupName={`${activeClickLabel} click effect`}
+              specs={clickSpecs}
+              rawValues={displayEffects.clickParams}
+              onUpdateParam={(key, val) => onUpdateEffects({ clickParams: { [key]: val } })}
+              onInputParam={(key, val) => handleInput({ clickParams: { [key]: val } })}
+              onDragStart={onDragStart}
+              onCommit={commitDraft}
+            />
+          )}
+        </div>
       </SettingRow>
     </SettingCard>
   );

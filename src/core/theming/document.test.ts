@@ -32,6 +32,7 @@ import {
   THEME_SCHEMA_VERSION,
   updateThemeChrome,
   updateThemeCustomCss,
+  updateThemeCustomFontStack,
   updateThemeEffects,
   updateThemePalette,
   updateThemeTypography,
@@ -658,7 +659,68 @@ describe('ThemeDocumentV1 (.fstheme.json) codec & standardization', () => {
     const clearedSecondary = updateThemePalette(flipped, { accentSecondary: '' });
     expect(clearedSecondary.palette?.accentSecondary).toBeUndefined();
     expect(clearedSecondary.meta.swatches).toHaveLength(4);
-    const noChrome = updateThemeChrome(clearedSecondary, { ribbon: false, ambientGlow: false });
+
+    // Chrome ribbon tuning (height, position, angle) clamps cleanly and preserves stops.
+    const tunedRibbon = updateThemeChrome(clearedSecondary, {
+      ribbon: true,
+      ribbonHeight: 9,
+      ribbonPosition: 'bottom',
+      ribbonAngle: 135,
+    });
+    expect(tunedRibbon.chrome?.ribbon?.height).toBe(6);
+    expect(tunedRibbon.chrome?.ribbon?.position).toBe('bottom');
+    expect(tunedRibbon.chrome?.ribbon?.angle).toBe(135);
+
+    const noChrome = updateThemeChrome(tunedRibbon, { ribbon: false, ambientGlow: false });
     expect(noChrome.chrome).toBeUndefined();
+  });
+
+  it('round-trips surface.params and click.params through ThemeDocumentV1 and edits custom font stacks safely', () => {
+    const parsed = parseThemeDocument({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      meta: { name: 'Tuned Studio' },
+      palette: null,
+      effects: {
+        surface: {
+          finish: 'prism',
+          params: { strength: 1.5, glow: 0.8, baseAngle: 200, sweep: 90 },
+        },
+        click: {
+          id: 'supernova',
+          params: { style: 'rings', scale: 1.3 },
+        },
+      },
+    });
+    expect(parsed.ok).toBe(true);
+    expect(parsed.document?.effects?.surface?.params).toEqual({
+      strength: 1.5,
+      glow: 0.8,
+      baseAngle: 200,
+      sweep: 90,
+    });
+    expect(parsed.document?.effects?.click?.params).toEqual({ style: 'rings', scale: 1.3 });
+
+    const updatedEffects = updateThemeEffects(parsed.document!, {
+      surfaceParams: { sweep: 45 },
+      clickParams: { style: 'embers' },
+    });
+    expect(updatedEffects.effects?.surface?.params?.sweep).toBe(45);
+    expect(updatedEffects.effects?.surface?.params?.baseAngle).toBe(200);
+    expect(updatedEffects.effects?.click?.params?.style).toBe('embers');
+
+    // Switching surface or click effect clears stale scoped params cleanly.
+    const switched = updateThemeEffects(updatedEffects, { surface: 'neon', click: 'spark' });
+    expect(switched.effects?.surface?.params).toBeUndefined();
+    expect(switched.effects?.click?.params).toBeUndefined();
+
+    // Custom font stack helper sanitizes valid stacks and rejects hostile CSS injection.
+    const withCustomFont = updateThemeCustomFontStack(
+      DEFAULT_THEME_DOCUMENT,
+      '"Space Grotesk", "Inter", sans-serif',
+    );
+    expect(withCustomFont.typography?.customStack).toBe('"Space Grotesk", "Inter", sans-serif');
+    const rejectedFont = updateThemeCustomFontStack(withCustomFont, 'Arial; } body { color: red }');
+    expect(rejectedFont.typography).toBeUndefined();
   });
 });

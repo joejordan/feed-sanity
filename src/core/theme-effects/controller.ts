@@ -7,7 +7,7 @@ import type { BackdropEffectId, ThemeEffectsConfig } from './model';
 import { OWN_ATTR } from '../surface';
 import { BACKDROP_REGISTRY } from './backdrops';
 import { mountClickEffects } from './click-fx';
-import { DEFAULT_THEME_EFFECTS } from './model';
+import { DEFAULT_THEME_EFFECTS, getSurfaceParamSpecs, resolveEffectParams } from './model';
 import { BACKDROP_OWN_VALUE, PRISM_ANGLE_VAR } from './surfaces';
 
 export interface EffectsLayerController {
@@ -27,9 +27,14 @@ export interface EffectsLayerController {
  * skips touch/hidden tabs, reacts to OS reduced-motion changes, and cleans
  * up immediately when Prism is off or disposed.
  */
+const DEFAULT_PRISM_ANGLE = 132;
+const DEFAULT_PRISM_SWEEP = 56;
+
 function createPrismLightDriver(doc: Document) {
   let active = false;
   let wanted = false;
+  let baseAngle = DEFAULT_PRISM_ANGLE;
+  let sweep = DEFAULT_PRISM_SWEEP;
   let rafId = 0;
   let rafUsesTimeout = false;
   let pendingAngle = -1;
@@ -55,8 +60,10 @@ function createPrismLightDriver(doc: Document) {
     }
     const nx = Math.min(1, Math.max(0, event.clientX / win.innerWidth));
     const ny = Math.min(1, Math.max(0, event.clientY / win.innerHeight));
-    // Maps viewport coordinates to a 2deg-quantized 96..174deg specular sheen angle.
-    const nextAngle = Math.round((96 + nx * 56 + ny * 22) / 2) * 2;
+    // Maps viewport coordinates to a 2deg-quantized specular sheen angle centered on `baseAngle`.
+    const rawAngle = baseAngle + (nx - 0.5) * sweep + (ny - 0.5) * (sweep * 0.4);
+    const normalized = ((rawAngle % 360) + 360) % 360;
+    const nextAngle = Math.round(normalized / 2) * 2;
     if (nextAngle === lastAngle && rafId === 0) {
       return;
     }
@@ -72,12 +79,7 @@ function createPrismLightDriver(doc: Document) {
     }
   };
 
-  const stop = (): void => {
-    if (!active) {
-      return;
-    }
-    active = false;
-    doc.removeEventListener('pointermove', onMove);
+  const cancelPendingAngle = (): void => {
     if (rafId !== 0) {
       const win = doc.defaultView ?? globalThis;
       if (rafUsesTimeout) {
@@ -92,8 +94,17 @@ function createPrismLightDriver(doc: Document) {
     doc.documentElement?.style.removeProperty(PRISM_ANGLE_VAR);
   };
 
+  const stop = (): void => {
+    if (!active) {
+      return;
+    }
+    active = false;
+    doc.removeEventListener('pointermove', onMove);
+    cancelPendingAngle();
+  };
+
   const reconcile = (): void => {
-    const shouldRun = wanted && !(reducedMotion?.matches ?? false);
+    const shouldRun = wanted && sweep > 0 && !(reducedMotion?.matches ?? false);
     if (shouldRun === active) {
       return;
     }
@@ -108,9 +119,20 @@ function createPrismLightDriver(doc: Document) {
   reducedMotion?.addEventListener?.('change', reconcile);
 
   return {
-    sync(enabled: boolean): void {
+    sync(
+      enabled: boolean,
+      nextBaseAngle = DEFAULT_PRISM_ANGLE,
+      nextSweep = DEFAULT_PRISM_SWEEP,
+    ): void {
+      const angleChanged = nextBaseAngle !== baseAngle;
       wanted = enabled;
+      baseAngle = nextBaseAngle;
+      sweep = nextSweep;
       reconcile();
+      if (active && angleChanged) {
+        // Clear any stale inline pointer angle so the updated CSS fallback angle applies immediately.
+        cancelPendingAngle();
+      }
     },
     dispose(): void {
       wanted = false;
@@ -197,7 +219,19 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
       }
       const effects = rawEffects ?? DEFAULT_THEME_EFFECTS;
       syncBackdrop(effects, palette, hostScheme);
-      prismLight.sync(effects.surface === 'prism' && effects.interactive && !effects.paused);
+      if (effects.surface === 'prism' && effects.interactive && !effects.paused) {
+        const prismParams = resolveEffectParams(
+          getSurfaceParamSpecs('prism'),
+          effects.surfaceParams,
+        );
+        prismLight.sync(
+          true,
+          (prismParams.baseAngle as number | undefined) ?? DEFAULT_PRISM_ANGLE,
+          (prismParams.sweep as number | undefined) ?? DEFAULT_PRISM_SWEEP,
+        );
+      } else {
+        prismLight.sync(false);
+      }
       // Clicks cascade Matrix Rain when Glyphs is active, and always feed Tier 2
       // custom-scene click bursts & Tier 3 custom-shader `u_click` when interactive.
       const isCustomBackdrop =
@@ -205,6 +239,7 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
       clickFx.setEffect(effects.click, palette, {
         cascade: effects.interactive && Boolean(activeBackdrop?.burst),
         alwaysCascade: effects.interactive && isCustomBackdrop,
+        ...(effects.clickParams ? { params: effects.clickParams } : {}),
       });
     },
     isBackdropConnected: () => Boolean(backdropHost?.isConnected),

@@ -28,7 +28,9 @@ import {
   isCustomImportedDocument,
   isThemeFontId,
   resolveTheme,
+  sanitizeFontStack,
   updateThemeCustomCss,
+  updateThemeCustomFontStack,
   updateThemeEffects,
   updateThemeTypography,
 } from '../../core/theming';
@@ -40,6 +42,7 @@ import {
   SettingCard,
   SettingRow,
   Switch,
+  TextInput,
 } from '../primitives';
 import { useThemePreview } from '../use-theme-preview';
 import css from './appearance-panel.css?inline';
@@ -65,6 +68,7 @@ const FONT_LABELS: Record<ThemeFontId, string> = {
 };
 
 const FONT_IDS = Object.keys(FONT_LABELS) as readonly ThemeFontId[];
+const CUSTOM_FONT_OPTION = '__custom__';
 
 type SchemeFilter = 'all' | 'dark' | 'light';
 
@@ -386,13 +390,54 @@ function AppearancePanelView({
   };
 
   const fontPreset: ThemeFontId = value.typography?.preset ?? 'default';
-  const hasImportedCustomStack = Boolean(fontPreset === 'default' && value.typography?.customStack);
+  const savedCustomStack = fontPreset === 'default' ? (value.typography?.customStack ?? '') : '';
+  const [customFontMode, setCustomFontMode] = useState(false);
+  const [customFontDraft, setCustomFontDraft] = useState(savedCustomStack);
+  const [customFontError, setCustomFontError] = useState<string | null>(null);
+  useEffect(() => {
+    setCustomFontDraft(savedCustomStack);
+    setCustomFontError(null);
+    if (fontPreset !== 'default' || savedCustomStack || draftResetKey > 0) {
+      setCustomFontMode(false);
+    }
+  }, [savedCustomStack, fontPreset, draftResetKey]);
+  const isCustomFontActive = Boolean(savedCustomStack) || customFontMode;
   const selectFont = (nextFont: string): void => {
-    if (nextFont === '__imported__' || !isThemeFontId(nextFont)) {
+    if (nextFont === CUSTOM_FONT_OPTION) {
+      setCustomFontMode(true);
+      setCustomFontError(null);
       return;
     }
+    if (!isThemeFontId(nextFont)) {
+      return;
+    }
+    setCustomFontMode(false);
+    setCustomFontError(null);
     const fontLabel = FONT_LABELS[nextFont];
     applyEdit(updateThemeTypography(value, nextFont), `Typography set to ${fontLabel}`);
+  };
+  const commitCustomFontStack = (raw: string): void => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      setCustomFontError(null);
+      if (savedCustomStack) {
+        setCustomFontMode(false);
+        applyEdit(updateThemeCustomFontStack(value, ''), 'Typography reset to Site default');
+      }
+      return;
+    }
+    const sanitized = sanitizeFontStack(trimmed);
+    if (!sanitized) {
+      setCustomFontError(
+        'Use comma-separated font names (letters, numbers, quotes, spaces, hyphens).',
+      );
+      return;
+    }
+    setCustomFontError(null);
+    setCustomFontMode(false);
+    if (sanitized !== savedCustomStack) {
+      applyEdit(updateThemeCustomFontStack(value, sanitized), 'Updated custom font stack');
+    }
   };
 
   return (
@@ -554,21 +599,53 @@ function AppearancePanelView({
           title="Typography"
           description="Applies across site text and Feed Sanity controls."
           htmlFor={fontId}
+          stacked={isCustomFontActive}
         >
-          <select
-            id={fontId}
-            className="field"
-            aria-label="Typography"
-            value={hasImportedCustomStack ? '__imported__' : fontPreset}
-            onChange={(event) => selectFont(event.currentTarget.value)}
-          >
-            {hasImportedCustomStack && <option value="__imported__">Custom (imported)</option>}
-            {FONT_IDS.map((id) => (
-              <option key={id} value={id}>
-                {FONT_LABELS[id]}
-              </option>
-            ))}
-          </select>
+          <div className={isCustomFontActive ? 'theme-studio-stack' : undefined}>
+            <select
+              id={fontId}
+              className="field"
+              aria-label="Typography"
+              value={isCustomFontActive ? CUSTOM_FONT_OPTION : fontPreset}
+              onChange={(event) => selectFont(event.currentTarget.value)}
+            >
+              {FONT_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {FONT_LABELS[id]}
+                </option>
+              ))}
+              <option value={CUSTOM_FONT_OPTION}>Custom font stack…</option>
+            </select>
+            {isCustomFontActive && (
+              <>
+                <div className="theme-external-css-row">
+                  <TextInput
+                    className="field"
+                    ariaLabel="Custom font stack"
+                    placeholder='"Inter", "Segoe UI", sans-serif'
+                    value={customFontDraft}
+                    onValueChange={(next) => {
+                      setCustomFontDraft(next);
+                      setCustomFontError(null);
+                    }}
+                    onBlur={() => commitCustomFontStack(customFontDraft)}
+                  />
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => commitCustomFontStack(customFontDraft)}
+                  >
+                    Apply
+                  </button>
+                </div>
+                {customFontError && (
+                  <div className="theme-contrast-warn" role="alert">
+                    <span>{customFontError}</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </SettingRow>
 
         <SettingRow
@@ -586,6 +663,7 @@ function AppearancePanelView({
           value={value}
           activePreset={activePreset}
           draftResetKey={draftResetKey}
+          onPreviewEdit={(next) => controller.preview(resolveTheme(next))}
           onApplyEdit={applyEdit}
         />
 

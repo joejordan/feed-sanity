@@ -2,35 +2,14 @@
 //
 // Real-time gravitational-lensing black hole with relativistic Doppler-beamed
 // accretion disk, Einstein photon ring, optional curved spacetime grid,
-// two-layer chromatic starfield, scroll/pointer orbital parallax, and
-// click-triggered gravitational shockwaves. Pure GLSL ES 1.00 (no preprocessor
-// directives, bounded literal integer loops only, zero external assets).
+// selectable visual modes (Black Hole, Quasar Jet, Solar Eclipse), two-layer
+// chromatic starfield, scroll/pointer orbital parallax, and 4-slot overlapping
+// click gravitational shockwaves. Uses built-in GLSL preamble helpers (`rot2`,
+// `gauss`, `fbm`, `snoise`, `hash12`, `premultiply`).
 
 import type { CustomShaderSpec } from './scene-schema';
 
 export const EVENT_HORIZON_FRAGMENT = `
-mat2 rot2(float a) {
-  float c = cos(a);
-  float s = sin(a);
-  return mat2(c, -s, s, c);
-}
-
-float gauss(float x) {
-  return exp(-x * x);
-}
-
-float fbm4(vec2 p) {
-  float total = 0.0;
-  float amp = 0.52;
-  mat2 m = mat2(1.62, 1.18, -1.18, 1.62);
-  for (int i = 0; i < 4; i++) {
-    total += amp * snoise(p);
-    p = m * p;
-    amp *= 0.5;
-  }
-  return total;
-}
-
 vec3 starLayer(vec2 uv, float scale, float density, float t) {
   vec2 p = uv * scale;
   vec2 id = floor(p);
@@ -59,40 +38,48 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float ptrActive = u_pointer.z * u_pointer.w;
   vec2 ptrNorm = (u_pointer.xy - 0.5) * ptrActive;
 
+  // Mode enum: 0 = Black Hole, 1 = Quasar Jet, 2 = Solar Eclipse.
+  float isQuasar = 1.0 - step(0.5, abs(u_mode - 1.0));
+  float isEclipse = step(1.5, u_mode);
+
   // Frame the singularity gracefully in the left third on wide displays so the
   // glowing accretion disk arcs across both gutters and behind the center feed.
   float sideBias = smoothstep(1.05, 1.75, aspect) * 0.34;
   vec2 corePos = vec2(-sideBias, 0.05) + ptrNorm * vec2(-0.085, -0.06);
 
-  // Interactive click-triggered gravitational shockwave bends starlight outward.
+  // Overlapping multi-click gravitational shockwaves (4-slot ring buffer).
   float clickWave = 0.0;
   float clickCrest = 0.0;
-  if (u_click.w > 0.5 && u_click.z < 2.2) {
-    vec2 clickPos = (u_click.xy * res - 0.5 * res) / minDim;
-    vec2 toClick = uv - clickPos;
-    float dClick = length(toClick);
-    float waveR = u_click.z * 0.72;
-    float decay = exp(-u_click.z * 1.45);
-    float ring = gauss((dClick - waveR) * 14.0) * decay;
-    clickWave = ring;
-    clickCrest = gauss((dClick - waveR) * 26.0) * decay;
-    uv += (toClick / (dClick + 0.001)) * ring * 0.042 * u_lensing;
+  for (int i = 0; i < 4; i++) {
+    vec4 clk = u_clicks[i];
+    if (clk.w > 0.5 && clk.z < 2.2) {
+      vec2 clickPos = (clk.xy * res - 0.5 * res) / minDim;
+      vec2 toClick = uv - clickPos;
+      float dClick = length(toClick);
+      float waveR = clk.z * 0.72;
+      float decay = exp(-clk.z * 1.45);
+      float ring = gauss((dClick - waveR) * 14.0) * decay;
+      clickWave += ring;
+      clickCrest += gauss((dClick - waveR) * 26.0) * decay;
+      uv += (toClick / (dClick + 0.001)) * ring * 0.036 * u_lensing;
+    }
   }
 
   vec2 q = uv - corePos;
   float r = length(q);
-  float rs = 0.145;
+  float rs = mix(0.145, 0.168, isEclipse);
 
   // Einstein gravitational deflection bends background rays around the horizon.
-  float lensStrength = (rs * rs * 1.65 * u_lensing) / (r * r + 0.011);
+  float lensScale = mix(1.65, 0.85, isEclipse);
+  float lensStrength = (rs * rs * lensScale * u_lensing) / (r * r + 0.011);
   vec2 lensedQ = q * (1.0 - min(lensStrength, 0.88));
 
   // Deep-space canvas with normalized scroll-driven nebula clouds and velocity flare.
   float scrollDrift = u_scroll.x * 0.45;
   float scrollPulse = clamp(abs(u_scroll.y) * 0.42, 0.0, 0.45);
   vec2 nebulaUv = lensedQ * 1.55 + vec2(t * 0.014, -scrollDrift * 0.6);
-  float nebA = fbm4(nebulaUv);
-  float nebB = fbm4(nebulaUv * 1.75 + vec2(3.1, -2.4) + nebA * 0.6);
+  float nebA = fbm(nebulaUv);
+  float nebB = fbm(nebulaUv * 1.75 + vec2(3.1, -2.4) + nebA * 0.6);
 
   vec3 darkSpace = u_bg * 0.72;
   vec3 nebula = mix(u_accent2 * 0.24, u_accent * 0.2, smoothstep(-0.35, 0.55, nebB));
@@ -114,7 +101,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float line = 1.0 - smoothstep(0.0, 0.032, min(gridCell.x, gridCell.y));
     float wellMask = (1.0 - smoothstep(0.22, 1.35, r)) * smoothstep(rs * 0.95, rs * 1.35, r);
     vec3 gridCol = mix(u_accent2, u_coronaColor, exp(-r * 2.4));
-    col += gridCol * line * wellMask * (0.14 + clickWave * 0.28);
+    col += gridCol * line * wellMask * (0.14 + min(clickWave, 1.5) * 0.24);
   }
 
   // Tilted and slightly rolled disk coordinates (orbits subtly with pointer).
@@ -132,14 +119,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // Radial disk profile: skip expensive spiral FBM outside the visible disk envelope.
   float innerEdge = smoothstep(rs * 1.02, rs * 1.38, rd);
   float outerFade = exp(-max(rd - rs * 1.25, 0.0) * (2.65 - scrollPulse * 0.35));
-  float diskEnvelope = innerEdge * outerFade;
+  float diskEnvelope = innerEdge * outerFade * (1.0 - isEclipse * 0.82);
   float diskMask = 0.0;
   vec3 diskColor = hotCore;
   if (diskEnvelope > 0.0005) {
     float kepler = 1.45 / (rd + 0.17) - t * (0.42 + 0.62 / (rd + 0.34));
     float diskAngle = atan(dq.y, dq.x) + kepler;
     vec2 swirlUv = vec2(cos(diskAngle), sin(diskAngle)) * (rd * 3.1) + vec2(rd * 2.4 - t * 0.16, 0.0);
-    float filaments = fbm4(swirlUv * (0.85 + u_turbulence * 0.55));
+    float filaments = fbm(swirlUv * (0.85 + u_turbulence * 0.55));
     float wisps = snoise(swirlUv * 2.3 + filaments * 1.15);
     float plasma = smoothstep(-0.32, 0.68, filaments * 0.72 + wisps * 0.38 + 0.28);
     diskMask = diskEnvelope * (0.35 + 0.85 * plasma);
@@ -152,10 +139,10 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec3 warpedArcs = vec3(0.0);
   if (haloBand > 0.0005 && r > rs * 0.92) {
     float polarWeight = pow(abs(rq.y) / (r + 0.001), 1.35);
-    float haloSwirl = 0.55 + 0.45 * fbm4(vec2(atan(rq.y, rq.x) * 2.2 - t * 0.5, r * 7.5));
+    float haloSwirl = 0.55 + 0.45 * fbm(vec2(atan(rq.y, rq.x) * 2.2 - t * 0.5, r * 7.5));
     float lensedHalo = haloBand * polarWeight * haloSwirl * (0.75 + 0.45 * u_lensing);
     vec3 haloColor = mix(u_accent2, hotCore, 0.55 + 0.35 * doppler);
-    warpedArcs = haloColor * lensedHalo * 1.1;
+    warpedArcs = haloColor * lensedHalo * (1.1 - isEclipse * 0.55);
   }
 
   // Separate front equatorial ribbon (passes IN FRONT of the black hole) from back half.
@@ -165,6 +152,32 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // Compose far side + lensed halo behind the shadow, then eclipse with the event horizon.
   vec3 backDisk = diskColor * diskMask * (1.0 - frontMask) * beam * 1.15;
   col = (col + backDisk + warpedArcs) * horizonShadow;
+
+  // Quasar mode: twin collimated relativistic polar plasma jets shooting along the spin axis.
+  if (isQuasar > 0.5) {
+    float jetSpread = 0.026 + abs(rq.y) * 0.085;
+    float jetCore = gauss(rq.x / jetSpread) * smoothstep(rs * 0.85, rs * 1.35, abs(rq.y));
+    if (jetCore > 0.0005) {
+      float jetFade = exp(-abs(rq.y) * 1.65);
+      float jetFlow = 0.62 + 0.38 * snoise(vec2(rq.x * 16.0, abs(rq.y) * 5.5 - t * 2.6));
+      vec3 jetColor = mix(u_accent2, vec3(0.84, 0.94, 1.0), jetCore * 0.65);
+      col += jetColor * jetCore * jetFade * jetFlow * 1.35;
+    }
+  }
+
+  // Solar Eclipse mode: radial streaming solar corona + diamond-ring flare on the limb.
+  if (isEclipse > 0.5 && r > rs * 0.9) {
+    float coronaFalloff = exp(-(r - rs) * 4.8) * smoothstep(rs * 0.95, rs * 1.05, r);
+    if (coronaFalloff > 0.0005) {
+      float cAng = atan(rq.y, rq.x);
+      float streamers = 0.55 + 0.45 * fbm(vec2(cAng * 4.5, r * 3.8 - t * 0.25));
+      col += mix(u_coronaColor, vec3(1.0, 0.97, 0.9), 0.45) * coronaFalloff * streamers * 1.55;
+    }
+    vec2 diamondPos = vec2(rs * 1.02, rs * 0.14);
+    float dFlare = length(rq - diamondPos);
+    float diamond = exp(-dFlare * 28.0) * 1.6 + gauss(rq.y * 26.0) * exp(-dFlare * 6.0) * 0.55;
+    col += vec3(1.0, 0.96, 0.86) * diamond;
+  }
 
   // Razor-sharp incandescent Einstein photon ring hugging the event horizon.
   float photonRing = gauss((r - rs * 1.035) * 44.0);
@@ -176,10 +189,10 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float frontGlow = diskMask * frontMask * beam;
   col += diskColor * frontGlow * 1.32;
 
-  // Soft volumetric atmospheric glow + subtle click gravitational wave crest.
+  // Soft volumetric atmospheric glow + subtle click gravitational wave crests.
   float aura = exp(-r * 2.25) * 0.22;
   col += mix(u_accent2, u_coronaColor, 0.55) * aura;
-  col += mix(u_coronaColor, u_accent2, 0.45) * clickCrest * 0.48;
+  col += mix(u_coronaColor, u_accent2, 0.45) * min(clickCrest, 1.6) * 0.46;
 
   // Cinema filmic highlight roll-off (no harsh digital clipping).
   col = col / (1.0 + col * 0.52);
@@ -201,6 +214,18 @@ export const EVENT_HORIZON_SHADER: CustomShaderSpec = {
   fps: 24,
   fallbackColors: ['#05050a', '#2b1340'],
   params: [
+    {
+      key: 'mode',
+      kind: 'enum',
+      label: 'Cosmic mode',
+      options: ['black-hole', 'quasar', 'eclipse'],
+      optionLabels: {
+        'black-hole': 'Black Hole',
+        quasar: 'Quasar Jet',
+        eclipse: 'Solar Eclipse',
+      },
+      defaultValue: 'black-hole',
+    },
     {
       key: 'lensing',
       kind: 'number',

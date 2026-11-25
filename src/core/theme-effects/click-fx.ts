@@ -9,9 +9,10 @@
 // `prefers-reduced-motion`, and removes every particle when it finishes.
 
 import type { ThemePalette } from '../theming';
-import type { ClickEffectId } from './model';
+import type { ClickEffectId, EffectParamValues } from './model';
 import { OWN_ATTR } from '../surface';
 import { hexWithAlpha } from '../theming/color';
+import { getClickParamSpecs, resolveEffectParams } from './model';
 import { CLICK_FX_OWN_VALUE } from './surfaces';
 
 const MATRIX_BURST_GLYPHS = ['ｱ', 'ｳ', 'ｶ', 'ｷ', 'ﾈ', '0', '1', '7', 'Ξ', 'λ'];
@@ -30,24 +31,28 @@ const SUPERNOVA_OUTER_KEYFRAMES: Keyframe[] = [
   { transform: 'scale(1.28)', opacity: 0 },
 ];
 
-const SUPERNOVA_EMBER_KEYFRAMES: readonly Keyframe[][] = Array.from({ length: 6 }, (_, i) => {
-  const baseAngle = (Math.PI * 2 * i) / 6;
-  const midAngle = baseAngle + 0.32;
-  const endAngle = baseAngle + 0.68;
-  const dist = 24 + (i % 2) * 10;
-  return [
-    { transform: 'translate(0px, 0px) scale(0.5)', opacity: 0.95 },
-    {
-      transform: `translate(${(Math.cos(midAngle) * dist * 0.55).toFixed(2)}px, ${(Math.sin(midAngle) * dist * 0.55).toFixed(2)}px) scale(1.05)`,
-      opacity: 0.85,
-      offset: 0.42,
-    },
-    {
-      transform: `translate(${(Math.cos(endAngle) * dist).toFixed(2)}px, ${(Math.sin(endAngle) * dist).toFixed(2)}px) scale(0.2)`,
-      opacity: 0,
-    },
-  ];
-});
+function buildSupernovaEmberKeyframes(scale: number): readonly Keyframe[][] {
+  return Array.from({ length: 6 }, (_, i) => {
+    const baseAngle = (Math.PI * 2 * i) / 6;
+    const midAngle = baseAngle + 0.32;
+    const endAngle = baseAngle + 0.68;
+    const dist = (24 + (i % 2) * 10) * scale;
+    return [
+      { transform: 'translate(0px, 0px) scale(0.5)', opacity: 0.95 },
+      {
+        transform: `translate(${(Math.cos(midAngle) * dist * 0.55).toFixed(2)}px, ${(Math.sin(midAngle) * dist * 0.55).toFixed(2)}px) scale(1.05)`,
+        opacity: 0.85,
+        offset: 0.42,
+      },
+      {
+        transform: `translate(${(Math.cos(endAngle) * dist).toFixed(2)}px, ${(Math.sin(endAngle) * dist).toFixed(2)}px) scale(0.2)`,
+        opacity: 0,
+      },
+    ];
+  });
+}
+
+const SUPERNOVA_EMBER_KEYFRAMES: readonly Keyframe[][] = buildSupernovaEmberKeyframes(1);
 
 /** Targets that earn visual click feedback. */
 const INTERACTIVE_CLICK_SELECTOR = [
@@ -84,6 +89,8 @@ export interface ClickEffectOptions {
    * `ClickEffectId` (used by Tier 2 `custom-scene` click bursts and Tier 3 `u_click`).
    */
   readonly alwaysCascade?: boolean;
+  /** Optional validated click-effect parameter overrides (`scale`, `count`, `glyphs`, `style`). */
+  readonly params?: EffectParamValues;
 }
 
 export interface ClickEffectsController {
@@ -132,6 +139,9 @@ export function mountClickEffects(
 ): ClickEffectsController {
   let effect: ClickEffectId = 'none';
   let palette: ThemePalette | null = null;
+  let resolvedParams: Readonly<Record<string, unknown>> = {};
+  let matrixGlyphPool: readonly string[] = MATRIX_BURST_GLYPHS;
+  let supernovaEmberFrames: readonly Keyframe[][] = SUPERNOVA_EMBER_KEYFRAMES;
   let cascadeEnabled = false;
   let alwaysCascade = false;
   let overlay: HTMLDivElement | null = null;
@@ -200,44 +210,75 @@ export function mountClickEffects(
     const accent = palette?.accent ?? '#3b82f6';
     const secondary = palette?.accentSecondary ?? palette?.danger ?? '#a855f7';
     const text = palette?.text ?? '#ffffff';
+    const scale = (resolvedParams.scale as number | undefined) ?? 1;
+    const circleParticle = (parent: ParentNode, diameter: number, css: string): HTMLSpanElement =>
+      particle(
+        parent,
+        `left:${x}px;top:${y}px;width:${diameter}px;height:${diameter}px;margin:${-diameter / 2}px 0 0 ${-diameter / 2}px;border-radius:50%;${css}`,
+      );
 
     if (effect === 'supernova') {
+      const style = (resolvedParams.style as string | undefined) ?? 'both';
+      const showRings = style === 'both' || style === 'rings';
+      const showEmbers = style === 'both' || style === 'embers';
       // Dual-ring gravitational lensing pulse + 6 orbital photon embers (batched DOM insert).
       const batch = doc.createDocumentFragment();
-      const innerRing = particle(
-        batch,
-        `left:${x}px;top:${y}px;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;border:1.5px solid ${hexWithAlpha(accent, 0.95)};box-shadow:0 0 10px ${hexWithAlpha(accent, 0.45)};opacity:0;`,
-      );
-      const outerHalo = particle(
-        batch,
-        `left:${x}px;top:${y}px;width:84px;height:84px;margin:-42px 0 0 -42px;border-radius:50%;border:1px solid ${hexWithAlpha(secondary, 0.8)};box-shadow:0 0 16px ${hexWithAlpha(secondary, 0.28)};opacity:0;`,
-      );
-      const emberColors = [accent, secondary, hexWithAlpha(text, 0.9)] as const;
-      const embers = SUPERNOVA_EMBER_KEYFRAMES.map((_, i) => {
-        const color = emberColors[i % emberColors.length] ?? accent;
-        return particle(
-          batch,
-          `left:${x}px;top:${y}px;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:${color};box-shadow:0 0 7px ${color};opacity:0;`,
+      const animations: Array<[HTMLSpanElement, Keyframe[], number]> = [];
+      if (showRings) {
+        animations.push(
+          [
+            circleParticle(
+              batch,
+              Math.round(54 * scale),
+              `border:1.5px solid ${hexWithAlpha(accent, 0.95)};box-shadow:0 0 10px ${hexWithAlpha(accent, 0.45)};opacity:0;`,
+            ),
+            SUPERNOVA_INNER_KEYFRAMES,
+            360,
+          ],
+          [
+            circleParticle(
+              batch,
+              Math.round(84 * scale),
+              `border:1px solid ${hexWithAlpha(secondary, 0.8)};box-shadow:0 0 16px ${hexWithAlpha(secondary, 0.28)};opacity:0;`,
+            ),
+            SUPERNOVA_OUTER_KEYFRAMES,
+            430,
+          ],
         );
-      });
-      host.append(batch);
-      animateAndRemove(innerRing, SUPERNOVA_INNER_KEYFRAMES, 360);
-      animateAndRemove(outerHalo, SUPERNOVA_OUTER_KEYFRAMES, 430);
-      for (let i = 0; i < embers.length; i++) {
-        const ember = embers[i];
-        const frames = SUPERNOVA_EMBER_KEYFRAMES[i];
-        if (ember && frames) {
-          animateAndRemove(ember, frames, 410);
+      }
+      if (showEmbers) {
+        const emberSize = Math.max(3, Math.round(4 * scale));
+        const emberColors = [accent, secondary, hexWithAlpha(text, 0.9)] as const;
+        for (let i = 0; i < supernovaEmberFrames.length; i++) {
+          const frames = supernovaEmberFrames[i];
+          if (!frames) {
+            continue;
+          }
+          const color = emberColors[i % emberColors.length] ?? accent;
+          animations.push([
+            circleParticle(
+              batch,
+              emberSize,
+              `background:${color};box-shadow:0 0 7px ${color};opacity:0;`,
+            ),
+            frames,
+            410,
+          ]);
         }
+      }
+      host.append(batch);
+      for (const [el, frames, duration] of animations) {
+        animateAndRemove(el, frames, duration);
       }
       return;
     }
 
     if (effect === 'ripple') {
-      // Refined hairline ring: ~32px radius, crisp 320ms ease-out.
-      const ring = particle(
+      // Refined hairline ring: ~32px radius scaled by `scale`, crisp 320ms ease-out.
+      const ring = circleParticle(
         host,
-        `left:${x}px;top:${y}px;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;border:1.25px solid ${hexWithAlpha(accent, 0.9)};box-shadow:0 0 6px ${hexWithAlpha(accent, 0.18)};opacity:0;`,
+        Math.round(64 * scale),
+        `border:1.25px solid ${hexWithAlpha(accent, 0.9)};box-shadow:0 0 6px ${hexWithAlpha(accent, 0.18)};opacity:0;`,
       );
       animateAndRemove(
         ring,
@@ -253,9 +294,10 @@ export function mountClickEffects(
 
     if (effect === 'glow-pulse') {
       // Whisper-soft radial kiss.
-      const orb = particle(
+      const orb = circleParticle(
         host,
-        `left:${x}px;top:${y}px;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:radial-gradient(circle, ${hexWithAlpha(accent, 0.7)} 0%, ${hexWithAlpha(accent, 0.22)} 42%, transparent 70%);opacity:0;`,
+        Math.round(48 * scale),
+        `background:radial-gradient(circle, ${hexWithAlpha(accent, 0.7)} 0%, ${hexWithAlpha(accent, 0.22)} 42%, transparent 70%);opacity:0;`,
       );
       animateAndRemove(
         orb,
@@ -271,11 +313,11 @@ export function mountClickEffects(
 
     if (effect === 'spark') {
       // Slender tapered micro-lines radiating outward (after React Bits ClickSpark).
-      const count = 8;
+      const count = Math.round((resolvedParams.count as number | undefined) ?? 8);
       for (let i = 0; i < count; i++) {
         const angle = (Math.PI * 2 * i) / count + Math.PI / count;
-        const start = 5;
-        const dist = 18 + (i % 2) * 10;
+        const start = 5 * scale;
+        const dist = (18 + (i % 2) * 10) * scale;
         const color = i % 4 === 3 ? hexWithAlpha(text, 0.85) : accent;
         const spark = particle(
           host,
@@ -301,6 +343,7 @@ export function mountClickEffects(
 
     // 'matrix-burst': five delicate glyphs drifting gently upward + backdrop cascade.
     cascade(x, y);
+    const pool = matrixGlyphPool;
     const count = 5;
     for (let i = 0; i < count; i++) {
       const angle = -Math.PI / 2 + ((i - (count - 1) / 2) * Math.PI) / 5;
@@ -310,7 +353,7 @@ export function mountClickEffects(
         host,
         `left:${x}px;top:${y}px;margin:-6px 0 0 -4px;font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:${i % 2 === 0 ? accent : hexWithAlpha(text, 0.85)};text-shadow:0 0 6px ${hexWithAlpha(accent, 0.45)};opacity:0;`,
       );
-      glyph.textContent = MATRIX_BURST_GLYPHS[(i * 3) % MATRIX_BURST_GLYPHS.length] ?? '1';
+      glyph.textContent = pool[(i * 3) % pool.length] ?? '1';
       animateAndRemove(
         glyph,
         [
@@ -374,6 +417,15 @@ export function mountClickEffects(
     setEffect(nextEffect, nextPalette, options) {
       effect = nextEffect;
       palette = nextPalette;
+      resolvedParams = resolveEffectParams(getClickParamSpecs(nextEffect), options?.params);
+      if (nextEffect === 'matrix-burst') {
+        const customGlyphs = Array.from(String(resolvedParams.glyphs ?? '').replace(/\s+/g, ''));
+        matrixGlyphPool = customGlyphs.length > 0 ? customGlyphs : MATRIX_BURST_GLYPHS;
+      } else if (nextEffect === 'supernova') {
+        const nextScale = (resolvedParams.scale as number | undefined) ?? 1;
+        supernovaEmberFrames =
+          nextScale === 1 ? SUPERNOVA_EMBER_KEYFRAMES : buildSupernovaEmberKeyframes(nextScale);
+      }
       cascadeEnabled = options?.cascade ?? false;
       alwaysCascade = Boolean(options?.alwaysCascade);
       if (effect === 'none') {

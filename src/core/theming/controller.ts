@@ -109,6 +109,12 @@ function sameCssRelevantTheme(prev: ResolvedTheme | null, next: ResolvedTheme | 
     return false;
   }
   if (
+    nextSurface !== 'default' &&
+    !sameEffectParams(prev?.effects?.surfaceParams, next?.effects?.surfaceParams)
+  ) {
+    return false;
+  }
+  if (
     (nextBackdrop || nextSurface === 'glass') &&
     (prev?.effects?.glassStrength ?? 0) !== (next?.effects?.glassStrength ?? 0)
   ) {
@@ -148,7 +154,9 @@ function sameEffectsConfig(
     sameJsonStruct(a.customScene, b.customScene) &&
     sameJsonStruct(a.customShader, b.customShader) &&
     a.surface === b.surface &&
-    a.click === b.click
+    sameEffectParams(a.surfaceParams, b.surfaceParams) &&
+    a.click === b.click &&
+    sameEffectParams(a.clickParams, b.clickParams)
   );
 }
 

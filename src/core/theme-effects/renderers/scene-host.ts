@@ -12,6 +12,7 @@
 import type { ScenePalette } from './palette';
 import type { BackdropContext, BackdropInstance } from './types';
 import { clamp, easeFactor } from '../digital-rain/math';
+import { MAX_SHADER_CLICKS } from '../scene-schema';
 import { resolveScenePalette } from './palette';
 
 export interface SceneViewport {
@@ -32,6 +33,17 @@ export interface ScenePointer {
   readonly ny: number;
   /** Damped presence `0..1`: fades in on movement and out when the pointer leaves. */
   readonly presence: number;
+}
+
+export interface SceneClickSlot {
+  /** Normalized X (`0..1`) of this click burst. */
+  readonly x: number;
+  /** Normalized Y (`0..1`, top-left origin) of this click burst. */
+  readonly y: number;
+  /** Seconds elapsed since this click (`999` while slot is unused). */
+  readonly age: number;
+  /** `1` once populated, `0` before first use. */
+  readonly active: number;
 }
 
 export interface SceneClickState {
@@ -60,6 +72,8 @@ export interface SceneFrame {
   readonly pointer: ScenePointer;
   /** Most recent click burst state for interactive scenes & shaders. */
   readonly click: SceneClickState;
+  /** Ring buffer of the last `MAX_SHADER_CLICKS` click bursts for overlapping ripples. */
+  readonly clicks: readonly SceneClickSlot[];
   /** Viewport scroll parallax state (populated when `trackScroll` is enabled). */
   readonly scroll: SceneScrollState;
   /** Monotonic painted frame counter. */
@@ -195,6 +209,13 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   const target = { x: 0, y: 0, presence: 0, seeded: false };
   const pointer = { x: 0, y: 0, nx: 0.5, ny: 0.5, presence: 0 };
   const click = { x: 0.5, y: 0.5, age: IDLE_CLICK_AGE, count: 0 };
+  const clicks = Array.from({ length: MAX_SHADER_CLICKS }, () => ({
+    x: 0.5,
+    y: 0.5,
+    age: IDLE_CLICK_AGE,
+    active: 0,
+  }));
+  let nextClickSlot = 0;
   const scroll = { y: 0, velocity: 0, lastPx: 0, maxPx: 1, boundsAt: 0, dirty: false };
 
   const animating = (): boolean =>
@@ -258,6 +279,11 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     pointer.ny = view.cssHeight > 0 ? pointer.y / view.cssHeight : 0.5;
     if (click.count > 0 && click.age < IDLE_CLICK_AGE) {
       click.age = Math.min(IDLE_CLICK_AGE, click.age + dt);
+      for (const slot of clicks) {
+        if (slot.active > 0 && slot.age < IDLE_CLICK_AGE) {
+          slot.age = Math.min(IDLE_CLICK_AGE, slot.age + dt);
+        }
+      }
     }
     if (spec.trackScroll) {
       sampleScroll(now);
@@ -303,6 +329,7 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
         view,
         pointer,
         click,
+        clicks,
         scroll,
         frameIndex,
         time: clock % CLOCK_WRAP_SECONDS,
@@ -566,6 +593,14 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
             click.y = clamp(normY, 0, 1);
             click.age = 0;
             click.count += 1;
+            const slot = clicks[nextClickSlot];
+            if (slot) {
+              slot.x = click.x;
+              slot.y = click.y;
+              slot.age = 0;
+              slot.active = 1;
+            }
+            nextClickSlot = (nextClickSlot + 1) % clicks.length;
             scene?.burst?.(click.x, click.y);
             if (spec.onDemand && animating()) {
               start();

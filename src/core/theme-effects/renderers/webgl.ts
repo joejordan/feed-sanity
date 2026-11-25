@@ -285,3 +285,36 @@ vec4 premultiply(vec3 color, float alpha) {
   float a = clamp(max(alpha, max(c.r, max(c.g, c.b))), 0.0, 1.0);
   return vec4(c, a);
 }`;
+
+/**
+ * Extra pure GLSL ES 1.00 helpers injected into Tier 3 custom shader preambles
+ * (`rot2`, `gauss`, `fbm`, `hsv2rgb`) so theme authors avoid driver UB and stay
+ * lean under the 16 KB source budget.
+ */
+export const GLSL_SHADER_HELPERS = `
+mat2 rot2(float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return mat2(c, -s, s, c);
+}
+
+float gauss(float x) {
+  return exp(-x * x);
+}
+
+float fbm(vec2 p) {
+  float total = 0.0;
+  float amp = 0.52;
+  mat2 m = mat2(1.62, 1.18, -1.18, 1.62);
+  for (int i = 0; i < 4; i++) {
+    total += amp * snoise(p);
+    p = m * p;
+    amp *= 0.5;
+  }
+  return total;
+}
+
+vec3 hsv2rgb(vec3 c) {
+  vec3 p = abs(fract(c.xxx + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+  return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
+}`;

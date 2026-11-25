@@ -19,6 +19,7 @@ import {
   readThemeEffectsConfig,
   STUDIO_VIBES,
 } from '../theme-effects/model';
+import { readClampedNumber } from '../theme-effects/scene-schema';
 import {
   contrastingText,
   flipPaletteScheme,
@@ -33,6 +34,7 @@ import {
   configEffectsToDocument,
   documentEffectsToConfig,
   parseThemeDocument,
+  sanitizeFontStack,
   THEME_FILE_FORMAT,
   THEME_SCHEMA_VERSION,
 } from './document';
@@ -502,16 +504,38 @@ export function flipThemeColorScheme(doc: ThemeDocumentV1): ThemeDocumentV1 {
   return replaceThemePalette(doc, flipPaletteScheme(doc.palette), true);
 }
 
-/** Toggles declarative chrome accents (top ribbon, ambient corner glow) while preserving untouched custom specs. */
-export function updateThemeChrome(
-  doc: ThemeDocumentV1,
-  patch: { readonly ribbon?: boolean; readonly ambientGlow?: boolean },
-): ThemeDocumentV1 {
+export interface ThemeChromePatch {
+  readonly ribbon?: boolean;
+  readonly ribbonHeight?: number;
+  readonly ribbonPosition?: 'top' | 'bottom';
+  readonly ribbonAngle?: number;
+  readonly ambientGlow?: boolean;
+}
+
+/** Updates declarative chrome accents (ribbon toggle/height/position/angle, ambient glow) while preserving untouched custom specs. */
+export function updateThemeChrome(doc: ThemeDocumentV1, patch: ThemeChromePatch): ThemeDocumentV1 {
   let ribbon = doc.chrome?.ribbon;
   if (patch.ribbon === false) {
     ribbon = undefined;
   } else if (patch.ribbon === true) {
     ribbon = ribbon ? { ...ribbon, enabled: true } : buildPaletteRibbon(doc.palette);
+  }
+  if (
+    ribbon &&
+    (patch.ribbonHeight !== undefined ||
+      patch.ribbonPosition !== undefined ||
+      patch.ribbonAngle !== undefined)
+  ) {
+    const nextHeight = readClampedNumber(patch.ribbonHeight, 1, 6, 0) ?? ribbon.height;
+    const nextAngle = readClampedNumber(patch.ribbonAngle, 0, 360, 0) ?? ribbon.angle;
+    const nextPos = patch.ribbonPosition ?? ribbon.position;
+    const { position: _oldPos, height: _oldH, angle: _oldA, ...ribbonBase } = ribbon;
+    ribbon = {
+      ...ribbonBase,
+      ...(nextHeight === undefined ? {} : { height: nextHeight }),
+      ...(nextAngle === undefined ? {} : { angle: nextAngle }),
+      ...(nextPos === 'bottom' ? { position: 'bottom' } : {}),
+    };
   }
 
   let ambientGlow = doc.chrome?.ambientGlow;
@@ -536,7 +560,7 @@ export function updateThemeChrome(
   };
 }
 
-/** Updates built-in typography preset on `doc`, clearing any stale imported `customStack`. */
+/** Updates built-in typography preset on `doc`, clearing any stale `customStack`. */
 export function updateThemeTypography(doc: ThemeDocumentV1, font: ThemeFontId): ThemeDocumentV1 {
   const { typography: _old, ...rest } = doc;
   if (font === 'default') {
@@ -545,6 +569,22 @@ export function updateThemeTypography(doc: ThemeDocumentV1, font: ThemeFontId): 
   return {
     ...rest,
     typography: { preset: font },
+  };
+}
+
+/** Updates a custom sanitized CSS `font-family` stack on `doc`, clearing typography when blank/invalid. */
+export function updateThemeCustomFontStack(
+  doc: ThemeDocumentV1,
+  rawStack: string,
+): ThemeDocumentV1 {
+  const { typography: _old, ...rest } = doc;
+  const sanitized = sanitizeFontStack(rawStack);
+  if (!sanitized) {
+    return rest;
+  }
+  return {
+    ...rest,
+    typography: { customStack: sanitized },
   };
 }
 

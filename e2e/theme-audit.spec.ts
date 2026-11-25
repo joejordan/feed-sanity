@@ -580,6 +580,11 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
         await expect(
           studioDialog.getByRole('slider', { name: 'Gravitational lensing' }),
         ).toBeVisible();
+        const modeSelect = studioDialog.getByRole('combobox', { name: 'Cosmic mode' });
+        await expect(modeSelect).toBeVisible();
+        await modeSelect.selectOption('quasar');
+        await modeSelect.selectOption('eclipse');
+        await modeSelect.selectOption('black-hole');
         await page.mouse.move(420, 180);
         await expect
           .poll(() =>

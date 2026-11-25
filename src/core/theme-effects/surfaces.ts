@@ -14,7 +14,7 @@ import { OWN_ATTR, SHELL_ATTR } from '../surface';
 import { splitSelectorList } from '../theming/adaptive-compiler';
 import { hexWithAlpha } from '../theming/color';
 import { formatRootSelectors, TEXT_INPUT_SELECTOR, wrapThemeLayer } from '../theming/types';
-import { THEME_EFFECT_BOUNDS } from './model';
+import { getSurfaceParamSpecs, resolveEffectParams, THEME_EFFECT_BOUNDS } from './model';
 
 export const BACKDROP_OWN_VALUE = 'theme-backdrop';
 export const BACKDROP_SELECTOR = `[${OWN_ATTR}="${BACKDROP_OWN_VALUE}"]`;
@@ -203,6 +203,10 @@ ${DEFAULT_POPUPS.join(', ')} {
   ].join('\n\n');
 }
 
+function scaledHex(hex: string, alpha: number): string {
+  return hexWithAlpha(hex, Number(Math.min(0.85, Math.max(0.02, alpha)).toFixed(3)));
+}
+
 /**
  * Compiles site-agnostic Surface Finish enhancements (`glass`, `gradient`, `neon`, `prism`)
  * emitted into `@layer fs-finish` so finishes cleanly outrank `fs-reveal` and
@@ -229,13 +233,16 @@ export function compileSurfaceFinishCss(
     surfaces?.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS
   ).join(',\n');
 
+  const sp = resolveEffectParams(getSurfaceParamSpecs(effects.surface), effects.surfaceParams);
+
   if (effects.surface === 'glass') {
     const { cardAlpha, blurPx } = resolveGlassMetrics(Math.max(0.24, effects.glassStrength));
+    const satPct = Math.round(((sp.saturation as number | undefined) ?? 1.25) * 100);
     const highlight = hexWithAlpha(text, hostScheme === 'light' ? 0.14 : 0.08);
     const blocks: string[] = [];
     if (leafTargets) {
       blocks.push(
-        `${leafTargets} {\n  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;\n  backdrop-filter: blur(${blurPx}px) saturate(125%) !important;\n  -webkit-backdrop-filter: blur(${blurPx}px) saturate(125%) !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 8px 24px rgb(0 0 0 / 18%) !important;\n}`,
+        `${leafTargets} {\n  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;\n  backdrop-filter: blur(${blurPx}px) saturate(${satPct}%) !important;\n  -webkit-backdrop-filter: blur(${blurPx}px) saturate(${satPct}%) !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 8px 24px rgb(0 0 0 / 18%) !important;\n}`,
       );
     }
     blocks.push(
@@ -248,14 +255,16 @@ export function compileSurfaceFinishCss(
   const ctaTargets = surfaces?.primaryCtas?.join(',\n') ?? '';
 
   if (effects.surface === 'gradient') {
-    const sheenA = hexWithAlpha(accent, hostScheme === 'light' ? 0.08 : 0.14);
-    const sheenB = hexWithAlpha(secondary, hostScheme === 'light' ? 0.05 : 0.1);
+    const angle = Math.round((sp.angle as number | undefined) ?? 145);
+    const strength = (sp.strength as number | undefined) ?? 1;
+    const sheenA = scaledHex(accent, (hostScheme === 'light' ? 0.08 : 0.14) * strength);
+    const sheenB = scaledHex(secondary, (hostScheme === 'light' ? 0.05 : 0.1) * strength);
     const blocks: string[] = [
-      `${cardTargets} {\n  background-image: linear-gradient(145deg, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 48%, ${sheenB} 100%) !important;\n}`,
+      `${cardTargets} {\n  background-image: linear-gradient(${angle}deg, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 48%, ${sheenB} 100%) !important;\n}`,
     ];
     if (ctaTargets) {
       blocks.push(
-        `${ctaTargets} {\n  background-image: linear-gradient(135deg, ${accent} 0%, ${secondary} 100%) !important;\n}`,
+        `${ctaTargets} {\n  background-image: linear-gradient(${Math.max(0, angle - 10)}deg, ${accent} 0%, ${secondary} 100%) !important;\n}`,
       );
     }
     return blocks.join('\n\n');
@@ -270,62 +279,66 @@ export function compileSurfaceFinishCss(
 
   if (effects.surface === 'prism') {
     const isLight = hostScheme === 'light';
-    const sheenA = hexWithAlpha(accent, isLight ? 0.1 : 0.14);
-    const sheenB = hexWithAlpha(secondary, isLight ? 0.08 : 0.13);
-    const highlight = hexWithAlpha(text, isLight ? 0.18 : 0.11);
-    const rim = hexWithAlpha(accent, isLight ? 0.28 : 0.34);
-    const outerGlow = hexWithAlpha(secondary, isLight ? 0.1 : 0.14);
-    const angleExpr = `var(${PRISM_ANGLE_VAR}, 132deg)`;
+    const strength = (sp.strength as number | undefined) ?? 1;
+    const glow = (sp.glow as number | undefined) ?? 1;
+    const baseAngle = Math.round((sp.baseAngle as number | undefined) ?? 132);
+    const sheenA = scaledHex(accent, (isLight ? 0.1 : 0.14) * strength);
+    const sheenB = scaledHex(secondary, (isLight ? 0.08 : 0.13) * strength);
+    const highlight = scaledHex(text, (isLight ? 0.18 : 0.11) * strength);
+    const rim = scaledHex(accent, (isLight ? 0.28 : 0.34) * glow);
+    const outerGlow = scaledHex(secondary, (isLight ? 0.1 : 0.14) * glow);
+    const angleExpr = `var(${PRISM_ANGLE_VAR}, ${baseAngle}deg)`;
     const blocks: string[] = [
-      `${cardTargets} {\n  background-image: linear-gradient(${angleExpr}, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 42%, ${sheenB} 100%) !important;\n  border-color: ${rim} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 0 0 1px ${hexWithAlpha(accent, 0.18)}, 0 10px 28px ${outerGlow} !important;\n}`,
-      `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${hexWithAlpha(accent, 0.55)}, 0 0 16px ${hexWithAlpha(secondary, 0.32)} !important;\n}`,
+      `${cardTargets} {\n  background-image: linear-gradient(${angleExpr}, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 42%, ${sheenB} 100%) !important;\n  border-color: ${rim} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 0 0 1px ${scaledHex(accent, 0.18 * glow)}, 0 10px 28px ${outerGlow} !important;\n}`,
+      `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.55 * glow)}, 0 0 16px ${scaledHex(secondary, 0.32 * glow)} !important;\n}`,
     ];
     if (feedCardHoverTargets) {
       blocks.push(
-        `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 1px 0 0 ${highlight}, 0 0 20px ${hexWithAlpha(accent, 0.18)} !important;\n}`,
+        `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 1px 0 0 ${highlight}, 0 0 20px ${scaledHex(accent, 0.18 * glow)} !important;\n}`,
       );
     }
     if (ctaTargets) {
       blocks.push(
-        `${ctaTargets} {\n  background-image: linear-gradient(${angleExpr}, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 0 16px ${hexWithAlpha(accent, 0.42)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.28)} !important;\n}`,
+        `${ctaTargets} {\n  background-image: linear-gradient(${angleExpr}, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 0 16px ${scaledHex(accent, 0.42 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.28)} !important;\n}`,
       );
     }
     if (columnTargets) {
       blocks.push(
-        `${columnTargets} {\n  border-color: ${hexWithAlpha(accent, 0.24)} !important;\n  box-shadow: 0 0 26px ${hexWithAlpha(secondary, 0.16)} !important;\n}`,
+        `${columnTargets} {\n  border-color: ${scaledHex(accent, 0.24 * glow)} !important;\n  box-shadow: 0 0 26px ${scaledHex(secondary, 0.16 * glow)} !important;\n}`,
       );
     }
     if (searchTargets) {
       blocks.push(
-        `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${hexWithAlpha(accent, 0.36)} !important;\n}`,
+        `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${scaledHex(accent, 0.36 * glow)} !important;\n}`,
       );
     }
     return blocks.join('\n\n');
   }
 
   // 'neon'
+  const glow = (sp.glow as number | undefined) ?? 1;
   const blocks: string[] = [
-    `${cardTargets} {\n  border-color: ${hexWithAlpha(accent, 0.45)} !important;\n  box-shadow: 0 0 0 1px ${hexWithAlpha(accent, 0.25)}, 0 0 18px ${hexWithAlpha(accent, 0.16)} !important;\n}`,
-    `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${hexWithAlpha(accent, 0.5)}, 0 0 14px ${hexWithAlpha(accent, 0.28)} !important;\n}`,
+    `${cardTargets} {\n  border-color: ${scaledHex(accent, 0.45 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.25 * glow)}, 0 0 18px ${scaledHex(accent, 0.16 * glow)} !important;\n}`,
+    `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 0 14px ${scaledHex(accent, 0.28 * glow)} !important;\n}`,
   ];
   if (feedCardHoverTargets) {
     blocks.push(
-      `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, 0 0 16px ${hexWithAlpha(accent, 0.14)} !important;\n}`,
+      `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, 0 0 16px ${scaledHex(accent, 0.14 * glow)} !important;\n}`,
     );
   }
   if (ctaTargets) {
     blocks.push(
-      `${ctaTargets} {\n  box-shadow: 0 0 16px ${hexWithAlpha(accent, 0.48)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;\n}`,
+      `${ctaTargets} {\n  box-shadow: 0 0 16px ${scaledHex(accent, 0.48 * glow)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;\n}`,
     );
   }
   if (columnTargets) {
     blocks.push(
-      `${columnTargets} {\n  border-color: ${hexWithAlpha(accent, 0.3)} !important;\n  box-shadow: 0 0 24px ${hexWithAlpha(border, 0.24)} !important;\n}`,
+      `${columnTargets} {\n  border-color: ${scaledHex(accent, 0.3 * glow)} !important;\n  box-shadow: 0 0 24px ${scaledHex(border, 0.24 * glow)} !important;\n}`,
     );
   }
   if (searchTargets) {
     blocks.push(
-      `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${hexWithAlpha(accent, 0.4)} !important;\n}`,
+      `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${scaledHex(accent, 0.4 * glow)} !important;\n}`,
     );
   }
   return blocks.join('\n\n');

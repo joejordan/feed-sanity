@@ -62,6 +62,7 @@ function makeFakeWebGLContext(options: { compileOk?: boolean } = {}) {
   const uniform2f = vi.fn();
   const uniform3f = vi.fn();
   const uniform4f = vi.fn();
+  const uniform4fv = vi.fn();
   const drawArrays = vi.fn();
   const shaderSource = vi.fn();
   const loseContext = vi.fn();
@@ -110,6 +111,7 @@ function makeFakeWebGLContext(options: { compileOk?: boolean } = {}) {
     uniform2f,
     uniform3f,
     uniform4f,
+    uniform4fv,
     drawArrays,
     isContextLost: vi.fn(() => contextLost),
     getExtension: vi.fn(() => ({ loseContext })),
@@ -122,6 +124,7 @@ function makeFakeWebGLContext(options: { compileOk?: boolean } = {}) {
     uniform2f,
     uniform3f,
     uniform4f,
+    uniform4fv,
     drawArrays,
     shaderSource,
     loseContext,
@@ -494,25 +497,39 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
     expect(parseCustomShader(EVENT_HORIZON_SHADER).errors).toEqual([]);
 
     const built = buildCustomFragmentSource(EVENT_HORIZON_SHADER);
+    expect(built).toContain('uniform float u_mode;');
     expect(built).toContain('uniform float u_lensing;');
     expect(built).toContain('uniform float u_diskTilt;');
     expect(built).toContain('uniform float u_turbulence;');
     expect(built).toContain('uniform vec3 u_coronaColor;');
     expect(built).toContain('uniform float u_showGrid;');
+    expect(built).toContain('uniform vec4 u_clicks[4];');
+    expect(built).toContain('uniform float u_dayPhase;');
+    expect(built).toContain('uniform vec3 u_border;');
+    expect(built).toContain('uniform vec3 u_danger;');
+    expect(built).toContain('mat2 rot2(float a)');
+    expect(built).toContain('float gauss(float x)');
+    expect(built).toContain('float fbm(vec2 p)');
+    expect(built).toContain('vec3 hsv2rgb(vec3 c)');
 
     const vibe = STUDIO_VIBES.find((entry) => entry.id === 'event-horizon')!;
     expect(vibe.effects.backdrop).toBe('custom-shader');
     expect(vibe.effects.surface).toBe('prism');
     expect(vibe.effects.click).toBe('supernova');
 
-    // Prism surface finish compiles pointer-tracked specular sheen without backdrop-filter.
+    // Prism surface finish compiles pointer-tracked specular sheen without backdrop-filter,
+    // and respects surfaceParams (baseAngle, strength, glow).
     const prismCss = compileSurfaceFinishCss(
       DARK_PALETTE,
       'dark',
-      { ...DEFAULT_THEME_EFFECTS, surface: 'prism' },
+      {
+        ...DEFAULT_THEME_EFFECTS,
+        surface: 'prism',
+        surfaceParams: { baseAngle: 210, strength: 1.5, glow: 1.2 },
+      },
       { leafCards: ['article'], primaryCtas: ['button.primary'] },
     );
-    expect(prismCss).toContain('var(--fs-ptr-angle, 132deg)');
+    expect(prismCss).toContain('var(--fs-ptr-angle, 210deg)');
     expect(prismCss).not.toContain('backdrop-filter');
     expect(prismCss).not.toContain('background-attachment');
 
@@ -522,9 +539,38 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
       type === 'webgl' ? fake.gl : null) as HTMLCanvasElement['getContext']);
     const controller = createEffectsLayerController(document);
     controller.sync(
-      { ...DEFAULT_THEME_EFFECTS, ...vibe.effects, paused: false, interactive: true },
+      {
+        ...DEFAULT_THEME_EFFECTS,
+        ...vibe.effects,
+        backdropParams: { mode: 'quasar' },
+        paused: false,
+        interactive: true,
+      },
       DARK_PALETTE,
       'dark',
+    );
+
+    // Enum shader param uploads its option index (quasar -> 1), plus extended uniforms & clicks ring buffer.
+    expect(fake.uniform1f).toHaveBeenCalledWith(fake.uniforms.get('u_mode'), 1);
+    expect(fake.uniform1f).toHaveBeenCalledWith(
+      fake.uniforms.get('u_dayPhase'),
+      expect.any(Number),
+    );
+    expect(fake.uniform3f).toHaveBeenCalledWith(
+      fake.uniforms.get('u_border'),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(fake.uniform3f).toHaveBeenCalledWith(
+      fake.uniforms.get('u_danger'),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(fake.uniform4fv).toHaveBeenCalledWith(
+      fake.uniforms.get('u_clicks[0]'),
+      expect.any(Float32Array),
     );
 
     document.dispatchEvent(new PointerEvent('pointermove', { clientX: 640, clientY: 200 }));
@@ -532,7 +578,7 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
       expect(document.documentElement.style.getPropertyValue('--fs-ptr-angle')).toMatch(/^\d+deg$/);
     });
 
-    // Supernova click FX spawns dual rings + 6 orbital embers inside the isolated ShadowRoot.
+    // Supernova click FX spawns dual rings + 6 orbital embers by default, and respects clickParams.style.
     const btn = document.createElement('button');
     document.body.append(btn);
     btn.dispatchEvent(
@@ -540,6 +586,110 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
     );
     const fxHost = document.querySelector('[data-feed-sanity="theme-click-fx"]');
     expect(fxHost?.shadowRoot?.childElementCount).toBe(8);
+
+    // Switching supernova style to 'rings' spawns only the 2 concentric shockwave rings,
+    // and 'embers' with scale > 1 scales ember particle diameter cleanly.
+    controller.sync(
+      {
+        ...DEFAULT_THEME_EFFECTS,
+        ...vibe.effects,
+        clickParams: { style: 'rings', scale: 1.4 },
+        surfaceParams: { sweep: 0, baseAngle: 145 },
+        paused: false,
+        interactive: true,
+      },
+      DARK_PALETTE,
+      'dark',
+    );
+    expect(document.documentElement.style.getPropertyValue('--fs-ptr-angle')).toBe('');
+    fxHost?.shadowRoot?.replaceChildren();
+    btn.dispatchEvent(
+      new PointerEvent('pointerdown', { button: 0, clientX: 140, clientY: 110, bubbles: true }),
+    );
+    expect(fxHost?.shadowRoot?.childElementCount).toBe(2);
+
+    controller.sync(
+      {
+        ...DEFAULT_THEME_EFFECTS,
+        ...vibe.effects,
+        clickParams: { style: 'embers', scale: 1.5 },
+        paused: false,
+        interactive: true,
+      },
+      DARK_PALETTE,
+      'dark',
+    );
+    fxHost?.shadowRoot?.replaceChildren();
+    btn.dispatchEvent(
+      new PointerEvent('pointerdown', { button: 0, clientX: 140, clientY: 110, bubbles: true }),
+    );
+    expect(fxHost?.shadowRoot?.childElementCount).toBe(6);
+    expect((fxHost?.shadowRoot?.firstElementChild as HTMLElement | null)?.style.width).toBe('6px');
+
+    // 4-slot `u_clicks[4]` ring buffer wraps around cleanly on 5+ bursts, preserving slots 1..3.
+    const rafQueue: FrameRequestCallback[] = [];
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafQueue.push(cb);
+      return rafQueue.length;
+    });
+    const prevWidth = globalThis.innerWidth;
+    const prevHeight = globalThis.innerHeight;
+    Object.defineProperty(globalThis, 'innerWidth', { value: 1000, configurable: true });
+    Object.defineProperty(globalThis, 'innerHeight', { value: 1000, configurable: true });
+    try {
+      const clickCoords = [
+        [100, 100],
+        [200, 200],
+        [300, 300],
+        [400, 400],
+        [500, 600],
+      ] as const;
+      let t = 100;
+      for (const [cx, cy] of clickCoords) {
+        document.body.dispatchEvent(
+          new MouseEvent('click', {
+            button: 0,
+            detail: 1,
+            clientX: cx,
+            clientY: cy,
+            bubbles: true,
+          }),
+        );
+        t += 50;
+        const cb = rafQueue.pop();
+        cb?.(t);
+      }
+      // Force one final render to snapshot all 4 slots into `u_clicks[0]`.
+      controller.sync(
+        {
+          ...DEFAULT_THEME_EFFECTS,
+          ...vibe.effects,
+          backdropParams: { mode: 'black-hole' },
+          paused: true,
+          interactive: true,
+        },
+        DARK_PALETTE,
+        'dark',
+      );
+      const lastUpload = fake.uniform4fv.mock.calls.at(-1)?.[1] as Float32Array;
+      expect(lastUpload).toBeInstanceOf(Float32Array);
+      // 3 earlier button pointerdowns + 5 loop clicks -> ring buffer holds the 4 newest clicks
+      // (0.2, 0.8), (0.3, 0.7), (0.4, 0.6), (0.5, 0.4), wrapping around cleanly with active=1.
+      const slots = Array.from({ length: 4 }, (_, i) => ({
+        x: Number((lastUpload[i * 4] ?? 0).toFixed(2)),
+        y: Number((lastUpload[i * 4 + 1] ?? 0).toFixed(2)),
+        active: lastUpload[i * 4 + 3],
+      }));
+      expect(slots).toEqual([
+        { x: 0.2, y: 0.8, active: 1 },
+        { x: 0.3, y: 0.7, active: 1 },
+        { x: 0.4, y: 0.6, active: 1 },
+        { x: 0.5, y: 0.4, active: 1 },
+      ]);
+    } finally {
+      Object.defineProperty(globalThis, 'innerWidth', { value: prevWidth, configurable: true });
+      Object.defineProperty(globalThis, 'innerHeight', { value: prevHeight, configurable: true });
+    }
 
     controller.dispose();
     expect(document.documentElement.style.getPropertyValue('--fs-ptr-angle')).toBe('');

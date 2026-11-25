@@ -514,9 +514,25 @@ export function sameEffectParams(
   return aKeys.every((key) => a?.[key] === b?.[key]);
 }
 
+function mergeScopedParams<T>(
+  baseId: T | undefined,
+  patchId: T | undefined,
+  baseParams: EffectParamValues | undefined,
+  patchParams: EffectParamValues | undefined,
+): EffectParamValues | undefined {
+  if (baseId !== undefined && patchId !== undefined && patchId !== baseId) {
+    return patchParams;
+  }
+  if (patchParams !== undefined) {
+    return { ...baseParams, ...patchParams };
+  }
+  return baseParams;
+}
+
 /**
  * Merges a partial `ThemeEffectsConfig` update into `base`, preserving existing
- * `backdropParams` when staying on the same backdrop and resetting them when switching.
+ * `backdropParams`, `surfaceParams`, and `clickParams` when staying on the same
+ * effect and resetting them when switching.
  */
 export function mergeEffectsPatch(
   base: ThemeEffectsConfig,
@@ -530,14 +546,24 @@ export function mergeEffectsPatch(
   base: Partial<ThemeEffectsConfig>,
   patch: Partial<ThemeEffectsConfig>,
 ): Partial<ThemeEffectsConfig> {
-  const switchingBackdrop =
-    base.backdrop !== undefined && patch.backdrop !== undefined && patch.backdrop !== base.backdrop;
-  let nextBackdropParams = base.backdropParams;
-  if (switchingBackdrop) {
-    nextBackdropParams = patch.backdropParams;
-  } else if (patch.backdropParams !== undefined) {
-    nextBackdropParams = { ...base.backdropParams, ...patch.backdropParams };
-  }
+  const nextBackdropParams = mergeScopedParams(
+    base.backdrop,
+    patch.backdrop,
+    base.backdropParams,
+    patch.backdropParams,
+  );
+  const nextSurfaceParams = mergeScopedParams(
+    base.surface,
+    patch.surface,
+    base.surfaceParams,
+    patch.surfaceParams,
+  );
+  const nextClickParams = mergeScopedParams(
+    base.click,
+    patch.click,
+    base.clickParams,
+    patch.clickParams,
+  );
   const nextBackdrop = patch.backdrop ?? base.backdrop;
   const nextCustomScene =
     nextBackdrop === 'custom-scene' ? (patch.customScene ?? base.customScene) : undefined;
@@ -545,12 +571,16 @@ export function mergeEffectsPatch(
     nextBackdrop === 'custom-shader' ? (patch.customShader ?? base.customShader) : undefined;
   const {
     backdropParams: _baseParams,
+    surfaceParams: _baseSurfaceParams,
+    clickParams: _baseClickParams,
     customScene: _baseScene,
     customShader: _baseShader,
     ...restBase
   } = base;
   const {
     backdropParams: _patchParams,
+    surfaceParams: _patchSurfaceParams,
+    clickParams: _patchClickParams,
     customScene: _patchScene,
     customShader: _patchShader,
     ...restPatch
@@ -559,6 +589,8 @@ export function mergeEffectsPatch(
     ...restBase,
     ...restPatch,
     ...(nextBackdropParams ? { backdropParams: nextBackdropParams } : {}),
+    ...(nextSurfaceParams ? { surfaceParams: nextSurfaceParams } : {}),
+    ...(nextClickParams ? { clickParams: nextClickParams } : {}),
     ...(nextCustomScene ? { customScene: nextCustomScene } : {}),
     ...(nextCustomShader ? { customShader: nextCustomShader } : {}),
   };
@@ -584,8 +616,161 @@ export interface ThemeEffectsConfig {
   readonly customShader?: CustomShaderSpec;
   /** Card, header, and CTA surface treatment. */
   readonly surface: SurfaceFinishId;
+  /** Validated plugin-specific parameters for the active `surface` finish. */
+  readonly surfaceParams?: EffectParamValues;
   /** Interactive micro-effect triggered on primary clicks. */
   readonly click: ClickEffectId;
+  /** Validated plugin-specific parameters for the active `click` effect. */
+  readonly clickParams?: EffectParamValues;
+}
+
+const EDGE_GLOW_PARAM: EffectParamSpec = {
+  key: 'glow',
+  kind: 'number',
+  label: 'Edge glow',
+  min: 0.3,
+  max: 1.8,
+  step: 0.05,
+  defaultValue: 1,
+  unit: '×',
+};
+
+function clickScaleParam(label: string): EffectParamSpec {
+  return {
+    key: 'scale',
+    kind: 'number',
+    label,
+    min: 0.6,
+    max: 1.6,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  };
+}
+
+export const SURFACE_PARAM_SPECS: Readonly<Record<SurfaceFinishId, readonly EffectParamSpec[]>> = {
+  default: EMPTY_PARAM_SPECS,
+  glass: [
+    {
+      key: 'saturation',
+      kind: 'number',
+      label: 'Glass saturation',
+      min: 1,
+      max: 1.8,
+      step: 0.05,
+      defaultValue: 1.25,
+      unit: '%',
+    },
+  ],
+  gradient: [
+    {
+      key: 'angle',
+      kind: 'number',
+      label: 'Sheen angle',
+      min: 0,
+      max: 360,
+      step: 5,
+      defaultValue: 145,
+      unit: '°',
+    },
+    {
+      key: 'strength',
+      kind: 'number',
+      label: 'Sheen strength',
+      min: 0.3,
+      max: 1.8,
+      step: 0.05,
+      defaultValue: 1,
+      unit: '×',
+    },
+  ],
+  neon: [EDGE_GLOW_PARAM],
+  prism: [
+    {
+      key: 'strength',
+      kind: 'number',
+      label: 'Prism sheen',
+      min: 0.3,
+      max: 1.8,
+      step: 0.05,
+      defaultValue: 1,
+      unit: '×',
+    },
+    EDGE_GLOW_PARAM,
+    {
+      key: 'baseAngle',
+      kind: 'number',
+      label: 'Base light angle',
+      min: 0,
+      max: 360,
+      step: 4,
+      defaultValue: 132,
+      unit: '°',
+    },
+    {
+      key: 'sweep',
+      kind: 'number',
+      label: 'Pointer tilt sweep',
+      min: 0,
+      max: 120,
+      step: 4,
+      defaultValue: 56,
+      unit: '°',
+    },
+  ],
+};
+
+export const CLICK_PARAM_SPECS: Readonly<Record<ClickEffectId, readonly EffectParamSpec[]>> = {
+  none: EMPTY_PARAM_SPECS,
+  ripple: [clickScaleParam('Ripple size')],
+  spark: [
+    clickScaleParam('Spark spread'),
+    {
+      key: 'count',
+      kind: 'number',
+      label: 'Spark count',
+      min: 4,
+      max: 12,
+      step: 2,
+      defaultValue: 8,
+    },
+  ],
+  'matrix-burst': [
+    {
+      key: 'glyphs',
+      kind: 'string',
+      label: 'Burst glyphs',
+      placeholder: 'e.g. ｱｳｶ01λ',
+      maxLength: 24,
+      defaultValue: '',
+    },
+  ],
+  'glow-pulse': [clickScaleParam('Glow size')],
+  supernova: [
+    {
+      key: 'style',
+      kind: 'enum',
+      label: 'Burst style',
+      options: ['both', 'rings', 'embers'],
+      optionLabels: {
+        both: 'Rings & Embers',
+        rings: 'Lensing Rings',
+        embers: 'Orbital Embers',
+      },
+      defaultValue: 'both',
+    },
+    clickScaleParam('Burst size'),
+  ],
+};
+
+/** Returns the declarative parameter specs for `surfaceId`. */
+export function getSurfaceParamSpecs(surfaceId: SurfaceFinishId): readonly EffectParamSpec[] {
+  return SURFACE_PARAM_SPECS[surfaceId] ?? EMPTY_PARAM_SPECS;
+}
+
+/** Returns the declarative parameter specs for `clickId`. */
+export function getClickParamSpecs(clickId: ClickEffectId): readonly EffectParamSpec[] {
+  return CLICK_PARAM_SPECS[clickId] ?? EMPTY_PARAM_SPECS;
 }
 
 /** Returns the active parameter specs for either a built-in backdrop or a Tier 3 custom shader. */
@@ -638,6 +823,10 @@ export function readThemeEffectsConfig(raw: unknown): ThemeEffectsConfig {
     ...(customShader ? { customShader } : {}),
   });
   const backdropParams = validateEffectParams(raw.backdropParams, paramSpecs);
+  const surface = readEnum(raw.surface, SURFACE_FINISH_IDS, DEFAULT_THEME_EFFECTS.surface);
+  const click = readEnum(raw.click, CLICK_EFFECT_IDS, DEFAULT_THEME_EFFECTS.click);
+  const surfaceParams = validateEffectParams(raw.surfaceParams, getSurfaceParamSpecs(surface));
+  const clickParams = validateEffectParams(raw.clickParams, getClickParamSpecs(click));
   return {
     backdrop,
     intensity: clampNumber(
@@ -664,8 +853,10 @@ export function readThemeEffectsConfig(raw: unknown): ThemeEffectsConfig {
     ...(backdropParams ? { backdropParams } : {}),
     ...(customScene ? { customScene } : {}),
     ...(customShader ? { customShader } : {}),
-    surface: readEnum(raw.surface, SURFACE_FINISH_IDS, DEFAULT_THEME_EFFECTS.surface),
-    click: readEnum(raw.click, CLICK_EFFECT_IDS, DEFAULT_THEME_EFFECTS.click),
+    surface,
+    ...(surfaceParams ? { surfaceParams } : {}),
+    click,
+    ...(clickParams ? { clickParams } : {}),
   };
 }
 

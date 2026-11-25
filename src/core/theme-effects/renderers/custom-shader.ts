@@ -11,17 +11,22 @@ import type {
   CustomShaderSpec,
   StandardShaderUniformName,
 } from '../scene-schema';
-import type { ScenePalette } from './palette';
+import type { Rgb, ScenePalette } from './palette';
 import type { Scene, SceneFactory } from './scene-host';
 import type { BackdropContext, BackdropInstance } from './types';
 import { createLogger } from '../../log';
 import { resolveEffectParams, sameEffectParams } from '../model';
-import { STANDARD_SHADER_UNIFORMS, validateCustomShaderSource } from '../scene-schema';
+import {
+  MAX_SHADER_CLICKS,
+  STANDARD_SHADER_UNIFORMS,
+  validateCustomShaderSource,
+} from '../scene-schema';
 import { hexRgb, rgbCss, rgbUnit } from './palette';
 import { mountScene } from './scene-host';
 import {
   GLSL_NOISE,
   GLSL_PRECISION,
+  GLSL_SHADER_HELPERS,
   linkFullscreenProgram,
   releaseWebglContext,
   setupFullscreenTriangle,
@@ -30,21 +35,35 @@ import {
 
 const log = createLogger('custom-shader');
 
+function formatUniformDecl(name: string, type: string): string {
+  const arrayStart = type.indexOf('[');
+  if (arrayStart !== -1) {
+    return `uniform ${type.slice(0, arrayStart)} u_${name}${type.slice(arrayStart)};`;
+  }
+  return `uniform ${type} u_${name};`;
+}
+
 /**
  * Wraps a validated `CustomShaderSpec` into a complete WebGL 1 GLSL ES 1.00
- * fragment source with standard uniforms, noise helpers, custom `u_<key>`
- * param uniforms, and a Shadertoy `mainImage(...)` adapter when used.
+ * fragment source with standard uniforms, noise & math helpers, custom
+ * `u_<key>` param uniforms, and a Shadertoy `mainImage(...)` adapter when used.
  */
 export function buildCustomFragmentSource(spec: CustomShaderSpec): string | null {
   const checked = validateCustomShaderSource(spec.fragment);
   if (!checked.ok || !checked.entrypoint) {
     return null;
   }
-  const stdDecls = STANDARD_SHADER_UNIFORMS.map(([name, type]) => `uniform ${type} u_${name};`);
+  const stdDecls = STANDARD_SHADER_UNIFORMS.map(([name, type]) => formatUniformDecl(name, type));
   const paramDecls = (spec.params ?? []).map((param) =>
     param.kind === 'color' ? `uniform vec3 u_${param.key};` : `uniform float u_${param.key};`,
   );
-  const preamble = [GLSL_PRECISION, ...stdDecls, ...paramDecls, GLSL_NOISE].join('\n');
+  const preamble = [
+    GLSL_PRECISION,
+    ...stdDecls,
+    ...paramDecls,
+    GLSL_NOISE,
+    GLSL_SHADER_HELPERS,
+  ].join('\n');
   const epilogue =
     checked.entrypoint === 'mainImage'
       ? '\nvoid main() {\n  vec4 fragColor = vec4(0.0);\n  mainImage(fragColor, gl_FragCoord.xy);\n  gl_FragColor = fragColor;\n}\n'
@@ -84,8 +103,38 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
     const linked = program;
     const vertexBuffer = buffer;
     const std = Object.fromEntries(
-      STANDARD_SHADER_UNIFORMS.map(([name]) => [name, gl.getUniformLocation(linked, `u_${name}`)]),
+      STANDARD_SHADER_UNIFORMS.map(([name, type]) => [
+        name,
+        gl.getUniformLocation(linked, type.includes('[') ? `u_${name}[0]` : `u_${name}`),
+      ]),
     ) as Readonly<Record<StandardShaderUniformName, WebGLUniformLocation | null>>;
+    const clicksBuf = new Float32Array(MAX_SHADER_CLICKS * 4);
+    let clicksUploaded = false;
+    let clicksSettled = false;
+    let lastClickCount = -1;
+    let lastDayPhaseAt = 0;
+
+    const syncDayPhase = (): void => {
+      if (!std.dayPhase) {
+        return;
+      }
+      const nowMs = Date.now();
+      if (lastDayPhaseAt !== 0 && nowMs - lastDayPhaseAt <= 30_000) {
+        return;
+      }
+      lastDayPhaseAt = nowMs;
+      const d = new Date(nowMs);
+      const dayPhase = (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) / 86_400;
+      gl.uniform1f(std.dayPhase, dayPhase);
+    };
+
+    const uploadRgb = (loc: WebGLUniformLocation | null, rgb: Rgb): void => {
+      if (!loc) {
+        return;
+      }
+      const [r, g, b] = rgbUnit(rgb);
+      gl.uniform3f(loc, r, g, b);
+    };
 
     const paramSpecs: readonly CustomShaderParamSpec[] = spec.params ?? [];
     const paramLocations = new Map<string, WebGLUniformLocation | null>(
@@ -113,16 +162,13 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
     };
 
     const uploadPalette = (palette: ScenePalette): void => {
-      const [bgR, bgG, bgB] = rgbUnit(palette.background);
-      const [sfR, sfG, sfB] = rgbUnit(palette.surface);
-      const [txR, txG, txB] = rgbUnit(palette.text);
-      const [acR, acG, acB] = rgbUnit(palette.accent);
-      const [a2R, a2G, a2B] = rgbUnit(palette.alt);
-      gl.uniform3f(std.bg, bgR, bgG, bgB);
-      gl.uniform3f(std.surface, sfR, sfG, sfB);
-      gl.uniform3f(std.text, txR, txG, txB);
-      gl.uniform3f(std.accent, acR, acG, acB);
-      gl.uniform3f(std.accent2, a2R, a2G, a2B);
+      uploadRgb(std.bg, palette.background);
+      uploadRgb(std.surface, palette.surface);
+      uploadRgb(std.text, palette.text);
+      uploadRgb(std.border, palette.border);
+      uploadRgb(std.accent, palette.accent);
+      uploadRgb(std.accent2, palette.alt);
+      uploadRgb(std.danger, palette.danger);
       gl.uniform1f(std.isDark, palette.scheme === 'dark' ? 1 : 0);
     };
 
@@ -138,10 +184,12 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
         }
         const value = resolved[param.key];
         if (param.kind === 'color' && typeof value === 'string') {
-          const [r, g, b] = rgbUnit(hexRgb(value));
-          gl.uniform3f(loc, r, g, b);
+          uploadRgb(loc, hexRgb(value));
         } else if (param.kind === 'boolean') {
           gl.uniform1f(loc, value === true ? 1 : 0);
+        } else if (param.kind === 'enum' && typeof value === 'string') {
+          const idx = param.options.indexOf(value);
+          gl.uniform1f(loc, Math.max(idx, 0));
         } else if (typeof value === 'number') {
           gl.uniform1f(loc, value);
         }
@@ -191,7 +239,26 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
           frame.click.age,
           frame.click.count,
         );
+        if (std.clicks) {
+          const clickChanged = frame.click.count !== lastClickCount;
+          const isIdle = frame.click.count === 0 || frame.click.age >= 999;
+          if (!clicksUploaded || clickChanged || !clicksSettled) {
+            for (let i = 0; i < MAX_SHADER_CLICKS; i++) {
+              const slot = frame.clicks[i];
+              const offset = i * 4;
+              clicksBuf[offset] = slot ? slot.x : 0.5;
+              clicksBuf[offset + 1] = slot ? 1 - slot.y : 0.5;
+              clicksBuf[offset + 2] = slot ? slot.age : 999;
+              clicksBuf[offset + 3] = slot ? slot.active : 0;
+            }
+            gl.uniform4fv(std.clicks, clicksBuf);
+            clicksUploaded = true;
+            lastClickCount = frame.click.count;
+            clicksSettled = isIdle;
+          }
+        }
         gl.uniform2f(std.scroll, frame.scroll.y, frame.scroll.velocity);
+        syncDayPhase();
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       },
       dispose() {

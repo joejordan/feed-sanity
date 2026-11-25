@@ -17,6 +17,8 @@ export interface ScenePalette {
   readonly text: Rgb;
   readonly background: Rgb;
   readonly surface: Rgb;
+  readonly border: Rgb;
+  readonly danger: Rgb;
   /** True when no theme palette is active and renderers may use their signature colors. */
   readonly native: boolean;
   /** Stable key so renderers rebuild cached layers only when colors actually change. */
@@ -31,6 +33,8 @@ export const FALLBACK_COLORS = {
     text: '#f8fafc',
     background: '#06090f',
     surface: '#111622',
+    border: '#253147',
+    danger: '#f87171',
   },
   light: {
     accent: '#1d4ed8',
@@ -38,6 +42,8 @@ export const FALLBACK_COLORS = {
     text: '#0f172a',
     background: '#f8fafc',
     surface: '#ffffff',
+    border: '#cbd5e1',
+    danger: '#dc2626',
   },
 } as const;
 
@@ -114,10 +120,22 @@ export function resolveScenePalette(ctx: BackdropContext): ScenePalette {
   const text = toRgb(p?.text, base.text);
   const background = toRgb(p?.background, base.background);
   const surface = toRgb(p?.surface, base.surface);
-  const key = [scheme, p ? 'theme' : 'native', accent, alt, text, background, surface]
+  const border = toRgb(p?.border, base.border);
+  const danger = toRgb(p?.danger, base.danger);
+  const key = [
+    scheme,
+    p ? 'theme' : 'native',
+    accent,
+    alt,
+    text,
+    background,
+    surface,
+    border,
+    danger,
+  ]
     .map((part) => (Array.isArray(part) ? part.map(Math.round).join(',') : String(part)))
     .join('|');
-  return { scheme, accent, alt, text, background, surface, native: !p, key };
+  return { scheme, accent, alt, text, background, surface, border, danger, native: !p, key };
 }
 
 /**

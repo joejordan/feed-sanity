@@ -27,6 +27,7 @@ import {
   readThemeDocument,
   resolveTheme,
   THEME_FONT_STACKS,
+  THEME_STYLE_ID,
   updateThemeCustomCss,
   updateThemePalette,
   updateThemeTypography,
@@ -518,8 +519,65 @@ describe('first-class multi-site theming engine', () => {
     });
     expect(extraCss).toHaveBeenCalledTimes(3);
     expect(setUiCss).toHaveBeenCalledTimes(3);
-    controller.clearPreview();
+
+    // Switching to Prism + tuning `surfaceParams` MUST recompile host CSS AND update live Prism driver.
+    controller.preview({
+      ...initial,
+      effects: {
+        ...initial.effects,
+        surface: 'prism',
+        surfaceParams: { baseAngle: 140, sweep: 60 },
+        click: 'supernova',
+      },
+    });
     expect(extraCss).toHaveBeenCalledTimes(4);
+    expect(document.querySelector(`#${THEME_STYLE_ID}`)?.textContent).toContain(
+      'var(--fs-ptr-angle, 140deg)',
+    );
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 600, clientY: 180 }));
+    await vi.waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--fs-ptr-angle')).toMatch(/^\d+deg$/);
+    });
+
+    // Updating only `surfaceParams.baseAngle` recompiles CSS and clears stale inline `--fs-ptr-angle`.
+    controller.preview({
+      ...initial,
+      effects: {
+        ...initial.effects,
+        surface: 'prism',
+        surfaceParams: { baseAngle: 220, sweep: 60 },
+        click: 'supernova',
+      },
+    });
+    expect(extraCss).toHaveBeenCalledTimes(5);
+    expect(document.querySelector(`#${THEME_STYLE_ID}`)?.textContent).toContain(
+      'var(--fs-ptr-angle, 220deg)',
+    );
+    expect(document.documentElement.style.getPropertyValue('--fs-ptr-angle')).toBe('');
+
+    // Updating only `clickParams` skips host CSS recompile while syncing live `clickFx`.
+    const clickTarget = document.createElement('button');
+    document.body.append(clickTarget);
+    controller.preview({
+      ...initial,
+      effects: {
+        ...initial.effects,
+        surface: 'prism',
+        surfaceParams: { baseAngle: 220, sweep: 60 },
+        click: 'supernova',
+        clickParams: { style: 'rings', scale: 1.3 },
+      },
+    });
+    expect(extraCss).toHaveBeenCalledTimes(5);
+    clickTarget.dispatchEvent(
+      new PointerEvent('pointerdown', { button: 0, clientX: 90, clientY: 90, bubbles: true }),
+    );
+    const clickFxHost = document.querySelector('[data-feed-sanity="theme-click-fx"]');
+    expect(clickFxHost?.shadowRoot?.childElementCount).toBe(2);
+    clickTarget.remove();
+
+    controller.clearPreview();
+    expect(extraCss).toHaveBeenCalledTimes(6);
 
     // Self-healing backdrop: if the host SPA removes our backdrop div, controller remounts it automatically.
     const currentBackdrop = document.querySelector(BACKDROP_SELECTOR)!;

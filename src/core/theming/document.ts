@@ -29,6 +29,8 @@ import {
   DEFAULT_THEME_EFFECTS,
   DIGITAL_RAIN_PARAM_SPECS,
   getActiveBackdropParamSpecs,
+  getClickParamSpecs,
+  getSurfaceParamSpecs,
   hasActiveEffects,
   readThemeEffectsConfig,
   SURFACE_FINISH_IDS,
@@ -291,7 +293,9 @@ export function documentEffectsToConfig(
     ...(effects.backdrop?.shader ? { customShader: effects.backdrop.shader } : {}),
     surface: effects.surface?.finish ?? DEFAULT_THEME_EFFECTS.surface,
     glassStrength: effects.surface?.glassStrength ?? DEFAULT_THEME_EFFECTS.glassStrength,
+    ...(effects.surface?.params ? { surfaceParams: effects.surface.params } : {}),
     click: effects.click?.id ?? DEFAULT_THEME_EFFECTS.click,
+    ...(effects.click?.params ? { clickParams: effects.click.params } : {}),
   });
   return hasActiveEffects(resolved) ? resolved : undefined;
 }
@@ -325,10 +329,16 @@ export function configEffectsToDocument(
       ? {
           finish: normalized.surface,
           glassStrength: normalized.glassStrength,
+          ...(normalized.surfaceParams ? { params: normalized.surfaceParams } : {}),
         }
       : undefined;
   const click: ThemeDocumentEffects['click'] =
-    normalized.click === 'none' ? undefined : { id: normalized.click };
+    normalized.click === 'none'
+      ? undefined
+      : {
+          id: normalized.click,
+          ...(normalized.clickParams ? { params: normalized.clickParams } : {}),
+        };
   return {
     ...(backdrop ? { backdrop } : {}),
     ...(surface ? { surface } : {}),
@@ -432,9 +442,15 @@ function parseEffects(
         THEME_EFFECT_BOUNDS.glassStrength.min,
         THEME_EFFECT_BOUNDS.glassStrength.max,
       );
+      const params = validateEffectParams(
+        raw.surface.params,
+        getSurfaceParamSpecs(raw.surface.finish),
+        warnings,
+      );
       surface = {
         finish: raw.surface.finish,
         ...(glassStrength === undefined ? {} : { glassStrength }),
+        ...(params ? { params } : {}),
       };
     } else {
       warnUnsupportedEffect(raw.surface.finish, 'surface finish', 'using solid surfaces', warnings);
@@ -444,7 +460,15 @@ function parseEffects(
   let click: ThemeDocumentEffects['click'];
   if (isRecord(raw.click)) {
     if (isOneOf(raw.click.id, CLICK_EFFECT_IDS)) {
-      click = { id: raw.click.id };
+      const params = validateEffectParams(
+        raw.click.params,
+        getClickParamSpecs(raw.click.id),
+        warnings,
+      );
+      click = {
+        id: raw.click.id,
+        ...(params ? { params } : {}),
+      };
     } else {
       warnUnsupportedEffect(raw.click.id, 'click effect', 'click effects disabled', warnings);
     }
