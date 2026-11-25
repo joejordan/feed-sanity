@@ -40,6 +40,8 @@ export interface ThemeLibraryState {
   readonly schemaVersion: 1;
   readonly themes: readonly SavedThemeEntry[];
   readonly globalTheme?: GlobalThemeOverride;
+  /** Opt-in preference for live hover/focus theme previews in Appearance and Quick Popup (default `false`). */
+  readonly hoverPreview?: boolean;
 }
 
 export interface SaveLibraryThemeOptions extends ThemeDocumentFilterOptions {
@@ -53,6 +55,8 @@ export interface ThemeLibraryClient {
   readonly ready: Promise<void>;
   readonly list: () => readonly SavedThemeEntry[];
   readonly getGlobalTheme: () => GlobalThemeOverride | undefined;
+  readonly getHoverPreview: () => boolean;
+  readonly setHoverPreview: (enabled: boolean) => Promise<void>;
   readonly saveTheme: (
     doc: ThemeDocumentV1,
     options?: SaveLibraryThemeOptions,
@@ -144,6 +148,7 @@ export function readThemeLibraryState(raw: unknown): ThemeLibraryState {
     schemaVersion: 1,
     themes,
     ...(globalTheme ? { globalTheme } : {}),
+    ...(raw.hoverPreview === true ? { hoverPreview: true } : {}),
   };
 }
 
@@ -273,6 +278,18 @@ export function createThemeLibrary(store: Store): ThemeLibraryClient {
     ready,
     list: () => state.themes,
     getGlobalTheme: () => state.globalTheme,
+    getHoverPreview: () => state.hoverPreview === true,
+    setHoverPreview(enabled) {
+      return enqueueMutation((current) => {
+        const currentEnabled = current.hoverPreview === true;
+        if (currentEnabled === enabled) {
+          return { result: undefined };
+        }
+        const { hoverPreview: _old, ...rest } = current;
+        const next: ThemeLibraryState = enabled ? { ...rest, hoverPreview: true } : rest;
+        return { next, result: undefined };
+      });
+    },
     saveTheme(doc, options = {}) {
       return enqueueMutation((current) => {
         const normalized = prepareLibraryDocument(doc, options);

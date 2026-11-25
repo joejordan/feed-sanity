@@ -310,6 +310,7 @@ interface ActiveTabViewProps {
   readonly activeTab: PopupTabState;
   readonly siteConfig: SiteQuickConfig;
   readonly siteEnabled: boolean;
+  readonly hoverPreviewEnabled: boolean;
   readonly savedThemes: readonly AnalyzedSavedTheme[];
   readonly closeButton: ReactNode;
   readonly toastEl: ReactNode;
@@ -327,6 +328,7 @@ function ActiveTabView({
   activeTab,
   siteConfig,
   siteEnabled,
+  hoverPreviewEnabled,
   savedThemes,
   closeButton,
   toastEl,
@@ -368,7 +370,7 @@ function ActiveTabView({
     onThemeChangeRef.current?.(next, committed ? { committed: true } : undefined);
   }, []);
 
-  const hoverPreview = useThemePreview(theme, onPreviewTheme, siteEnabled);
+  const hoverPreview = useThemePreview(theme, onPreviewTheme, siteEnabled && hoverPreviewEnabled);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -942,6 +944,9 @@ export function QuickPopup({
   const [globalTheme, setGlobalTheme] = useState<GlobalThemeOverride | undefined>(() =>
     providedThemeLibrary?.getGlobalTheme(),
   );
+  const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState<boolean>(
+    () => providedThemeLibrary?.getHoverPreview() ?? false,
+  );
   const { toast, notify } = useToast(TOAST_MS);
 
   const siteSettingsRef = useOwnedClient(
@@ -961,6 +966,7 @@ export function QuickPopup({
     (client) => {
       setSavedThemes(client.list());
       setGlobalTheme(client.getGlobalTheme());
+      setHoverPreviewEnabled(client.getHoverPreview());
     },
   );
 
@@ -1027,6 +1033,7 @@ export function QuickPopup({
       activeTab={activeTab}
       siteConfig={siteConfig}
       siteEnabled={siteEnabled}
+      hoverPreviewEnabled={hoverPreviewEnabled}
       savedThemes={analyzedSavedThemes}
       closeButton={closeButton}
       toastEl={toastEl}

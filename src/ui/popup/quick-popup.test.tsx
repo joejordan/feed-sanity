@@ -344,6 +344,16 @@ describe('QuickPopup', () => {
     const savedChip = await screen.findByRole('button', { name: 'Midnight Rain' });
     expect(savedChip.getAttribute('aria-pressed')).toBe('false');
 
+    // Hover preview is off by default in Quick Popup until enabled in Appearance.
+    await userEvent.hover(savedChip);
+    expect(onPreviewTheme).not.toHaveBeenCalled();
+    await userEvent.unhover(savedChip);
+
+    // Enabling Live hover preview in the shared library activates live preview immediately.
+    const toggleLib = createThemeLibrary(store);
+    await toggleLib.setHoverPreview(true);
+    toggleLib.dispose();
+
     // Hovering a My Themes chip previews it; leaving clears the preview.
     await userEvent.hover(savedChip);
     expect(onPreviewTheme).toHaveBeenCalledTimes(1);

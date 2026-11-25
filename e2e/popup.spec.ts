@@ -108,6 +108,7 @@ test('extension toolbar popup previews & switches My Themes, pauses live backdro
   await store({
     [THEME_LIBRARY_KEY]: {
       schemaVersion: 1,
+      hoverPreview: true,
       themes: [{ id: 'midnight-rain', document: savedDoc, savedAt: 1000, updatedAt: 1000 }],
     },
   });

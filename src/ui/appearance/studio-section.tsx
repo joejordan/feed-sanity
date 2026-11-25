@@ -369,11 +369,17 @@ function useEffectSliderDraft(
 
 export interface StudioVibesCardProps {
   readonly activeVibe: StudioVibe | undefined;
+  readonly hoverPreviewEnabled?: boolean;
   readonly onApplyVibe: (vibe: StudioVibe) => void;
   readonly onPreviewVibe?: (vibe: StudioVibe | null) => void;
 }
 
-export function StudioVibesCard({ activeVibe, onApplyVibe, onPreviewVibe }: StudioVibesCardProps) {
+export function StudioVibesCard({
+  activeVibe,
+  hoverPreviewEnabled = false,
+  onApplyVibe,
+  onPreviewVibe,
+}: StudioVibesCardProps) {
   return (
     <SettingCard
       title="Studio Vibes"
@@ -382,7 +388,7 @@ export function StudioVibesCard({ activeVibe, onApplyVibe, onPreviewVibe }: Stud
       <div className="theme-studio-pad">
         <p className="theme-studio-intro">
           Full-scene looks pairing curated palettes with live backgrounds, surface finishes, and
-          click effects. Hover any card to preview live.
+          click effects.{hoverPreviewEnabled ? ' Hover any card to preview live.' : ''}
         </p>
         <div
           className="theme-vibe-grid"

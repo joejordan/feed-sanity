@@ -784,7 +784,9 @@ describe('appearancePanel & initSiteTheme', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Save' }));
       await vi.waitFor(() => expect(library.list()[0]?.document.meta.name).toBe('Cyber Matrix'));
 
-      // Deleting a hovered saved theme clears live preview even when the library grid unmounts, then Undo restores it.
+      // Deleting a hovered saved theme clears live preview (when hover preview is enabled) even when the library grid unmounts, then Undo restores it.
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Live hover preview' }));
+      await vi.waitFor(() => expect(library.getHoverPreview()).toBe(true));
       vi.mocked(controller.clearPreview).mockClear();
       fireEvent.mouseEnter(screen.getByRole('button', { name: /^Cyber Matrix/i }));
       await userEvent.click(screen.getByRole('button', { name: 'Delete Cyber Matrix' }));
@@ -952,9 +954,19 @@ describe('appearancePanel & initSiteTheme', () => {
     render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
 
-    // Hovering a Color Theme previews live without saving, and mouseleave clears preview.
+    // Hover preview is off by default; hovering a Color Theme does nothing until opted in.
     const nordBtn = screen.getByRole('button', { name: /Nord/i });
     const presetsGroup = screen.getByRole('group', { name: 'Theme presets' });
+    const hoverToggle = screen.getByRole<HTMLInputElement>('checkbox', {
+      name: 'Live hover preview',
+    });
+    expect(hoverToggle.checked).toBe(false);
+    fireEvent.mouseEnter(nordBtn);
+    expect(controller.preview).not.toHaveBeenCalled();
+
+    // Enabling Live hover preview previews live without saving, and mouseleave clears preview.
+    await userEvent.click(hoverToggle);
+    expect(hoverToggle.checked).toBe(true);
     fireEvent.mouseEnter(nordBtn);
     expect(controller.preview).toHaveBeenCalledWith(
       expect.objectContaining({

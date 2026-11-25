@@ -33,7 +33,14 @@ import {
   updateThemeTypography,
 } from '../../core/theming';
 import { definePanel } from '../options-dialog/panel';
-import { Badge, previewLeaveProps, SegmentedControl, SettingCard, SettingRow } from '../primitives';
+import {
+  Badge,
+  previewLeaveProps,
+  SegmentedControl,
+  SettingCard,
+  SettingRow,
+  Switch,
+} from '../primitives';
 import { useThemePreview } from '../use-theme-preview';
 import css from './appearance-panel.css?inline';
 import { CustomCssDisclosure } from './custom-css-disclosure';
@@ -87,12 +94,19 @@ function AppearancePanelView({
   const [libraryEntries, setLibraryEntries] = useState<readonly SavedThemeEntry[]>(() =>
     library ? library.list() : [],
   );
+  const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState<boolean>(
+    () => library?.getHoverPreview() ?? false,
+  );
   useEffect(() => {
     if (!library) {
       return;
     }
     setLibraryEntries(library.list());
-    return library.onChange((next) => setLibraryEntries(next.themes));
+    setHoverPreviewEnabled(library.getHoverPreview());
+    return library.onChange((next) => {
+      setLibraryEntries(next.themes);
+      setHoverPreviewEnabled(next.hoverPreview === true);
+    });
   }, [library]);
   const activeFingerprint = useMemo(
     () => (library ? analyzeThemeDocument(value).fingerprint : ''),
@@ -175,7 +189,23 @@ function AppearancePanelView({
     },
     [controller],
   );
-  const hoverPreview = useThemePreview(value, handlePreview);
+  const hoverPreview = useThemePreview(value, handlePreview, hoverPreviewEnabled);
+
+  const handleToggleHoverPreview = (next: boolean): void => {
+    setHoverPreviewEnabled(next);
+    if (!library) {
+      return;
+    }
+    void runLibraryAction(
+      (client) => client.setHoverPreview(next),
+      undefined,
+      'Could not save hover preview preference',
+    ).then((ok) => {
+      if (!ok) {
+        setHoverPreviewEnabled(library.getHoverPreview());
+      }
+    });
+  };
 
   const commitDocument = (next: ThemeDocumentV1): void => {
     hoverPreview.markCommitted();
@@ -435,6 +465,7 @@ function AppearancePanelView({
 
       <StudioVibesCard
         activeVibe={activeVibe}
+        hoverPreviewEnabled={hoverPreviewEnabled}
         onApplyVibe={applyVibe}
         onPreviewVibe={(vibe) => {
           if (vibe) {
@@ -540,6 +571,17 @@ function AppearancePanelView({
           </select>
         </SettingRow>
 
+        <SettingRow
+          title="Live hover preview"
+          description="Preview themes and Studio Vibes live when hovering or focusing cards."
+        >
+          <Switch
+            checked={hoverPreviewEnabled}
+            ariaLabel="Live hover preview"
+            onChange={handleToggleHoverPreview}
+          />
+        </SettingRow>
+
         <PaletteCustomizationDisclosure
           value={value}
           activePreset={activePreset}
@@ -643,6 +685,12 @@ export function appearancePanel(
         title: 'Typography / Site font',
         description: 'Change the font family across this site and Feed Sanity controls.',
         keywords: ['font', 'serif', 'mono', 'rounded', 'sans'],
+      },
+      {
+        id: 'hover-preview',
+        title: 'Live hover preview',
+        description: 'Preview themes and Studio Vibes live when hovering or focusing cards.',
+        keywords: ['hover', 'preview', 'live', 'theme', 'focus'],
       },
       {
         id: 'import-export-theme',
