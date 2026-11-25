@@ -5,7 +5,7 @@
 // custom `u_<paramKey>` uniforms, and guards the host tab with a slow-frame
 // watchdog and automatic static CSS fallback on compile error or context loss.
 
-import type { EffectParamValues } from '../model';
+import type { EffectParamValue, EffectParamValues } from '../model';
 import type {
   CustomShaderParamSpec,
   CustomShaderSpec,
@@ -15,6 +15,7 @@ import type { Rgb, ScenePalette } from './palette';
 import type { Scene, SceneFactory } from './scene-host';
 import type { BackdropContext, BackdropInstance } from './types';
 import { createLogger } from '../../log';
+import { dayPhaseAt, moonPhaseAt } from '../celestial';
 import { resolveEffectParams, sameEffectParams } from '../model';
 import {
   MAX_SHADER_CLICKS,
@@ -72,6 +73,27 @@ export function buildCustomFragmentSource(spec: CustomShaderSpec): string | null
   return `${preamble}\n${checked.source}${epilogue}`;
 }
 
+/**
+ * Encodes one resolved param value as the float components uploaded to its
+ * `u_<key>` uniform: an enum as its option index, a boolean as `0` or `1`, a
+ * color as unit RGB. Returns `null` when the value does not fit the param kind.
+ */
+export function encodeShaderParam(
+  param: CustomShaderParamSpec,
+  value: EffectParamValue | undefined,
+): readonly [number] | readonly [number, number, number] | null {
+  switch (param.kind) {
+    case 'color':
+      return typeof value === 'string' ? rgbUnit(hexRgb(value)) : null;
+    case 'boolean':
+      return [value === true ? 1 : 0];
+    case 'enum':
+      return typeof value === 'string' ? [Math.max(param.options.indexOf(value), 0)] : null;
+    case 'number':
+      return typeof value === 'number' ? [value] : null;
+  }
+}
+
 function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
   return (canvas, hooks) => {
     const fragmentSource = buildCustomFragmentSource(spec);
@@ -111,20 +133,24 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
     const clicksBuf = new Float32Array(MAX_SHADER_CLICKS * 4);
     let clicksSettled = false;
     let lastClickCount = -1;
-    let lastDayPhaseAt = 0;
+    let lastSkyClockAt = 0;
 
-    const syncDayPhase = (): void => {
-      if (!std.dayPhase) {
+    /** Refreshes the slow local-clock uniforms (`u_dayPhase`, `u_moonPhase`) every 30 seconds. */
+    const syncSkyClock = (): void => {
+      if (!std.dayPhase && !std.moonPhase) {
         return;
       }
       const nowMs = Date.now();
-      if (lastDayPhaseAt !== 0 && nowMs - lastDayPhaseAt <= 30_000) {
+      if (lastSkyClockAt !== 0 && nowMs - lastSkyClockAt <= 30_000) {
         return;
       }
-      lastDayPhaseAt = nowMs;
-      const d = new Date(nowMs);
-      const dayPhase = (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) / 86_400;
-      gl.uniform1f(std.dayPhase, dayPhase);
+      lastSkyClockAt = nowMs;
+      if (std.dayPhase) {
+        gl.uniform1f(std.dayPhase, dayPhaseAt(new Date(nowMs)));
+      }
+      if (std.moonPhase) {
+        gl.uniform1f(std.moonPhase, moonPhaseAt(nowMs));
+      }
     };
 
     const uploadRgb = (loc: WebGLUniformLocation | null, rgb: Rgb): void => {
@@ -178,19 +204,14 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
       const resolved = resolveEffectParams(paramSpecs, raw);
       for (const param of paramSpecs) {
         const loc = paramLocations.get(param.key) ?? null;
-        if (!loc) {
+        const encoded = loc ? encodeShaderParam(param, resolved[param.key]) : null;
+        if (!loc || !encoded) {
           continue;
         }
-        const value = resolved[param.key];
-        if (param.kind === 'color' && typeof value === 'string') {
-          uploadRgb(loc, hexRgb(value));
-        } else if (param.kind === 'boolean') {
-          gl.uniform1f(loc, value === true ? 1 : 0);
-        } else if (param.kind === 'enum' && typeof value === 'string') {
-          const idx = param.options.indexOf(value);
-          gl.uniform1f(loc, Math.max(idx, 0));
-        } else if (typeof value === 'number') {
-          gl.uniform1f(loc, value);
+        if (encoded.length === 3) {
+          gl.uniform3f(loc, encoded[0], encoded[1], encoded[2]);
+        } else {
+          gl.uniform1f(loc, encoded[0]);
         }
       }
     };
@@ -239,6 +260,13 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
             frame.ctx.effects.interactive ? 1 : 0,
           );
         }
+        if (std.pointerVel) {
+          gl.uniform2f(
+            std.pointerVel,
+            frame.ctx.effects.interactive ? frame.pointer.vx : 0,
+            frame.ctx.effects.interactive ? -frame.pointer.vy : 0,
+          );
+        }
         if (std.click) {
           gl.uniform4f(
             std.click,
@@ -268,7 +296,7 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
         if (std.scroll) {
           gl.uniform2f(std.scroll, frame.scroll.y, frame.scroll.velocity);
         }
-        syncDayPhase();
+        syncSkyClock();
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       },
       dispose() {

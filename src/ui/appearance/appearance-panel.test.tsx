@@ -1299,4 +1299,95 @@ describe('appearancePanel & initSiteTheme', () => {
       expect(saved.get().chrome?.ribbon?.height).toBe(5);
     });
   });
+
+  it('applies the Luminous Tide Live Theme and tunes its sky, moon, Moonlit surface, and Tide click effect', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+    // Luminous Tide leads the Live Themes grid and applies palette, chrome, shader, finish, and click FX at once.
+    const liveThemesGroup = screen.getByRole('group', { name: 'Live themes' });
+    const tideCard = within(liveThemesGroup).getByRole('button', { name: /Luminous Tide/i });
+    expect(within(liveThemesGroup).getAllByRole('button')[0]).toBe(tideCard);
+    await userEvent.click(tideCard);
+    await vi.waitFor(() => {
+      expect(saved.get().id).toBe('luminous-tide');
+      expect(saved.get().palette?.accent).toBe('#45d8ff');
+      expect(saved.get().palette?.accentSecondary).toBe('#5ef2c2');
+      expect(saved.get().chrome?.ribbon?.position).toBe('bottom');
+      expect(saved.get().effects?.backdrop?.id).toBe('custom-shader');
+      expect(saved.get().effects?.surface?.finish).toBe('moonlit');
+      expect(saved.get().effects?.click?.id).toBe('tide');
+    });
+    expect(tideCard.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('Luminous Tide theme applied')).toBeTruthy();
+    expect(controller.previewMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        palette: expect.objectContaining({ background: '#050d18' }),
+        effects: expect.objectContaining({ surface: 'moonlit', click: 'tide' }),
+      }),
+    );
+
+    // Both enum params start on their defaults and save live.
+    const timeOfDay = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Time of day' });
+    expect(timeOfDay.value).toBe('night');
+    await userEvent.selectOptions(timeOfDay, 'clock');
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.sky).toBe('clock'));
+    const moon = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Moon' });
+    expect(moon.value).toBe('real');
+    await userEvent.selectOptions(moon, 'crescent');
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.moon).toBe('crescent'));
+
+    // Number, color, and boolean params each get their own control.
+    for (const name of ['Tide swell', 'Bioluminescence', 'Starlight']) {
+      expect(screen.getByRole('slider', { name })).toBeTruthy();
+    }
+    fireEvent.input(screen.getByLabelText('Plankton glow'), { target: { value: '#7cf5a0' } });
+    await vi.waitFor(() =>
+      expect(saved.get().effects?.backdrop?.params?.bloomColor).toBe('#7cf5a0'),
+    );
+    expect(screen.getByRole('checkbox', { name: 'Shooting stars' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Aurora veil' }));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.aurora).toBe(false));
+
+    // The new Moonlit finish and Tide click effect are selected, with their tuners.
+    expect(screen.getByRole('button', { name: 'Moonlit' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(screen.getByRole('slider', { name: 'Moonlight sheen' })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: 'Underglow' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Tide' }).getAttribute('aria-pressed')).toBe('true');
+    const splashStyle = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Splash style' });
+    await userEvent.selectOptions(splashStyle, 'sparkle');
+    await vi.waitFor(() => expect(saved.get().effects?.click?.params?.style).toBe('sparkle'));
+
+    // Both new primitives work on their own with any other theme.
+    await userEvent.click(screen.getByRole('button', { name: 'Neon' }));
+    await vi.waitFor(() => expect(saved.get().effects?.surface?.finish).toBe('neon'));
+    await userEvent.click(screen.getByRole('button', { name: 'Moonlit' }));
+    await vi.waitFor(() => expect(saved.get().effects?.surface?.finish).toBe('moonlit'));
+
+    // Reset effects falls back to the static Luminous Tide color theme, palette and chrome intact.
+    await userEvent.click(screen.getByRole('button', { name: 'Reset effects' }));
+    await vi.waitFor(() => {
+      expect(saved.get().id).toBe('luminous-tide');
+      expect(saved.get().effects).toBeUndefined();
+      expect(saved.get().palette?.background).toBe('#050d18');
+      expect(saved.get().chrome?.ambientGlow?.enabled).toBe(true);
+    });
+    const presetsGroup = screen.getByRole('group', { name: 'Theme presets' });
+    expect(
+      within(presetsGroup)
+        .getByRole('button', { name: /Luminous Tide/i })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
 });

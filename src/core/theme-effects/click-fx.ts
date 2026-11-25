@@ -1,5 +1,5 @@
 // Subtle, tactile click micro-effects (`ripple`, `spark`, `matrix-burst`,
-// `glow-pulse`, `supernova`). Particles fire only on interactive targets (buttons, links,
+// `glow-pulse`, `supernova`, `tide`). Particles fire only on interactive targets (buttons, links,
 // tabs, menu items, switches, inputs) so selecting post text or clicking empty
 // space never sprays particles. With Glyphs over a backdrop that reacts to
 // bursts (Matrix Rain), plain clicks still cascade it gently, without particles.
@@ -101,6 +101,61 @@ function buildSupernovaEmberKeyframes(scale: number): readonly Keyframe[][] {
 
 const SUPERNOVA_EMBER_KEYFRAMES: readonly Keyframe[][] = buildSupernovaEmberKeyframes(1);
 
+const TIDE_INNER_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.2)', opacity: 0 },
+  { transform: 'scale(0.48)', opacity: 0.75, offset: 0.2 },
+  { transform: 'scale(1)', opacity: 0 },
+];
+
+const TIDE_OUTER_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.16)', opacity: 0 },
+  { transform: 'scale(0.55)', opacity: 0.42, offset: 0.28 },
+  { transform: 'scale(1.12)', opacity: 0 },
+];
+
+const TIDE_MOTE_COUNT = 7;
+const GOLDEN_ANGLE = 2.399_963;
+/** Ripple rings are drawn as ovals, the way a ring on water looks from the shore. */
+const TIDE_RING_FLATTEN = 0.62;
+
+interface TideMote {
+  /** Offset from the click point in CSS pixels. */
+  readonly dx: number;
+  readonly dy: number;
+  readonly frames: Keyframe[];
+}
+
+/**
+ * Sea-sparkle motes laid out on a golden-angle spiral so they look scattered
+ * without any per-click randomness: each one blinks on, drifts up, and fades.
+ */
+function buildTideMotes(scale: number): readonly TideMote[] {
+  return Array.from({ length: TIDE_MOTE_COUNT }, (_, i) => {
+    const angle = i * GOLDEN_ANGLE + 0.6;
+    const radius = (8 + 22 * Math.sqrt((i + 0.5) / TIDE_MOTE_COUNT)) * scale;
+    const rise = (9 + (i % 3) * 4) * scale;
+    const drift = (i % 2 === 0 ? 3 : -3) * scale;
+    return {
+      dx: Math.cos(angle) * radius,
+      dy: Math.sin(angle) * radius * TIDE_RING_FLATTEN,
+      frames: [
+        { transform: 'translate(0px, 0px) scale(0.3)', opacity: 0 },
+        {
+          transform: `translate(${(drift * 0.3).toFixed(2)}px, ${(-rise * 0.25).toFixed(2)}px) scale(1.15)`,
+          opacity: 1,
+          offset: 0.22,
+        },
+        {
+          transform: `translate(${drift.toFixed(2)}px, ${(-rise).toFixed(2)}px) scale(0.4)`,
+          opacity: 0,
+        },
+      ],
+    };
+  });
+}
+
+const TIDE_MOTES: readonly TideMote[] = buildTideMotes(1);
+
 /** O(1) tag & role lookup sets for interactive targets that earn click feedback. */
 const INTERACTIVE_TAGS = new Set([
   'button',
@@ -179,15 +234,23 @@ function isInteractiveClickTarget(event: Event): boolean {
   return false;
 }
 
-function animateAndRemove(el: HTMLElement, keyframes: Keyframe[], duration: number): void {
+function animateAndRemove(
+  el: HTMLElement,
+  keyframes: Keyframe[],
+  duration: number,
+  delay = 0,
+): void {
   if (typeof el.animate === 'function') {
-    const anim = el.animate(keyframes, { duration, easing: EASE_OUT, fill: 'forwards' });
+    const anim = el.animate(keyframes, { duration, delay, easing: EASE_OUT, fill: 'forwards' });
     anim.onfinish = () => el.remove();
     anim.oncancel = () => el.remove();
     return;
   }
-  setTimeout(() => el.remove(), duration);
+  setTimeout(() => el.remove(), duration + delay);
 }
+
+/** One particle with its keyframes, duration, and start delay (ms). */
+type ParticleAnimation = readonly [HTMLSpanElement, Keyframe[], number, number];
 
 export function mountClickEffects(
   doc: Document,
@@ -199,6 +262,7 @@ export function mountClickEffects(
   let matrixGlyphPool: readonly string[] = MATRIX_BURST_GLYPHS;
   let supernovaEmberFrames: readonly Keyframe[][] = SUPERNOVA_EMBER_KEYFRAMES;
   let sparkFrames: readonly Keyframe[][] = DEFAULT_SPARK_KEYFRAMES;
+  let tideMotes: readonly TideMote[] = TIDE_MOTES;
   let cascadeEnabled = false;
   let alwaysCascade = false;
   let overlay: HTMLDivElement | null = null;
@@ -268,25 +332,94 @@ export function mountClickEffects(
     const secondary = palette?.accentSecondary ?? palette?.danger ?? '#a855f7';
     const text = palette?.text ?? '#ffffff';
     const scale = (resolvedParams.scale as number | undefined) ?? 1;
-    const circleParticle = (parent: ParentNode, diameter: number, css: string): HTMLSpanElement =>
+    const ovalParticle = (
+      parent: ParentNode,
+      width: number,
+      height: number,
+      css: string,
+      dx = 0,
+      dy = 0,
+    ): HTMLSpanElement =>
       particle(
         parent,
-        `left:${x}px;top:${y}px;width:${diameter}px;height:${diameter}px;margin:${-diameter / 2}px 0 0 ${-diameter / 2}px;border-radius:50%;${css}`,
+        `left:${x + dx}px;top:${y + dy}px;width:${width}px;height:${height}px;margin:${-height / 2}px 0 0 ${-width / 2}px;border-radius:50%;${css}`,
       );
+    const circleParticle = (parent: ParentNode, diameter: number, css: string): HTMLSpanElement =>
+      ovalParticle(parent, diameter, diameter, css);
     const runBatch = (
       build: (
         batch: DocumentFragment,
-        queue: (el: HTMLSpanElement, frames: Keyframe[], duration: number) => void,
+        queue: (el: HTMLSpanElement, frames: Keyframe[], duration: number, delay?: number) => void,
       ) => void,
     ): void => {
       const batch = doc.createDocumentFragment();
-      const animations: Array<[HTMLSpanElement, Keyframe[], number]> = [];
-      build(batch, (el, frames, duration) => animations.push([el, frames, duration]));
+      const animations: ParticleAnimation[] = [];
+      build(batch, (el, frames, duration, delay = 0) =>
+        animations.push([el, frames, duration, delay]),
+      );
       host.append(batch);
-      for (const [el, frames, duration] of animations) {
-        animateAndRemove(el, frames, duration);
+      for (const [el, frames, duration, delay] of animations) {
+        animateAndRemove(el, frames, duration, delay);
       }
     };
+
+    if (effect === 'tide') {
+      const style = (resolvedParams.style as string | undefined) ?? 'both';
+      // Two oval ripple rings spreading across the water, plus sea-sparkle motes
+      // that blink on one after another and drift up as they fade.
+      runBatch((batch, queue) => {
+        if (style !== 'sparkle') {
+          const inner = Math.round(46 * scale);
+          const outer = Math.round(78 * scale);
+          queue(
+            ovalParticle(
+              batch,
+              inner,
+              Math.round(inner * TIDE_RING_FLATTEN),
+              `border:1.25px solid ${hexWithAlpha(accent, 0.85)};box-shadow:0 0 8px ${hexWithAlpha(accent, 0.35)},inset 0 0 8px ${hexWithAlpha(accent, 0.22)};opacity:0;`,
+            ),
+            TIDE_INNER_KEYFRAMES,
+            520,
+          );
+          queue(
+            ovalParticle(
+              batch,
+              outer,
+              Math.round(outer * TIDE_RING_FLATTEN),
+              `border:1px solid ${hexWithAlpha(secondary, 0.7)};box-shadow:0 0 10px ${hexWithAlpha(secondary, 0.24)};opacity:0;`,
+            ),
+            TIDE_OUTER_KEYFRAMES,
+            700,
+            80,
+          );
+        }
+        if (style !== 'ripples') {
+          const moteColors = [accent, secondary, hexWithAlpha(text, 0.95)] as const;
+          for (let i = 0; i < tideMotes.length; i++) {
+            const mote = tideMotes[i];
+            if (!mote) {
+              continue;
+            }
+            const size = Math.max(2, Math.round((i % 3 === 0 ? 4 : 3) * scale));
+            const color = moteColors[i % moteColors.length] ?? accent;
+            queue(
+              ovalParticle(
+                batch,
+                size,
+                size,
+                `background:radial-gradient(circle, ${color} 0%, ${color} 55%, transparent 100%);opacity:0;`,
+                mote.dx,
+                mote.dy,
+              ),
+              mote.frames,
+              620,
+              40 + i * 45,
+            );
+          }
+        }
+      });
+      return;
+    }
 
     if (effect === 'supernova') {
       const style = (resolvedParams.style as string | undefined) ?? 'both';
@@ -476,20 +609,21 @@ export function mountClickEffects(
       effect = nextEffect;
       palette = nextPalette;
       resolvedParams = resolveEffectParams(getClickParamSpecs(nextEffect), options?.params);
+      const nextScale = (resolvedParams.scale as number | undefined) ?? 1;
       if (nextEffect === 'matrix-burst') {
         const customGlyphs = Array.from(String(resolvedParams.glyphs ?? '').replace(/\s+/g, ''));
         matrixGlyphPool = customGlyphs.length > 0 ? customGlyphs : MATRIX_BURST_GLYPHS;
       } else if (nextEffect === 'supernova') {
-        const nextScale = (resolvedParams.scale as number | undefined) ?? 1;
         supernovaEmberFrames =
           nextScale === 1 ? SUPERNOVA_EMBER_KEYFRAMES : buildSupernovaEmberKeyframes(nextScale);
       } else if (nextEffect === 'spark') {
         const nextCount = Math.round((resolvedParams.count as number | undefined) ?? 8);
-        const nextScale = (resolvedParams.scale as number | undefined) ?? 1;
         sparkFrames =
           nextCount === 8 && nextScale === 1
             ? DEFAULT_SPARK_KEYFRAMES
             : buildSparkKeyframes(nextCount, nextScale);
+      } else if (nextEffect === 'tide') {
+        tideMotes = nextScale === 1 ? TIDE_MOTES : buildTideMotes(nextScale);
       }
       cascadeEnabled = options?.cascade ?? false;
       alwaysCascade = Boolean(options?.alwaysCascade);

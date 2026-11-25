@@ -792,8 +792,14 @@ export function appearancePanel(
         id: 'creative-studio',
         title: 'Creative Studio (Backgrounds, Glass, Prism & Click FX)',
         description:
-          'Add Event Horizon black hole, Matrix Rain, Vice City sunset, Aurora, Silk, Prism sheen, and click effects.',
+          'Add Luminous Tide glowing surf, Event Horizon black hole, Matrix Rain, Vice City sunset, Aurora, Silk, Prism sheen, and click effects.',
         keywords: [
+          'luminous tide',
+          'ocean',
+          'moon',
+          'bioluminescent',
+          'moonlit',
+          'tide',
           'event horizon',
           'black hole',
           'shader',

@@ -31,6 +31,9 @@ export interface ScenePointer {
   /** Smoothed pointer position normalized to `0..1` (top-left origin). */
   readonly nx: number;
   readonly ny: number;
+  /** Smoothed pointer velocity in viewport widths/heights per second (top-left origin). */
+  readonly vx: number;
+  readonly vy: number;
   /** Damped presence `0..1`: fades in on movement and out when the pointer leaves. */
   readonly presence: number;
 }
@@ -140,6 +143,10 @@ const DEFAULT_MAX_PIXEL_RATIO = 1.25;
 const DEFAULT_MAX_PIXELS = 1_200_000;
 const PRESENCE_RATE = 3.2;
 const SETTLE_EPSILON_PX = 0.35;
+/** Low-pass rate for pointer velocity, and its cap in viewport spans per second. */
+const VELOCITY_RATE = 12;
+const MAX_POINTER_SPEED = 4;
+const VELOCITY_EPSILON = 0.001;
 const IDLE_CLICK_AGE = 999;
 /** Shader clocks wrap so float precision never degrades over long sessions. */
 const CLOCK_WRAP_SECONDS = 3600;
@@ -207,7 +214,7 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   let sceneHooks: SceneHooks | null = null;
 
   const target = { x: 0, y: 0, presence: 0, seeded: false };
-  const pointer = { x: 0, y: 0, nx: 0.5, ny: 0.5, presence: 0 };
+  const pointer = { x: 0, y: 0, nx: 0.5, ny: 0.5, vx: 0, vy: 0, presence: 0 };
   const click = { x: 0.5, y: 0.5, age: IDLE_CLICK_AGE, count: 0 };
   const clicks = Array.from({ length: MAX_SHADER_CLICKS }, () => ({
     x: 0.5,
@@ -268,6 +275,18 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     Math.abs(target.y - pointer.y) < SETTLE_EPSILON_PX &&
     Math.abs(target.presence - pointer.presence) < 0.004;
 
+  const normalizePointer = (): void => {
+    pointer.nx = view.cssWidth > 0 ? pointer.x / view.cssWidth : 0.5;
+    pointer.ny = view.cssHeight > 0 ? pointer.y / view.cssHeight : 0.5;
+  };
+
+  // Speed is only measured while frames run, so it is stale once the loop stops:
+  // a paused still frame or the first frame back would otherwise show an old wake.
+  const restPointer = (): void => {
+    pointer.vx = 0;
+    pointer.vy = 0;
+  };
+
   const advancePointer = (dt: number, now: number): void => {
     const follow = easeFactor(pointerRate, dt);
     pointer.x += (target.x - pointer.x) * follow;
@@ -278,8 +297,19 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       pointer.y = target.y;
       pointer.presence = target.presence;
     }
-    pointer.nx = view.cssWidth > 0 ? pointer.x / view.cssWidth : 0.5;
-    pointer.ny = view.cssHeight > 0 ? pointer.y / view.cssHeight : 0.5;
+    const prevNx = pointer.nx;
+    const prevNy = pointer.ny;
+    normalizePointer();
+    if (dt > 0) {
+      const blend = easeFactor(VELOCITY_RATE, dt);
+      const rawVx = clamp((pointer.nx - prevNx) / dt, -MAX_POINTER_SPEED, MAX_POINTER_SPEED);
+      const rawVy = clamp((pointer.ny - prevNy) / dt, -MAX_POINTER_SPEED, MAX_POINTER_SPEED);
+      pointer.vx += (rawVx - pointer.vx) * blend;
+      pointer.vy += (rawVy - pointer.vy) * blend;
+      if (Math.abs(pointer.vx) < VELOCITY_EPSILON && Math.abs(pointer.vy) < VELOCITY_EPSILON) {
+        restPointer();
+      }
+    }
     if (click.count > 0 && click.age < IDLE_CLICK_AGE) {
       click.age = Math.min(IDLE_CLICK_AGE, click.age + dt);
       for (const slot of clicks) {
@@ -392,11 +422,13 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       cancelAnimationFrame(raf);
       raf = 0;
     }
+    restPointer();
   };
 
   const start = (): void => {
     if (raf === 0 && !destroyed && scene) {
       lastFrame = 0;
+      restPointer();
       raf = requestAnimationFrame(tick);
     }
   };
@@ -462,6 +494,8 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       pointer.x = target.x;
       pointer.y = target.y;
     }
+    // Normalize against the new size now so a resize never reads as pointer speed.
+    normalizePointer();
     scene.resize?.(view);
     if (spec.trackScroll) {
       refreshScrollBounds();
@@ -543,6 +577,8 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       target.seeded = true;
       pointer.x = target.x;
       pointer.y = target.y;
+      // Normalize now so the jump to the first real position never reads as speed.
+      normalizePointer();
     }
     if (spec.onDemand && animating()) {
       start();

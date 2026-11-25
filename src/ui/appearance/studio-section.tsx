@@ -628,7 +628,7 @@ export function CreativeStudioCard({
 
       <SettingRow
         title="Surface finish"
-        description="Layer frosted glass, gradient sheen, neon rims, or pointer-tracked Prism light across cards and buttons."
+        description="Layer frosted glass, gradient sheen, neon rims, pointer-tracked Prism light, or a Moonlit underglow across cards and buttons."
         stacked
       >
         <div className="theme-studio-stack">

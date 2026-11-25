@@ -1,6 +1,6 @@
 # Release notes
 
-Nothing has been published to stores yet. The version in `package.json` is still `0.0.0`, and this document reflects the `core-rework` branch as of 2026-11-24.
+Nothing has been published to stores yet. The version in `package.json` is still `0.0.0`, and this document reflects the `core-rework` branch as of 2026-11-25.
 
 ## Summary
 
@@ -8,7 +8,7 @@ Nothing has been published to stores yet. The version in `package.json` is still
 - **Quick Control Center**: Toolbar popup (and draggable userscript overlay) with Starter Modes (`Default`, `Clean`, `Focus`, `Minimal`), per-site toggles, Quick Mute, quick theme swatches, `My Themes` strip, polarity toggle, `Apply to all sites`, and instant-apply Undo toasts.
 - **Unified 3-tier theming (`ThemeDocumentV1`)**: Canonical `.fstheme.json` theme documents powering `My Themes`, curated `Live Themes`, static `Color Themes`, 8 animated backdrop engines, surface finishes, click FX, Tier 2 declarative multi-layer scenes, Tier 3 opt-in sandboxed GLSL fragment shaders, an adaptive CSSOM compiler, and an on-demand WCAG contrast/layout auto-healer.
 - **Cross-site cleanup & video tools**: Default-to-Following feeds, clutter removal, filter rules, and video controls/downloads across X, Instagram, Reddit, and Gmail.
-- **Verification**: 1,009+ unit tests across 110 test files and 69 Playwright end-to-end tests pass alongside strict TypeScript checks, Biome lint, and all three build targets.
+- **Verification**: 1,026 unit tests across 111 test files and 70 Playwright end-to-end tests pass alongside strict TypeScript checks, Biome lint, and all three build targets.
 
 ## Architecture & core platform
 
@@ -33,11 +33,11 @@ Every built-in Color Theme, curated Live Theme, user customization, and imported
 
 - **CSS Cascade Layers**: All injected host and Shadow DOM theme sheets use a deterministic cascade order (`@layer fs-user, fs-reveal-shell, fs-healer, fs-finish, fs-reveal, fs-mapping, fs-adaptive`) with O(1) class-bucketed selectors and automatic backdrop shell reveal (`[data-fs-shell]` + `--fs-reveal-canvas`).
 - **My Themes & Apply to all sites**: Save customized or imported themes into a shared cross-site library, rename/export/delete them, and broadcast any theme live to all open tabs and future site loads via **Apply to all sites**.
-- **Live Themes**: Curated one-click full-scene themes led by our flagship Tier 3 WebGL **Event Horizon** (gravitational-lensing black hole with *Black Hole* / *Quasar Jet* / *Solar Eclipse* modes, overlapping 4-click gravitational shockwaves, pointer-tracked Prism specular surfaces, and Supernova click bursts), alongside *Enter the Matrix*, *Vice City VI*, *Prism Dream*, *Velvet Silk*, *Night City Grid*, *Deep Space*, and *Blueprint Studio*.
+- **Live Themes**: Curated one-click full-scene themes led by two Tier 3 WebGL flagships. **Luminous Tide** is a moonlit shoreline with bioluminescent surf: the water glows under the pointer and along its wake, in rings around each click, and across the whole surf while you scroll, and a click on the sky sends a shooting star. The moon shows its real phase, the sky can follow your clock or hold at night, dusk, or dawn, and the theme pairs with the Moonlit surface finish and Tide click effect. **Event Horizon** is the other (gravitational-lensing black hole with *Black Hole* / *Quasar Jet* / *Solar Eclipse* modes, overlapping 4-click gravitational shockwaves, pointer-tracked Prism specular surfaces, and Supernova click bursts). Both sit alongside *Enter the Matrix*, *Vice City VI*, *Prism Dream*, *Velvet Silk*, *Night City Grid*, *Deep Space*, and *Blueprint Studio*.
 - **Color Themes & Palette Tools**: Static light and dark presets, 9 individual palette token overrides (including secondary surface, muted text, borders, and danger), accent ribbon position/thickness/angle controls, one-click dark/light polarity flipping, typography presets & sanitized custom font stacks, inline custom CSS, external HTTPS stylesheets, and opt-in live hover preview (off by default under Appearance).
-- **Customize Effects**: 8 built-in canvas/CSS backdrop engines (`digital-rain`, `vice-horizon`, `aurora`, `silk`, `starfield`, `cyber-grid`, `prism-beams`, `dot-spotlight`) with declarative per-engine parameter tuners, tunable surface finishes (`glass`, `gradient`, `neon`, `prism`), tunable click FX (`ripple`, `spark`, `matrix-burst`, `glow-pulse`, `supernova`), background-tab pause, and `prefers-reduced-motion` support.
+- **Customize Effects**: 8 built-in canvas/CSS backdrop engines (`digital-rain`, `vice-horizon`, `aurora`, `silk`, `starfield`, `cyber-grid`, `prism-beams`, `dot-spotlight`) with declarative per-engine parameter tuners, tunable surface finishes (`glass`, `gradient`, `neon`, `prism`, `moonlit`), tunable click FX (`ripple`, `spark`, `matrix-burst`, `glow-pulse`, `supernova`, `tide`), background-tab pause, and `prefers-reduced-motion` support.
 - **Tier 2 Declarative Scene Layers**: Themes can define multi-layer animated backgrounds (`gradient`, `grid`, `stars`, `rain`, `orbs`, `waves`, `scanlines`) purely in `.fstheme.json` data.
-- **Tier 3 Opt-In GLSL Shaders**: Themes can bundle a WebGL fragment shader with built-in GLSL helpers (`rot2`, `gauss`, `fbm`, `hsv2rgb`), 4-slot overlapping click shockwaves (`u_clicks[4]`), local time-of-day (`u_dayPhase`), extended palette uniforms (`u_border`, `u_danger`), `enum` / `number` / `color` / `boolean` declarative params, static safety validation, and an explicit trust confirmation before running.
+- **Tier 3 Opt-In GLSL Shaders**: Themes can bundle a WebGL fragment shader with built-in GLSL helpers (`rot2`, `gauss`, `fbm`, `hsv2rgb`), 4-slot overlapping click shockwaves (`u_clicks[4]`), local time-of-day (`u_dayPhase`), lunar phase computed from the clock (`u_moonPhase`), smoothed pointer velocity for wakes and motion-reactive scenes (`u_pointerVel`), extended palette uniforms (`u_border`, `u_danger`), `enum` / `number` / `color` / `boolean` declarative params, static safety validation, and an explicit trust confirmation before running.
 - **Adaptive Compiler & Theme Health**: Automatically rewrites host stylesheet rules (including Shadow DOM CSSOM and SPA polarity switches) and provides an on-demand WCAG contrast and layout audit with one-click Auto-Heal.
 - **Host Display Notices**: When visiting Facebook's or X's native Dark Mode / Display settings while a Feed Sanity theme is active, an inline notice reminds you that Feed Sanity is controlling appearance and links straight to Appearance settings.
 
@@ -69,7 +69,7 @@ Every built-in Color Theme, curated Live Theme, user customization, and imported
 
 ## Verification & known gaps
 
-- **Automated checks**: Strict TypeScript (`tsc --noEmit`), Biome lint/format, 1,009+ Vitest unit tests (happy-dom), Firefox MV2 + Chrome MV3 + Userscript builds, and 69 Playwright E2E tests pass.
+- **Automated checks**: Strict TypeScript (`tsc --noEmit`), Biome lint/format, 1,026 Vitest unit tests (happy-dom), Firefox MV2 + Chrome MV3 + Userscript builds, and 70 Playwright E2E tests pass.
 - **Known gaps**:
   - Firefox runtime testing (the page-world bridge requires Firefox 128+).
   - Video ads inside Reels are not filtered yet.

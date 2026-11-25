@@ -9,7 +9,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, expect, test } from '@playwright/test';
 import type { BrowserContext, Page, Route } from '@playwright/test';
+import type { CustomShaderSpec } from '../src/core/theme-effects/scene-schema';
 import { OPTIONS_TITLE } from '../project';
+import { EVENT_HORIZON_SHADER } from '../src/core/theme-effects/event-horizon-shader';
+import { LUMINOUS_TIDE_SHADER } from '../src/core/theme-effects/luminous-tide-shader';
+import { resolveEffectParams } from '../src/core/theme-effects/model';
+import {
+  buildCustomFragmentSource,
+  encodeShaderParam,
+} from '../src/core/theme-effects/renderers/custom-shader';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const USERSCRIPT = path.join(ROOT, '.output', 'userscript', 'feed-sanity.user.js');
@@ -121,6 +129,149 @@ async function installHarness(
   });
 }
 
+/** Default `u_<key>` values for a shader's declared params, encoded the way the runner uploads them. */
+function defaultParamUniforms(shader: CustomShaderSpec): Array<[string, number[]]> {
+  const specs = shader.params ?? [];
+  const values = resolveEffectParams(specs, undefined);
+  return specs.flatMap((spec): Array<[string, number[]]> => {
+    const encoded = encodeShaderParam(spec, values[spec.key]);
+    return encoded ? [[`u_${spec.key}`, [...encoded]]] : [];
+  });
+}
+
+/**
+ * Compiles, links, and draws one frame of a full Tier 3 fragment source on the
+ * page's real WebGL 1 implementation. Runs inside the browser.
+ */
+function compileAndDrawShader({
+  source,
+  params,
+}: {
+  readonly source: string;
+  readonly params: Array<[string, number[]]>;
+}): {
+  readonly webgl: boolean;
+  readonly log: string;
+  readonly glError: number;
+  readonly brightest: number;
+  readonly opaque: boolean;
+} {
+  const width = 160;
+  const height = 90;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const gl = canvas.getContext('webgl');
+  if (!gl) {
+    return { webgl: false, log: '', glError: 0, brightest: 0, opaque: false };
+  }
+  const failed = (log: string) => ({ webgl: true, log, glError: 0, brightest: 0, opaque: false });
+  const shaders: WebGLShader[] = [];
+  let program: WebGLProgram | null = null;
+  let buffer: WebGLBuffer | null = null;
+  try {
+    program = gl.createProgram();
+    if (!program) {
+      return failed('could not allocate a program');
+    }
+    const linked = program;
+    const stages: Array<[number, string]> = [
+      [
+        gl.VERTEX_SHADER,
+        'attribute vec2 aPosition;\nvoid main() { gl_Position = vec4(aPosition, 0.0, 1.0); }',
+      ],
+      [gl.FRAGMENT_SHADER, source],
+    ];
+    for (const [type, code] of stages) {
+      const shader = gl.createShader(type);
+      if (!shader) {
+        return failed('could not allocate a shader');
+      }
+      shaders.push(shader);
+      gl.shaderSource(shader, code);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        return failed(gl.getShaderInfoLog(shader) || 'compile failed');
+      }
+      gl.attachShader(linked, shader);
+    }
+    gl.linkProgram(linked);
+    if (!gl.getProgramParameter(linked, gl.LINK_STATUS)) {
+      return failed(gl.getProgramInfoLog(linked) || 'link failed');
+    }
+    buffer = gl.createBuffer();
+    if (!buffer) {
+      return failed('could not allocate a vertex buffer');
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API method, not a React hook
+    gl.useProgram(linked);
+    const position = gl.getAttribLocation(linked, 'aPosition');
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    gl.viewport(0, 0, width, height);
+
+    const set = (name: string, values: number[]): void => {
+      const loc = gl.getUniformLocation(linked, name);
+      if (values.length === 1) {
+        gl.uniform1fv(loc, values);
+      } else if (values.length === 2) {
+        gl.uniform2fv(loc, values);
+      } else if (values.length === 3) {
+        gl.uniform3fv(loc, values);
+      } else {
+        gl.uniform4fv(loc, values);
+      }
+    };
+    // A pointer sweeping over the water plus one fresh click exercise every interactive branch.
+    set('u_resolution', [width, height]);
+    set('u_time', [12]);
+    set('u_isDark', [1]);
+    set('u_pointer', [0.3, 0.3, 1, 1]);
+    set('u_pointerVel', [0.8, 0.1]);
+    set('u_scroll', [0.5, 0.4]);
+    set('u_dayPhase', [0.9]);
+    set('u_moonPhase', [0.5]);
+    set('u_bg', [0.02, 0.05, 0.09]);
+    set('u_surface', [0.04, 0.09, 0.15]);
+    set('u_text', [0.91, 0.96, 0.98]);
+    set('u_border', [0.11, 0.21, 0.31]);
+    set('u_accent', [0.27, 0.85, 1]);
+    set('u_accent2', [0.37, 0.95, 0.76]);
+    set('u_danger', [1, 0.54, 0.48]);
+    gl.uniform4fv(
+      gl.getUniformLocation(program, 'u_clicks[0]'),
+      new Float32Array([0.7, 0.3, 0.4, 1, 0.2, 0.8, 0.3, 1, 0.5, 0.5, 999, 0, 0.5, 0.5, 999, 0]),
+    );
+    for (const [name, values] of params) {
+      set(name, values);
+    }
+
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    let brightest = 0;
+    let opaque = true;
+    for (let i = 0; i < pixels.length; i += 4) {
+      brightest = Math.max(brightest, pixels[i] ?? 0, pixels[i + 1] ?? 0, pixels[i + 2] ?? 0);
+      opaque &&= pixels[i + 3] === 255;
+    }
+    return { webgl: true, log: '', glError: gl.getError(), brightest, opaque };
+  } finally {
+    if (buffer) {
+      gl.deleteBuffer(buffer);
+    }
+    for (const shader of shaders) {
+      gl.deleteShader(shader);
+    }
+    if (program) {
+      gl.deleteProgram(program);
+    }
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+  }
+}
+
 async function routeAudit(route: Route): Promise<void> {
   const url = new URL(route.request().url());
   if (url.pathname === '/clip.webm') {
@@ -193,7 +344,8 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
     context = await chromium.launchPersistentContext('', {
       channel: 'chromium',
       headless: true,
-      args: ['--host-resolver-rules=MAP * ~NOTFOUND'],
+      // Software WebGL keeps the Tier 3 shader smoke check meaningful on GPU-less runners.
+      args: ['--host-resolver-rules=MAP * ~NOTFOUND', '--enable-unsafe-swiftshader'],
     });
     await context.route('**/*', routeAudit);
   });
@@ -591,6 +743,67 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
             page.evaluate(() => document.documentElement.style.getPropertyValue('--fs-ptr-angle')),
           )
           .toMatch(/^\d+deg$/);
+
+        // Luminous Tide: the nature flagship, with two enum tuners, the Moonlit finish, and Tide click FX.
+        await studioDialog
+          .getByRole('group', { name: 'Live themes' })
+          .getByRole('button', { name: /Luminous Tide/i })
+          .click();
+        await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'custom-shader');
+        await expect(studioDialog.getByRole('slider', { name: 'Bioluminescence' })).toBeVisible();
+        const skySelect = studioDialog.getByRole('combobox', { name: 'Time of day' });
+        await expect(skySelect).toHaveValue('night');
+        for (const sky of ['clock', 'dusk', 'dawn', 'night']) {
+          await skySelect.selectOption(sky);
+        }
+        await studioDialog.getByRole('combobox', { name: 'Moon' }).selectOption('crescent');
+
+        // Moonlit replaces Prism: the pointer-angle variable is gone and popups carry the
+        // top-lit gradient and waterline shadow, still with no backdrop blur.
+        const moonlitButton = studioDialog.getByRole('button', { name: 'Moonlit', exact: true });
+        await expect(moonlitButton).toHaveAttribute('aria-pressed', 'true');
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const style = getComputedStyle(document.querySelector('#typeaheadDropdown-1')!);
+              return {
+                ptrAngle: document.documentElement.style.getPropertyValue('--fs-ptr-angle'),
+                gradient: style.backgroundImage.startsWith('linear-gradient'),
+                waterline: style.boxShadow.includes('-1px'),
+                blur: style.backdropFilter,
+              };
+            }),
+          )
+          .toEqual({ ptrAngle: '', gradient: true, waterline: true, blur: 'none' });
+
+        // A press on any control spawns the Tide click effect in its own shadow root: two
+        // rings and seven motes, led by an oval ring that no other click effect draws.
+        // The press and the count share one task so no particle can finish in between.
+        const tideBurst = await moonlitButton.evaluate((button) => {
+          const overlaySelector = '[data-feed-sanity="theme-click-fx"]';
+          document.querySelector(overlaySelector)?.shadowRoot?.replaceChildren();
+          button.dispatchEvent(
+            new PointerEvent('pointerdown', {
+              button: 0,
+              clientX: 60,
+              clientY: 60,
+              bubbles: true,
+              composed: true,
+            }),
+          );
+          const particles = document.querySelector(overlaySelector)?.shadowRoot;
+          const ring = particles?.firstElementChild as HTMLElement | null | undefined;
+          return {
+            overlays: document.querySelectorAll(overlaySelector).length,
+            particles: particles?.childElementCount ?? 0,
+            ovalRing: ring
+              ? Number.parseFloat(ring.style.width) > Number.parseFloat(ring.style.height)
+              : false,
+          };
+        });
+        expect(tideBurst).toEqual({ overlays: 1, particles: 9, ovalRing: true });
+        await page.mouse.move(300, 620);
+        await page.mouse.move(520, 600, { steps: 6 });
         expect(shaderErrors).toEqual([]);
       } finally {
         page.off('console', onConsole);
@@ -616,6 +829,32 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
           page.evaluate(() => document.documentElement.style.getPropertyValue('--fs-ptr-angle')),
         )
         .toBe('');
+    } finally {
+      await page.close();
+    }
+  });
+
+  test('flagship Tier 3 shaders compile, link, and draw on real Chromium WebGL with zero GLSL errors', async () => {
+    const page = await context.newPage();
+    try {
+      for (const [name, shader] of [
+        ['event-horizon', EVENT_HORIZON_SHADER],
+        ['luminous-tide', LUMINOUS_TIDE_SHADER],
+      ] as const) {
+        const source = buildCustomFragmentSource(shader);
+        expect(source, name).not.toBeNull();
+        const result = await page.evaluate(compileAndDrawShader, {
+          source: source ?? '',
+          params: defaultParamUniforms(shader),
+        });
+        // A null context would make this check pass without compiling anything.
+        expect(result.webgl, `${name}: WebGL 1 context`).toBe(true);
+        expect(result.log, `${name}: GLSL compile/link log`).toBe('');
+        expect(result.glError, `${name}: gl.getError()`).toBe(0);
+        // Every pixel is opaque and the frame is not blank.
+        expect(result.opaque, `${name}: opaque output`).toBe(true);
+        expect(result.brightest, `${name}: brightest channel`).toBeGreaterThan(80);
+      }
     } finally {
       await page.close();
     }

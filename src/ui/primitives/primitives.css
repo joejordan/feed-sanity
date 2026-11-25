@@ -205,6 +205,14 @@
   white-space: nowrap;
 }
 
+/* Equal-width segments share the row, so a long label shortens instead of spilling into its neighbor. */
+.fs-segmented-full .fs-segmented-btn {
+  min-width: 0;
+  padding-inline: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .fs-segmented-btn:hover {
   color: var(--fs-text);
 }

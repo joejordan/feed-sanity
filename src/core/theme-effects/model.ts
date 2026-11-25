@@ -9,6 +9,7 @@ import { normalizeHex } from '../theming/color';
 import { RAIN_CHARSETS } from './digital-rain/charsets';
 import { RAIN_INTROS } from './digital-rain/settings';
 import { EVENT_HORIZON_SHADER } from './event-horizon-shader';
+import { LUMINOUS_TIDE_SHADER } from './luminous-tide-shader';
 import { isOneOf, parseCustomScene, parseCustomShader, readClampedNumber } from './scene-schema';
 
 export const BACKDROP_EFFECT_IDS = [
@@ -27,7 +28,14 @@ export const BACKDROP_EFFECT_IDS = [
 
 export type BackdropEffectId = (typeof BACKDROP_EFFECT_IDS)[number];
 
-export const SURFACE_FINISH_IDS = ['default', 'glass', 'gradient', 'neon', 'prism'] as const;
+export const SURFACE_FINISH_IDS = [
+  'default',
+  'glass',
+  'gradient',
+  'neon',
+  'prism',
+  'moonlit',
+] as const;
 export type SurfaceFinishId = (typeof SURFACE_FINISH_IDS)[number];
 
 export const CLICK_EFFECT_IDS = [
@@ -37,6 +45,7 @@ export const CLICK_EFFECT_IDS = [
   'matrix-burst',
   'glow-pulse',
   'supernova',
+  'tide',
 ] as const;
 export type ClickEffectId = (typeof CLICK_EFFECT_IDS)[number];
 
@@ -624,16 +633,20 @@ export interface ThemeEffectsConfig {
   readonly clickParams?: EffectParamValues;
 }
 
-const EDGE_GLOW_PARAM: EffectParamSpec = {
-  key: 'glow',
-  kind: 'number',
-  label: 'Edge glow',
-  min: 0.3,
-  max: 1.8,
-  step: 0.05,
-  defaultValue: 1,
-  unit: '×',
-};
+function surfaceScaleParam(key: string, label: string): EffectParamSpec {
+  return {
+    key,
+    kind: 'number',
+    label,
+    min: 0.3,
+    max: 1.8,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  };
+}
+
+const EDGE_GLOW_PARAM: EffectParamSpec = surfaceScaleParam('glow', 'Edge glow');
 
 function clickScaleParam(label: string): EffectParamSpec {
   return {
@@ -673,29 +686,11 @@ export const SURFACE_PARAM_SPECS: Readonly<Record<SurfaceFinishId, readonly Effe
       defaultValue: 145,
       unit: '°',
     },
-    {
-      key: 'strength',
-      kind: 'number',
-      label: 'Sheen strength',
-      min: 0.3,
-      max: 1.8,
-      step: 0.05,
-      defaultValue: 1,
-      unit: '×',
-    },
+    surfaceScaleParam('strength', 'Sheen strength'),
   ],
   neon: [EDGE_GLOW_PARAM],
   prism: [
-    {
-      key: 'strength',
-      kind: 'number',
-      label: 'Prism sheen',
-      min: 0.3,
-      max: 1.8,
-      step: 0.05,
-      defaultValue: 1,
-      unit: '×',
-    },
+    surfaceScaleParam('strength', 'Prism sheen'),
     EDGE_GLOW_PARAM,
     {
       key: 'baseAngle',
@@ -718,6 +713,7 @@ export const SURFACE_PARAM_SPECS: Readonly<Record<SurfaceFinishId, readonly Effe
       unit: '°',
     },
   ],
+  moonlit: [surfaceScaleParam('sheen', 'Moonlight sheen'), surfaceScaleParam('glow', 'Underglow')],
 };
 
 export const CLICK_PARAM_SPECS: Readonly<Record<ClickEffectId, readonly EffectParamSpec[]>> = {
@@ -760,6 +756,21 @@ export const CLICK_PARAM_SPECS: Readonly<Record<ClickEffectId, readonly EffectPa
       defaultValue: 'both',
     },
     clickScaleParam('Burst size'),
+  ],
+  tide: [
+    {
+      key: 'style',
+      kind: 'enum',
+      label: 'Splash style',
+      options: ['both', 'ripples', 'sparkle'],
+      optionLabels: {
+        both: 'Ripples & Sea Sparkle',
+        ripples: 'Ripples',
+        sparkle: 'Sea Sparkle',
+      },
+      defaultValue: 'both',
+    },
+    clickScaleParam('Splash size'),
   ],
 };
 
@@ -971,6 +982,7 @@ export const SURFACE_FINISH_OPTIONS: ReadonlyArray<{
   { value: 'gradient', label: 'Gradient', summary: 'Rich directional sheen' },
   { value: 'neon', label: 'Neon', summary: 'Luminous accent borders' },
   { value: 'prism', label: 'Prism', summary: 'Pointer-tracked specular sheen' },
+  { value: 'moonlit', label: 'Moonlit', summary: 'Top-lit sheen & luminous underglow' },
 ];
 
 export const CLICK_EFFECT_OPTIONS: ReadonlyArray<{
@@ -983,6 +995,7 @@ export const CLICK_EFFECT_OPTIONS: ReadonlyArray<{
   { value: 'matrix-burst', label: 'Glyphs' },
   { value: 'glow-pulse', label: 'Glow' },
   { value: 'supernova', label: 'Supernova' },
+  { value: 'tide', label: 'Tide' },
 ];
 
 const SURFACE_FINISH_LABEL_BY_ID: ReadonlyMap<SurfaceFinishId, string> = new Map(
@@ -1019,6 +1032,25 @@ export interface StudioVibe {
  * gutters while reading columns stay crisp, opaque enough for all-day use.
  */
 export const STUDIO_VIBES: readonly StudioVibe[] = [
+  {
+    id: 'luminous-tide',
+    name: 'Luminous Tide',
+    tagline: 'Glowing moonlit surf, live lunar phase & tidal ripples',
+    preset: 'luminous-tide',
+    swatch:
+      'radial-gradient(circle at 14% 34%, #f1f8ff 0 4px, rgb(241 248 255 / 0%) 5px), radial-gradient(ellipse 62% 24% at 58% 76%, #45d8ff 0%, rgb(69 216 255 / 0%) 72%), linear-gradient(180deg, #050d18 0%, #0c2a40 62%, #06121f 100%)',
+    effects: {
+      backdrop: 'custom-shader',
+      customShader: LUMINOUS_TIDE_SHADER,
+      intensity: 0.96,
+      speed: 1,
+      glassStrength: 0.3,
+      surface: 'moonlit',
+      click: 'tide',
+      paused: false,
+      interactive: true,
+    },
+  },
   {
     id: 'event-horizon',
     name: 'Event Horizon',

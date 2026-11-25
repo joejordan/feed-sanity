@@ -59,6 +59,10 @@ export function compileUiSurfaceCss(
   if (effects.surface === 'gradient') {
     return `.dialog-main, .qp-body { background-image: linear-gradient(160deg, ${hexWithAlpha(accent, 0.08)} 0%, transparent 45%, ${hexWithAlpha(secondary, 0.06)} 100%); }`;
   }
+  if (effects.surface === 'moonlit') {
+    const text = palette?.text ?? '#f8fafc';
+    return `.dialog, .qp-root { box-shadow: inset 0 1px 0 0 ${hexWithAlpha(text, 0.1)}, 0 26px 54px -22px ${hexWithAlpha(accent, 0.4)}, 0 24px 60px var(--fs-shadow-2); }`;
+  }
   return '';
 }
 

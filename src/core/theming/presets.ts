@@ -395,6 +395,52 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       },
     },
   },
+  {
+    id: 'luminous-tide',
+    name: 'Luminous Tide',
+    description: 'Midnight ocean navy with moonlight type, plankton cyan, and sea-foam mint.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#050d18',
+      surface: '#0a1826',
+      surfaceAlt: '#11253a',
+      text: '#e8f4fb',
+      textMuted: '#93adc4',
+      border: '#1c3650',
+      accent: '#45d8ff',
+      accentSecondary: '#5ef2c2',
+      accentText: '#03121c',
+      danger: '#ff8a7a',
+    },
+    swatches: ['#050d18', '#11253a', '#45d8ff', '#5ef2c2', '#e8f4fb'],
+    swatchGradient:
+      'radial-gradient(circle at 68% 30%, #eef7ff 0 14%, transparent 15%), linear-gradient(180deg, #071a2c 0%, #0c2a40 50%, #45d8ff 62%, #0b2233 72%, #050d18 100%)',
+    chrome: {
+      // A thin glowing waterline along the bottom edge instead of the usual top ribbon.
+      ribbon: {
+        enabled: true,
+        stops: [
+          'transparent',
+          '#5ef2c2',
+          '#45d8ff',
+          '#e8f4fb',
+          '#45d8ff',
+          '#5ef2c2',
+          'transparent',
+        ],
+        height: 2,
+        position: 'bottom',
+      },
+      ambientGlow: {
+        enabled: true,
+        spots: [
+          { color: '#45d8ff', alpha: 0.13, x: 20, y: 100, radiusX: 62, radiusY: 40 },
+          { color: '#5ef2c2', alpha: 0.09, x: 84, y: 100, radiusX: 54, radiusY: 34 },
+          { color: '#cfe6ff', alpha: 0.07, x: 84, y: 0, radiusX: 48, radiusY: 38 },
+        ],
+      },
+    },
+  },
 ];
 
 const BUILTIN_THEME_BY_ID: ReadonlyMap<string, ThemePreset> = new Map(

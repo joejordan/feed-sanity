@@ -1,5 +1,5 @@
 // Compiles site-safe backdrop reveal CSS (translucent page gutters + readable
-// feed columns) and Surface Finishes (Glass, Gradient Sheen, Neon, Prism) from
+// feed columns) and Surface Finishes (Glass, Gradient Sheen, Neon, Prism, Moonlit) from
 // one declarative `SurfaceSelectors` contract so no site ever creates
 // stacking-context or `backdrop-filter` traps on ancestors or popups.
 
@@ -208,7 +208,7 @@ function scaledHex(hex: string, alpha: number): string {
 }
 
 /**
- * Compiles site-agnostic Surface Finish enhancements (`glass`, `gradient`, `neon`, `prism`)
+ * Compiles site-agnostic Surface Finish enhancements (`glass`, `gradient`, `neon`, `prism`, `moonlit`)
  * emitted into `@layer fs-finish` so finishes cleanly outrank `fs-reveal` and
  * `fs-mapping` without `:where(...)` specificity loss or hardcoded site selectors.
  */
@@ -221,11 +221,12 @@ export function compileSurfaceFinishCss(
   if (effects.surface === 'default') {
     return '';
   }
-  const accent = palette?.accent ?? (hostScheme === 'light' ? '#2563eb' : '#3b82f6');
-  const surface = palette?.surface ?? (hostScheme === 'light' ? '#ffffff' : '#131926');
-  const alt = palette?.surfaceAlt ?? (hostScheme === 'light' ? '#f1f5f9' : '#1c2436');
-  const text = palette?.text ?? (hostScheme === 'light' ? '#0f172a' : '#f8fafc');
-  const border = palette?.border ?? (hostScheme === 'light' ? '#cbd5e1' : '#2b364d');
+  const isLight = hostScheme === 'light';
+  const accent = palette?.accent ?? (isLight ? '#2563eb' : '#3b82f6');
+  const surface = palette?.surface ?? (isLight ? '#ffffff' : '#131926');
+  const alt = palette?.surfaceAlt ?? (isLight ? '#f1f5f9' : '#1c2436');
+  const text = palette?.text ?? (isLight ? '#0f172a' : '#f8fafc');
+  const border = palette?.border ?? (isLight ? '#cbd5e1' : '#2b364d');
   const secondary = palette?.accentSecondary ?? palette?.danger ?? '#ec4899';
 
   const leafTargets = surfaces?.leafCards?.join(',\n') ?? '';
@@ -238,7 +239,7 @@ export function compileSurfaceFinishCss(
   if (effects.surface === 'glass') {
     const { cardAlpha, blurPx } = resolveGlassMetrics(Math.max(0.24, effects.glassStrength));
     const satPct = Math.round(((sp.saturation as number | undefined) ?? 1.25) * 100);
-    const highlight = hexWithAlpha(text, hostScheme === 'light' ? 0.14 : 0.08);
+    const highlight = hexWithAlpha(text, isLight ? 0.14 : 0.08);
     const blocks: string[] = [];
     if (leafTargets) {
       blocks.push(
@@ -257,8 +258,8 @@ export function compileSurfaceFinishCss(
   if (effects.surface === 'gradient') {
     const angle = Math.round((sp.angle as number | undefined) ?? 145);
     const strength = (sp.strength as number | undefined) ?? 1;
-    const sheenA = scaledHex(accent, (hostScheme === 'light' ? 0.08 : 0.14) * strength);
-    const sheenB = scaledHex(secondary, (hostScheme === 'light' ? 0.05 : 0.1) * strength);
+    const sheenA = scaledHex(accent, (isLight ? 0.08 : 0.14) * strength);
+    const sheenB = scaledHex(secondary, (isLight ? 0.05 : 0.1) * strength);
     const blocks: string[] = [
       `${cardTargets} {\n  background-image: linear-gradient(${angle}deg, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 48%, ${sheenB} 100%) !important;\n}`,
     ];
@@ -278,7 +279,6 @@ export function compileSurfaceFinishCss(
   const searchTargets = surfaces?.searchContainers?.join(',\n') ?? '';
 
   if (effects.surface === 'prism') {
-    const isLight = hostScheme === 'light';
     const strength = (sp.strength as number | undefined) ?? 1;
     const glow = (sp.glow as number | undefined) ?? 1;
     const baseAngle = Math.round((sp.baseAngle as number | undefined) ?? 132);
@@ -310,6 +310,45 @@ export function compileSurfaceFinishCss(
     if (searchTargets) {
       blocks.push(
         `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${scaledHex(accent, 0.36 * glow)} !important;\n}`,
+      );
+    }
+    return blocks.join('\n\n');
+  }
+
+  if (effects.surface === 'moonlit') {
+    // Cards read as slabs lit by the moon from above and by glowing water from
+    // below: a pale top edge, an accent waterline, and a soft underglow. Static
+    // gradients and shadows only, so it costs nothing while scrolling.
+    const sheen = (sp.sheen as number | undefined) ?? 1;
+    const glow = (sp.glow as number | undefined) ?? 1;
+    const topEdge = scaledHex(text, (isLight ? 0.16 : 0.11) * sheen);
+    const topLight = scaledHex(text, (isLight ? 0.05 : 0.07) * sheen);
+    const bounce = scaledHex(accent, (isLight ? 0.05 : 0.08) * glow);
+    const waterline = scaledHex(accent, (isLight ? 0.3 : 0.26) * glow);
+    const underglow = scaledHex(accent, (isLight ? 0.22 : 0.3) * glow);
+    const blocks: string[] = [
+      `${cardTargets} {\n  background-image: linear-gradient(180deg, ${topLight} 0%, transparent 38%, transparent 66%, ${bounce} 100%) !important;\n  box-shadow: inset 0 1px 0 0 ${topEdge}, inset 0 -1px 0 0 ${waterline}, 0 14px 26px -16px ${underglow} !important;\n}`,
+      `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 10px 20px -10px ${scaledHex(accent, 0.45 * glow)} !important;\n}`,
+    ];
+    if (feedCardHoverTargets) {
+      // Hovering a post stirs the water under it (inset-only avoids outer blur repaints).
+      blocks.push(
+        `${feedCardHoverTargets} {\n  box-shadow: inset 0 1px 0 0 ${topEdge}, inset 0 -2px 0 0 ${scaledHex(accent, 0.6 * glow)}, inset 0 -14px 16px -12px ${scaledHex(accent, 0.45 * glow)} !important;\n}`,
+      );
+    }
+    if (ctaTargets) {
+      blocks.push(
+        `${ctaTargets} {\n  background-image: linear-gradient(180deg, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 8px 18px -8px ${scaledHex(accent, 0.6 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.3)} !important;\n}`,
+      );
+    }
+    if (columnTargets) {
+      blocks.push(
+        `${columnTargets} {\n  border-color: ${scaledHex(text, 0.1 * sheen)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.2 * glow)} !important;\n}`,
+      );
+    }
+    if (searchTargets) {
+      blocks.push(
+        `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${scaledHex(accent, 0.3 * glow)} !important;\n}`,
       );
     }
     return blocks.join('\n\n');

@@ -1,11 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ThemePalette } from '../theming/types';
 import type { CustomSceneSpec, CustomShaderSpec } from './scene-schema';
+import { xThemeMapping } from '../../sites/x/theme-mapping';
+import { compileHostThemeCss } from '../theming/compile';
+import { compileUiSurfaceCss } from '../theming/compile-ui';
+import { applyStudioVibe, DEFAULT_THEME_DOCUMENT, resolveTheme } from '../theming/config';
+import { BUILTIN_THEMES, findThemePreset } from '../theming/presets';
+import { THEME_LAYER_ORDER } from '../theming/types';
 import { createEffectsLayerController } from './controller';
 import { EVENT_HORIZON_SHADER } from './event-horizon-shader';
+import { LUMINOUS_TIDE_SHADER } from './luminous-tide-shader';
 import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from './model';
 import { buildCustomFragmentSource } from './renderers/custom-shader';
-import { parseCustomShader, validateCustomShaderSource } from './scene-schema';
+import {
+  MAX_CUSTOM_SHADER_BYTES,
+  MAX_CUSTOM_SHADER_PARAMS,
+  parseCustomShader,
+  validateCustomShaderSource,
+} from './scene-schema';
 import { compileSurfaceFinishCss } from './surfaces';
 
 const DARK_PALETTE: ThemePalette = {
@@ -21,6 +33,65 @@ const DARK_PALETTE: ThemePalette = {
   accentText: '#ffffff',
   danger: '#f87171',
 };
+
+/** Words GLSL ES 1.00 reserves for future use: legal-looking names that fail to compile. */
+const GLSL_RESERVED_WORDS = [
+  'asm',
+  'class',
+  'union',
+  'enum',
+  'typedef',
+  'template',
+  'this',
+  'packed',
+  'goto',
+  'switch',
+  'default',
+  'inline',
+  'noinline',
+  'volatile',
+  'public',
+  'static',
+  'extern',
+  'external',
+  'interface',
+  'flat',
+  'long',
+  'short',
+  'double',
+  'half',
+  'fixed',
+  'unsigned',
+  'superp',
+  'input',
+  'output',
+  'sizeof',
+  'cast',
+  'namespace',
+  'using',
+];
+
+/**
+ * Static checks for the GLSL ES 1.00 rules our shaders must follow, which
+ * drivers do not agree on and a mocked WebGL context cannot catch: literal
+ * `smoothstep` edges must ascend, and reserved words cannot be identifiers.
+ */
+function lintFlagshipGlsl(fragment: string): string[] {
+  const problems: string[] = [];
+  const code = fragment.replaceAll(/\/\/.*$/gm, '');
+  const edges = /smoothstep\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,/g;
+  for (const match of code.matchAll(edges)) {
+    if (Number(match[1]) >= Number(match[2])) {
+      problems.push(`smoothstep edges must ascend: ${match[0]}`);
+    }
+  }
+  for (const word of GLSL_RESERVED_WORDS) {
+    if (new RegExp(`\\b${word}\\b`).test(code)) {
+      problems.push(`reserved GLSL ES 1.00 word used as an identifier: ${word}`);
+    }
+  }
+  return problems;
+}
 
 function makeFake2dContext(): CanvasRenderingContext2D {
   const grad = { addColorStop: vi.fn() } as unknown as CanvasGradient;
@@ -132,6 +203,32 @@ function makeFakeWebGLContext(options: { compileOk?: boolean } = {}) {
       contextLost = v;
     },
   };
+}
+
+/** Gives every canvas a fixed CSS size so the scene host can size its backing store. */
+function mockCanvasSize(width: number, height: number): void {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width,
+    height,
+    top: 0,
+    left: 0,
+    right: width,
+    bottom: height,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
+}
+
+/** Swaps `requestAnimationFrame` for a manual queue so a test can run frames at chosen times. */
+function stubAnimationFrames(): FrameRequestCallback[] {
+  const queue: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+    queue.push(cb);
+    return queue.length;
+  });
+  vi.stubGlobal('cancelAnimationFrame', () => undefined);
+  return queue;
 }
 
 describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
@@ -334,12 +431,7 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
       fallbackColors: ['#0a0f18', '#38bdf8'],
     };
 
-    const rafQueue: FrameRequestCallback[] = [];
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      rafQueue.push(cb);
-      return rafQueue.length;
-    });
-    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    const rafQueue = stubAnimationFrames();
     const flushNext = (now: number): void => {
       const cb = rafQueue.shift();
       cb?.(now);
@@ -348,17 +440,7 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
     const live = makeFakeWebGLContext({ compileOk: true });
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((kind: string) =>
       kind === 'webgl' ? live.gl : null) as HTMLCanvasElement['getContext']);
-    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      width: 1200,
-      height: 800,
-      top: 0,
-      left: 0,
-      right: 1200,
-      bottom: 800,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    });
+    mockCanvasSize(1200, 800);
 
     const controller = createEffectsLayerController(document);
     controller.sync(
@@ -703,5 +785,294 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
 
     controller.dispose();
     expect(document.documentElement.style.getPropertyValue('--fs-ptr-angle')).toBe('');
+  });
+
+  it('keeps both flagship shaders inside the GLSL ES 1.00 safety rules and the source budget', () => {
+    for (const [name, shader] of [
+      ['event-horizon', EVENT_HORIZON_SHADER],
+      ['luminous-tide', LUMINOUS_TIDE_SHADER],
+    ] as const) {
+      expect(lintFlagshipGlsl(shader.fragment), name).toEqual([]);
+      expect(new TextEncoder().encode(shader.fragment).byteLength, name).toBeLessThanOrEqual(
+        MAX_CUSTOM_SHADER_BYTES,
+      );
+      expect(validateCustomShaderSource(shader.fragment).ok, name).toBe(true);
+    }
+    // Luminous Tide squares and multiplies instead of calling pow(), so a zero or
+    // negative base can never reach it.
+    expect(LUMINOUS_TIDE_SHADER.fragment).not.toMatch(/\bpow\s*\(/);
+    expect(lintFlagshipGlsl('float flat = smoothstep(0.6, 0.2, x);')).toHaveLength(2);
+  });
+
+  it('validates the flagship Luminous Tide shader, its preset, and the Moonlit surface finish', () => {
+    const validated = validateCustomShaderSource(LUMINOUS_TIDE_SHADER.fragment);
+    expect(validated.ok).toBe(true);
+    expect(validated.entrypoint).toBe('mainImage');
+
+    // All 8 declarative params survive a cold parse (none collide with a reserved
+    // uniform name), and together they use every param kind the sandbox offers.
+    const warnings: string[] = [];
+    const parsed = parseCustomShader(JSON.parse(JSON.stringify(LUMINOUS_TIDE_SHADER)), warnings);
+    expect(parsed.errors).toEqual([]);
+    expect(warnings).toEqual([]);
+    expect(parsed.shader?.params).toEqual(LUMINOUS_TIDE_SHADER.params);
+    expect(parsed.shader?.params).toHaveLength(MAX_CUSTOM_SHADER_PARAMS);
+    expect(new Set(LUMINOUS_TIDE_SHADER.params?.map((param) => param.kind))).toEqual(
+      new Set(['enum', 'number', 'color', 'boolean']),
+    );
+
+    const built = buildCustomFragmentSource(LUMINOUS_TIDE_SHADER);
+    for (const declaration of [
+      'uniform float u_sky;',
+      'uniform float u_moon;',
+      'uniform float u_swell;',
+      'uniform float u_bloom;',
+      'uniform float u_stars;',
+      'uniform vec3 u_bloomColor;',
+      'uniform float u_aurora;',
+      'uniform float u_meteors;',
+      'uniform vec2 u_pointerVel;',
+      'uniform float u_moonPhase;',
+      'uniform float u_dayPhase;',
+      'uniform vec4 u_clicks[4];',
+    ]) {
+      expect(built).toContain(declaration);
+    }
+    // The scene really reads every interactive input and every palette color.
+    for (const uniform of [
+      'u_time',
+      'u_pointer',
+      'u_pointerVel',
+      'u_scroll',
+      'u_clicks',
+      'u_dayPhase',
+      'u_moonPhase',
+      'u_bg',
+      'u_surface',
+      'u_text',
+      'u_border',
+      'u_accent',
+      'u_accent2',
+      'u_danger',
+      'u_isDark',
+    ]) {
+      expect(LUMINOUS_TIDE_SHADER.fragment, uniform).toMatch(new RegExp(`\\b${uniform}\\b`));
+    }
+
+    // Leads the Live Themes list, and its palette is appended after the existing presets.
+    const vibe = STUDIO_VIBES[0]!;
+    expect(vibe.id).toBe('luminous-tide');
+    expect(vibe.effects).toMatchObject({
+      backdrop: 'custom-shader',
+      surface: 'moonlit',
+      click: 'tide',
+    });
+    expect(BUILTIN_THEMES[0]?.id).toBe('midnight');
+    expect(BUILTIN_THEMES.at(-1)?.id).toBe('luminous-tide');
+    const preset = findThemePreset('luminous-tide')!;
+    expect(preset.palette.accentSecondary).toBe('#5ef2c2');
+    expect(preset.chrome?.ribbon?.position).toBe('bottom');
+    expect(preset.chrome?.ambientGlow?.spots).toHaveLength(3);
+
+    // Moonlit finish: top-lit sheen, accent waterline and underglow, no blur or animation.
+    const surfaces = {
+      leafCards: ['article'],
+      primaryCtas: ['button.primary'],
+      feedCards: ['article.post'],
+      columns: ['main'],
+      searchContainers: ['form[role="search"]'],
+    };
+    const moonlit = { ...DEFAULT_THEME_EFFECTS, surface: 'moonlit' as const };
+    const defaultCss = compileSurfaceFinishCss(DARK_PALETTE, 'dark', moonlit, surfaces);
+    expect(defaultCss).toContain('linear-gradient(180deg, rgb(230 237 247 / 7%) 0%');
+    expect(defaultCss).toContain('inset 0 -1px 0 0 rgb(59 130 246 / 26%)');
+    expect(defaultCss).toContain('0 14px 26px -16px rgb(59 130 246 / 30%)');
+    expect(defaultCss).toContain('article.post:hover');
+    expect(defaultCss).toContain('button.primary {');
+    expect(defaultCss).toContain('form[role="search"] {');
+    expect(defaultCss).not.toMatch(/backdrop-filter|background-attachment|animation|transition/);
+
+    const tunedCss = compileSurfaceFinishCss(
+      DARK_PALETTE,
+      'dark',
+      { ...moonlit, surfaceParams: { sheen: 1.5, glow: 0.5 } },
+      surfaces,
+    );
+    expect(tunedCss).toContain('0 14px 26px -16px rgb(59 130 246 / 15%)');
+    expect(tunedCss).toContain('inset 0 1px 0 0 rgb(230 237 247 / 17%)');
+
+    // Feed Sanity's own dialog picks up a matching edge light and underglow.
+    const uiCss = compileUiSurfaceCss(DARK_PALETTE, moonlit);
+    expect(uiCss).toContain('.dialog, .qp-root');
+    expect(uiCss).toContain('inset 0 1px 0 0 rgb(230 237 247 / 10%)');
+
+    // The whole theme compiles into layered host CSS with the waterline ribbon on the bottom edge.
+    const hostCss = compileHostThemeCss(
+      resolveTheme(applyStudioVibe(DEFAULT_THEME_DOCUMENT, vibe))!,
+      xThemeMapping,
+      'dark',
+    );
+    expect(hostCss.startsWith(THEME_LAYER_ORDER)).toBe(true);
+    expect(hostCss).toContain('@layer fs-finish');
+    expect(hostCss).toContain('inset: auto 0 0 0; height: 2px;');
+    expect(hostCss).not.toContain('background-attachment');
+    expect(hostCss).not.toContain('backdrop-filter');
+  });
+
+  it('feeds Luminous Tide its enum params, lunar phase, and pointer velocity, and spawns Tide click FX', () => {
+    const vibe = STUDIO_VIBES.find((entry) => entry.id === 'luminous-tide')!;
+    const fake = makeFakeWebGLContext({ compileOk: true });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((kind: string) =>
+      kind === 'webgl' ? fake.gl : null) as HTMLCanvasElement['getContext']);
+    mockCanvasSize(1000, 500);
+    const rafQueue = stubAnimationFrames();
+    // happy-dom never reports a resize, so the test plays the browser's part.
+    const resizeCallbacks: Array<(entries: readonly ResizeObserverEntry[]) => void> = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        readonly observe = vi.fn();
+        readonly disconnect = vi.fn();
+        constructor(callback: (entries: readonly ResizeObserverEntry[]) => void) {
+          resizeCallbacks.push(callback);
+        }
+      },
+    );
+    let now = 100;
+    const runFrames = (count: number): void => {
+      for (let i = 0; i < count; i++) {
+        now += 40;
+        rafQueue.shift()?.(now);
+      }
+    };
+    const lastUpload = (mock: typeof fake.uniform1f, name: string): readonly unknown[] => {
+      const call = mock.mock.calls.findLast(([loc]) => loc === fake.uniforms.get(name));
+      expect(call, name).toBeDefined();
+      return call!.slice(1);
+    };
+    const pointerVel = (): [number, number] =>
+      lastUpload(fake.uniform2f, 'u_pointerVel') as [number, number];
+    const expectRestingVel = (): void => {
+      const [vx, vy] = pointerVel();
+      expect(Math.abs(vx)).toBe(0);
+      expect(Math.abs(vy)).toBe(0);
+    };
+    const effects = {
+      ...DEFAULT_THEME_EFFECTS,
+      ...vibe.effects,
+      paused: false,
+      interactive: true,
+    };
+
+    const controller = createEffectsLayerController(document);
+    try {
+      controller.sync(
+        { ...effects, backdropParams: { sky: 'dusk', moon: 'crescent', aurora: false } },
+        DARK_PALETTE,
+        'dark',
+      );
+      expect(document.querySelector('canvas[data-fs-renderer="webgl"]')).not.toBeNull();
+
+      // Enum params upload their option index; untouched params upload their defaults.
+      expect(lastUpload(fake.uniform1f, 'u_sky')).toEqual([2]);
+      expect(lastUpload(fake.uniform1f, 'u_moon')).toEqual([2]);
+      expect(lastUpload(fake.uniform1f, 'u_aurora')).toEqual([0]);
+      expect(lastUpload(fake.uniform1f, 'u_meteors')).toEqual([1]);
+      expect(lastUpload(fake.uniform1f, 'u_swell')).toEqual([1]);
+      expect(lastUpload(fake.uniform1f, 'u_bloom')).toEqual([1]);
+      expect(lastUpload(fake.uniform3f, 'u_bloomColor')).toEqual([
+        expect.closeTo(0x45 / 255, 3),
+        expect.closeTo(0xd8 / 255, 3),
+        1,
+      ]);
+
+      // Sky clock: tonight's lunar phase and the local time of day, both in 0..1.
+      for (const name of ['u_moonPhase', 'u_dayPhase']) {
+        const [phase] = lastUpload(fake.uniform1f, name) as [number];
+        expect(phase, name).toBeGreaterThanOrEqual(0);
+        expect(phase, name).toBeLessThan(1);
+      }
+
+      // Pointer velocity stays at zero through the jump to the first pointer position.
+      runFrames(1);
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: 200, clientY: 250 }));
+      runFrames(1);
+      expectRestingVel();
+
+      // A sweep to the right reads as positive X speed and no vertical speed.
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: 800, clientY: 250 }));
+      runFrames(2);
+      const [sweepVx, sweepVy] = pointerVel();
+      expect(sweepVx).toBeGreaterThan(0.5);
+      expect(sweepVx).toBeLessThanOrEqual(4);
+      expect(Math.abs(sweepVy)).toBeLessThan(0.001);
+
+      // Moving down the page uploads negative Y, matching the shader's bottom-left origin.
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: 800, clientY: 450 }));
+      runFrames(2);
+      expect(pointerVel()[1]).toBeLessThan(-0.2);
+
+      // Once the pointer rests, the wake dies away to exactly zero.
+      runFrames(70);
+      expectRestingVel();
+
+      // Resizing the viewport under a resting pointer changes its normalized
+      // position, which must not read as speed.
+      mockCanvasSize(500, 500);
+      expect(resizeCallbacks).toHaveLength(1);
+      for (const report of resizeCallbacks) {
+        report([]);
+      }
+      runFrames(2);
+      expectRestingVel();
+
+      // Pausing mid-sweep leaves no wake frozen into the still frame.
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: 100, clientY: 450 }));
+      runFrames(2);
+      expect(Math.abs(pointerVel()[0])).toBeGreaterThan(0.2);
+      controller.sync({ ...effects, paused: true }, DARK_PALETTE, 'dark');
+      expectRestingVel();
+      controller.sync(effects, DARK_PALETTE, 'dark');
+
+      // Tide click FX: two oval ripple rings plus seven sea-sparkle motes.
+      const btn = document.createElement('button');
+      document.body.append(btn);
+      const press = (): void => {
+        btn.dispatchEvent(
+          new PointerEvent('pointerdown', { button: 0, clientX: 120, clientY: 90, bubbles: true }),
+        );
+      };
+      press();
+      const fxRoot = document.querySelector('[data-feed-sanity="theme-click-fx"]')?.shadowRoot;
+      expect(fxRoot?.childElementCount).toBe(9);
+      const ring = fxRoot?.firstElementChild as HTMLElement;
+      expect(ring.style.width).toBe('46px');
+      expect(ring.style.height).toBe('29px');
+
+      controller.sync(
+        { ...effects, clickParams: { style: 'ripples', scale: 1.5 } },
+        DARK_PALETTE,
+        'dark',
+      );
+      fxRoot?.replaceChildren();
+      press();
+      expect(fxRoot?.childElementCount).toBe(2);
+      expect((fxRoot?.firstElementChild as HTMLElement).style.width).toBe('69px');
+
+      controller.sync(
+        { ...effects, clickParams: { style: 'sparkle', scale: 1.5 } },
+        DARK_PALETTE,
+        'dark',
+      );
+      fxRoot?.replaceChildren();
+      press();
+      expect(fxRoot?.childElementCount).toBe(7);
+      expect((fxRoot?.firstElementChild as HTMLElement).style.width).toBe('6px');
+    } finally {
+      controller.dispose();
+      vi.unstubAllGlobals();
+    }
+    expect(document.querySelector('canvas')).toBeNull();
+    expect(document.querySelector('[data-feed-sanity="theme-click-fx"]')).toBeNull();
   });
 });
