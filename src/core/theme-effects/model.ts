@@ -8,6 +8,7 @@ import { isRecord } from '../storage';
 import { normalizeHex } from '../theming/color';
 import { RAIN_CHARSETS } from './digital-rain/charsets';
 import { RAIN_INTROS } from './digital-rain/settings';
+import { EVENT_HORIZON_SHADER } from './event-horizon-shader';
 import { isOneOf, parseCustomScene, parseCustomShader, readClampedNumber } from './scene-schema';
 
 export const BACKDROP_EFFECT_IDS = [
@@ -26,10 +27,17 @@ export const BACKDROP_EFFECT_IDS = [
 
 export type BackdropEffectId = (typeof BACKDROP_EFFECT_IDS)[number];
 
-export const SURFACE_FINISH_IDS = ['default', 'glass', 'gradient', 'neon'] as const;
+export const SURFACE_FINISH_IDS = ['default', 'glass', 'gradient', 'neon', 'prism'] as const;
 export type SurfaceFinishId = (typeof SURFACE_FINISH_IDS)[number];
 
-export const CLICK_EFFECT_IDS = ['none', 'ripple', 'spark', 'matrix-burst', 'glow-pulse'] as const;
+export const CLICK_EFFECT_IDS = [
+  'none',
+  'ripple',
+  'spark',
+  'matrix-burst',
+  'glow-pulse',
+  'supernova',
+] as const;
 export type ClickEffectId = (typeof CLICK_EFFECT_IDS)[number];
 
 export const RAIN_LOOK_NAMES: readonly RainLookName[] = [
@@ -770,7 +778,8 @@ export const SURFACE_FINISH_OPTIONS: ReadonlyArray<{
   { value: 'default', label: 'Solid', summary: 'Crisp opaque cards' },
   { value: 'glass', label: 'Glass', summary: 'Frosted translucent blur' },
   { value: 'gradient', label: 'Gradient', summary: 'Rich directional sheen' },
-  { value: 'neon', label: 'Neon Edge', summary: 'Luminous accent borders' },
+  { value: 'neon', label: 'Neon', summary: 'Luminous accent borders' },
+  { value: 'prism', label: 'Prism', summary: 'Pointer-tracked specular sheen' },
 ];
 
 export const CLICK_EFFECT_OPTIONS: ReadonlyArray<{
@@ -782,6 +791,7 @@ export const CLICK_EFFECT_OPTIONS: ReadonlyArray<{
   { value: 'spark', label: 'Sparks' },
   { value: 'matrix-burst', label: 'Glyphs' },
   { value: 'glow-pulse', label: 'Glow' },
+  { value: 'supernova', label: 'Supernova' },
 ];
 
 export interface StudioVibe {
@@ -800,6 +810,25 @@ export interface StudioVibe {
  * gutters while reading columns stay crisp, opaque enough for all-day use.
  */
 export const STUDIO_VIBES: readonly StudioVibe[] = [
+  {
+    id: 'event-horizon',
+    name: 'Event Horizon',
+    tagline: 'WebGL gravitational black hole, prism sheen & shockwaves',
+    preset: 'event-horizon',
+    swatch:
+      'radial-gradient(circle at 38% 52%, #05050a 0%, #05050a 17%, #fef3c7 22%, #f59e0b 32%, #a855f7 56%, #130b24 80%, #05050a 100%)',
+    effects: {
+      backdrop: 'custom-shader',
+      customShader: EVENT_HORIZON_SHADER,
+      intensity: 0.94,
+      speed: 0.95,
+      glassStrength: 0.28,
+      surface: 'prism',
+      click: 'supernova',
+      paused: false,
+      interactive: true,
+    },
+  },
   {
     id: 'enter-the-matrix',
     name: 'Enter the Matrix',

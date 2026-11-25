@@ -600,12 +600,14 @@ export function CreativeStudioCard({
 
       <SettingRow
         title="Surface finish"
-        description="Layer frosted glass, gradient sheen, or neon rims across cards and buttons."
+        description="Layer frosted glass, gradient sheen, neon rims, or pointer-tracked Prism light across cards and buttons."
+        stacked
       >
         <SegmentedControl
           ariaLabel="Surface finish"
           value={effects.surface}
           options={SURFACE_FINISH_OPTIONS}
+          fullWidth
           onChange={(next) =>
             onUpdateEffects(
               { surface: next },
@@ -618,11 +620,13 @@ export function CreativeStudioCard({
       <SettingRow
         title="Click effects"
         description="A subtle accent touch on buttons, links, and tabs. Selecting text stays quiet."
+        stacked
       >
         <SegmentedControl
           ariaLabel="Click effects"
           value={effects.click}
           options={CLICK_EFFECT_OPTIONS}
+          fullWidth
           onChange={(next) =>
             onUpdateEffects(
               { click: next },

@@ -1,5 +1,5 @@
 // Subtle, tactile click micro-effects (`ripple`, `spark`, `matrix-burst`,
-// `glow-pulse`). Particles fire only on interactive targets (buttons, links,
+// `glow-pulse`, `supernova`). Particles fire only on interactive targets (buttons, links,
 // tabs, menu items, switches, inputs) so selecting post text or clicking empty
 // space never sprays particles. With Glyphs over a backdrop that reacts to
 // bursts (Matrix Rain), plain clicks still cascade it gently, without particles.
@@ -17,6 +17,37 @@ import { CLICK_FX_OWN_VALUE } from './surfaces';
 const MATRIX_BURST_GLYPHS = ['ｱ', 'ｳ', 'ｶ', 'ｷ', 'ﾈ', '0', '1', '7', 'Ξ', 'λ'];
 const MAX_ACTIVE_NODES = 40;
 const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
+
+const SUPERNOVA_INNER_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.22)', opacity: 0 },
+  { transform: 'scale(0.55)', opacity: 0.78, offset: 0.16 },
+  { transform: 'scale(1.2)', opacity: 0 },
+];
+
+const SUPERNOVA_OUTER_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.18)', opacity: 0 },
+  { transform: 'scale(0.62)', opacity: 0.48, offset: 0.24 },
+  { transform: 'scale(1.28)', opacity: 0 },
+];
+
+const SUPERNOVA_EMBER_KEYFRAMES: readonly Keyframe[][] = Array.from({ length: 6 }, (_, i) => {
+  const baseAngle = (Math.PI * 2 * i) / 6;
+  const midAngle = baseAngle + 0.32;
+  const endAngle = baseAngle + 0.68;
+  const dist = 24 + (i % 2) * 10;
+  return [
+    { transform: 'translate(0px, 0px) scale(0.5)', opacity: 0.95 },
+    {
+      transform: `translate(${(Math.cos(midAngle) * dist * 0.55).toFixed(2)}px, ${(Math.sin(midAngle) * dist * 0.55).toFixed(2)}px) scale(1.05)`,
+      opacity: 0.85,
+      offset: 0.42,
+    },
+    {
+      transform: `translate(${(Math.cos(endAngle) * dist).toFixed(2)}px, ${(Math.sin(endAngle) * dist).toFixed(2)}px) scale(0.2)`,
+      opacity: 0,
+    },
+  ];
+});
 
 /** Targets that earn visual click feedback. */
 const INTERACTIVE_CLICK_SELECTOR = [
@@ -167,7 +198,40 @@ export function mountClickEffects(
     }
 
     const accent = palette?.accent ?? '#3b82f6';
+    const secondary = palette?.accentSecondary ?? palette?.danger ?? '#a855f7';
     const text = palette?.text ?? '#ffffff';
+
+    if (effect === 'supernova') {
+      // Dual-ring gravitational lensing pulse + 6 orbital photon embers (batched DOM insert).
+      const batch = doc.createDocumentFragment();
+      const innerRing = particle(
+        batch,
+        `left:${x}px;top:${y}px;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;border:1.5px solid ${hexWithAlpha(accent, 0.95)};box-shadow:0 0 10px ${hexWithAlpha(accent, 0.45)};opacity:0;`,
+      );
+      const outerHalo = particle(
+        batch,
+        `left:${x}px;top:${y}px;width:84px;height:84px;margin:-42px 0 0 -42px;border-radius:50%;border:1px solid ${hexWithAlpha(secondary, 0.8)};box-shadow:0 0 16px ${hexWithAlpha(secondary, 0.28)};opacity:0;`,
+      );
+      const emberColors = [accent, secondary, hexWithAlpha(text, 0.9)] as const;
+      const embers = SUPERNOVA_EMBER_KEYFRAMES.map((_, i) => {
+        const color = emberColors[i % emberColors.length] ?? accent;
+        return particle(
+          batch,
+          `left:${x}px;top:${y}px;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:${color};box-shadow:0 0 7px ${color};opacity:0;`,
+        );
+      });
+      host.append(batch);
+      animateAndRemove(innerRing, SUPERNOVA_INNER_KEYFRAMES, 360);
+      animateAndRemove(outerHalo, SUPERNOVA_OUTER_KEYFRAMES, 430);
+      for (let i = 0; i < embers.length; i++) {
+        const ember = embers[i];
+        const frames = SUPERNOVA_EMBER_KEYFRAMES[i];
+        if (ember && frames) {
+          animateAndRemove(ember, frames, 410);
+        }
+      }
+      return;
+    }
 
     if (effect === 'ripple') {
       // Refined hairline ring: ~32px radius, crisp 320ms ease-out.

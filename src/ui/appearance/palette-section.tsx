@@ -18,17 +18,40 @@ import {
 } from '../../core/theming/config';
 import { Badge, Disclosure, Switch, TextInput } from '../primitives';
 
-type ColorFieldKey = 'accent' | 'accentSecondary' | 'background' | 'surface' | 'text';
+type ColorFieldKey =
+  | 'accent'
+  | 'accentSecondary'
+  | 'background'
+  | 'surface'
+  | 'text'
+  | 'surfaceAlt'
+  | 'textMuted'
+  | 'border'
+  | 'danger';
 
-const COLOR_FIELDS: ReadonlyArray<{
+interface ColorFieldSpec {
   readonly key: ColorFieldKey;
   readonly label: string;
-}> = [
+}
+
+const PRIMARY_COLOR_FIELDS: readonly ColorFieldSpec[] = [
   { key: 'accent', label: 'Accent' },
   { key: 'accentSecondary', label: 'Secondary accent' },
   { key: 'background', label: 'Canvas background' },
   { key: 'surface', label: 'Card surface' },
   { key: 'text', label: 'Primary text' },
+];
+
+const EXTRA_COLOR_FIELDS: readonly ColorFieldSpec[] = [
+  { key: 'surfaceAlt', label: 'Secondary surface' },
+  { key: 'textMuted', label: 'Muted text' },
+  { key: 'border', label: 'Borders & dividers' },
+  { key: 'danger', label: 'Alert / danger' },
+];
+
+const ALL_COLOR_FIELDS: readonly ColorFieldSpec[] = [
+  ...PRIMARY_COLOR_FIELDS,
+  ...EXTRA_COLOR_FIELDS,
 ];
 
 const MOOD_LABELS: Record<PaletteMood, string> = {
@@ -50,8 +73,8 @@ export interface PaletteCustomizationDisclosureProps {
 
 /**
  * Self-contained "Customize colors" disclosure: seed-color Palette Generator,
- * Flip Light/Dark polarity toggle, 5 hex/picker token inputs, Chrome accent
- * switches, and WCAG AA contrast warning with one-click auto-fix.
+ * Flip Light/Dark polarity toggle, up to 9 hex/picker token inputs, Chrome
+ * accent switches, and WCAG AA contrast warning with one-click auto-fix.
  */
 export function PaletteCustomizationDisclosure({
   value,
@@ -69,6 +92,13 @@ export function PaletteCustomizationDisclosure({
   const lowContrast = minContrast !== null && minContrast < WCAG_AA_TEXT_CONTRAST;
 
   const [open, setOpen] = useState(hasCustomColors);
+  const [showMoreColors, setShowMoreColors] = useState(() =>
+    Boolean(
+      effective &&
+        activePreset &&
+        EXTRA_COLOR_FIELDS.some(({ key }) => effective[key] !== activePreset.palette[key]),
+    ),
+  );
   const [seedColor, setSeedColor] = useState(() => effective?.accent ?? '#3b82f6');
   const [seedMood, setSeedMood] = useState<PaletteMood>('midnight');
   const [colorDrafts, setColorDrafts] = useState<Partial<Record<ColorFieldKey, string>>>({});
@@ -86,7 +116,7 @@ export function PaletteCustomizationDisclosure({
   }, [lowContrast]);
 
   const colorError = useMemo(() => {
-    for (const { key, label } of COLOR_FIELDS) {
+    for (const { key, label } of ALL_COLOR_FIELDS) {
       const draft = colorDrafts[key];
       if (draft !== undefined) {
         const trimmed = draft.trim();
@@ -203,7 +233,7 @@ export function PaletteCustomizationDisclosure({
         </div>
 
         <div className="theme-controls">
-          {COLOR_FIELDS.map(({ key, label }) => {
+          {(showMoreColors ? ALL_COLOR_FIELDS : PRIMARY_COLOR_FIELDS).map(({ key, label }) => {
             const defaultFallback =
               key === 'accentSecondary' ? (effective?.danger ?? '#a855f7') : '#3b82f6';
             const fallbackHex = effective?.[key] ?? defaultFallback;
@@ -235,6 +265,17 @@ export function PaletteCustomizationDisclosure({
               </label>
             );
           })}
+        </div>
+
+        <div className="theme-chrome-row">
+          <button
+            type="button"
+            className="theme-inline-reset"
+            aria-expanded={showMoreColors}
+            onClick={() => setShowMoreColors((prev) => !prev)}
+          >
+            {showMoreColors ? 'Fewer colors' : 'More colors (surface, muted, border, danger)'}
+          </button>
         </div>
 
         <div className="theme-chrome-row" role="group" aria-label="Chrome accents">

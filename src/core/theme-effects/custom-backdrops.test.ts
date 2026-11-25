@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ThemePalette } from '../theming/types';
 import type { CustomSceneSpec, CustomShaderSpec } from './scene-schema';
 import { createEffectsLayerController } from './controller';
-import { DEFAULT_THEME_EFFECTS } from './model';
+import { EVENT_HORIZON_SHADER } from './event-horizon-shader';
+import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from './model';
 import { buildCustomFragmentSource } from './renderers/custom-shader';
+import { parseCustomShader, validateCustomShaderSource } from './scene-schema';
+import { compileSurfaceFinishCss } from './surfaces';
 
 const DARK_PALETTE: ThemePalette = {
   colorScheme: 'dark',
@@ -482,5 +485,63 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
     expect(fake.loseContext).toHaveBeenCalledTimes(1);
 
     controller.dispose();
+  });
+
+  it('validates the flagship Event Horizon Tier 3 shader, drives Prism pointer angle, and spawns Supernova click FX', async () => {
+    const validated = validateCustomShaderSource(EVENT_HORIZON_SHADER.fragment);
+    expect(validated.ok).toBe(true);
+    expect(validated.entrypoint).toBe('mainImage');
+    expect(parseCustomShader(EVENT_HORIZON_SHADER).errors).toEqual([]);
+
+    const built = buildCustomFragmentSource(EVENT_HORIZON_SHADER);
+    expect(built).toContain('uniform float u_lensing;');
+    expect(built).toContain('uniform float u_diskTilt;');
+    expect(built).toContain('uniform float u_turbulence;');
+    expect(built).toContain('uniform vec3 u_coronaColor;');
+    expect(built).toContain('uniform float u_showGrid;');
+
+    const vibe = STUDIO_VIBES.find((entry) => entry.id === 'event-horizon')!;
+    expect(vibe.effects.backdrop).toBe('custom-shader');
+    expect(vibe.effects.surface).toBe('prism');
+    expect(vibe.effects.click).toBe('supernova');
+
+    // Prism surface finish compiles pointer-tracked specular sheen without backdrop-filter.
+    const prismCss = compileSurfaceFinishCss(
+      DARK_PALETTE,
+      'dark',
+      { ...DEFAULT_THEME_EFFECTS, surface: 'prism' },
+      { leafCards: ['article'], primaryCtas: ['button.primary'] },
+    );
+    expect(prismCss).toContain('var(--fs-ptr-angle, 132deg)');
+    expect(prismCss).not.toContain('backdrop-filter');
+    expect(prismCss).not.toContain('background-attachment');
+
+    // Prism light driver updates --fs-ptr-angle on pointermove and cleans up on dispose.
+    const fake = makeFakeWebGLContext({ compileOk: true });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
+      type === 'webgl' ? fake.gl : null) as HTMLCanvasElement['getContext']);
+    const controller = createEffectsLayerController(document);
+    controller.sync(
+      { ...DEFAULT_THEME_EFFECTS, ...vibe.effects, paused: false, interactive: true },
+      DARK_PALETTE,
+      'dark',
+    );
+
+    document.dispatchEvent(new PointerEvent('pointermove', { clientX: 640, clientY: 200 }));
+    await vi.waitFor(() => {
+      expect(document.documentElement.style.getPropertyValue('--fs-ptr-angle')).toMatch(/^\d+deg$/);
+    });
+
+    // Supernova click FX spawns dual rings + 6 orbital embers inside the isolated ShadowRoot.
+    const btn = document.createElement('button');
+    document.body.append(btn);
+    btn.dispatchEvent(
+      new PointerEvent('pointerdown', { button: 0, clientX: 120, clientY: 90, bubbles: true }),
+    );
+    const fxHost = document.querySelector('[data-feed-sanity="theme-click-fx"]');
+    expect(fxHost?.shadowRoot?.childElementCount).toBe(8);
+
+    controller.dispose();
+    expect(document.documentElement.style.getPropertyValue('--fs-ptr-angle')).toBe('');
   });
 });

@@ -712,10 +712,15 @@ export function appearancePanel(
       },
       {
         id: 'creative-studio',
-        title: 'Creative Studio (Backgrounds, Glass, Gradients & Click FX)',
+        title: 'Creative Studio (Backgrounds, Glass, Prism & Click FX)',
         description:
-          'Add Matrix Rain, Vice City sunset, Aurora, Silk, glass cards, and click sparks.',
+          'Add Event Horizon black hole, Matrix Rain, Vice City sunset, Aurora, Silk, Prism sheen, and click effects.',
         keywords: [
+          'event horizon',
+          'black hole',
+          'shader',
+          'prism',
+          'supernova',
           'matrix',
           'gta',
           'vice',

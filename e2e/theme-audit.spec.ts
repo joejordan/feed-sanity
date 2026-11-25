@@ -563,6 +563,34 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
         /^(webgl|canvas2d)$/,
       );
 
+      // Event Horizon: flagship Tier 3 WebGL gravitational-lensing shader + Prism pointer angle.
+      const shaderErrors: string[] = [];
+      const onConsole = (msg: { type: () => string; text: () => string }) => {
+        if (msg.type() === 'error' && msg.text().includes('custom shader')) {
+          shaderErrors.push(msg.text());
+        }
+      };
+      page.on('console', onConsole);
+      try {
+        await studioDialog
+          .getByRole('group', { name: 'Live themes' })
+          .getByRole('button', { name: /Event Horizon/i })
+          .click();
+        await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'custom-shader');
+        await expect(
+          studioDialog.getByRole('slider', { name: 'Gravitational lensing' }),
+        ).toBeVisible();
+        await page.mouse.move(420, 180);
+        await expect
+          .poll(() =>
+            page.evaluate(() => document.documentElement.style.getPropertyValue('--fs-ptr-angle')),
+          )
+          .toMatch(/^\d+deg$/);
+        expect(shaderErrors).toEqual([]);
+      } finally {
+        page.off('console', onConsole);
+      }
+
       // Close dialog and verify the "For you" dropdown button is clickable under a live Studio theme
       // and opens its #layers dropdown menu with a non-transparent surface.
       await studioDialog.getByRole('button', { name: 'Close' }).click();
@@ -574,10 +602,15 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
       );
       expect(menuBg).not.toMatch(/^rgba?\(0,\s*0,\s*0,\s*0\)$/);
 
-      // Reopen and reset to site default: tears down the backdrop with zero DOM residue.
+      // Reopen and reset to site default: tears down the backdrop and Prism var with zero residue.
       const resetDialog = await openAppearance(page);
       await resetDialog.getByRole('button', { name: 'Reset to site default' }).click();
       await expect(backdrop).toHaveCount(0);
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.documentElement.style.getPropertyValue('--fs-ptr-angle')),
+        )
+        .toBe('');
     } finally {
       await page.close();
     }

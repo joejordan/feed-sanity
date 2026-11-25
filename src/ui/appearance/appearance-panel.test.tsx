@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/preact';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ThemeController, ThemeDocumentV1 } from '../../core/theming';
@@ -1202,5 +1202,45 @@ describe('appearancePanel & initSiteTheme', () => {
     } finally {
       library.dispose();
     }
+  });
+
+  it('applies the built-in Event Horizon Tier 3 Live Theme with shader tuners and exposes extra palette color pickers', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+    // One-click Event Horizon Live Theme applies the Tier 3 black-hole shader + Prism + Supernova.
+    const liveThemesGroup = screen.getByRole('group', { name: 'Live themes' });
+    await userEvent.click(within(liveThemesGroup).getByRole('button', { name: /Event Horizon/i }));
+    await vi.waitFor(() => {
+      expect(saved.get().id).toBe('event-horizon');
+      expect(saved.get().effects?.backdrop?.id).toBe('custom-shader');
+      expect(saved.get().effects?.surface?.finish).toBe('prism');
+      expect(saved.get().effects?.click?.id).toBe('supernova');
+    });
+
+    // Declarative Tier 3 shader params render live controls in Customize Effects.
+    expect(screen.getByRole('slider', { name: 'Gravitational lensing' })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Spacetime grid' })).toBeTruthy();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Spacetime grid' }));
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.showGrid).toBe(false));
+
+    // Extra palette color pickers (surfaceAlt, textMuted, border, danger) open via More colors.
+    await userEvent.click(screen.getByRole('button', { name: /Customize colors/i }));
+    await userEvent.click(screen.getByRole('button', { name: /More colors/i }));
+    const borderInput = screen.getByRole<HTMLInputElement>('textbox', {
+      name: 'Borders & dividers',
+    });
+    await userEvent.clear(borderInput);
+    await userEvent.type(borderInput, '#4c3a7a');
+    await vi.waitFor(() => expect(saved.get().palette?.border).toBe('#4c3a7a'));
   });
 });

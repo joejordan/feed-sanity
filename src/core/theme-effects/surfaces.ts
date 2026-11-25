@@ -1,5 +1,5 @@
 // Compiles site-safe backdrop reveal CSS (translucent page gutters + readable
-// feed columns) and Surface Finishes (Glass, Gradient Sheen, Neon Edge) from
+// feed columns) and Surface Finishes (Glass, Gradient Sheen, Neon, Prism) from
 // one declarative `SurfaceSelectors` contract so no site ever creates
 // stacking-context or `backdrop-filter` traps on ancestors or popups.
 
@@ -19,6 +19,7 @@ import { THEME_EFFECT_BOUNDS } from './model';
 export const BACKDROP_OWN_VALUE = 'theme-backdrop';
 export const BACKDROP_SELECTOR = `[${OWN_ATTR}="${BACKDROP_OWN_VALUE}"]`;
 export const CLICK_FX_OWN_VALUE = 'theme-click-fx';
+export const PRISM_ANGLE_VAR = '--fs-ptr-angle';
 
 export const DEFAULT_POPUPS: readonly string[] = [
   '[role="dialog"]',
@@ -203,7 +204,7 @@ ${DEFAULT_POPUPS.join(', ')} {
 }
 
 /**
- * Compiles site-agnostic Surface Finish enhancements (`glass`, `gradient`, `neon`)
+ * Compiles site-agnostic Surface Finish enhancements (`glass`, `gradient`, `neon`, `prism`)
  * emitted into `@layer fs-finish` so finishes cleanly outrank `fs-reveal` and
  * `fs-mapping` without `:where(...)` specificity loss or hardcoded site selectors.
  */
@@ -260,15 +261,53 @@ export function compileSurfaceFinishCss(
     return blocks.join('\n\n');
   }
 
+  const feedCardHoverTargets =
+    surfaces?.feedCards
+      ?.flatMap((entry) => splitSelectorList(entry).map((sel) => `${sel}:hover`))
+      .join(',\n') ?? '';
+  const columnTargets = surfaces?.columns?.join(',\n') ?? '';
+  const searchTargets = surfaces?.searchContainers?.join(',\n') ?? '';
+
+  if (effects.surface === 'prism') {
+    const isLight = hostScheme === 'light';
+    const sheenA = hexWithAlpha(accent, isLight ? 0.1 : 0.14);
+    const sheenB = hexWithAlpha(secondary, isLight ? 0.08 : 0.13);
+    const highlight = hexWithAlpha(text, isLight ? 0.18 : 0.11);
+    const rim = hexWithAlpha(accent, isLight ? 0.28 : 0.34);
+    const outerGlow = hexWithAlpha(secondary, isLight ? 0.1 : 0.14);
+    const angleExpr = `var(${PRISM_ANGLE_VAR}, 132deg)`;
+    const blocks: string[] = [
+      `${cardTargets} {\n  background-image: linear-gradient(${angleExpr}, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 42%, ${sheenB} 100%) !important;\n  border-color: ${rim} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 0 0 1px ${hexWithAlpha(accent, 0.18)}, 0 10px 28px ${outerGlow} !important;\n}`,
+      `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${hexWithAlpha(accent, 0.55)}, 0 0 16px ${hexWithAlpha(secondary, 0.32)} !important;\n}`,
+    ];
+    if (feedCardHoverTargets) {
+      blocks.push(
+        `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 1px 0 0 ${highlight}, 0 0 20px ${hexWithAlpha(accent, 0.18)} !important;\n}`,
+      );
+    }
+    if (ctaTargets) {
+      blocks.push(
+        `${ctaTargets} {\n  background-image: linear-gradient(${angleExpr}, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 0 16px ${hexWithAlpha(accent, 0.42)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.28)} !important;\n}`,
+      );
+    }
+    if (columnTargets) {
+      blocks.push(
+        `${columnTargets} {\n  border-color: ${hexWithAlpha(accent, 0.24)} !important;\n  box-shadow: 0 0 26px ${hexWithAlpha(secondary, 0.16)} !important;\n}`,
+      );
+    }
+    if (searchTargets) {
+      blocks.push(
+        `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${hexWithAlpha(accent, 0.36)} !important;\n}`,
+      );
+    }
+    return blocks.join('\n\n');
+  }
+
   // 'neon'
   const blocks: string[] = [
     `${cardTargets} {\n  border-color: ${hexWithAlpha(accent, 0.45)} !important;\n  box-shadow: 0 0 0 1px ${hexWithAlpha(accent, 0.25)}, 0 0 18px ${hexWithAlpha(accent, 0.16)} !important;\n}`,
     `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${hexWithAlpha(accent, 0.5)}, 0 0 14px ${hexWithAlpha(accent, 0.28)} !important;\n}`,
   ];
-  const feedCardHoverTargets =
-    surfaces?.feedCards
-      ?.flatMap((entry) => splitSelectorList(entry).map((sel) => `${sel}:hover`))
-      .join(',\n') ?? '';
   if (feedCardHoverTargets) {
     blocks.push(
       `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, 0 0 16px ${hexWithAlpha(accent, 0.14)} !important;\n}`,
@@ -279,13 +318,11 @@ export function compileSurfaceFinishCss(
       `${ctaTargets} {\n  box-shadow: 0 0 16px ${hexWithAlpha(accent, 0.48)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;\n}`,
     );
   }
-  const columnTargets = surfaces?.columns?.join(',\n') ?? '';
   if (columnTargets) {
     blocks.push(
       `${columnTargets} {\n  border-color: ${hexWithAlpha(accent, 0.3)} !important;\n  box-shadow: 0 0 24px ${hexWithAlpha(border, 0.24)} !important;\n}`,
     );
   }
-  const searchTargets = surfaces?.searchContainers?.join(',\n') ?? '';
   if (searchTargets) {
     blocks.push(
       `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${hexWithAlpha(accent, 0.4)} !important;\n}`,

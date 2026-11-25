@@ -359,6 +359,42 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       },
     },
   },
+  {
+    id: 'event-horizon',
+    name: 'Event Horizon',
+    description: 'Deep-space obsidian with incandescent accretion gold and ultraviolet plasma.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#05050a',
+      surface: '#0d0d16',
+      surfaceAlt: '#171626',
+      text: '#f6f2eb',
+      textMuted: '#a9a2b8',
+      border: '#2c2742',
+      accent: '#f59e0b',
+      accentSecondary: '#a855f7',
+      accentText: '#0b0702',
+      danger: '#fb7185',
+    },
+    swatches: ['#05050a', '#f59e0b', '#fb7185', '#a855f7', '#38bdf8'],
+    swatchGradient:
+      'conic-gradient(from 210deg, #05050a, #7c3aed, #fb7185, #f59e0b, #fef3c7, #f59e0b, #38bdf8, #05050a)',
+    chrome: {
+      ribbon: {
+        enabled: true,
+        stops: ['#38bdf8', '#a855f7', '#fb7185', '#f59e0b', '#fef3c7', '#f59e0b', '#a855f7'],
+        height: 3,
+      },
+      ambientGlow: {
+        enabled: true,
+        spots: [
+          { color: '#f59e0b', alpha: 0.14, x: 24, y: 18, radiusX: 58, radiusY: 42 },
+          { color: '#a855f7', alpha: 0.14, x: 78, y: 12, radiusX: 60, radiusY: 44 },
+          { color: '#38bdf8', alpha: 0.09, x: 52, y: 96, radiusX: 54, radiusY: 36 },
+        ],
+      },
+    },
+  },
 ];
 
 const BUILTIN_THEME_BY_ID: ReadonlyMap<string, ThemePreset> = new Map(
