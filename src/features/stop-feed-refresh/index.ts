@@ -20,7 +20,7 @@ export default defineFeature({
     stop_feed_refresh: {
       section: 'Feed & Reading',
       group: 'Home Feed',
-      title: 'Stop automatic feed refresh',
+      title: "Stop automatic feed refresh (aka getting 'Zucked')",
       description:
         'Stop Facebook from refreshing the Home or Groups feed, or sending you back to Home from another page, after you return to the tab or close a photo or reel.',
       keywords: ['scroll', 'jump', 'reload', 'refresh'],

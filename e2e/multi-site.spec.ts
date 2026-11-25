@@ -419,6 +419,7 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await installUserscriptHarness(
         page,
         {
+          'v2/sites': { instagram: true },
           'v2/instagram/999000/options': {
             ig_hide_sponsored: true,
             ig_hide_suggested: true,
@@ -530,6 +531,7 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await installUserscriptHarness(
         page,
         {
+          'v2/sites': { gmail: true },
           'v2/gmail/u0/options': {
             gmail_hide_ads: true,
             gmail_keywords: 'crypto\n',
@@ -606,6 +608,7 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await installUserscriptHarness(
         page,
         {
+          'v2/sites': { reddit: true },
           'v2/reddit/loid-e2ereddit123/options': {
             reddit_hide_sponsored: true,
             reddit_hide_suggested: true,

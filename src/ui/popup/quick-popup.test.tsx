@@ -199,7 +199,7 @@ describe('QuickPopup', () => {
     });
   });
 
-  it('renders the Supported Sites launcher on unsupported tabs and persists site toggles', async () => {
+  it('renders Supported Sites on unsupported tabs, hides disabled experimental sites, shows enabled ones, and persists toggles', async () => {
     const store = inMemoryStore();
     const onOpenSiteUrl = vi.fn();
 
@@ -213,6 +213,26 @@ describe('QuickPopup', () => {
     );
 
     expect(screen.getByText('Not active on this page')).toBeTruthy();
+    // Production sites (Facebook, X) appear by default; disabled experimental sites stay hidden.
+    expect(screen.getByText('Facebook')).toBeTruthy();
+    expect(screen.getByText('X (Twitter)')).toBeTruthy();
+    expect(screen.queryByText('Instagram')).toBeNull();
+    expect(screen.queryByText('Reddit')).toBeNull();
+    expect(screen.queryByText('Gmail')).toBeNull();
+
+    // Enabling an experimental site via storage makes it appear live in the unsupported tab view,
+    // and toggling it off keeps the row mounted in-session (preserving focus / 1-click undo) until reopen.
+    await act(() => store.set(SITES_STORAGE_KEY, { reddit: true }));
+    await vi.waitFor(() => expect(screen.getByText('Reddit')).toBeTruthy());
+    expect(screen.queryByText('Instagram')).toBeNull();
+    const redditSwitch = screen.getByRole<HTMLInputElement>('checkbox', {
+      name: /Enable Feed Sanity on Reddit/i,
+    });
+    expect(redditSwitch.checked).toBe(true);
+    await userEvent.click(redditSwitch);
+    await vi.waitFor(() => expect(redditSwitch.checked).toBe(false));
+    expect(screen.getByText('Reddit')).toBeTruthy();
+
     const fbSwitch = screen.getByRole<HTMLInputElement>('checkbox', {
       name: /Enable Feed Sanity on Facebook/i,
     });

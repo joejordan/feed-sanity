@@ -429,6 +429,34 @@ function mapPaintProperty(
   return mapped ? `${prop}: ${mapped} !important;` : null;
 }
 
+const BORDER_GEOMETRY_FOR_COLOR: Readonly<Record<string, readonly [string, string]>> = {
+  'border-color': ['border-width', 'border-style'],
+  'border-top-color': ['border-top-width', 'border-top-style'],
+  'border-right-color': ['border-right-width', 'border-right-style'],
+  'border-bottom-color': ['border-bottom-width', 'border-bottom-style'],
+  'border-left-color': ['border-left-width', 'border-left-style'],
+};
+
+const ALL_ZERO_LENGTHS_RE = /^0(?:\.0+)?[a-z%]*(?:\s+0(?:\.0+)?[a-z%]*)*$/i;
+const ALL_NONE_STYLE_RE = /^(?:none|hidden)(?:\s+(?:none|hidden))*$/i;
+
+function isZeroOrNoneBorder(style: CSSStyleDeclaration, prop: string): boolean {
+  if (style.length <= 1) {
+    return false;
+  }
+  const pair = BORDER_GEOMETRY_FOR_COLOR[prop];
+  if (!pair) {
+    return false;
+  }
+  const [widthProp, styleProp] = pair;
+  const widthVal = style.getPropertyValue(widthProp).trim();
+  if (widthVal && ALL_ZERO_LENGTHS_RE.test(widthVal)) {
+    return true;
+  }
+  const styleVal = style.getPropertyValue(styleProp).trim();
+  return styleVal !== '' && ALL_NONE_STYLE_RE.test(styleVal);
+}
+
 function extractParsedPaintAndFont(
   style: CSSStyleDeclaration,
   selector: string,
@@ -437,7 +465,7 @@ function extractParsedPaintAndFont(
   let rawFont = '';
   const pushPaint = (prop: string, kind: PaintPropertyKind): void => {
     const raw = style.getPropertyValue(prop);
-    if (!raw) {
+    if (!raw || (kind === 'border' && isZeroOrNoneBorder(style, prop))) {
       return;
     }
     const color = parseCssColor(raw);

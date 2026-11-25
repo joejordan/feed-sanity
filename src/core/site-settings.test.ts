@@ -23,7 +23,7 @@ describe('site settings and equal site registry', () => {
     expect(siteRegistry.matchHost('example.com')).toBeUndefined();
   });
 
-  it('defaults every site enabled, toggles any site including Facebook, avoids no-op writes, and syncs across storage changes', async () => {
+  it('defaults production sites enabled and experimental sites disabled, toggles any site, avoids no-op writes, and syncs across storage changes', async () => {
     const store = inMemoryStore({
       [SITES_STORAGE_KEY]: { facebook: true, unknown_site: false, instagram: 'bad' },
     });
@@ -31,26 +31,33 @@ describe('site settings and equal site registry', () => {
     const settings = createSiteSettings(store);
     await settings.ready;
 
-    // All manifest sites default enabled, malformed or unknown keys are ignored.
-    expect(settings.list().map((s) => [s.id, s.enabled])).toEqual(
-      SITE_MANIFEST.map((s) => [s.id, true]),
+    // Production sites (Facebook, X) default enabled; experimental sites (Instagram, Reddit, Gmail)
+    // default disabled, and malformed/unknown keys are ignored.
+    expect(settings.list().map((s) => [s.id, s.enabled, Boolean(s.experimental)])).toEqual(
+      SITE_MANIFEST.map((s) => [s.id, !s.experimental, Boolean(s.experimental)]),
     );
     expect(readEnabledSites(null)).toEqual({});
     expect(readEnabledSites(['facebook'])).toEqual({});
     expect(isSiteEnabled({}, 'facebook')).toBe(true);
+    expect(isSiteEnabled({}, 'x')).toBe(true);
+    expect(isSiteEnabled({}, 'instagram')).toBe(false);
+    expect(isSiteEnabled({}, 'reddit')).toBe(false);
+    expect(isSiteEnabled({}, 'gmail')).toBe(false);
+    expect(isSiteEnabled({ instagram: true }, 'instagram')).toBe(true);
 
     const changes = vi.fn();
     const stop = settings.onChange(changes);
 
     // No-op toggle does not write to storage or notify listeners.
     await settings.setEnabled('facebook', true);
+    await settings.setEnabled('instagram', false);
     expect(setSpy).not.toHaveBeenCalled();
     expect(changes).not.toHaveBeenCalled();
 
-    // Facebook and Instagram can both be toggled off and back on identically.
+    // Production and experimental sites can both be toggled off/on identically.
     await settings.setEnabled('facebook', false);
     expect(settings.isEnabled('facebook')).toBe(false);
-    expect(settings.isEnabled('instagram')).toBe(true);
+    expect(settings.isEnabled('instagram')).toBe(false);
     expect(await store.get(SITES_STORAGE_KEY)).toMatchObject({ facebook: false });
     expect(changes).toHaveBeenCalledTimes(1);
 
@@ -59,22 +66,22 @@ describe('site settings and equal site registry', () => {
     expect(changes).toHaveBeenCalledTimes(1);
 
     // Cross-tab storage write updates state and notifies listeners.
-    await store.set(SITES_STORAGE_KEY, { facebook: true, gmail: false });
+    await store.set(SITES_STORAGE_KEY, { facebook: true, gmail: true });
     expect(settings.isEnabled('facebook')).toBe(true);
-    expect(settings.isEnabled('gmail')).toBe(false);
+    expect(settings.isEnabled('gmail')).toBe(true);
     expect(changes).toHaveBeenCalledTimes(2);
 
     // Concurrent setEnabled calls serialize cleanly without clobbering each other.
     await Promise.all([
       settings.setEnabled('facebook', false),
-      settings.setEnabled('instagram', false),
+      settings.setEnabled('instagram', true),
     ]);
     expect(settings.isEnabled('facebook')).toBe(false);
-    expect(settings.isEnabled('instagram')).toBe(false);
+    expect(settings.isEnabled('instagram')).toBe(true);
     expect(await store.get(SITES_STORAGE_KEY)).toMatchObject({
       facebook: false,
-      instagram: false,
-      gmail: false,
+      instagram: true,
+      gmail: true,
     });
 
     stop();

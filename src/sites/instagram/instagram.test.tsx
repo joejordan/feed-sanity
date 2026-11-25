@@ -23,7 +23,7 @@ function fakePlatform(
   store: ReturnType<typeof inMemoryStore>;
   badges: Badge[];
 } {
-  const store = inMemoryStore(initial);
+  const store = inMemoryStore({ 'v2/sites': { instagram: true }, ...initial });
   const badges: Badge[] = [];
   const platform: Platform = {
     store,

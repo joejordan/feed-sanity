@@ -74,10 +74,21 @@ describe('core/theming/color', () => {
     expect(mapHostNeutralToPalette(parseCssColor('#2f3336')!, 'dark', 'border', warmPaper)).toBe(
       warmPaper.border,
     );
+    // Canvas-matched borders (#000 on dark host, #fff on light host) stay canvas-matched so
+    // invisible button borders and avatar cutouts never turn into visible rings.
+    expect(mapHostNeutralToPalette(parseCssColor('#000000')!, 'dark', 'border', warmPaper)).toBe(
+      warmPaper.background,
+    );
 
     // Light host -> Catppuccin Mocha (dark)
     expect(mapHostNeutralToPalette(parseCssColor('#ffffff')!, 'light', 'background', mocha)).toBe(
       mocha.background,
+    );
+    expect(mapHostNeutralToPalette(parseCssColor('#ffffff')!, 'light', 'border', mocha)).toBe(
+      mocha.background,
+    );
+    expect(mapHostNeutralToPalette(parseCssColor('#cfd9de')!, 'light', 'border', mocha)).toBe(
+      mocha.border,
     );
     expect(mapHostNeutralToPalette(parseCssColor('#0f1419')!, 'light', 'text', mocha)).toBe(
       mocha.text,

@@ -155,6 +155,7 @@ describe('gmailSite adapter (zero React, strict Trusted Types, ThreadListCapabil
 
     const installPageWorld = vi.fn(() => Promise.reject(new Error('should never be called')));
     const store = inMemoryStore({
+      'v2/sites': { gmail: true },
       'v2/gmail/u0/options': {
         gmail_hide_ads: true,
         gmail_keywords: 'crypto\n',

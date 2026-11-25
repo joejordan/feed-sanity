@@ -1033,6 +1033,9 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
     );
     expect(hostCss.startsWith(THEME_LAYER_ORDER)).toBe(true);
     expect(hostCss).toContain('@layer fs-finish');
+    // X's composer toolbar must not receive the Moonlit column outline box-shadow.
+    const finishSection = hostCss.slice(hostCss.indexOf('@layer fs-finish'));
+    expect(finishSection).not.toContain('[data-testid="toolBar"]');
     expect(hostCss).toContain('inset: auto 0 0 0; height: 2px;');
     expect(hostCss).not.toContain('background-attachment');
     expect(hostCss).not.toContain('backdrop-filter');

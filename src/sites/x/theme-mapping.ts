@@ -477,10 +477,7 @@ svg[data-testid="icon-verified"] {
   surfaces: {
     transparentShell: ['header[role="banner"]'],
     shellAnchors: ['header[role="banner"] nav'],
-    columns: [
-      '[data-testid="primaryColumn"]',
-      '[data-testid="primaryColumn"] [data-testid="toolBar"]',
-    ],
+    columns: ['[data-testid="primaryColumn"]'],
     leafCards: [
       '[data-testid="sidebarColumn"] section',
       '[data-testid="sidebarColumn"] aside[role="complementary"]',
@@ -518,6 +515,9 @@ form[role="search"] {
 }
 ${RNW_CANVAS_SELECTORS.join(',\n')} {
   background-color: var(--fs-reveal-canvas, transparent) !important;
+}
+[data-testid="primaryColumn"] [data-testid="toolBar"] {
+  background-color: transparent !important;
 }
 [data-testid="sidebarColumn"] section [data-testid="trend"],
 [data-testid="sidebarColumn"] section [data-testid="cellInnerDiv"],

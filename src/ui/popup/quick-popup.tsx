@@ -17,7 +17,7 @@ import type { SiteQuickConfig, StarterModeId } from './starter-modes';
 import { NAME } from '../../../project';
 import { newFilter, newRule, readFilters } from '../../core/filter-types';
 import { createLogger } from '../../core/log';
-import { createSiteSettings } from '../../core/site-settings';
+import { createSiteSettings, isSiteVisible } from '../../core/site-settings';
 import { isRecord, readStoreMany, watchStoreKey } from '../../core/storage';
 import {
   applyThemeDocument,
@@ -223,6 +223,18 @@ function UnsupportedTabView({
   onApplyAllSites,
   onOpenSiteUrl,
 }: UnsupportedTabViewProps) {
+  // Keep experimental rows visible for the rest of the current popup session if
+  // they were enabled when opened so toggling one off doesn't drop focus or trap undo.
+  const seenEnabledRef = useRef<Set<string>>(new Set());
+  for (const site of sites) {
+    if (site.experimental && site.enabled) {
+      seenEnabledRef.current.add(site.id);
+    }
+  }
+  const visibleSites = sites.filter(
+    (site) => isSiteVisible(site) || seenEnabledRef.current.has(site.id),
+  );
+
   const globalThemeFingerprint = useMemo(
     () =>
       savedThemes.length > 0 && globalTheme
@@ -248,7 +260,7 @@ function UnsupportedTabView({
 
       <div className="qp-body">
         <SettingCard title="Supported sites">
-          {sites.map((site) => {
+          {visibleSites.map((site) => {
             const cfg = SITE_QUICK_CONFIGS[site.id];
             return (
               <div key={site.id} className="qp-site-row">
@@ -741,7 +753,7 @@ function ActiveTabView({
       </button>
     ) : undefined;
 
-  let statusText = 'Paused on this site';
+  let statusText = 'Paused here';
   if (siteEnabled) {
     statusText =
       activeTab.hiddenCount > 0

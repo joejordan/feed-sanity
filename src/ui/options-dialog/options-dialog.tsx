@@ -226,7 +226,10 @@ export function OptionsDialog({
     if (!onSiteEnabledChange) {
       return;
     }
-    return onSiteEnabledChange((next) => setEnabledHere(next));
+    return onSiteEnabledChange((next) => {
+      setEnabledHere(next);
+      setTick((t) => t + 1);
+    });
   }, [onSiteEnabledChange]);
 
   const openCommandJump = (toggle = false): void => {
@@ -604,7 +607,7 @@ export function OptionsDialog({
                       data-paused={enabledHere ? undefined : 'true'}
                       aria-hidden="true"
                     />
-                    {enabledHere ? 'Active on this site' : 'Paused on this site'}
+                    {enabledHere ? 'Active on this site' : 'Paused here'}
                   </span>
                 )}
               </div>
@@ -695,11 +698,6 @@ export function OptionsDialog({
                     {bucket.advanced.length > 0 && (
                       <Disclosure
                         label={advLabel}
-                        badge={
-                          bucket.primary.length === 0 ? (
-                            <Badge>{bucket.advanced.length}</Badge>
-                          ) : undefined
-                        }
                         open={isOpen}
                         onToggle={() => toggleDisclosure(discKey)}
                       >

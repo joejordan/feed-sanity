@@ -230,6 +230,15 @@ describe('OptionsDialog', () => {
         description: 'Hidden behind disclosure until expanded',
         default: false,
       },
+      keywords: {
+        section: 'Filtering',
+        group: 'Bulk Keyword Blocklist',
+        advanced: true,
+        title: 'Hide posts matching keywords',
+        description: 'One keyword per line',
+        default: '',
+        multiline: true,
+      },
     });
     await grouped.load();
     const onToggleSite = vi.fn();
@@ -244,11 +253,16 @@ describe('OptionsDialog', () => {
     );
 
     expect(screen.queryByRole('checkbox', { name: 'Advanced matcher' })).toBeNull();
+    // Standalone advanced disclosures (like Bulk Keyword Blocklist) must not show a misleading option count badge.
+    const bulkDisclosure = button(/Bulk Keyword Blocklist/);
+    expect(bulkDisclosure.textContent?.trim()).toBe('Bulk Keyword Blocklist');
     await userEvent.click(button(/More options/));
     expect(field('checkbox', 'Advanced matcher').checked).toBe(false);
 
+    expect(screen.getByText('Active on this site')).toBeTruthy();
     await userEvent.click(field('checkbox', 'Enable Feed Sanity on X (Twitter)'));
     expect(onToggleSite).toHaveBeenCalledWith(false);
+    expect(screen.getByText('Paused here')).toBeTruthy();
   });
 
   it('will not save a number field that does not hold a number', async () => {

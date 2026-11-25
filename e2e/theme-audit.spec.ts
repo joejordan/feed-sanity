@@ -474,7 +474,11 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
   test('Reddit Shreddit: passes live Shadow DOM Appearance Audit under Catppuccin Mocha with zero violations', async () => {
     const page = await context.newPage();
     try {
-      await installHarness(page, {}, 'loid=auditrddt1234.1.1700000000');
+      await installHarness(
+        page,
+        { 'v2/sites': { reddit: true } },
+        'loid=auditrddt1234.1.1700000000',
+      );
       await page.goto(`${REDDIT_ORIGIN}/`);
 
       await page.evaluate(() =>

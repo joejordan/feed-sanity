@@ -34,6 +34,18 @@ describe('core/theming/adaptive-compiler', () => {
       .r-transparent-wrapper {
         background-color: rgba(0, 0, 0, 0);
       }
+      .r-rnw-zero-border-reset {
+        border: 0px solid rgb(0, 0, 0);
+      }
+      .r-none-border-reset {
+        border-style: none;
+        border-color: rgb(47, 51, 54);
+      }
+      .r-real-divider {
+        border-bottom-width: 1px;
+        border-bottom-style: solid;
+        border-bottom-color: rgb(47, 51, 54);
+      }
       .r-unknown-text {
         color: rgb(231, 233, 234);
       }
@@ -69,11 +81,15 @@ describe('core/theming/adaptive-compiler', () => {
     expect(compiled).toContain('.r-brand-link');
     expect(compiled).toContain(`color: ${warmPaper.accent} !important;`);
 
-    // Strictly paint-only: zero layout properties, zero transparent-to-opaque rules, zero error/video overrides.
+    // Strictly paint-only: zero layout properties, zero transparent-to-opaque rules, zero-width border resets, zero error/video overrides.
     expect(compiled).not.toContain('padding');
     expect(compiled).not.toContain('height');
     expect(compiled).not.toContain('position');
     expect(compiled).not.toContain('.r-transparent-wrapper');
+    expect(compiled).not.toContain('.r-rnw-zero-border-reset');
+    expect(compiled).not.toContain('.r-none-border-reset');
+    expect(compiled).toContain('.r-real-divider');
+    expect(compiled).toContain(`border-bottom-color: ${warmPaper.border} !important;`);
     expect(compiled).not.toContain('.r-error-badge');
     expect(compiled).not.toContain('video.player');
   });

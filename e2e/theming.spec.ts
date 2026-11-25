@@ -41,10 +41,13 @@ test('applies Appearance themes live immediately with Undo, supports disclosures
   await dialog.getByRole('button', { name: 'Undo' }).click();
   await expect(page.locator('#feed_sanity_user_theme')).toHaveCount(0);
 
-  // Switching to Sites shows all supported sites.
+  // Switching to Sites shows production sites and reveals experimental sites on toggle.
   await dialog.getByRole('button', { name: /^Sites/ }).click();
-  await expect(dialog.getByText('Instagram', { exact: true })).toBeVisible();
   await expect(dialog.getByText('X (Twitter)', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Instagram', { exact: true })).toHaveCount(0);
+  await dialog.getByRole('checkbox', { name: 'Show experimental sites' }).click();
+  await expect(dialog.getByText('Instagram', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Reddit', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Gmail', { exact: true })).toBeVisible();
 
   // Configure Warm Paper + custom accent + Editorial Serif + custom CSS via disclosures (instant apply!).

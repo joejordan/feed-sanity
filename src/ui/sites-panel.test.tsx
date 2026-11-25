@@ -6,7 +6,7 @@ import { sitesPanel } from './sites-panel';
 
 describe('sitesPanel', () => {
   afterEach(cleanup);
-  it('lists every supported site equally and toggles Facebook and other sites live with pending state', async () => {
+  it('shows production sites, gates experimental sites behind a warning toggle, and toggles live with pending state', async () => {
     let statuses: SiteStatus[] = [
       {
         id: 'facebook',
@@ -15,10 +15,24 @@ describe('sitesPanel', () => {
         enabled: true,
       },
       {
+        id: 'x',
+        displayName: 'X (Twitter)',
+        description: 'X features.',
+        enabled: true,
+      },
+      {
         id: 'instagram',
         displayName: 'Instagram',
         description: 'Instagram features.',
-        enabled: true,
+        enabled: false,
+        experimental: true,
+      },
+      {
+        id: 'reddit',
+        displayName: 'Reddit',
+        description: 'Reddit features.',
+        enabled: false,
+        experimental: true,
       },
     ];
     let finishToggle!: () => void;
@@ -49,10 +63,15 @@ describe('sitesPanel', () => {
 
     render(<panel.Panel value={null} onChange={() => undefined} />);
 
-    // Both Facebook and Instagram have identical Enabled badges and Disable buttons (no "Built-in" special case).
+    // Badge counts visible production + active experimental sites (2/2 initially).
+    expect(panel.badge?.()).toBe('2/2');
+
+    // Only production sites (Facebook, X) are visible until Show experimental sites is toggled on.
     expect(screen.queryByText('Built-in')).toBeNull();
     expect(screen.getAllByText('Enabled')).toHaveLength(2);
     expect(screen.getAllByRole('button', { name: /^Disable / })).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Enable Instagram' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Enable Reddit' })).toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: 'Disable Facebook' }));
     expect(setEnabled).toHaveBeenCalledWith('facebook', false);
@@ -62,6 +81,7 @@ describe('sitesPanel', () => {
 
     finishToggle();
     expect(await screen.findByText('Disabled')).toBeTruthy();
+    expect(panel.badge?.()).toBe('1/2');
     const enableBtn = await screen.findByRole('button', { name: 'Enable Facebook' });
     expect(enableBtn.textContent).toBe('Enable');
 
@@ -69,9 +89,34 @@ describe('sitesPanel', () => {
     expect(setEnabled).toHaveBeenCalledWith('facebook', true);
     finishToggle();
     await vi.waitFor(() => expect(screen.getAllByText('Enabled')).toHaveLength(2));
+
+    // Toggling Show experimental sites reveals warning + disabled Instagram and Reddit cards.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show experimental sites' }));
+    expect(screen.getByText(/things will be broken/i)).toBeTruthy();
+    const enableIg = screen.getByRole('button', { name: 'Enable Instagram' });
+    expect(screen.getByRole('button', { name: 'Enable Reddit' })).toBeTruthy();
+
+    await userEvent.click(enableIg);
+    expect(setEnabled).toHaveBeenCalledWith('instagram', true);
+    finishToggle();
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Disable Instagram' })).toBeTruthy(),
+    );
+    expect(panel.badge?.()).toBe('3/3');
+
+    // Collapsing experimental sites and triggering a Command Jump search hit for an experimental site
+    // automatically expands the section again.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Show experimental sites' }));
+    expect(screen.queryByRole('button', { name: 'Enable Reddit' })).toBeNull();
+    const redditHit = panel.searchItems?.().find((item) => item.id === 'site:reddit');
+    expect(redditHit?.onSelect).toBeTypeOf('function');
+    redditHit?.onSelect?.();
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Enable Reddit' })).toBeTruthy(),
+    );
   });
 
-  it('tolerates transient storage failures without breaking the toggle UI', async () => {
+  it('auto-reveals experimental sites when one is already enabled or matches currentSiteId and tolerates storage errors', async () => {
     const client: SiteSettingsClient = {
       ready: Promise.resolve(),
       list: () => [
@@ -80,6 +125,7 @@ describe('sitesPanel', () => {
           displayName: 'Gmail',
           description: 'Gmail features.',
           enabled: true,
+          experimental: true,
         },
       ],
       isEnabled: () => true,

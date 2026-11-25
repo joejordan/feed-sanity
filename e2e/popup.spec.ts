@@ -77,6 +77,7 @@ test('extension toolbar popup controls live Facebook tab (Starter Mode, Quick Th
 
 test('extension toolbar popup shows Supported Sites launcher on unsupported tabs', async ({
   page,
+  store,
   openPopup,
 }) => {
   await page.goto('about:blank');
@@ -85,9 +86,15 @@ test('extension toolbar popup shows Supported Sites launcher on unsupported tabs
   await expect(popup.getByText('Not active on this page')).toBeVisible();
   await expect(popup.getByText('Facebook')).toBeVisible();
   await expect(popup.getByText('X (Twitter)')).toBeVisible();
-  await expect(popup.getByText('Instagram')).toBeVisible();
+  // Experimental sites stay hidden on unsupported tabs unless actively enabled.
+  await expect(popup.getByText('Instagram')).toHaveCount(0);
+  await expect(popup.getByText('Reddit')).toHaveCount(0);
+  await expect(popup.getByText('Gmail')).toHaveCount(0);
+
+  await store({ 'v2/sites': { reddit: true } });
   await expect(popup.getByText('Reddit')).toBeVisible();
-  await expect(popup.getByText('Gmail')).toBeVisible();
+  await expect(popup.getByText('Instagram')).toHaveCount(0);
+  await expect(popup.getByText('Gmail')).toHaveCount(0);
 });
 
 test('extension toolbar popup previews & switches My Themes, pauses live backdrop motion, and broadcasts to all sites', async ({

@@ -488,7 +488,10 @@ export function mapHostNeutralToPalette(
       return null;
     }
   } else if (kind === 'border') {
-    baseHex = palette.border;
+    // Pure canvas-matched borders (`#000` on dark hosts, `#fff` on light hosts,
+    // used for avatar cutouts and hidden button borders) stay matched to canvas
+    // rather than lighting up as visible divider strokes.
+    baseHex = t <= 0.015 ? palette.background : palette.border;
   } else if (t >= 0.72) {
     baseHex = palette.text;
   } else if (t >= 0.36) {
