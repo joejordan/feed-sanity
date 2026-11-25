@@ -771,6 +771,12 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(fbCss).toContain('--progress-ring-neutral-foreground:');
     expect(fbCss).toContain('--glimmer-spinner-icon:');
     expect(fbCss).toContain('[role="progressbar"]');
+    expect(fbCss).toContain('--base-blue:');
+    expect(fbCss).toContain('svg[aria-label*="Loading" i]');
+    // Class-styled Comet progress rings omit an HTML `stroke` attribute on `<circle>`.
+    expect(fbCss).toContain('circle:last-of-type,');
+    expect(fbCss).not.toContain('circle:last-of-type, path)[stroke]');
+    expect(fbCss).toContain('stop-color:');
     expect(fbCss).toContain('[data-fs-shell]');
     expect(fbCss).not.toContain('div:has([role="main"])');
     expect(fbCss).not.toMatch(/\[role="banner"\][^}]*backdrop-filter/s);

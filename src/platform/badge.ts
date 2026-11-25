@@ -19,21 +19,9 @@ export const FAILED_MARK = '!';
 /** Facebook's red, for the failed mark. */
 const FAILED_COLOUR = '#e41e3f';
 
-/** Facebook's grey for secondary text, for a count. */
-const COUNT_COLOUR = '#65686c';
-
-/** A badge has room for about four characters. */
-const MOST_SHOWN = 999;
-
-/** The badge's text: the failed mark, the count, or nothing. */
-export function badgeText({ count, failed }: Badge): string {
-  if (failed) {
-    return FAILED_MARK;
-  }
-  if (count > MOST_SHOWN) {
-    return `${MOST_SHOWN}+`;
-  }
-  return count > 0 ? String(count) : '';
+/** The badge's text: the failed mark when a feature has stopped working, otherwise nothing. */
+export function badgeText({ failed }: Badge): string {
+  return failed ? FAILED_MARK : '';
 }
 
 /** Who sent a message, as `runtime.onMessage` reports it. */
@@ -65,7 +53,7 @@ export async function showBadge(button: ToolbarButton, tabId: number, badge: Bad
     : OPTIONS_TITLE;
   await Promise.all([
     button.setBadgeText({ tabId, text: badgeText(badge) }),
-    button.setBadgeBackgroundColor({ tabId, color: badge.failed ? FAILED_COLOUR : COUNT_COLOUR }),
+    ...(badge.failed ? [button.setBadgeBackgroundColor({ tabId, color: FAILED_COLOUR })] : []),
     button.setTitle({ tabId, title }),
   ]);
 }

@@ -349,7 +349,7 @@ export interface ToastProps {
 export function Toast({ message, onUndo }: ToastProps) {
   return (
     <div className="fs-toast" role="status" aria-live="polite">
-      <span>{message}</span>
+      <span className="fs-toast-message">{message}</span>
       {onUndo && (
         <button type="button" className="fs-toast-undo" onClick={onUndo}>
           Undo

@@ -15,6 +15,46 @@ import {
 import { storyBottomStrip, storyCardOf, storyHeaderOf } from './stories';
 
 const log = createLogger('videos');
+const MAX_COVER_LINK_DEPTH = 4;
+const COVER_LINK_SELECTOR = 'a[href], [role="link"]';
+
+function coversVideo(element: Element, videoRect: DOMRect, videoArea: number): boolean {
+  const rect = element.getBoundingClientRect();
+  const overlapW = Math.min(rect.right, videoRect.right) - Math.max(rect.left, videoRect.left);
+  const overlapH = Math.min(rect.bottom, videoRect.bottom) - Math.max(rect.top, videoRect.top);
+  return overlapW > 0 && overlapH > 0 && overlapW * overlapH >= videoArea / 2;
+}
+
+function hasOtherVideo(candidate: Element, visitedChild: Element): boolean {
+  for (const child of candidate.children) {
+    if (child !== visitedChild && (child.tagName === 'VIDEO' || child.querySelector('video'))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasSiblingCoverLink(
+  candidate: Element,
+  visitedChild: Element,
+  videoRect: DOMRect,
+  videoArea: number,
+): boolean {
+  for (const child of candidate.children) {
+    if (child === visitedChild) {
+      continue;
+    }
+    if (child.matches(COVER_LINK_SELECTOR) && coversVideo(child, videoRect, videoArea)) {
+      return true;
+    }
+    for (const link of child.querySelectorAll(COVER_LINK_SELECTOR)) {
+      if (coversVideo(link, videoRect, videoArea)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 /** Where a video is shown: in a post, in the reel viewer, in the stories viewer, or anywhere else. */
 export type VideoSurface = 'feed' | 'other' | 'reel' | 'story';
@@ -82,17 +122,54 @@ class TrackedVideo implements Video {
     }
     const parent = this.element.parentElement;
     const wrapper = parent && this.#locate(VIDEO_CONTAINER).closest(parent);
-    return wrapper instanceof HTMLElement ? wrapper : parent;
+    const base = wrapper instanceof HTMLElement ? wrapper : parent;
+    return base ? this.#aboveLinkCover(base) : null;
+  }
+
+  /**
+   * When a shared Reel or video card lays a sibling full-frame link over the
+   * video wrapper, climb to the nearest single-video ancestor holding that
+   * cover so overlays (scrubber, download button) mount above the link.
+   */
+  #aboveLinkCover(base: HTMLElement): HTMLElement {
+    const videoRect = this.element.getBoundingClientRect();
+    const videoArea = videoRect.width * videoRect.height;
+    if (videoArea <= 0) {
+      return base;
+    }
+    const post = this.#locate(VIDEO_POST).closest(base);
+    let container = base;
+    let prev: HTMLElement = base;
+    let candidate = prev.parentElement;
+    for (
+      let depth = 0;
+      depth < MAX_COVER_LINK_DEPTH && candidate && candidate !== document.body;
+      depth++
+    ) {
+      if (candidate === post || hasOtherVideo(candidate, prev)) {
+        break;
+      }
+      if (hasSiblingCoverLink(candidate, prev, videoRect, videoArea)) {
+        container = candidate;
+      }
+      prev = candidate;
+      candidate = candidate.parentElement;
+    }
+    return container;
   }
 
   get surface(): VideoSurface {
     if (this.#storyCard()) {
       return 'story';
     }
+    const inPost = Boolean(this.#locate(VIDEO_POST).closest(this.element));
+    if (inPost && pageContext().type !== 'reel') {
+      return 'feed';
+    }
     if (this.#locate(REEL_CARD).closest(this.element)) {
       return 'reel';
     }
-    if (this.#locate(VIDEO_POST).closest(this.element)) {
+    if (inPost) {
       return 'feed';
     }
     return pageContext().type === 'reel' ? 'reel' : 'other';
@@ -247,9 +324,13 @@ export class Videos {
     element.addEventListener('emptied', this.#emptied);
     this.#added.emit(video);
     // A slider that arrived before its video, in the same player.
-    const container = video.container;
+    let container: HTMLElement | null | undefined;
     for (const [slider, owner] of this.#sliders) {
-      if (owner === null && container?.contains(slider)) {
+      if (owner !== null) {
+        continue;
+      }
+      container ??= video.container;
+      if (container?.contains(slider)) {
         this.#sliderAdded(slider);
       }
     }

@@ -1,26 +1,10 @@
 import type { Video } from '../../facebook/videos';
-import { intercept } from '../../core/intercept';
+import { intercept, isPlainPress, PRESS_EVENTS } from '../../core/intercept';
 import { defineFeature } from '../../facebook/feature';
 import { STORY_ID, VIDEO_CONTROL, VIDEO_POST } from '../../facebook/selectors';
 import { storyCardOf, storyMenuOpen, storyPauseButton } from '../../facebook/stories';
 import { hasControlAt, isVideoInFullscreen, pointIn } from '../video-layout';
 import { PauseHolds } from './hold';
-
-/**
- * The events of one press. Facebook opens the viewer from one of them, and
- * all of them are kept from it so that it is not left half way through a
- * press it never saw end.
- */
-const PRESS_EVENTS = [
-  'pointerdown',
-  'touchstart',
-  'mousedown',
-  'pointerup',
-  'touchend',
-  'mouseup',
-  'click',
-  'pointercancel',
-] as const;
 
 /**
  * A second press on the same video this soon after a click goes to
@@ -59,10 +43,7 @@ interface Click {
   readonly y: number;
 }
 
-const isPlain = (event: PointerEvent): boolean =>
-  event.isPrimary &&
-  event.button === 0 &&
-  !(event.altKey || event.ctrlKey || event.metaKey || event.shiftKey);
+const isPlain = (event: PointerEvent): boolean => event.isPrimary && isPlainPress(event);
 
 const distance = (a: { x: number; y: number }, event: MouseEvent): number =>
   Math.hypot(event.clientX - a.x, event.clientY - a.y);
@@ -102,9 +83,9 @@ export default defineFeature({
   enabledBy: 'video_click_pauses',
   setup({ page, scope, log }) {
     const holds = new PauseHolds(scope, log);
-    page.videos.onRemove((video) => holds.release(video.element));
+    scope.add(page.videos.onRemove((video) => holds.release(video.element)));
     // Following the videos is what makes `around` find them.
-    page.videos.onAdd(() => undefined);
+    scope.add(page.videos.onAdd(() => undefined));
     const controls = page.locate(VIDEO_CONTROL);
     const posts = page.locate(VIDEO_POST);
 
@@ -170,9 +151,6 @@ export default defineFeature({
       // from what was pressed.
       const video = page.videos.around(target, post);
       if (video?.surface !== 'feed') {
-        return undefined;
-      }
-      if (video.container && !video.container.contains(target)) {
         return undefined;
       }
       // Leave native fullscreen controls and scrubbers untouched.

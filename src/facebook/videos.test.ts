@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Video } from './videos';
 import { PageWatcher } from '../core/page-watcher';
 import { sleep } from '../core/timing';
-import { addStory, fakeLocate } from './testing';
+import { addStory, fakeLocate, placeAt } from './testing';
 import { Videos } from './videos';
 
 /** Adds this markup to the page and returns its first element. */
@@ -102,6 +102,58 @@ describe('Videos', () => {
     expect(added.map((video) => video.surface)).toEqual(['feed', 'reel', 'feed', 'other']);
     history.replaceState({}, '', '/reel/123');
     expect(added[3]?.surface).toBe('reel');
+  });
+
+  it('climbs above sibling cover links and classifies shared reels in feed posts as feed videos', async () => {
+    const post = add(`
+      <div aria-posinset="1">
+        <div id="shared-card">
+          <div data-video-id="99" data-index="0" id="inner"><video></video></div>
+          <a href="/reel/99/" target="_blank" id="cover"></a>
+        </div>
+      </div>`);
+    const videoEl = post.querySelector('video') as HTMLVideoElement;
+    const cover = post.querySelector('#cover') as HTMLElement;
+    placeAt(videoEl, 0, 0, 320, 560);
+    placeAt(cover, 0, 0, 320, 560);
+    follow();
+
+    expect(added[0]?.surface).toBe('feed');
+    expect(added[0]?.container).toBe(post.querySelector('#shared-card'));
+
+    // On a /reel/ page, REEL_CARD stays classified as 'reel' even if inside VIDEO_POST.
+    history.replaceState({}, '', '/reel/99/');
+    expect(added[0]?.surface).toBe('reel');
+    history.replaceState({}, '', '/');
+
+    // Stops before VIDEO_POST and ignores non-covering sibling author links.
+    const smallLinkPost = add(`
+      <div aria-posinset="2">
+        <div id="small-card">
+          <div data-video-id="100" id="inner-small"><video></video></div>
+          <a href="/author/" id="author-link">Author</a>
+        </div>
+        <a href="/reel/100/" id="post-level-cover"></a>
+      </div>`);
+    placeAt(smallLinkPost.querySelector('video') as Element, 0, 0, 320, 560);
+    placeAt(smallLinkPost.querySelector('#author-link') as Element, 0, 0, 80, 20);
+    placeAt(smallLinkPost.querySelector('#post-level-cover') as Element, 0, 0, 320, 560);
+
+    // Stops before a multi-video ancestor even when a cover link sits there.
+    const multiVideoPost = add(`
+      <div aria-posinset="3">
+        <div id="multi-wrap">
+          <div data-video-id="101" id="inner-one"><video></video></div>
+          <div data-video-id="102"><video></video></div>
+          <a href="/reel/101/" id="multi-cover"></a>
+        </div>
+      </div>`);
+    placeAt(multiVideoPost.querySelector('#inner-one video') as Element, 0, 0, 320, 560);
+    placeAt(multiVideoPost.querySelector('#multi-cover') as Element, 0, 0, 320, 560);
+
+    await vi.waitFor(() => expect(added).toHaveLength(4));
+    expect(added[1]?.container).toBe(smallLinkPost.querySelector('#inner-small'));
+    expect(added[2]?.container).toBe(multiVideoPost.querySelector('#inner-one'));
   });
 
   it('puts a video in a story card on the story surface, with the card as its container', () => {

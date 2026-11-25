@@ -382,7 +382,7 @@ export function StudioVibesCard({
 }: StudioVibesCardProps) {
   return (
     <SettingCard
-      title="Studio Vibes"
+      title="Live Themes"
       action={activeVibe ? <Badge tone="accent">{activeVibe.name}</Badge> : undefined}
     >
       <div className="theme-studio-pad">
@@ -393,7 +393,7 @@ export function StudioVibesCard({
         <div
           className="theme-vibe-grid"
           role="group"
-          aria-label="Studio vibes"
+          aria-label="Live themes"
           {...previewLeaveProps(() => onPreviewVibe?.(null))}
         >
           {STUDIO_VIBES.map((vibe) => {

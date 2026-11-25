@@ -1,20 +1,47 @@
 # Feed Sanity
 
-## Status
+A multi-site browser extension and userscript for filtering, tidying, and theming **Facebook**, **X (Twitter)**, **Instagram**, **Reddit**, and **Gmail**.
 
-Several features are new in this project. Post filters hide the posts Facebook suggests from pages, people and groups you do not follow, and can hide ads, which they tell apart by Facebook's React data. A menu on the Home button in Facebook's top bar picks the feed the home page shows, such as Friends only, and automatic feed refreshes and stale-session redirects back to Home can be stopped so returning to the tab does not wipe your place. Every video gets a scrubber along its bottom edge and a button that saves its file, and a click on a video in a post pauses it where Facebook would open a viewer. All three work in stories too, and a story keeps playing while the pointer is on the list of stories.
+## What's built
+
+### Multi-site filtering, feeds, and video tools
+
+- **Quick Control Center**: Clicking the toolbar icon (or opening the userscript overlay) opens a compact site-aware control center with one-click Starter Modes (`Default`, `Clean`, `Focus`, `Minimal`), per-site feature toggles, Quick Mute, quick theme swatches, `My Themes` switching, polarity flip, and `Apply to all sites`. Every change applies immediately with an Undo toast.
+- **Cross-site Filter Rules**: Build keyword, author, domain, or selector filters to hide, highlight, or tag posts and threads across supported sites, with live hit counts and zero-reload updates.
+- **Facebook**:
+  - Hide suggested posts and ads (detected via Facebook's page-world React data rather than text heuristics), Home feed switcher (Home, Friends, Favorites, Groups, Pages, Most recent), stop automatic feed refreshes and stale-session redirects, video scrubber, click-to-pause, video download, and story playback improvements.
+- **X (Twitter)**: Default to Following feed, hide clutter (Grok, Premium upsells, sidebar widgets, Who to follow), feed filters, video scrubber/controls, and customizable playback speed.
+- **Instagram**: Default to Following feed, hide clutter (Reels/Explore/Threads upsells, suggestions), feed filters, video controls, and video download.
+- **Reddit**: Hide clutter (promoted items, sidebar noise, app prompts), feed filters, and video controls.
+- **Gmail**: Hide clutter (sidebar/banner distractions, promotions noise) and thread filters. Strict Trusted Types CSP compliance throughout.
+- **Diagnostics**: Inspect active features, error counts, post tracking, selector health, and copy a sanitized report with no personal data.
+
+### Unified 3-tier theming system (`ThemeDocumentV1`)
+
+Every supported site shares a single theming engine backed by canonical `.fstheme.json` (`ThemeDocumentV1`) documents and CSS Cascade Layers (`@layer fs-user, fs-reveal-shell, fs-healer, fs-finish, fs-reveal, fs-mapping, fs-adaptive`):
+
+- **My Themes & Cross-Site Sync**: Save customized or imported themes to a personal library, rename/export/delete entries, and broadcast any theme across every site with **Apply to all sites**.
+- **Live Themes & Color Themes**: Curated full-scene Live Themes (including *Enter the Matrix*, *Vice City VI*, *Northern Aurora*, *Velvet Silk*, *Deep Space*, *Synthwave Grid*, *Prism Studio*, and *Noir Spotlight*) alongside light and dark static Color Themes, live palette overrides, light/dark polarity flipping, typography presets, and opt-in live hover preview.
+- **Customize Effects**: Mix 8 built-in animated backdrop engines (with per-engine tuners like Matrix glyph charsets and rain intro), surface finishes (`glass`, `gradient`, `neon`, `matte`), click FX, motion pause, and automatic `prefers-reduced-motion` and background-tab throttling.
+- **Tier 2 Declarative Scene Layers**: Compose multi-layer custom animated scenes (`gradient`, `grid`, `stars`, `rain`, `orbs`, `waves`, `scanlines`) directly inside a `.fstheme.json` file with zero custom code.
+- **Tier 3 Opt-In GLSL Shaders**: Import `.fstheme.json` themes with custom WebGL2 fragment shaders, validated statically, sandboxed with strict uniform/compilation/runtime limits, and gated behind an explicit user trust toggle before execution.
+- **Adaptive Compiler & WCAG Auto-Healer**: Automatically maps host stylesheets, handles SPA dark/light polarity flips and Shadow DOM sheets, and runs on-demand WCAG contrast and layout audits.
+
+For what is planned after the initial release (including site layout presets and a broader theme creator platform), see [docs/ideas/custom-layouts-and-open-theme-platform.md](docs/ideas/custom-layouts-and-open-theme-platform.md). For full history and details, see [docs/release-notes.md](docs/release-notes.md) and [docs/facebook-notes.md](docs/facebook-notes.md).
 
 ## Layout
 
-| Path                             | What lives there                                                                                                                                          |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/entrypoints/`               | What the browser loads. `content.ts` runs on facebook.com.                                                                                                |
-| `src/core/`                      | The framework features are built on: feature registry, options, DOM helpers. Nothing here knows about Facebook's markup.                                  |
-| `src/facebook/`                  | Everything that depends on how Facebook builds its pages, such as selectors, cookies and URL formats. When Facebook changes something, the fix goes here. |
-| `src/features/<name>/`           | One folder per feature, with its tests.                                                                                                                   |
-| `src/diagnostics/`               | The Diagnostics section of the options dialog and the report it copies.                                                                                   |
-| `src/platform/`                  | What differs between the extension and the userscript, such as where settings are stored.                                                                 |
-| `src/ui/`                        | The UI, written with React's API: `mount` for showing a component on the page, and the options dialog.                                                     |
+| Path                             | What lives there                                                                                                                        |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/entrypoints/`               | Browser entrypoints: `content.ts`, `background.ts`, and `popup/` (Quick Control Center).                                                |
+| `src/core/`                      | Site-agnostic framework: feature registry, options store, `PageWatcher`, `DomEnvironment`, filter engine, `theming/`, `theme-effects/`. |
+| `src/sites/`                     | Per-site adapters (`facebook`, `x`, `instagram`, `reddit`, `gmail`) with each site's `theme-mapping.ts` and site-specific features.     |
+| `src/facebook/`                  | Facebook DOM layer: locators, generated class-name translator, post detection, and React bridge readers.                                |
+| `src/features/<name>/`           | Shared and Facebook features (`post-filters`, `mark-read`, `home-feed`, `video-*`, `display-notice`, `external-css`), with tests.       |
+| `src/ui/`                        | Preact-backed Shadow DOM UI: primitives, Options dialog, `appearance/` studio, `popup/` Quick Control Center, filter rule editor.       |
+| `src/diagnostics/`               | Diagnostics panel and sanitized bug-report exporter.                                                                                    |
+| `src/platform/`                  | Extension vs. userscript implementations of storage, messaging, badges, and downloads.                                                  |
+| `e2e/`                           | Playwright end-to-end tests running the built Chrome extension and userscript against site fixtures.                                    |
 
 ## Getting started
 
@@ -22,15 +49,18 @@ Developed with Node 26 and pnpm 10.
 
 ```sh
 pnpm install
-pnpm dev          # run in Firefox and reload on change
-pnpm dev:chrome   # the same in Chrome
-pnpm check        # type check, lint and tests
-pnpm build        # .output/firefox-mv2, .output/chrome-mv3 and .output/userscript
+pnpm dev            # run in Firefox and reload on change
+pnpm dev:chrome     # run in Chrome and reload on change
+pnpm check          # typecheck, lint, and unit tests
+pnpm build          # builds .output/firefox-mv2, .output/chrome-mv3, and .output/userscript
+pnpm test:e2e       # build Chrome extension + userscript and run Playwright E2E suite
 ```
+
+To load the unpacked Chrome extension locally, open `chrome://extensions`, enable Developer Mode, and load `.output/chrome-mv3`. After rebuilding, reload the extension there and refresh open tabs.
 
 ## Adding a feature
 
-Create `src/features/<name>/index.ts`:
+Create `src/features/<name>/index.ts` (or `src/sites/<site>/features/<name>.ts` for a site-specific feature):
 
 ```ts
 import { defineFeature } from '../../facebook/feature';
@@ -56,34 +86,18 @@ export default defineFeature({
 });
 ```
 
-`page.posts` reports each post on the page and each one Facebook adds later. `page.locate` finds Facebook's other elements through the locators in `src/facebook/selectors.ts`. `page.atoms` translates CSS that names Facebook's generated classes. `badge(count)` shows a number on the toolbar button, such as how many posts the feature has hidden.
+Register it in `src/features/index.ts` or the site's adapter. A feature that throws during setup is isolated, logged, and marked failed without stopping other features.
 
-Then add it to the list in `src/features/index.ts`. A feature that throws during setup is logged and skipped, and the others keep running.
+## UI & Trusted Types
 
-## UI
+The UI is written against React's types and aliased to [Preact](https://preactjs.com) (`preact/compat`) in both builds and tests (`@testing-library/preact`). Every on-page UI mounts inside its own Shadow DOM via `mount()` in `src/ui/mount.tsx` so host CSS never bleeds in and keystrokes never trigger site shortcuts.
 
-The UI is written against React's API and ships with [Preact](https://preactjs.com) in its place: `preact-alias.ts` points every `react` and `react-dom` import at `preact/compat` in the builds and the tests. That keeps the content script at about 45 kB, where React made it about 247 kB. Tests use `@testing-library/preact`. To go back to React, remove the alias and install `react` and `react-dom`.
+All code follows strict **Trusted Types** compliance (required by Gmail's CSP): `innerHTML`, `outerHTML`, `insertAdjacentHTML`, and `dangerouslySetInnerHTML` are never used.
 
-Type checking still uses React's types, which include APIs that `preact/compat` lacks or only imitates. `biome.json` lists the React imports the UI may use; check that Preact supports a name before adding it.
+## Code style & commits
 
-`mount` in `src/ui/mount.tsx` renders a component into a shadow root of its own at the end of the page, so Facebook's styles do not reach it and its styles do not leak out. It also stops keys typed into the UI from reaching Facebook's keyboard shortcuts. Import a component's style sheet with `?inline` and pass it to `mount`:
-
-```tsx
-import { mount } from '../../ui/mount';
-import css from './my-panel.css?inline';
-
-const unmount = mount(<MyPanel />, { id: 'feed_sanity_my_panel', css });
-```
-
-Every shadow root gets `src/ui/theme.css` first, then `src/facebook/theme.css`, which defines `--fs-*` colour variables from Facebook's own so the UI follows its light and dark themes. Use those rather than fixed colours.
-
-## Code style
-
-Biome formats and lints the code. Its rules in `biome.json` were converted from `@burgtech/eslint-config` with `biome migrate eslint`: 2-space indent, single quotes, semicolons, 100-column lines, kebab-case file names, and imports ordered as React, built-in, package, type, parent, sibling. `pnpm format` applies the fixes.
-
-## Commits
-
-Commit messages follow [Conventional Commits](https://www.conventionalcommits.org). A commit-msg hook rejects anything else.
+- **Biome** formats and lints the codebase (`pnpm format`, `pnpm lint`): 2-space indent, single quotes, semicolons, 100-column lines, kebab-case file names.
+- **Conventional Commits** are enforced via `commitlint` (body lines `<= 100` characters).
 
 ## License
 

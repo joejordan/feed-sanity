@@ -24,7 +24,69 @@ const PRESS_EVENTS = [
   'contextmenu',
   'touchstart',
   'touchend',
+  'dragstart',
 ] as const;
+
+const LINK_CLICK_EVENTS = ['click', 'auxclick'] as const;
+
+/**
+ * Prevents an enclosing host `<a href>` (for example, a shared Reel wrapped in
+ * a link) from navigating or initiating a native link drag when the user clicks
+ * or drags an overlay control inside the shadow root.
+ *
+ * Returns a cleanup callback for when the overlay is removed.
+ */
+function preventEnclosingLinkActivation(host: HTMLElement): () => void {
+  let dragCleanup: (() => void) | undefined;
+  const clearDragGuard = (): void => {
+    dragCleanup?.();
+    dragCleanup = undefined;
+  };
+  const onClick = (event: Event): void => {
+    if (!host.closest('a[href]')) {
+      return;
+    }
+    for (const node of event.composedPath()) {
+      if (node === host) {
+        break;
+      }
+      if (node instanceof HTMLAnchorElement && node.hasAttribute('href')) {
+        return;
+      }
+    }
+    event.preventDefault();
+  };
+  const onPressStart = (): void => {
+    clearDragGuard();
+    const link = host.closest('a[href]');
+    if (!link) {
+      return;
+    }
+    // Native link dragging dispatches `dragstart` directly on the enclosing
+    // `<a href>`, bypassing `host`, so guard the link for the duration of this press.
+    const stopDrag = (event: Event): void => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const release = (): void => clearDragGuard();
+    link.addEventListener('dragstart', stopDrag, { capture: true });
+    globalThis.addEventListener('pointerup', release, { capture: true });
+    globalThis.addEventListener('pointercancel', release, { capture: true });
+    globalThis.addEventListener('mouseup', release, { capture: true });
+    dragCleanup = () => {
+      link.removeEventListener('dragstart', stopDrag, { capture: true });
+      globalThis.removeEventListener('pointerup', release, { capture: true });
+      globalThis.removeEventListener('pointercancel', release, { capture: true });
+      globalThis.removeEventListener('mouseup', release, { capture: true });
+    };
+  };
+  for (const type of LINK_CLICK_EVENTS) {
+    host.addEventListener(type, onClick);
+  }
+  host.addEventListener('pointerdown', onPressStart);
+  host.addEventListener('mousedown', onPressStart);
+  return clearDragGuard;
+}
 
 /**
  * The host takes no room and no pointer events. `mountOverlay` sets its
@@ -79,11 +141,25 @@ let checkQueued = false;
 /** Reads where each target is, then moves the hosts, so the page is laid out once for all of them. */
 function measure(list: Iterable<Overlay>): void {
   const moves: [Overlay, Box, Element | null][] = [];
+  const reparent: [Overlay, Element][] = [];
   for (const overlay of list) {
     if (!overlay.host.isConnected) {
       continue;
     }
     const target = overlay.target.getBoundingClientRect();
+    // Re-resolve the container when a previously hidden/unlaid-out target gains size
+    // (for example, after revealing a hidden post containing a shared Reel cover link).
+    if (
+      (overlay.box.width === 0 || overlay.box.height === 0) &&
+      target.width > 0 &&
+      target.height > 0
+    ) {
+      const wanted = overlay.container();
+      if (wanted && wanted !== overlay.parent && wanted.contains(overlay.target)) {
+        reparent.push([overlay, wanted]);
+        continue;
+      }
+    }
     const host = overlay.host.getBoundingClientRect();
     const box = {
       left: overlay.box.left + target.left - host.left,
@@ -112,6 +188,9 @@ function measure(list: Iterable<Overlay>): void {
         observe(anchor, overlay);
       }
     }
+  }
+  for (const [overlay, wanted] of reparent) {
+    place(overlay, wanted);
   }
 }
 
@@ -198,14 +277,23 @@ function hasNonOwnAfter(host: Element): boolean {
   return false;
 }
 
+const MAX_MUTATION_CLIMB_DEPTH = 4;
+
 function enclosingParentMutated(parent: Element): boolean {
   if (mutatedParents.size === 0) {
     return false;
   }
-  // Walk up ancestors from `parent` (O(depth) Set lookups) rather than calling
-  // `mutated.contains(parent)` across every mutated parent on the page.
+  // Walk up bounded ancestors from `parent` (stopping before `body`) so
+  // unrelated feed/body mutations never trigger container re-resolution.
   let cur = parent.parentElement;
-  while (cur) {
+  for (
+    let depth = 0;
+    depth < MAX_MUTATION_CLIMB_DEPTH &&
+    cur &&
+    cur !== document.body &&
+    cur !== document.documentElement;
+    depth++
+  ) {
     if (mutatedParents.has(cur)) {
       return true;
     }
@@ -214,9 +302,16 @@ function enclosingParentMutated(parent: Element): boolean {
   return false;
 }
 
+function promoteIfCovered(host: HTMLElement, container: Element): void {
+  if (hasNonOwnAfter(host) && !host.shadowRoot?.activeElement) {
+    container.append(host);
+  }
+}
+
 /** Puts back each host that was removed, left behind, or covered by later host siblings while its target stays in the page. */
 function check(): void {
   checkQueued = false;
+  const actions: (() => void)[] = [];
   for (const overlay of overlays) {
     const { host, target, parent } = overlay;
     if (!target.isConnected) {
@@ -225,9 +320,7 @@ function check(): void {
     const intact =
       host.isConnected && parent !== null && host.parentNode === parent && parent.contains(target);
     if (intact && !enclosingParentMutated(parent)) {
-      if (hasNonOwnAfter(host) && !host.shadowRoot?.activeElement) {
-        parent.append(host);
-      }
+      actions.push(() => promoteIfCovered(host, parent));
       continue;
     }
     const wanted = overlay.container();
@@ -235,12 +328,15 @@ function check(): void {
       continue;
     }
     if (!host.isConnected || host.parentNode !== wanted) {
-      place(overlay, wanted);
-    } else if (hasNonOwnAfter(host) && !host.shadowRoot?.activeElement) {
-      wanted.append(host);
+      actions.push(() => place(overlay, wanted));
+    } else {
+      actions.push(() => promoteIfCovered(host, wanted));
     }
   }
   mutatedParents.clear();
+  for (const run of actions) {
+    run();
+  }
 }
 
 /** Called for each change to the page. The check runs once, after the whole batch. */
@@ -311,6 +407,7 @@ export function mountOverlay(
   host.setAttribute(OWN_ATTR, '');
   host.style.cssText = zIndex === undefined ? HOST_STYLE : `${HOST_STYLE};z-index:${zIndex}`;
   stopAtHost(host, PRESS_EVENTS);
+  const stopLinkGuard = preventEnclosingLinkActivation(host);
   const unmount = renderInShadow(host, ui, css);
   const overlay: Overlay = {
     host,
@@ -341,6 +438,7 @@ export function mountOverlay(
     if (overlay.parent) {
       unobserve(overlay.parent, overlay);
     }
+    stopLinkGuard();
     unmount();
     host.remove();
     if (overlays.size === 0) {

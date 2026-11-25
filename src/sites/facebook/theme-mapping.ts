@@ -1,5 +1,8 @@
 import type { SiteThemeMapping } from '../../core/theming';
+import { OWN_ATTR } from '../../core/surface';
 import { hexWithAlpha } from '../../core/theming';
+
+const LOADER_SCOPE = `:is([role="progressbar"], [aria-valuetext*="Loading" i], [role="status"][aria-label*="Loading" i], svg[aria-label*="Loading" i]):not([${OWN_ATTR}], [${OWN_ATTR}] *)`;
 
 /** Maps Feed Sanity's semantic `ThemePalette` onto Facebook's Meta Comet CSS custom properties. */
 export const facebookThemeMapping: SiteThemeMapping = {
@@ -67,17 +70,24 @@ body {
   background-color: ${p.background} !important;
   color: ${p.text} !important;
 }
-[role="progressbar"]:not([data-feed-sanity], [data-feed-sanity] *) {
+${LOADER_SCOPE} {
   color: ${p.accent} !important;
+  --base-blue: ${p.accent} !important;
+  --accent: ${p.accent} !important;
+  --progress-ring-blue-foreground: ${p.accent} !important;
+  --progress-ring-neutral-foreground: ${p.accent} !important;
 }
-[role="progressbar"]:not([data-feed-sanity], [data-feed-sanity] *) svg circle:first-of-type:not(:only-of-type) {
+${LOADER_SCOPE} circle:first-of-type:not(:only-of-type):not([stroke="none"]) {
   stroke: ${hexWithAlpha(p.textMuted, 0.25)} !important;
 }
-[role="progressbar"]:not([data-feed-sanity], [data-feed-sanity] *) svg :is(circle:last-of-type, path)[stroke]:not([stroke="none"]) {
+${LOADER_SCOPE} :is(circle:last-of-type, path:is([stroke], [stroke-width], [stroke-dasharray], [fill="none"])):not([stroke="none"]) {
   stroke: ${p.accent} !important;
 }
-[role="progressbar"]:not([data-feed-sanity], [data-feed-sanity] *) svg :is(circle:last-of-type, path)[fill]:not([fill="none"]) {
+${LOADER_SCOPE} :is(circle:last-of-type, path)[fill]:not([fill="none"]) {
   fill: ${p.accent} !important;
+}
+${LOADER_SCOPE} stop {
+  stop-color: ${p.accent} !important;
 }
 `.trim(),
   surfaces: {

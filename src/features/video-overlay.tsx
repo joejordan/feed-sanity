@@ -32,6 +32,8 @@ export interface VideoOverlayOptions<T, V extends OverlayVideo = Video> {
   render: (video: V, place: Watched<T>) => ReactNode;
 }
 
+const POINTER_MEASURE_COOLDOWN_MS = 250;
+
 /**
  * Lays UI over every video on the page, and each one that comes later,
  * with `mountOverlay` in the video's container. The UI's place is measured
@@ -40,8 +42,6 @@ export interface VideoOverlayOptions<T, V extends OverlayVideo = Video> {
  * The overlay goes when its video leaves the page, and every one goes when
  * `scope` is disposed.
  */
-const POINTER_MEASURE_COOLDOWN_MS = 250;
-
 export function overlayEachVideo<T, V extends OverlayVideo = Video>(
   { page, scope, log }: { page: { videos: VideoOverlaySource<V> }; scope: Scope; log: Logger },
   { css, initial, measure, same, render }: VideoOverlayOptions<T, V>,
@@ -96,6 +96,7 @@ export function overlayEachVideo<T, V extends OverlayVideo = Video>(
       const overlay = mountOverlay(video.element, ui, {
         container: () => video.container,
         css,
+        zIndex: 3,
         onMeasure: () => {
           follow(video.container);
           const next = measure(video);

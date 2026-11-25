@@ -165,8 +165,8 @@
   overflow-y: auto;
 }
 
-.qp-root .fs-kicker {
-  margin: 0 0 4px 2px;
+.qp-root .fs-kicker-row {
+  margin-bottom: 4px;
 }
 
 .qp-root .fs-row {

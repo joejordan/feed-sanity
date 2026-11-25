@@ -29,12 +29,12 @@ function fakeButton() {
 }
 
 describe('badgeText', () => {
-  it('shows the count, the failed mark in its place, or nothing', () => {
+  it('shows only the failed mark and keeps the toolbar icon free of hidden-post counts', () => {
     expect(badgeText({ count: 0, failed: false })).toBe('');
-    expect(badgeText({ count: 7, failed: false })).toBe('7');
+    expect(badgeText({ count: 7, failed: false })).toBe('');
     expect(badgeText({ count: 7, failed: true })).toBe('!');
     expect(badgeText({ count: 0, failed: true })).toBe('!');
-    expect(badgeText({ count: 1234, failed: false })).toBe('999+');
+    expect(badgeText({ count: 1234, failed: false })).toBe('');
   });
 });
 
@@ -47,24 +47,27 @@ describe('showBadge', () => {
 
     expect(set.text).toEqual(
       new Map([
-        [4, '3'],
+        [4, ''],
         [9, '!'],
       ]),
     );
-    expect(set.colour.get(4)).not.toBe(set.colour.get(9));
+    expect(set.colour.has(4)).toBe(false);
+    expect(set.colour.get(9)).toBe('#e41e3f');
     expect(set.title.get(4)).toBe(OPTIONS_TITLE);
     expect(set.title.get(9)).toContain('stopped working');
   });
 });
 
 describe('badgeListener', () => {
-  it("shows a tab's badge on that tab only", async () => {
+  it("shows a tab's failed badge on that tab only and leaves counts blank", async () => {
     const { button, set } = fakeButton();
     const listener = badgeListener(button);
 
     listener(badgeMessage({ count: 2, failed: false }), { tab: { id: 12 } });
+    await vi.waitFor(() => expect(set.text).toEqual(new Map([[12, '']])));
 
-    await vi.waitFor(() => expect(set.text).toEqual(new Map([[12, '2']])));
+    listener(badgeMessage({ count: 2, failed: true }), { tab: { id: 12 } });
+    await vi.waitFor(() => expect(set.text).toEqual(new Map([[12, '!']])));
   });
 
   it('ignores other messages and messages from outside a tab', async () => {

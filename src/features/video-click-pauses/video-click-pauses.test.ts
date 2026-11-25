@@ -229,6 +229,22 @@ describe('video_click_pauses', () => {
     expect(video.paused).toBe(true);
   });
 
+  it('pauses a shared reel covered by a sibling link outside the video container without opening it', () => {
+    const link = document.createElement('a');
+    link.id = 'reel-cover';
+    link.href = 'https://www.facebook.com/reel/999/';
+    link.target = '_blank';
+    byId('post').append(link);
+    placeAt(link, 0, 0, 400, 300);
+    stack = [link, byId('player'), byId('post'), document.body];
+
+    press(link);
+
+    expect(video.paused).toBe(true);
+    expect(heard).toEqual([]);
+    expect(lastClick?.defaultPrevented).toBe(true);
+  });
+
   it.each<[string, string[] | null, PressOptions]>([
     ['a click with a modifier key', null, { ctrlKey: true }],
     ['another button', null, { button: 1 }],

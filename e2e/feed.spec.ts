@@ -245,7 +245,7 @@ test('saves a setting changed in the options dialog to extension storage', async
   await expectHidden(page, 'Bram Okafor');
 });
 
-test('counts the hidden posts on the toolbar badge and follows the keyword', async ({
+test('keeps the toolbar badge free of hidden-post numbers as keywords change', async ({
   page,
   store,
   badgeText,
@@ -253,17 +253,21 @@ test('counts the hidden posts on the toolbar badge and follows the keyword', asy
   await store({ [OPTIONS_KEY]: { hidden_keywords: 'crypto' } });
   await page.goto(FEED);
 
-  // Cleo Marsh, Ines Harrow and Dara Venn, who arrives late.
+  // Cleo Marsh, Ines Harrow and Dara Venn, who arrives late. Wait past the 100 ms
+  // badge debounce so we verify the settled toolbar badge stays empty.
   await expectHidden(page, 'Dara Venn');
-  await expect.poll(badgeText).toBe('3');
+  await page.waitForTimeout(250);
+  await expect(badgeText()).resolves.toBe('');
 
   await store({ [OPTIONS_KEY]: { hidden_keywords: 'typewriter' } });
   await expectHidden(page, 'Bram Okafor');
-  await expect.poll(badgeText).toBe('1');
+  await page.waitForTimeout(250);
+  await expect(badgeText()).resolves.toBe('');
 
   await store({ [OPTIONS_KEY]: { hidden_keywords: '' } });
   await expectShown(page, 'Bram Okafor');
-  await expect.poll(badgeText).toBe('');
+  await page.waitForTimeout(250);
+  await expect(badgeText()).resolves.toBe('');
 });
 
 test('shows the running features and the post counts under Diagnostics', async ({
@@ -324,17 +328,13 @@ test('finds the posts on a page reached without a reload', async ({ page, store,
   await expectHidden(page, 'Elio Brandt');
   await expectShown(page, 'Fern Adair');
   await expect(slot(page, 'Fern Adair')).toHaveAttribute('fs_id', '100000000000008');
-  // The posts hidden on the first page went with it.
-  await expect.poll(badgeText).toBe('1');
+  await expect.poll(badgeText).toBe('');
 });
 
 /** The feed with the posts Facebook suggests. */
 const SUGGESTED_FEED = `${ORIGIN}/?e2e=suggested`;
 
-test('hides suggested posts by default, says why, and counts them on the badge', async ({
-  page,
-  badgeText,
-}) => {
+test('hides suggested posts by default and says why', async ({ page, badgeText }) => {
   await page.goto(SUGGESTED_FEED);
 
   const followNote = await expectHidden(page, 'Fennel Farm');
@@ -346,7 +346,7 @@ test('hides suggested posts by default, says why, and counts them on the badge',
   await expectShown(page, 'Bram Okafor');
   // Ads have no button by the name, and are left alone unless they are hidden too.
   await expectShown(page, 'Sourdough School');
-  await expect.poll(badgeText).toBe('2');
+  await expect.poll(badgeText).toBe('');
 
   await followNote.click();
   await expect(messageOf(page, 'Fennel Farm')).toBeVisible();
@@ -376,11 +376,11 @@ test("hides ads with that option on, from React's data read through the page-wor
   await expect(note).toHaveText(/^Post hidden because it is an ad (click to show)/);
   await expectShown(page, 'Avery Quill');
   await expectHidden(page, 'Fennel Farm');
-  await expect.poll(badgeText).toBe('3');
+  await expect.poll(badgeText).toBe('');
 
   await store({ [OPTIONS_KEY]: { hide_sponsored_posts: false } });
   await expectShown(page, 'Sourdough School');
-  await expect.poll(badgeText).toBe('2');
+  await expect.poll(badgeText).toBe('');
 });
 
 test('leaves ads alone by default', async ({ page, store }) => {
@@ -502,7 +502,7 @@ test('treats all sites equally in Sites and toggles Facebook off and back on liv
 }) => {
   await page.goto(SUGGESTED_FEED);
   await expectHidden(page, 'Fennel Farm');
-  await expect.poll(badgeText).toBe('2');
+  await expect.poll(badgeText).toBe('');
 
   await pressToolbarButton();
   await dialog(page)
@@ -514,17 +514,17 @@ test('treats all sites equally in Sites and toggles Facebook off and back on liv
   await expect(dialog(page).getByRole('button', { name: 'Disable X (Twitter)' })).toBeVisible();
   await expect(dialog(page).getByRole('button', { name: 'Disable Gmail' })).toBeVisible();
 
-  // Disabling Facebook turns off its features immediately and clears the badge.
+  // Disabling Facebook turns off its features immediately and keeps the badge clear.
   await dialog(page).getByRole('button', { name: 'Disable Facebook' }).click();
   await expect(dialog(page).getByRole('button', { name: 'Enable Facebook' })).toBeVisible();
   await expectShown(page, 'Fennel Farm');
   await expect.poll(badgeText).toBe('');
 
-  // Re-enabling on the same page load restores filtering and badge without a reload.
+  // Re-enabling on the same page load restores filtering without a reload.
   await dialog(page).getByRole('button', { name: 'Enable Facebook' }).click();
   await expect(dialog(page).getByRole('button', { name: 'Disable Facebook' })).toBeVisible();
   await expectHidden(page, 'Fennel Farm');
-  await expect.poll(badgeText).toBe('2');
+  await expect.poll(badgeText).toBe('');
 
   // Disabling persists across a full reload with zero feature DOM mutations.
   await dialog(page).getByRole('button', { name: 'Disable Facebook' }).click();
@@ -542,5 +542,5 @@ test('treats all sites equally in Sites and toggles Facebook off and back on liv
   await dialog(page).getByRole('button', { name: 'Enable Facebook' }).click();
   await expect(dialog(page).getByRole('button', { name: 'Disable Facebook' })).toBeVisible();
   await expectHidden(page, 'Fennel Farm');
-  await expect.poll(badgeText).toBe('2');
+  await expect.poll(badgeText).toBe('');
 });

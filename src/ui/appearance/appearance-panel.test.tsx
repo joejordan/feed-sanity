@@ -374,12 +374,15 @@ describe('appearancePanel & initSiteTheme', () => {
     render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
 
-    // The redundant "Live preview · Reversible" badge is removed from Studio Vibes.
+    // Live Themes card (formerly Studio Vibes) renders cleanly without redundant preview badges.
+    expect(screen.getByRole('heading', { name: 'Live Themes' })).toBeTruthy();
+    expect(screen.queryByText(/Studio Vibes/i)).toBeNull();
     expect(screen.queryByText(/Live preview/i)).toBeNull();
 
-    // One-click Enter the Matrix vibe applies Hacker Terminal + Matrix Digital Rain + Glass + Glyphs.
+    // One-click Enter the Matrix live theme applies Hacker Terminal + Matrix Digital Rain + Glass + Glyphs.
     await userEvent.click(screen.getByRole('button', { name: /Enter the Matrix/i }));
     await vi.waitFor(() => {
+      expect(screen.getByText('Enter the Matrix theme applied')).toBeTruthy();
       expect(saved.get().id).toBe('enter-the-matrix');
       expect(saved.get().typography?.preset).toBe('mono');
       expect(saved.get().effects?.backdrop?.id).toBe('digital-rain');

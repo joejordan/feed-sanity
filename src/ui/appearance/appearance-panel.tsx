@@ -239,7 +239,7 @@ function AppearancePanelView({
 
   const applyVibe = (vibe: StudioVibe): void => {
     clearColorDrafts();
-    applyEdit(applyStudioVibe(value, vibe), `${vibe.name} vibe applied`);
+    applyEdit(applyStudioVibe(value, vibe), `${vibe.name} theme applied`);
   };
 
   const activeVibe = useMemo(() => findActiveStudioVibe(value), [value]);
@@ -573,7 +573,7 @@ function AppearancePanelView({
 
         <SettingRow
           title="Live hover preview"
-          description="Preview themes and Studio Vibes live when hovering or focusing cards."
+          description="Preview color and live themes when hovering or focusing cards."
         >
           <Switch
             checked={hoverPreviewEnabled}
@@ -689,7 +689,7 @@ export function appearancePanel(
       {
         id: 'hover-preview',
         title: 'Live hover preview',
-        description: 'Preview themes and Studio Vibes live when hovering or focusing cards.',
+        description: 'Preview color and live themes when hovering or focusing cards.',
         keywords: ['hover', 'preview', 'live', 'theme', 'focus'],
       },
       {
@@ -732,9 +732,17 @@ export function appearancePanel(
       },
       ...STUDIO_VIBES.map((vibe) => ({
         id: `vibe:${vibe.id}`,
-        title: `Studio Vibe: ${vibe.name}`,
+        title: `Live Theme: ${vibe.name}`,
         description: vibe.tagline,
-        keywords: ['vibe', 'studio', 'effect', vibe.id, vibe.preset, vibe.effects.backdrop ?? ''],
+        keywords: [
+          'live',
+          'vibe',
+          'studio',
+          'effect',
+          vibe.id,
+          vibe.preset,
+          vibe.effects.backdrop ?? '',
+        ],
         onSelect: () => selectDocument(applyStudioVibe(saved.get(), vibe)),
       })),
       ...BUILTIN_THEMES.map((preset) => ({

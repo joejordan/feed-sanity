@@ -171,6 +171,101 @@ describe('mountOverlay', () => {
     expect(heard).toEqual(['pointermove']);
   });
 
+  it('applies zIndex only when requested', () => {
+    const plain = show();
+    expect(plain.style.zIndex).toBe('');
+
+    act(() => removes.pop()?.());
+    const raised = show({ container: () => container, zIndex: 3 });
+    expect(raised.style.zIndex).toBe('3');
+  });
+
+  it('prevents an enclosing host link from navigating or dragging on overlay clicks while keeping internal links working', () => {
+    const link = document.createElement('a');
+    link.href = 'https://www.facebook.com/reel/12345/';
+    link.target = '_blank';
+    document.body.append(link);
+    link.append(container);
+
+    act(() => {
+      removes.push(
+        mountOverlay(
+          target,
+          <div>
+            <button type="button">Seek</button>
+            <a href="#inside">Inside</a>
+          </div>,
+          { container: () => container },
+        ),
+      );
+    });
+    const host = document.querySelector<HTMLElement>(HOST_TAG) as HTMLElement;
+    const button = host.shadowRoot?.querySelector('button') as HTMLElement;
+    const innerLink = host.shadowRoot?.querySelector('a') as HTMLElement;
+
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, composed: true });
+    const auxclick = new MouseEvent('auxclick', {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
+    button.dispatchEvent(click);
+    button.dispatchEvent(auxclick);
+    expect(click.defaultPrevented).toBe(true);
+    expect(auxclick.defaultPrevented).toBe(true);
+
+    // Shadow-internal links keep their native click behavior.
+    const innerClick = new MouseEvent('click', { bubbles: true, cancelable: true, composed: true });
+    innerLink.dispatchEvent(innerClick);
+    expect(innerClick.defaultPrevented).toBe(false);
+
+    // Dragging an overlay control inside `<a href>` dispatches `dragstart` directly on `link`.
+    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+    const drag = new Event('dragstart', { bubbles: true, cancelable: true });
+    link.dispatchEvent(drag);
+    expect(drag.defaultPrevented).toBe(true);
+
+    // Once the press ends, normal drags on the host link are no longer blocked.
+    globalThis.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    const laterDrag = new Event('dragstart', { bubbles: true, cancelable: true });
+    link.dispatchEvent(laterDrag);
+    expect(laterDrag.defaultPrevented).toBe(false);
+  });
+
+  it('leaves clicks non-defaultPrevented when not inside a host link', () => {
+    const host = show();
+    const button = host.shadowRoot?.querySelector('button') as HTMLElement;
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, composed: true });
+    button.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+  });
+
+  it('re-parents when a 0x0 target gains size and container() resolves higher', () => {
+    const frame = document.querySelector('#frame') as HTMLElement;
+    let current: HTMLElement = frame;
+    const host = show({ container: () => current });
+    expect(host.parentElement).toBe(frame);
+
+    placeAt(target, 0, 0, 320, 560);
+    current = container;
+    FakeResizeObserver.latest?.report([target]);
+
+    expect(host.parentElement).toBe(container);
+    expect(container.lastElementChild).toBe(host);
+  });
+
+  it('ignores unrelated document.body mutations without re-calling container()', async () => {
+    const resolveContainer = vi.fn(() => container);
+    show({ container: resolveContainer });
+    const callsAfterMount = resolveContainer.mock.calls.length;
+
+    const unrelated = document.createElement('div');
+    document.body.append(unrelated);
+    await settle();
+
+    expect(resolveContainer).toHaveBeenCalledTimes(callsAfterMount);
+  });
+
   it('promotes the host when a non-Feed-Sanity sibling is appended after it without ping-ponging two overlays', async () => {
     const first = show();
     act(() => {
