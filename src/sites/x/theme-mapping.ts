@@ -202,6 +202,11 @@ html, body, #react-root, header[role="banner"], main[role="main"] {
   background-color: ${frostedBg} !important;
   border-bottom-color: ${p.border} !important;
 }
+/* X reuses ScrollSnap-List with role="tablist" inside the composer toolbar; keep it transparent. */
+[data-testid="primaryColumn"] [data-testid="toolBar"] [role="tablist"] {
+  background-color: transparent !important;
+  border-bottom-color: transparent !important;
+}
 
 /* === 3. React Native Web canvas reveal, semantic surfaces, elevation, and inline overrides === */
 /* Dark & light host canvas (Lights Out #000, Dim #15202b, Light #fff).

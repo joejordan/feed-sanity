@@ -169,6 +169,9 @@ describe('first-class multi-site theming engine', () => {
     expect(xCss).toContain('[data-testid="sheetDialog"]');
     expect(xCss).toContain('[data-testid="UserDescription"]');
     expect(xCss).toContain('[data-testid="ScrollSnap-prevButtonWrapper"] button');
+    expect(xCss).toContain(
+      '[data-testid="primaryColumn"] [data-testid="toolBar"] [role="tablist"] {\n  background-color: transparent !important;\n  border-bottom-color: transparent !important;\n}',
+    );
 
     const xShadowCss = compileShadowThemeCss(resolved, xThemeMapping);
     expect(xShadowCss).toContain(
