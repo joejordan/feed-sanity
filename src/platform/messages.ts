@@ -1,7 +1,10 @@
-import type { Badge, PopupTabState } from '../core/platform';
+import type { PopupTabState } from '../core/platform';
 import type { ThemeDocumentV1 } from '../core/theming/document';
 import { isRecord } from '../core/storage';
 import { parseThemeDocument } from '../core/theming/document';
+
+export type { BadgeMessage } from './badge-message';
+export { badgeMessage, isBadgeMessage } from './badge-message';
 
 /** Sent from the background script or toolbar popup to a tab to open the options dialog. */
 export const OPEN_OPTIONS = 'feed-sanity/open-options';
@@ -45,21 +48,6 @@ export function isPopupTabState(value: unknown): value is PopupTabState {
     typeof value.hiddenCount === 'number' &&
     Number.isFinite(value.hiddenCount)
   );
-}
-
-/** Sent from a tab to the background script, which shows `badge` on the toolbar button for that tab. */
-export interface BadgeMessage {
-  readonly type: 'feed-sanity/badge';
-  readonly badge: Badge;
-}
-
-export const badgeMessage = (badge: Badge): BadgeMessage => ({ type: 'feed-sanity/badge', badge });
-
-export function isBadgeMessage(message: unknown): message is BadgeMessage {
-  if (!isRecord(message) || message.type !== 'feed-sanity/badge' || !isRecord(message.badge)) {
-    return false;
-  }
-  return Number.isInteger(message.badge.count) && typeof message.badge.failed === 'boolean';
 }
 
 /** Port name used by the toolbar popup to stream live hover-to-preview themes to the active tab. */

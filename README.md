@@ -53,8 +53,12 @@ pnpm dev            # run in Firefox and reload on change
 pnpm dev:chrome     # run in Chrome and reload on change
 pnpm check          # typecheck, lint, and unit tests
 pnpm build          # builds .output/firefox-mv2, .output/chrome-mv3, and .output/userscript
+pnpm zip            # packages release zips (including Firefox AMO sources zip)
 pnpm test:e2e       # build Chrome extension + userscript and run Playwright E2E suite
+pnpm test:firefox   # run Firefox MV2 WebDriver BiDi smoke test against .output/firefox-mv2
 ```
+
+For reproducible release builds (including Firefox AMO review steps), see [BUILD.md](BUILD.md). For data handling and permissions, see [PRIVACY.md](PRIVACY.md).
 
 To load the unpacked Chrome extension locally, open `chrome://extensions`, enable Developer Mode, and load `.output/chrome-mv3`. After rebuilding, reload the extension there and refresh open tabs.
 

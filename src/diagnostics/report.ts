@@ -28,9 +28,9 @@ export const scrub = (message: string): string =>
       .replaceAll(/\bpfbid\w+/g, '<id>'),
   );
 
-/** True for a locator that has been looked up many times and never found anything. */
+/** True for a non-optional locator that has been looked up many times and never found anything. */
 export const neverFound = (locator: LocatorStats): boolean =>
-  locator.lookups >= NEVER_FOUND_AFTER && locator.found === 0;
+  !locator.optional && locator.lookups >= NEVER_FOUND_AFTER && locator.found === 0;
 
 /** How long ago `time` was, as `4 s ago`, or `never` for null. */
 export function ago(time: number | null, now: number): string {

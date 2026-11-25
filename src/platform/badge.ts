@@ -1,6 +1,6 @@
 import type { Badge } from '../core/platform';
 import { OPTIONS_TITLE } from '../../project';
-import { isBadgeMessage } from './messages';
+import { isBadgeMessage } from './badge-message';
 
 /**
  * The parts of the toolbar button's API the badge uses. Manifest V3 calls

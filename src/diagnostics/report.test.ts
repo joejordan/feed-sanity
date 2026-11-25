@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { reportedPageType } from './collect';
-import { ago, diagnosticsReport, scrub } from './report';
+import { ago, diagnosticsReport, neverFound, scrub } from './report';
 import { diagnostics, locator, NOW, strategy } from './testing';
 
 describe('diagnosticsReport', () => {
@@ -24,6 +24,16 @@ describe('diagnosticsReport', () => {
     expect(report).toContain(
       '  form | seen 2026-11-13 | ready | 30 lookups | 0 found | last found never',
     );
+  });
+
+  it('does not flag optional locators as never found on pages without matching media', () => {
+    const requiredMissing = locator('x-tweet', { lookups: 30, found: 0 });
+    const optionalMissing = locator('x-video', { optional: true, lookups: 30, found: 0 });
+    expect(neverFound(requiredMissing)).toBe(true);
+    expect(neverFound(optionalMissing)).toBe(false);
+    const report = diagnosticsReport(diagnostics({ locators: [optionalMissing] }));
+    expect(report).toContain('x-video (any): 30 lookups, 0 found');
+    expect(report).not.toContain('never found');
   });
 
   it('says whether the page-world bridge is connected, and why not when it is unavailable', () => {

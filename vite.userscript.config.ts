@@ -15,12 +15,20 @@ import { ALL_USERSCRIPT_EXCLUDES, ALL_USERSCRIPT_MATCHES } from './src/sites/man
 
 const line = (key: string, value = '') => `// @${key.padEnd(12)} ${value}`.trimEnd();
 
+const REPO_URL = 'https://github.com/joejordan/feed-sanity';
+const RELEASE_SCRIPT_URL = `${REPO_URL}/releases/latest/download/${pkg.name}.user.js`;
+
 const header = [
   '// ==UserScript==',
   line('name', NAME),
   line('namespace', pkg.name),
   line('version', pkg.version),
   line('description', DESCRIPTION),
+  line('license', pkg.license),
+  line('homepageURL', REPO_URL),
+  line('supportURL', `${REPO_URL}/issues`),
+  line('downloadURL', RELEASE_SCRIPT_URL),
+  line('updateURL', RELEASE_SCRIPT_URL),
   ...ALL_USERSCRIPT_MATCHES.map((pattern) => line('match', pattern)),
   ...ALL_USERSCRIPT_EXCLUDES.map((pattern) => line('exclude', pattern)),
   line('run-at', 'document-start'),

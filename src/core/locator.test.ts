@@ -37,6 +37,8 @@ const MESSAGE = firstOf('message', [
   { selector: 'p', seen: '2023' },
 ]);
 
+const OPTIONAL_VIDEO = anyOf('optional-video', [{ selector: 'video', seen }], { optional: true });
+
 describe('Locators', () => {
   let fake: ReturnType<typeof fakeResolver>;
   let locators: Locators;
@@ -114,6 +116,13 @@ describe('Locators', () => {
     card.first(document);
 
     expect(fake.resolve).toHaveBeenCalledTimes(4);
+  });
+
+  it('carries the optional flag from a locator spec onto its stats', () => {
+    const withOptional = new Locators(fake.resolver, [CARD, OPTIONAL_VIDEO]);
+    const byName = Object.fromEntries(withOptional.stats().map((stat) => [stat.name, stat]));
+    expect(byName.card?.optional).toBeUndefined();
+    expect(byName['optional-video']?.optional).toBe(true);
   });
 
   it('reports a selector that is not valid once, counts it and never throws', () => {

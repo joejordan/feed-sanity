@@ -20,6 +20,8 @@
     "test": "vitest run",
     "test:e2e": "wxt build -b chrome && pnpm build:userscript && playwright test -c e2e",
     "test:e2e:only": "playwright test -c e2e",
+    "test:firefox": "node e2e/firefox-smoke.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {

@@ -14,11 +14,15 @@ export const REDDIT_POST = anyOf('reddit-post', [
 ]);
 
 /** Native `<video>` elements inside Shreddit media players (including Shadow Roots). */
-export const REDDIT_VIDEO = anyOf('reddit-video', [
-  { selector: 'shreddit-player video', seen: '2026-11-23' },
-  { selector: 'shreddit-player-2 video', seen: '2026-11-23' },
-  { selector: 'video', seen: '2026-11-23' },
-]);
+export const REDDIT_VIDEO = anyOf(
+  'reddit-video',
+  [
+    { selector: 'shreddit-player video', seen: '2026-11-23' },
+    { selector: 'shreddit-player-2 video', seen: '2026-11-23' },
+    { selector: 'video', seen: '2026-11-23' },
+  ],
+  { optional: true },
+);
 
 /** Interactive controls inside a Shreddit video player container. */
 export const REDDIT_VIDEO_CONTROL = anyOf('reddit-video-control', [

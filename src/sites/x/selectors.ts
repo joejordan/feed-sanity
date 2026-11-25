@@ -6,7 +6,9 @@ export const X_TWEET = anyOf('x-tweet', [
 ]);
 
 /** Video elements inside X timeline posts and media viewers. */
-export const X_VIDEO = anyOf('x-video', [{ selector: 'video', seen: '2026-11-22' }]);
+export const X_VIDEO = anyOf('x-video', [{ selector: 'video', seen: '2026-11-22' }], {
+  optional: true,
+});
 
 /** Interactive controls overlaying an X video player (buttons, native scrubber, links). */
 export const X_VIDEO_CONTROL = anyOf('x-video-control', [

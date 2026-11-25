@@ -19,26 +19,44 @@ export interface Strategy {
  */
 export type LocatorMode = 'any' | 'first';
 
+export interface LocatorOptions {
+  /** True for page-optional elements (such as `<video>`) that legitimately occur 0 times on many pages. */
+  readonly optional?: boolean;
+}
+
 /** A named, ordered list of strategies for finding one kind of element. */
 export interface LocatorSpec {
   readonly name: string;
   readonly mode: LocatorMode;
   readonly strategies: readonly Strategy[];
+  readonly optional?: boolean;
 }
 
-/** A locator that finds what any of its strategies matches. */
-export const anyOf = (name: string, strategies: readonly Strategy[]): LocatorSpec => ({
+const locatorSpec = (
+  mode: LocatorMode,
+  name: string,
+  strategies: readonly Strategy[],
+  options?: LocatorOptions,
+): LocatorSpec => ({
   name,
-  mode: 'any',
+  mode,
   strategies,
+  ...(options?.optional ? { optional: true } : {}),
 });
 
+/** A locator that finds what any of its strategies matches. */
+export const anyOf = (
+  name: string,
+  strategies: readonly Strategy[],
+  options?: LocatorOptions,
+): LocatorSpec => locatorSpec('any', name, strategies, options);
+
 /** A locator that uses the first of its strategies that finds anything. */
-export const firstOf = (name: string, strategies: readonly Strategy[]): LocatorSpec => ({
-  name,
-  mode: 'first',
-  strategies,
-});
+export const firstOf = (
+  name: string,
+  strategies: readonly Strategy[],
+  options?: LocatorOptions,
+): LocatorSpec => locatorSpec('first', name, strategies, options);
 
 export function isLocatorSpec(value: unknown): value is LocatorSpec {
   return (
@@ -146,6 +164,8 @@ export interface StrategyStats {
 export interface LocatorStats {
   readonly name: string;
   readonly mode: LocatorMode;
+  /** True for page-optional elements (such as `<video>`) that should not warn when absent. */
+  readonly optional?: boolean;
   /** True while the user's selectors stand in for the built-in ones. */
   readonly overridden: boolean;
   readonly lookups: number;
@@ -335,6 +355,7 @@ class RegisteredLocator implements Locator {
     return {
       name: this.spec.name,
       mode: this.spec.mode,
+      ...(this.spec.optional ? { optional: true } : {}),
       overridden: this.#override !== undefined,
       lookups: this.#lookups,
       found: this.#found,

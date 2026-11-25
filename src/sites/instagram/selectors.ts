@@ -4,7 +4,9 @@ import { anyOf } from '../../core/locator';
 export const IG_FEED_POST = anyOf('ig-feed-post', [{ selector: 'article', seen: '2026-11-22' }]);
 
 /** Video elements across Instagram feed posts, Reels, and Stories. */
-export const IG_VIDEO = anyOf('ig-video', [{ selector: 'video', seen: '2026-11-22' }]);
+export const IG_VIDEO = anyOf('ig-video', [{ selector: 'video', seen: '2026-11-22' }], {
+  optional: true,
+});
 
 /** Interactive controls overlaying an Instagram video player. */
 export const IG_VIDEO_CONTROL = anyOf('ig-video-control', [
