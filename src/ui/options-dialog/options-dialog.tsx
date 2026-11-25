@@ -7,6 +7,7 @@ import { OPTIONS_TITLE } from '../../../project';
 import { createLogger } from '../../core/log';
 import {
   Badge,
+  BrandMark,
   Disclosure,
   getSiteMark,
   SettingCard,
@@ -595,9 +596,13 @@ export function OptionsDialog({
             {...drag.handleProps}
           >
             <div className="site-identity">
-              <span className="site-mark" aria-hidden="true">
-                {site ? getSiteMark(site.id, site.displayName) : 'FS'}
-              </span>
+              {site ? (
+                <span className="site-mark" aria-hidden="true">
+                  {getSiteMark(site.id, site.displayName)}
+                </span>
+              ) : (
+                <BrandMark size={30} />
+              )}
               <div className="site-meta">
                 <h2 className="site-title">{site ? site.displayName : OPTIONS_TITLE}</h2>
                 {site && (
@@ -649,7 +654,10 @@ export function OptionsDialog({
             )}
             {manageSections.length > 0 && (
               <div className="nav-group nav-group-manage">
-                <div className="nav-kicker">Feed Sanity</div>
+                <div className="nav-kicker nav-kicker-brand">
+                  <BrandMark size={14} />
+                  <span>Feed Sanity</span>
+                </div>
                 {manageSections.map(renderSectionNavButton)}
               </div>
             )}

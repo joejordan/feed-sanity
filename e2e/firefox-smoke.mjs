@@ -387,6 +387,29 @@ function assertManifest() {
     GECKO_ANDROID_MIN_VERSION,
   );
   assert.deepEqual(manifest.permissions, ['storage']);
+  assert.ok(manifest.icons && Object.keys(manifest.icons).length > 0, 'Manifest icons must be set');
+  for (const iconPath of Object.values(manifest.icons)) {
+    assert.ok(
+      fs.existsSync(path.join(EXT_DIR, iconPath)),
+      `Missing packaged manifest icon: ${iconPath}`,
+    );
+  }
+  const defaultIcon = manifest.browser_action?.default_icon;
+  assert.equal(
+    defaultIcon,
+    'icon/icon.svg',
+    'Firefox browser_action.default_icon should use the vector SVG icon',
+  );
+  for (const iconPath of [
+    defaultIcon,
+    'icon/icon-monochrome-16.png',
+    'icon/icon-monochrome-32.png',
+  ]) {
+    assert.ok(
+      fs.existsSync(path.join(EXT_DIR, iconPath)),
+      `Missing packaged toolbar icon: ${iconPath}`,
+    );
+  }
 }
 
 async function navigate(bidi, tab, url, settleMs = 1200) {

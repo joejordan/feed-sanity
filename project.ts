@@ -7,3 +7,18 @@ export const DESCRIPTION =
 
 /** The toolbar button, the userscript menu entry and the options dialog's heading. */
 export const OPTIONS_TITLE = `${NAME} options`;
+
+/** Pixel-hinted small-cut PNG icons accepted by both Chrome MV3 and Firefox MV2. */
+export const ACTIVE_ICON_PATHS: Readonly<Record<number, string>> = {
+  16: 'icon/icon-16.png',
+  32: 'icon/icon-32.png',
+};
+
+/** Monochrome paused/disabled toolbar PNG icons for `action.setIcon` / `browserAction.setIcon`. */
+export const PAUSED_ICON_PATHS: Readonly<Record<number, string>> = {
+  16: 'icon/icon-monochrome-16.png',
+  32: 'icon/icon-monochrome-32.png',
+};
+
+/** Vector small-cut toolbar icon used on Firefox MV2 across arbitrary HiDPI scaling factors. */
+export const FIREFOX_TOOLBAR_ICON = 'icon/icon.svg';

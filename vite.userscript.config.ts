@@ -4,6 +4,7 @@
 //
 // The extension builds go through WXT instead (wxt.config.ts).
 
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import pkg from './package.json' with { type: 'json' };
 // Vite's native config loader needs the file extensions.
@@ -17,6 +18,8 @@ const line = (key: string, value = '') => `// @${key.padEnd(12)} ${value}`.trimE
 
 const REPO_URL = 'https://github.com/joejordan/feed-sanity';
 const RELEASE_SCRIPT_URL = `${REPO_URL}/releases/latest/download/${pkg.name}.user.js`;
+// Inline the 48px PNG icon as a data URI so userscript managers render it offline with zero network calls.
+const ICON_DATA_URI = `data:image/png;base64,${readFileSync(new URL('./public/icon/icon-48.png', import.meta.url)).toString('base64')}`;
 
 const header = [
   '// ==UserScript==',
@@ -24,6 +27,7 @@ const header = [
   line('namespace', pkg.name),
   line('version', pkg.version),
   line('description', DESCRIPTION),
+  line('icon', ICON_DATA_URI),
   line('license', pkg.license),
   line('homepageURL', REPO_URL),
   line('supportURL', `${REPO_URL}/issues`),

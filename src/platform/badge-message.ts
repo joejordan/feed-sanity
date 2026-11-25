@@ -15,5 +15,10 @@ export function isBadgeMessage(message: unknown): message is BadgeMessage {
   if (!isRecord(message) || message.type !== BADGE_MESSAGE || !isRecord(message.badge)) {
     return false;
   }
-  return Number.isInteger(message.badge.count) && typeof message.badge.failed === 'boolean';
+  const { count, failed, paused } = message.badge;
+  return (
+    Number.isInteger(count) &&
+    typeof failed === 'boolean' &&
+    (paused === undefined || typeof paused === 'boolean')
+  );
 }

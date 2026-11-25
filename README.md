@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/github-readme-hero-dark.svg">
+  <img alt="Feed Sanity: Your feed, minus the noise." src="docs/assets/github-readme-hero-light.svg">
+</picture>
+
 # Feed Sanity
 
 A multi-site browser extension and userscript for filtering, tidying, and theming **Facebook**, **X (Twitter)**, **Instagram**, **Reddit**, and **Gmail**.

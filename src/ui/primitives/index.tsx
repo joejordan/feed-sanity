@@ -3,8 +3,10 @@ import type { ReactNode } from 'react';
 import { UiIcon } from './icons';
 import primitivesCss from './primitives.css?inline';
 
+export type { BrandMarkProps } from './brand-mark';
 export type { UiIconName } from './icons';
 export type { DraggableResult, DragHandleProps, DragOffset } from './use-draggable';
+export { BrandMark } from './brand-mark';
 export { UiIcon } from './icons';
 export { useDraggable } from './use-draggable';
 export { primitivesCss };

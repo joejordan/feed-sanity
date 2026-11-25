@@ -8,6 +8,8 @@ export interface Badge {
   readonly count: number;
   /** True when a feature has failed. Its mark is shown in place of the count. */
   readonly failed: boolean;
+  /** True when Feed Sanity is paused on this supported site, switching the toolbar icon to monochrome. */
+  readonly paused?: boolean;
 }
 
 /** Live state of the active supported tab, returned to the toolbar popup. */

@@ -1,7 +1,7 @@
 import type { OptionsPanel } from '../ui/options-dialog/panel';
 import type { DomEnvironment } from './dom-env';
 import type { Feature, PageFactory } from './feature';
-import type { Platform } from './platform';
+import type { Badge, Platform } from './platform';
 import type { SiteThemeMapping, ThemeDocumentV1, ThemeLibraryClient } from './theming';
 import { initSiteTheme, THEME_DATA_KEY } from '../ui/appearance';
 import { setSiteThemeCss } from '../ui/mount';
@@ -112,6 +112,9 @@ export class SiteRegistry {
   }
 }
 
+const EMPTY_BADGE: Badge = { count: 0, failed: false };
+const PAUSED_BADGE: Badge = { count: 0, failed: false, paused: true };
+
 /**
  * Boots a single `SiteAdapter` against `platform`: loads the shared site
  * enablement state, wires the toolbar/menu Options trigger, and lazily creates
@@ -127,9 +130,23 @@ export async function startSite<P, F extends PageFactory<P>>(
     applyEarlyThemeCss(site.id);
   }
 
+  let lastBadge: Badge | undefined;
+  const emitBadge = (badge: Badge): void => {
+    if (
+      lastBadge &&
+      lastBadge.count === badge.count &&
+      lastBadge.failed === badge.failed &&
+      Boolean(lastBadge.paused) === Boolean(badge.paused)
+    ) {
+      return;
+    }
+    lastBadge = badge;
+    platform.setBadge(badge);
+  };
+
   // The browser may keep the badge of the page this tab showed before, so
   // the first one is sent synchronously even before storage resolves.
-  platform.setBadge({ count: 0, failed: false });
+  emitBadge(EMPTY_BADGE);
 
   // Collapse startup storage reads (`v2/sites`, options, filters, theme) into
   // one native `getMany` IPC round-trip when the platform supports it. If the
@@ -225,7 +242,11 @@ export async function startSite<P, F extends PageFactory<P>>(
       return cachedPanels;
     };
 
-    runner.onBadgeChange((badge) => platform.setBadge(badge));
+    runner.onBadgeChange((badge) => {
+      if (active) {
+        emitBadge(badge);
+      }
+    });
     runtime = { options, runner, theme, ensurePanels };
     return runtime;
   };
@@ -326,16 +347,17 @@ export async function startSite<P, F extends PageFactory<P>>(
       writeEarlyThemeCss(site.id, '');
       clearEarlyThemeStyle();
     }
+    emitBadge(PAUSED_BADGE);
   }
 
   let generation = 0;
 
   const deactivate = (): void => {
-    if (!runtime) {
-      return;
+    if (runtime) {
+      runtime.runner.stop();
+      runtime.theme?.setActive(false);
     }
-    runtime.runner.stop();
-    runtime.theme?.setActive(false);
+    emitBadge(PAUSED_BADGE);
   };
 
   const syncEnabled = async (): Promise<string[]> => {
@@ -362,6 +384,7 @@ export async function startSite<P, F extends PageFactory<P>>(
     if (token !== generation) {
       return [];
     }
+    emitBadge(current.runner.badge());
     return failed;
   };
 

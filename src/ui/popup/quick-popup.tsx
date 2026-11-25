@@ -41,6 +41,7 @@ import {
 } from '../../sites/x/features/video-speed-model';
 import {
   Badge,
+  BrandMark,
   getSiteMark,
   SegmentedControl,
   SettingCard,
@@ -247,9 +248,7 @@ function UnsupportedTabView({
     <div className="qp-root" role="region" aria-label={`${NAME} quick controls`}>
       <header className="qp-header">
         <div className="qp-identity">
-          <span className="qp-mark" aria-hidden="true">
-            FS
-          </span>
+          <BrandMark size={28} />
           <div className="qp-meta">
             <h1 className="qp-title">{NAME}</h1>
             <span className="qp-status">Not active on this page</span>

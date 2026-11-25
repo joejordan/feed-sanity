@@ -12,7 +12,7 @@ import { pageWatcher } from '../../core/page-watcher';
 import { OWN_ATTR, whileOnRoute } from '../../core/surface';
 import { describeThemeDocument, readThemeDocument, THEME_DATA_KEY } from '../../core/theming';
 import { HOST_TAG, renderInShadow } from '../../ui/mount';
-import { UiIcon } from '../../ui/primitives';
+import { BrandMark, UiIcon } from '../../ui/primitives';
 import css from './display-notice.css?inline';
 
 export const DISPLAY_NOTICE_HOST_ID = 'feed_sanity_display_notice';
@@ -167,9 +167,7 @@ function DisplayNotice({
       aria-label="Feed Sanity display settings notice"
     >
       <div className="fs-display-notice-main">
-        <span className="fs-display-notice-icon" aria-hidden="true">
-          <UiIcon name="palette" size={16} />
-        </span>
+        <BrandMark size={32} />
         <div className="fs-display-notice-copy">
           <div className="fs-display-notice-head">
             <h3 className="fs-display-notice-title">Feed Sanity is active</h3>

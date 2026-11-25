@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CapablePage } from '../capabilities';
 import type { DomEnvironment } from './dom-env';
-import type { PopupTabState, QuickPopupRequest } from './platform';
+import type { Badge, PopupTabState, QuickPopupRequest } from './platform';
 import type { SiteAdapter } from './site';
 import type { Store } from './storage';
 import { defineCapabilityFeature } from '../capabilities';
@@ -110,10 +110,11 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     };
 
     const store = inMemoryStore({ [SITES_STORAGE_KEY]: { facebook: false } });
-    const badges: Array<{ count: number; failed: boolean }> = [];
+    const badges: Badge[] = [];
     const openHandlers: Array<() => void> = [];
 
-    // Starting while disabled runs zero features yet still registers the Options handler.
+    // Starting while disabled runs zero features yet still registers the Options handler
+    // and marks the toolbar icon paused.
     await startSite(site, {
       build: 'test',
       store,
@@ -123,7 +124,7 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     });
     expect(events).toEqual([]);
     expect(openHandlers).toHaveLength(1);
-    expect(badges.at(-1)).toEqual({ count: 0, failed: false });
+    expect(badges.at(-1)).toEqual({ count: 0, failed: false, paused: true });
 
     // Opening Options while disabled prepares options lazily without starting features.
     openHandlers[0]?.();
@@ -136,15 +137,59 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     await vi.waitFor(() => expect(events).toEqual(['start']));
     expect(badges.at(-1)).toEqual({ count: 2, failed: false });
 
-    // Disabling the site live disposes its feature scope and clears the badge.
+    // Disabling the site live disposes its feature scope and marks the toolbar icon paused.
     await store.set(SITES_STORAGE_KEY, { facebook: false });
     await vi.waitFor(() => expect(events).toEqual(['start', 'stop']));
-    expect(badges.at(-1)).toEqual({ count: 0, failed: false });
+    expect(badges.at(-1)).toEqual({ count: 0, failed: false, paused: true });
 
     // Re-enabling the site live restarts features cleanly on the same runtime.
     await store.set(SITES_STORAGE_KEY, { facebook: true });
     await vi.waitFor(() => expect(events).toEqual(['start', 'stop', 'start']));
     expect(badges.at(-1)).toEqual({ count: 2, failed: false });
+  });
+
+  it('clears the paused toolbar state on enable/re-enable even when features report zero hidden items', async () => {
+    const quietFeature = defineFeature({
+      id: 'quiet_feature',
+      options: {},
+      setup() {
+        // Intentionally reports no badge count changes (count remains 0, failed remains false).
+      },
+    });
+    const site: SiteAdapter<Record<string, never>> = {
+      id: 'facebook',
+      displayName: 'Facebook',
+      matchesHost: () => true,
+      themeCss: '',
+      accountId: () => 'u1',
+      scrubPii: scrubCommonPii,
+      createPage: () => () => ({}),
+      features: [quietFeature],
+      createPanels: () => [],
+    };
+
+    const store = inMemoryStore({ [SITES_STORAGE_KEY]: { facebook: false } });
+    const badges: Badge[] = [];
+
+    await startSite(site, {
+      build: 'test',
+      store,
+      setBadge: (badge) => badges.push(badge),
+      onOpenOptions: () => () => undefined,
+      installPageWorld: () => Promise.resolve(),
+    });
+    expect(badges.at(-1)).toEqual({ count: 0, failed: false, paused: true });
+
+    await store.set(SITES_STORAGE_KEY, { facebook: true });
+    await vi.waitFor(() => expect(badges.at(-1)).toEqual({ count: 0, failed: false }));
+
+    await store.set(SITES_STORAGE_KEY, { facebook: false });
+    await vi.waitFor(() =>
+      expect(badges.at(-1)).toEqual({ count: 0, failed: false, paused: true }),
+    );
+
+    await store.set(SITES_STORAGE_KEY, { facebook: true });
+    await vi.waitFor(() => expect(badges.at(-1)).toEqual({ count: 0, failed: false }));
   });
 
   it('batches startup reads via getMany, shares one DomEnvironment, and clears stale early-theme cache when disabled', async () => {

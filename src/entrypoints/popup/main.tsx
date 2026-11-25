@@ -18,46 +18,46 @@ import quickPopupCss from '../../ui/popup/quick-popup.css?inline';
 import { primitivesCss } from '../../ui/primitives';
 import baseThemeCss from '../../ui/theme.css?inline';
 
+// Default popup palette aligned with Feed Sanity Paper (light) and Night Edition (dark)
+// brand tokens; overridden live by `compileUiThemeCss` whenever the active tab has a theme.
 const POPUP_THEME_TOKENS_CSS = `
 :root {
   color-scheme: light;
   --fs-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --fs-background: #ffffff;
-  --fs-surface: #f5f6f8;
-  --fs-dialog-bg: #ffffff;
-  --fs-sidebar-bg: #f6f7f9;
+  --fs-background: #f8fafc;
+  --fs-surface: #eef3f9;
+  --fs-sidebar-bg: #eef3f9;
   --fs-card-bg: #ffffff;
-  --fs-control-bg: #f0f2f5;
-  --fs-hover: rgb(0 0 0 / 5%);
-  --fs-press: rgb(0 0 0 / 10%);
-  --fs-text: #111317;
-  --fs-text-secondary: #5c6470;
-  --fs-divider: rgba(15, 23, 42, 0.12);
-  --fs-accent: #2563eb;
-  --fs-accent-surface: rgba(37, 99, 235, 0.12);
+  --fs-control-bg: #f1f5f9;
+  --fs-hover: rgb(7 11 31 / 5%);
+  --fs-press: rgb(7 11 31 / 10%);
+  --fs-text: #070b1f;
+  --fs-text-secondary: #4a5a7a;
+  --fs-divider: rgba(23, 54, 102, 0.14);
+  --fs-accent: #0b6b8f;
+  --fs-accent-surface: rgba(11, 107, 143, 0.12);
   --fs-accent-text: #ffffff;
-  --fs-button-secondary: #eef0f3;
-  --fs-shadow-2: rgb(0 0 0 / 18%);
+  --fs-button-secondary: #e7eef6;
+  --fs-shadow-2: rgb(7 11 31 / 18%);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --fs-background: #181a1f;
-    --fs-surface: #111317;
-    --fs-dialog-bg: #16181d;
-    --fs-sidebar-bg: #111317;
-    --fs-card-bg: #1b1e25;
-    --fs-control-bg: #232731;
-    --fs-hover: rgb(255 255 255 / 7%);
-    --fs-press: rgb(255 255 255 / 13%);
-    --fs-text: #eef1f6;
-    --fs-text-secondary: #98a2b3;
-    --fs-divider: rgba(255, 255, 255, 0.1);
-    --fs-accent: #3b82f6;
-    --fs-accent-surface: rgba(59, 130, 246, 0.16);
-    --fs-accent-text: #ffffff;
-    --fs-button-secondary: #232731;
-    --fs-shadow-2: rgb(0 0 0 / 45%);
+    --fs-background: #070b1f;
+    --fs-surface: #0e1a3d;
+    --fs-sidebar-bg: #0c1633;
+    --fs-card-bg: #0e1a3d;
+    --fs-control-bg: #152854;
+    --fs-hover: rgb(255 252 238 / 7%);
+    --fs-press: rgb(255 252 238 / 13%);
+    --fs-text: #fffcee;
+    --fs-text-secondary: #9fb3d1;
+    --fs-divider: rgba(159, 179, 209, 0.18);
+    --fs-accent: #5be9e0;
+    --fs-accent-surface: rgba(91, 233, 224, 0.15);
+    --fs-accent-text: #070b1f;
+    --fs-button-secondary: #173666;
+    --fs-shadow-2: rgb(0 0 0 / 50%);
   }
 }
 `;
@@ -88,7 +88,7 @@ function toDocumentCss(cssText: string): string {
 
 injectStyle(
   'fs-popup-base-style',
-  [POPUP_THEME_TOKENS_CSS, toDocumentCss(baseThemeCss), primitivesCss, quickPopupCss].join('\n'),
+  [toDocumentCss(baseThemeCss), POPUP_THEME_TOKENS_CSS, primitivesCss, quickPopupCss].join('\n'),
 );
 
 interface ActiveTabInfo {

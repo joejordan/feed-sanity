@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ToolbarButton } from './badge';
-import { OPTIONS_TITLE } from '../../project';
-import { badgeListener, badgeText, showBadge } from './badge';
+import type { ToolbarButton, ToolbarIconPath } from './badge';
+import { FIREFOX_TOOLBAR_ICON, OPTIONS_TITLE } from '../../project';
+import { ACTIVE_ICON_PATHS, badgeListener, badgeText, PAUSED_ICON_PATHS, showBadge } from './badge';
 import { badgeMessage, OPEN_OPTIONS } from './messages';
 
 /** A toolbar button that records what is set on it, as `action` (MV3) and `browserAction` (MV2) both take it. */
@@ -10,6 +10,7 @@ function fakeButton() {
     text: new Map<number, string>(),
     colour: new Map<number, string>(),
     title: new Map<number, string>(),
+    icon: new Map<number, ToolbarIconPath>(),
   };
   const button: ToolbarButton = {
     setBadgeText: vi.fn(({ tabId, text }) => {
@@ -22,6 +23,10 @@ function fakeButton() {
     }),
     setTitle: vi.fn(({ tabId, title }) => {
       set.title.set(tabId, title);
+      return Promise.resolve();
+    }),
+    setIcon: vi.fn(({ tabId, path }) => {
+      set.icon.set(tabId, path);
       return Promise.resolve();
     }),
   };
@@ -39,22 +44,31 @@ describe('badgeText', () => {
 });
 
 describe('showBadge', () => {
-  it('sets the text, colour and title for the one tab', async () => {
+  it('sets the text, colour, icon, and title for the one tab including paused monochrome state', async () => {
     const { button, set } = fakeButton();
 
     await showBadge(button, 4, { count: 3, failed: false });
     await showBadge(button, 9, { count: 0, failed: true });
+    await showBadge(button, 11, { count: 0, failed: false, paused: true });
+    await showBadge(button, 14, { count: 0, failed: false }, FIREFOX_TOOLBAR_ICON);
 
     expect(set.text).toEqual(
       new Map([
         [4, ''],
         [9, '!'],
+        [11, ''],
+        [14, ''],
       ]),
     );
     expect(set.colour.has(4)).toBe(false);
     expect(set.colour.get(9)).toBe('#e41e3f');
     expect(set.title.get(4)).toBe(OPTIONS_TITLE);
     expect(set.title.get(9)).toContain('stopped working');
+    expect(set.title.get(11)).toContain('paused');
+    expect(set.icon.get(4)).toEqual(ACTIVE_ICON_PATHS);
+    expect(set.icon.get(9)).toEqual(ACTIVE_ICON_PATHS);
+    expect(set.icon.get(11)).toEqual(PAUSED_ICON_PATHS);
+    expect(set.icon.get(14)).toBe(FIREFOX_TOOLBAR_ICON);
   });
 });
 
@@ -68,6 +82,21 @@ describe('badgeListener', () => {
 
     listener(badgeMessage({ count: 2, failed: true }), { tab: { id: 12 } });
     await vi.waitFor(() => expect(set.text).toEqual(new Map([[12, '!']])));
+
+    listener(badgeMessage({ count: 0, failed: false, paused: true }), { tab: { id: 12 } });
+    await vi.waitFor(() => expect(set.icon.get(12)).toEqual(PAUSED_ICON_PATHS));
+    expect(set.title.get(12)).toContain('paused');
+  });
+
+  it('restores a custom active icon (e.g. Firefox SVG) through badgeListener after unpausing', async () => {
+    const { button, set } = fakeButton();
+    const listener = badgeListener(button, FIREFOX_TOOLBAR_ICON);
+
+    listener(badgeMessage({ count: 0, failed: false, paused: true }), { tab: { id: 7 } });
+    await vi.waitFor(() => expect(set.icon.get(7)).toEqual(PAUSED_ICON_PATHS));
+
+    listener(badgeMessage({ count: 0, failed: false }), { tab: { id: 7 } });
+    await vi.waitFor(() => expect(set.icon.get(7)).toBe(FIREFOX_TOOLBAR_ICON));
   });
 
   it('ignores other messages and messages from outside a tab', async () => {
@@ -76,6 +105,10 @@ describe('badgeListener', () => {
 
     listener(OPEN_OPTIONS, { tab: { id: 12 } });
     listener({ type: 'feed-sanity/badge', badge: { count: 'many' } }, { tab: { id: 12 } });
+    listener(
+      { type: 'feed-sanity/badge', badge: { count: 0, failed: false, paused: 'yes' } },
+      { tab: { id: 12 } },
+    );
     listener(badgeMessage({ count: 2, failed: false }), {});
     await Promise.resolve();
 

@@ -321,6 +321,12 @@
   color: color-mix(in srgb, var(--fs-text-secondary) 82%, transparent);
 }
 
+.nav-kicker-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .section {
   position: relative;
   z-index: 1;
