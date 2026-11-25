@@ -70,7 +70,25 @@ describe('xSite adapter and features', () => {
         </div>
         <article id="t-organic" data-testid="tweet">
           <a href="/alice/status/111">1h</a>
+          <button id="grok-actions-btn" type="button" aria-label="Grok actions">
+            Grok
+          </button>
+          <button id="grok-explain-btn" type="button" aria-label="Explain this post with Grok">
+            Explain
+          </button>
+          <div id="grok-img-btn" data-testid="grokImgGen">
+            Edit with Grok
+          </div>
+          <a id="grok-deep-link" href="/i/grok?focus=1&post=111">
+            Ask Grok
+          </a>
           <div data-testid="tweetText">Great systems engineering post</div>
+        </article>
+        <article id="t-reply" data-testid="tweet">
+          <div id="grok-reply-btn" role="button" aria-label="Grok actions">
+            Grok
+          </div>
+          <div data-testid="tweetText">Reply mentioning Grok in plain text</div>
         </article>
         <article id="t-ad" data-testid="tweet">
           <div data-testid="placementTracking"><span>Ad</span></div>
@@ -151,10 +169,22 @@ describe('xSite adapter and features', () => {
     };
     expect(json.instructions[0]?.entries.map((e) => e.entryId)).toEqual(['tweet-1']);
 
-    // Chrome clutter toggles inject scoped CSS rules for Grok, Premium, and Sidebar while leaving Explore untouched.
-    expect(document.querySelector('#feed_sanity_clutter_x_hide_grok')?.textContent).toContain(
-      'display: none !important',
-    );
+    // Chrome clutter toggles inject scoped CSS rules for Grok (nav, drawer, and post/reply buttons),
+    // Premium, and Sidebar while leaving Explore and organic post content untouched.
+    const grokStyle = document.querySelector('#feed_sanity_clutter_x_hide_grok')?.textContent ?? '';
+    expect(grokStyle).toContain('display: none !important');
+    const grokSelector = grokStyle.replace(/\s*\{[\s\S]*$/, '').trim();
+    for (const id of [
+      '#grok-actions-btn',
+      '#grok-explain-btn',
+      '#grok-img-btn',
+      '#grok-deep-link',
+      '#grok-reply-btn',
+    ]) {
+      expect(document.querySelector(id)?.matches(grokSelector), id).toBe(true);
+    }
+    expect(document.querySelector('#t-reply')?.matches(grokSelector)).toBe(false);
+    expect(document.querySelector('#t-organic')?.matches(grokSelector)).toBe(false);
     expect(document.querySelector('#feed_sanity_clutter_x_hide_premium')?.textContent).toContain(
       'display: none !important',
     );

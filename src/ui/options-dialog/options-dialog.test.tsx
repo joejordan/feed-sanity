@@ -448,6 +448,30 @@ describe('OptionsDialog panels', () => {
     expect(button('Save').disabled).toBe(true);
   });
 
+  it('pre-glides the sidebar active highlight immediately on pointerdown and reverts if cancelled', async () => {
+    const options = await loadedOptions();
+    render(<OptionsDialog options={options} onClose={() => undefined} />);
+    const generalBtn = button('General');
+    const advancedBtn = button('Advanced');
+    expect(generalBtn.dataset.visualActive).toBe('true');
+    expect(advancedBtn.dataset.visualActive).toBeUndefined();
+
+    // Pressing down on another section moves visual focus immediately before click fires.
+    fireEvent.pointerDown(advancedBtn, { button: 0 });
+    expect(advancedBtn.dataset.visualActive).toBe('true');
+    expect(generalBtn.dataset.visualActive).toBeUndefined();
+
+    // Dragging off without clicking reverts cleanly to the active section.
+    fireEvent.pointerLeave(advancedBtn);
+    expect(generalBtn.dataset.visualActive).toBe('true');
+    expect(advancedBtn.dataset.visualActive).toBeUndefined();
+
+    // Completing the click switches sections and keeps visual active synced.
+    await userEvent.click(advancedBtn);
+    expect(advancedBtn.getAttribute('aria-current')).toBe('page');
+    expect(advancedBtn.dataset.visualActive).toBe('true');
+  });
+
   it('orders sidebar sections as Filtering, Appearance, Timeline & Clutter, Media', () => {
     expect(
       orderSections([

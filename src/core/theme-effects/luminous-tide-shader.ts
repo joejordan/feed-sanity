@@ -179,33 +179,37 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
       }
     }
 
-    // Sky clicks send shooting stars; periodic meteors share the same streak tint.
-    float streak = 0.0;
-    for (int i = 0; i < 4; i++) {
-      vec4 clk = u_clicks[i];
-      if (clk.w > 0.5 && clk.z < 1.1 && clk.y >= hy) {
-        vec2 cq = p - vec2((clk.x - 0.5) * aspect, clk.y);
-        vec2 dir = vec2(clk.x < 0.5 ? 0.8645 : -0.8645, -0.5026);
-        streak += meteor(cq, dir * clk.z * 0.42, dir, 0.16) * (1.1 - clk.z);
-        float cqSq = dot(cq, cq);
-        if (cqSq < 0.01) {
-          streak += exp(-cqSq * 900.0 - clk.z * 6.0);
+    // Sky clicks send shooting stars when enabled; periodic meteors share the same tint.
+    if (u_meteors > 0.5) {
+      float streak = 0.0;
+      if (u_click.w > 0.5 && u_click.z < 1.1) {
+        for (int i = 0; i < 4; i++) {
+          vec4 clk = u_clicks[i];
+          if (clk.w > 0.5 && clk.z < 1.1 && clk.y >= hy) {
+            vec2 cq = p - vec2((clk.x - 0.5) * aspect, clk.y);
+            vec2 dir = vec2(clk.x < 0.5 ? 0.8645 : -0.8645, -0.5026);
+            streak += meteor(cq, dir * clk.z * 0.42, dir, 0.16) * (1.1 - clk.z);
+            float cqSq = dot(cq, cq);
+            if (cqSq < 0.01) {
+              streak += exp(-cqSq * 900.0 - clk.z * 6.0);
+            }
+          }
         }
       }
-    }
-    if (u_meteors > 0.5 && night > 0.02) {
-      float cyc = t / 11.0;
-      float seed = floor(cyc);
-      float age = fract(cyc) * 11.0;
-      if (age < 1.0) {
-        float rx = hash12(vec2(seed, 3.1));
-        vec2 dir = vec2(rx < 0.5 ? 0.8986 : -0.8986, -0.4388);
-        vec2 head = vec2((rx - 0.5) * aspect * 0.9, 0.8 + 0.17 * hash12(vec2(seed, 8.7)));
-        streak += meteor(p, head + dir * age * 0.5, dir, 0.15) * sin(age * 3.1416) * night;
+      if (night > 0.02) {
+        float cyc = t / 11.0;
+        float seed = floor(cyc);
+        float age = fract(cyc) * 11.0;
+        if (age < 1.0) {
+          float rx = hash12(vec2(seed, 3.1));
+          vec2 dir = vec2(rx < 0.5 ? 0.8986 : -0.8986, -0.4388);
+          vec2 head = vec2((rx - 0.5) * aspect * 0.9, 0.8 + 0.17 * hash12(vec2(seed, 8.7)));
+          streak += meteor(p, head + dir * age * 0.5, dir, 0.15) * sin(age * 3.1416) * night;
+        }
       }
-    }
-    if (streak > 0.001) {
-      col += vec3(0.85, 0.94, 1.0) * streak;
+      if (streak > 0.001) {
+        col += vec3(0.85, 0.94, 1.0) * streak;
+      }
     }
 
     if (illum > 0.001) {
@@ -248,21 +252,23 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     // Water disturbance from clicks and pointer wake (skipped on dry sand).
     float agit = 0.0;
     if (beach < 0.999 || wet > 0.002) {
-      for (int i = 0; i < 4; i++) {
-        vec4 clk = u_clicks[i];
-        if (clk.w > 0.5 && clk.z < 3.0 && clk.y < hy) {
-          vec2 cq = (p - vec2((clk.x - 0.5) * aspect, clk.y)) * vec2(1.0, 2.6);
-          float cs = 0.45 + 2.4 * (hy - clk.y);
-          float cw = 0.012 * cs;
-          float cr = clk.z * 0.2 * cs;
-          float rMax = max(cr + cw * 3.2, cw * 6.8);
-          float cdSq = dot(cq, cq);
-          if (cdSq < rMax * rMax) {
-            float cd = sqrt(cdSq);
-            agit += (gauss((cd - cr) / cw) + 0.5 * gauss((cd - cr * 0.55) / cw)) * exp(-clk.z * 1.25);
-            if (clk.z < 1.8) {
-              float cdN = cd / cw;
-              agit += exp(-cdN * cdN / 6.0 - clk.z * 5.0);
+      if (u_click.w > 0.5 && u_click.z < 3.0) {
+        for (int i = 0; i < 4; i++) {
+          vec4 clk = u_clicks[i];
+          if (clk.w > 0.5 && clk.z < 3.0 && clk.y < hy) {
+            vec2 cq = (p - vec2((clk.x - 0.5) * aspect, clk.y)) * vec2(1.0, 2.6);
+            float cs = 0.45 + 2.4 * (hy - clk.y);
+            float cw = 0.012 * cs;
+            float cr = clk.z * 0.2 * cs;
+            float rMax = max(cr + cw * 3.2, cw * 6.8);
+            float cdSq = dot(cq, cq);
+            if (cdSq < rMax * rMax) {
+              float cd = sqrt(cdSq);
+              agit += (gauss((cd - cr) / cw) + 0.5 * gauss((cd - cr * 0.55) / cw)) * exp(-clk.z * 1.25);
+              if (clk.z < 1.8) {
+                float cdN = cd / cw;
+                agit += exp(-cdN * cdN / 6.0 - clk.z * 5.0);
+              }
             }
           }
         }
@@ -286,60 +292,61 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
     vec3 lume = mix(glow, vec3(1.0), 0.15);
     vec3 ripple = mix(vec3(0.4, 0.45, 0.5), lume, sat(bloomAmt));
-    float d = hy - uv.y;
-    float lz = log(0.2 / (d + 0.012));
     float plankton = 0.0;
     col = vec3(0.0);
 
-    if (beach < 0.999) {
-      float detail = smoothstep(0.012, 0.09, d);
-      float fres = exp(-d * (9.0 - 5.0 * dusk));
-
-      col = mix(mix(deep * 0.72, dayTop * 0.5, day), skyLow, fres * 0.75);
-      if (dusk > 0.001) {
-        col += after * exp(-abs(ax - sunX) * 1.6) * fres * dusk * 0.4;
-      }
-
-      // Swell fronts. Log-depth spacing packs them toward the horizon the way
-      // perspective does, and every front carries its own lit and dark stretches.
-      float warp = snoise(vec2(ax * 1.3, lz * 1.4 + t * 0.03));
-      float k = (lz * 15.0 + ax * 0.9 + warp * 1.5 + t * 0.5 * sw) / 6.2832;
-      float idx = floor(k);
-      float s = fract(k);
-      float front = exp(-s * (10.5 - 3.5 * u_swell)) * smoothstep(0.0, 0.04, s);
-      float lit = bloomAmt > 0.001 && front > 0.004
-        ? smoothstep(-0.25, 0.55, snoise(vec2(ax * 1.7 + idx * 7.3, idx * 3.1 + t * 0.06)))
-        : 0.0;
+    if (beach < 0.999 || foam > 0.002) {
+      float d = hy - uv.y;
+      float lz = log(0.2 / (d + 0.012));
       plankton = smoothstep(-0.4, 0.5, snoise(vec2(ax * 0.9 + 3.0, lz * 0.9 - t * 0.02)));
-      float rip = 0.5 + 0.5 * sin(lz * 58.0 + ax * 7.0 + warp * 5.0 + t * 1.6);
-      rip *= 0.5 + 0.5 * sin(lz * 31.0 - ax * 11.0 + warp * 3.0 - t * 1.1);
-      float glint = mix(0.3, smoothstep(0.15, 0.85, rip), detail);
 
-      float mwd = 0.02 + d * 0.5;
-      if (illum > 0.001) {
-        col += moonCol * gauss((ax - moonP.x) / mwd) * (0.15 + 0.85 * glint) * illum * moonVis * 0.6;
-      }
-      float sunRefl = (day * 0.6 + dusk * 0.45) * sat(1.0 + sunH * 3.0);
-      if (sunRefl > 0.001) {
-        vec3 sunCol = mix(after, vec3(1.0, 0.95, 0.85), day);
-        col += sunCol * gauss((ax - sunX) / mwd) * (0.15 + 0.85 * glint) * sunRefl;
-      }
-      col += skyLow * glint * detail * 0.1;
+      if (beach < 0.999) {
+        float detail = smoothstep(0.012, 0.09, d);
+        float fres = exp(-d * (9.0 - 5.0 * dusk));
 
-      float bio = front * lit * (0.35 + 0.65 * plankton) * (1.0 + surge * 0.9) * (0.35 + 0.65 * detail);
-      if (bloomAmt > 0.001) {
-        float spk = detail > 0.001
-          ? sparkle(vec2(ax, d * 2.2) * 46.0 * exp2(floor(lz * 1.4427 + 0.5)), t) * detail
-          : 0.0;
-        col += mix(glow, vec3(1.0), front * front * 0.3) * bio * bloomAmt * 1.1;
-        col += glow * plankton * 0.035 * bloomAmt;
-        col += lume * spk * (bio * 1.6 + agit * 2.0 + 0.05 + plankton * 0.05) * bloomAmt;
+        col = mix(mix(deep * 0.72, dayTop * 0.5, day), skyLow, fres * 0.75);
+        if (dusk > 0.001) {
+          col += after * exp(-abs(ax - sunX) * 1.6) * fres * dusk * 0.4;
+        }
+
+        // Swell fronts. Log-depth spacing packs them toward the horizon the way
+        // perspective does, and every front carries its own lit and dark stretches.
+        float warp = snoise(vec2(ax * 1.3, lz * 1.4 + t * 0.03));
+        float k = (lz * 15.0 + ax * 0.9 + warp * 1.5 + t * 0.5 * sw) / 6.2832;
+        float idx = floor(k);
+        float s = fract(k);
+        float front = exp(-s * (10.5 - 3.5 * u_swell)) * smoothstep(0.0, 0.04, s);
+        float rip = 0.5 + 0.5 * sin(lz * 58.0 + ax * 7.0 + warp * 5.0 + t * 1.6);
+        rip *= 0.5 + 0.5 * sin(lz * 31.0 - ax * 11.0 + warp * 3.0 - t * 1.1);
+        float glint = mix(0.3, smoothstep(0.15, 0.85, rip), detail);
+
+        float mwd = 0.02 + d * 0.5;
+        if (illum > 0.001) {
+          col += moonCol * gauss((ax - moonP.x) / mwd) * (0.15 + 0.85 * glint) * illum * moonVis * 0.6;
+        }
+        float sunRefl = (day * 0.6 + dusk * 0.45) * sat(1.0 + sunH * 3.0);
+        if (sunRefl > 0.001) {
+          vec3 sunCol = mix(after, vec3(1.0, 0.95, 0.85), day);
+          col += sunCol * gauss((ax - sunX) / mwd) * (0.15 + 0.85 * glint) * sunRefl;
+        }
+        col += skyLow * glint * detail * 0.1;
+
+        if (bloomAmt > 0.001) {
+          float lit = front > 0.004
+            ? smoothstep(-0.25, 0.55, snoise(vec2(ax * 1.7 + idx * 7.3, idx * 3.1 + t * 0.06)))
+            : 0.0;
+          float bio = front * lit * (0.35 + 0.65 * plankton) * (1.0 + surge * 0.9) * (0.35 + 0.65 * detail);
+          float spk = detail > 0.001
+            ? sparkle(vec2(ax, d * 2.2) * 46.0 * exp2(floor(lz * 1.4427 + 0.5)), t) * detail
+            : 0.0;
+          col += mix(glow, vec3(1.0), front * front * 0.3) * bio * bloomAmt * 1.1;
+          col += glow * plankton * 0.035 * bloomAmt;
+          col += lume * spk * (bio * 1.6 + agit * 2.0 + 0.05 + plankton * 0.05) * bloomAmt;
+        }
+        if (agit > 0.001) {
+          col += ripple * agit * (0.35 + 0.65 * plankton) * (0.3 + 0.7 * dark);
+        }
       }
-      if (agit > 0.001) {
-        col += ripple * agit * (0.35 + 0.65 * plankton) * (0.3 + 0.7 * dark);
-      }
-    } else if (foam > 0.002) {
-      plankton = smoothstep(-0.4, 0.5, snoise(vec2(ax * 0.9 + 3.0, lz * 0.9 - t * 0.02)));
     }
 
     if (beach > 0.0) {
@@ -450,7 +457,7 @@ export const LUMINOUS_TIDE_SHADER: CustomShaderSpec = {
       key: 'meteors',
       kind: 'boolean',
       label: 'Shooting stars',
-      defaultValue: true,
+      defaultValue: false,
     },
   ],
 };

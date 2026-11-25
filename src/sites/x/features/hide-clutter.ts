@@ -11,8 +11,9 @@ export default createHideClutterFeature<XPage>({
     {
       key: 'x_hide_grok',
       spec: X_NAV_GROK,
-      title: 'Hide Grok link and drawer',
-      description: 'Hide the Grok navigation link and floating Grok drawer.',
+      title: 'Hide Grok',
+      description:
+        'Hide the Grok navigation link, floating drawer, and Grok buttons on posts and replies.',
     },
     {
       key: 'x_hide_premium',

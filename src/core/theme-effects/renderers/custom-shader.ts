@@ -172,9 +172,10 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
     let boundHeight = 0;
     let lost = false;
 
-    const onContextLost = (): void => {
+    const onContextLost = (event: Event): void => {
+      event.preventDefault();
       lost = true;
-      hooks.fallback();
+      hooks.fallback({ recoverable: true });
     };
     canvas.addEventListener('webglcontextlost', onContextLost);
 
@@ -227,7 +228,12 @@ function createCustomShaderFactory(spec: CustomShaderSpec): SceneFactory {
         }
       },
       render(frame) {
-        if (lost || gl.isContextLost()) {
+        if (lost) {
+          return;
+        }
+        if (gl.isContextLost()) {
+          lost = true;
+          hooks.fallback({ recoverable: true });
           return;
         }
         if (frame.palette !== boundPalette) {

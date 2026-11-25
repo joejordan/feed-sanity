@@ -751,10 +751,11 @@ describe('appearancePanel & initSiteTheme', () => {
     await library.ready;
 
     try {
+      const onDialogClose = vi.fn();
       const controller = makeController();
       const panel = appearancePanel(saved, controller, () => undefined, library);
 
-      render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+      render(<OptionsDialog options={options} panels={[panel]} onClose={onDialogClose} />);
       await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
 
       // Apply Enter the Matrix vibe and save it to My Themes with a custom name.
@@ -804,12 +805,45 @@ describe('appearancePanel & initSiteTheme', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Save' }));
       await vi.waitFor(() => expect(library.list()[0]?.document.meta.name).toBe('Cyber Matrix'));
 
-      // Deleting a hovered saved theme clears live preview (when hover preview is enabled) even when the library grid unmounts, then Undo restores it.
+      // Top-right view toggle switches between Card view and Compact list view and persists it.
+      const cardViewBtn = screen.getByRole('button', { name: 'Card view' });
+      const listViewBtn = screen.getByRole('button', { name: 'Compact list view' });
+      expect(cardViewBtn.getAttribute('aria-pressed')).toBe('true');
+      expect(listViewBtn.getAttribute('aria-pressed')).toBe('false');
+      await userEvent.click(listViewBtn);
+      await vi.waitFor(() => expect(library.getLibraryView()).toBe('list'));
+      expect(listViewBtn.getAttribute('aria-pressed')).toBe('true');
+      expect(screen.getByRole('group', { name: 'Saved themes' }).getAttribute('data-view')).toBe(
+        'list',
+      );
+      await userEvent.click(cardViewBtn);
+      await vi.waitFor(() => expect(library.getLibraryView()).toBe('cards'));
+
+      // Deleting a hovered saved theme opens a confirmation dialog first; cancelling keeps it,
+      // confirming deletes it and clears live preview, and Undo restores it.
       await userEvent.click(screen.getByRole('checkbox', { name: 'Live hover preview' }));
       await vi.waitFor(() => expect(library.getHoverPreview()).toBe(true));
       vi.mocked(controller.clearPreview).mockClear();
       fireEvent.mouseEnter(screen.getByRole('button', { name: /^Cyber Matrix/i }));
       await userEvent.click(screen.getByRole('button', { name: 'Delete Cyber Matrix' }));
+      const confirmDialog = screen.getByRole('alertdialog');
+      expect(confirmDialog.textContent).toContain('Delete "Cyber Matrix"?');
+      expect(library.list()).toHaveLength(1);
+      // Pressing Escape cancels only the confirmation dialog, never the outer OptionsDialog.
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(onDialogClose).not.toHaveBeenCalled();
+      expect(library.list()).toHaveLength(1);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Delete Cyber Matrix' }));
+      const confirmDialogCancel = screen.getByRole('alertdialog');
+      await userEvent.click(within(confirmDialogCancel).getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(library.list()).toHaveLength(1);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Delete Cyber Matrix' }));
+      const confirmDialog2 = screen.getByRole('alertdialog');
+      await userEvent.click(within(confirmDialog2).getByRole('button', { name: 'Delete theme' }));
       await vi.waitFor(() => expect(library.list()).toHaveLength(0));
       expect(controller.clearPreview).toHaveBeenCalled();
       await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
@@ -1170,10 +1204,11 @@ describe('appearancePanel & initSiteTheme', () => {
     await library.ready;
 
     try {
+      const onDialogClose = vi.fn();
       const controller = makeController();
       const panel = appearancePanel(saved, controller, () => undefined, library);
 
-      render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+      render(<OptionsDialog options={options} panels={[panel]} onClose={onDialogClose} />);
       await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
       await userEvent.click(screen.getByRole('button', { name: /Import \/ Export theme/i }));
 
@@ -1354,7 +1389,12 @@ describe('appearancePanel & initSiteTheme', () => {
     await vi.waitFor(() =>
       expect(saved.get().effects?.backdrop?.params?.bloomColor).toBe('#7cf5a0'),
     );
-    expect(screen.getByRole('checkbox', { name: 'Shooting stars' })).toBeTruthy();
+    const shootingStars = screen.getByRole<HTMLInputElement>('checkbox', {
+      name: 'Shooting stars',
+    });
+    expect(shootingStars.checked).toBe(false);
+    await userEvent.click(shootingStars);
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.meteors).toBe(true));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Aurora veil' }));
     await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.aurora).toBe(false));
 

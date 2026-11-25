@@ -176,6 +176,7 @@ export {
   THEME_LIBRARY_KEY,
   type ThemeLibraryClient,
   type ThemeLibraryState,
+  type ThemeLibraryViewMode,
 } from './theming/library';
 export { BUILTIN_THEMES, findThemePreset } from './theming/presets';
 export {

@@ -22,10 +22,19 @@ export const X_SIDEBAR = anyOf('x-sidebar', [
   { selector: '[data-testid="sidebarColumn"]', seen: '2026-11-22' },
 ]);
 
-/** Grok left-nav link and floating Grok drawer. */
+/** Grok left-nav link, floating drawer, and post/detail/reply Grok action buttons. */
 export const X_NAV_GROK = anyOf('x-nav-grok', [
   { selector: 'a[href="/i/grok"]', seen: '2026-11-22' },
+  { selector: 'a[href^="/i/grok?"]', seen: '2026-11-25' },
+  { selector: 'a[href^="/i/grok/"]', seen: '2026-11-25' },
   { selector: '[data-testid="GrokDrawer"]', seen: '2026-11-22' },
+  { selector: '[data-testid="grokImgGen"]', seen: '2026-11-25' },
+  { selector: ':is(button, [role="button"])[aria-label="Grok actions"]', seen: '2026-11-25' },
+  {
+    selector:
+      'article[data-testid="tweet"] :is(button, [role="button"]):is([aria-label="Grok" i], [aria-label^="Grok " i], [aria-label^="Ask Grok" i], [aria-label*="with Grok" i], [data-testid*="grok" i])',
+    seen: '2026-11-25',
+  },
 ]);
 
 /** Premium subscription tab in left navigation. */

@@ -104,9 +104,14 @@ export interface Scene extends BackingSizeOptions {
   dispose?: () => void;
 }
 
+export interface SceneFallbackOptions {
+  /** True when the failure came from a transient GPU/canvas context loss that may recover on tab return. */
+  readonly recoverable?: boolean;
+}
+
 export interface SceneHooks {
   /** Replaces this scene with the next fallback (for example after WebGL context loss). */
-  readonly fallback: () => void;
+  readonly fallback: (options?: SceneFallbackOptions) => void;
 }
 
 export type SceneFactory = (canvas: HTMLCanvasElement, hooks: SceneHooks) => Scene | null;
@@ -150,6 +155,14 @@ const VELOCITY_EPSILON = 0.001;
 const IDLE_CLICK_AGE = 999;
 /** Shader clocks wrap so float precision never degrades over long sessions. */
 const CLOCK_WRAP_SECONDS = 3600;
+/** Pending rAF older than this while visible indicates a dropped/frozen browser callback. */
+const STALE_RAF_MS = 2000;
+/** Gaps larger than this are browser throttling/background freezes, not GPU shader stalls. */
+const WATCHDOG_MAX_GAP_MS = 250;
+/** Cap automatic context-loss recoveries to avoid thrashing on permanently unstable GPUs. */
+const RECOVERY_WINDOW_MS = 60_000;
+const RECOVERY_COOLDOWN_MS = 2000;
+const MAX_RECOVERIES_PER_WINDOW = 3;
 
 /**
  * Resolves a crisp but bounded backing-store size: the device pixel ratio is
@@ -205,13 +218,35 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   let nextFactory = 0;
   let view: SceneViewport = { cssWidth: 0, cssHeight: 0, pixelRatio: 1, width: 0, height: 0 };
   let raf = 0;
+  let rafScheduledAt = 0;
   let lastFrame = 0;
   let clock = spec.startTime ?? 0;
   let frameIndex = 0;
   let slowStreak = 0;
   let scaleMultiplier = 1;
   let destroyed = false;
+  let needsPrimaryRecovery = false;
+  let recoveryWindowStart = 0;
+  let recoveryAttempts = 0;
+  let recoveryEarliestAt = 0;
   let sceneHooks: SceneHooks | null = null;
+  let sceneAbort: AbortController | null = null;
+  let cachedCtx2d: (CanvasRenderingContext2D & { isContextLost?: () => boolean }) | null = null;
+
+  const scheduleRaf = (cb: FrameRequestCallback): number => {
+    rafScheduledAt = performance.now();
+    return typeof win.requestAnimationFrame === 'function'
+      ? win.requestAnimationFrame(cb)
+      : requestAnimationFrame(cb);
+  };
+
+  const cancelRaf = (id: number): void => {
+    if (typeof win.cancelAnimationFrame === 'function') {
+      win.cancelAnimationFrame(id);
+    } else {
+      cancelAnimationFrame(id);
+    }
+  };
 
   const target = { x: 0, y: 0, presence: 0, seeded: false };
   const pointer = { x: 0, y: 0, nx: 0.5, ny: 0.5, vx: 0, vy: 0, presence: 0 };
@@ -328,11 +363,15 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   };
 
   const checkWatchdog = (started: number, frameOverrunMs: number): void => {
-    if (!spec.watchdog) {
+    if (!spec.watchdog || doc.hidden) {
       return;
     }
-    const worstMs = Math.max(performance.now() - started, frameOverrunMs);
-    if (worstMs <= spec.watchdog.slowFrameMs) {
+    const drawMs = performance.now() - started;
+    // Allow generous vsync/compositor headroom on rAF overrun so normal host-page
+    // ticks or 15Hz occluded-window throttling never falsely kill a healthy shader.
+    const overrunThreshold = Math.max(spec.watchdog.slowFrameMs * 2, 60);
+    const isSlow = drawMs > spec.watchdog.slowFrameMs || frameOverrunMs > overrunThreshold;
+    if (!isSlow) {
       slowStreak = 0;
       return;
     }
@@ -393,16 +432,22 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
 
   const tick = (now: number): void => {
     raf = 0;
+    rafScheduledAt = 0;
     if (destroyed || !scene || !animating()) {
       return;
     }
     // 0.88x tolerance prevents 60 Hz vsync jitter from skipping every other 30 FPS tick.
     if (lastFrame !== 0 && now - lastFrame < frameInterval * 0.88) {
-      raf = requestAnimationFrame(tick);
+      raf = scheduleRaf(tick);
       return;
     }
-    const frameOverrunMs = lastFrame === 0 ? 0 : Math.max(0, now - lastFrame - frameInterval);
-    const elapsed = lastFrame === 0 ? 1 / fps : Math.min(0.1, (now - lastFrame) / 1000);
+    const elapsedMs = lastFrame === 0 ? 0 : now - lastFrame;
+    // Large gaps (>250ms) come from tab throttling, OS sleep, or backgrounding — not GPU stalls.
+    const frameOverrunMs =
+      lastFrame === 0 || elapsedMs > WATCHDOG_MAX_GAP_MS
+        ? 0
+        : Math.max(0, elapsedMs - frameInterval);
+    const elapsed = lastFrame === 0 ? 1 / fps : Math.min(0.1, elapsedMs / 1000);
     lastFrame = now;
     const dt = elapsed * ctx.effects.speed;
     clock += dt;
@@ -414,22 +459,90 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     if (spec.onDemand && pointerSettled()) {
       return;
     }
-    raf = requestAnimationFrame(tick);
+    raf = scheduleRaf(tick);
   };
 
   const stop = (): void => {
     if (raf !== 0) {
-      cancelAnimationFrame(raf);
+      cancelRaf(raf);
       raf = 0;
     }
+    rafScheduledAt = 0;
+    slowStreak = 0;
     restPointer();
   };
 
   const start = (): void => {
     if (raf === 0 && !destroyed && scene) {
       lastFrame = 0;
+      slowStreak = 0;
       restPointer();
-      raf = requestAnimationFrame(tick);
+      raf = scheduleRaf(tick);
+    }
+  };
+
+  const tryRecoverPrimary = (ignoreCooldown = false): boolean => {
+    if (destroyed || doc.hidden || !needsPrimaryRecovery || spec.factories.length === 0) {
+      return false;
+    }
+    const now = performance.now();
+    if (!ignoreCooldown && now < recoveryEarliestAt) {
+      return false;
+    }
+    if (recoveryWindowStart === 0 || now - recoveryWindowStart > RECOVERY_WINDOW_MS) {
+      recoveryWindowStart = now;
+      recoveryAttempts = 0;
+    }
+    if (recoveryAttempts >= MAX_RECOVERIES_PER_WINDOW) {
+      needsPrimaryRecovery = false;
+      if (!scene && !cssLayer) {
+        mountCssFallback();
+      }
+      return false;
+    }
+    recoveryAttempts += 1;
+    needsPrimaryRecovery = false;
+    nextFactory = 0;
+    cssLayer?.remove();
+    cssLayer = null;
+    mountNext();
+    // If the GPU process is still restarting on wake and factory 0 failed to mount,
+    // keep recovery armed for a cooled-down retry within the remaining budget.
+    if ((!scene || nextFactory > 1) && recoveryAttempts < MAX_RECOVERIES_PER_WINDOW) {
+      needsPrimaryRecovery = true;
+      recoveryEarliestAt = now + RECOVERY_COOLDOWN_MS;
+    }
+    return true;
+  };
+
+  const recoverIfNeeded = (check2dContext: boolean, ignoreCooldown = false): boolean => {
+    if (check2dContext && cachedCtx2d?.isContextLost?.() === true) {
+      needsPrimaryRecovery = true;
+    }
+    return needsPrimaryRecovery && tryRecoverPrimary(ignoreCooldown);
+  };
+
+  const clearStaleRaf = (): void => {
+    if (raf !== 0 && rafScheduledAt > 0 && performance.now() - rafScheduledAt > STALE_RAF_MS) {
+      // Browser dropped or froze the queued animation frame; reset so `start()` re-arms cleanly.
+      stop();
+    }
+  };
+
+  const ensureAlive = (): void => {
+    if (destroyed || !animating()) {
+      return;
+    }
+    if (recoverIfNeeded(false)) {
+      sync();
+      return;
+    }
+    if (!scene || cachedCtx2d?.isContextLost?.() === true || (spec.onDemand && pointerSettled())) {
+      return;
+    }
+    clearStaleRaf();
+    if (raf === 0) {
+      start();
     }
   };
 
@@ -440,7 +553,7 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     if (cssLayer) {
       cssLayer.style.background = spec.cssFallback(palette);
     }
-    if (!scene || doc.hidden) {
+    if (!scene || doc.hidden || cachedCtx2d?.isContextLost?.() === true) {
       stop();
       return;
     }
@@ -507,6 +620,9 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
 
   const disposeScene = (): void => {
     stop();
+    sceneAbort?.abort();
+    sceneAbort = null;
+    cachedCtx2d = null;
     scene?.dispose?.();
     scene = null;
     canvas?.remove();
@@ -532,13 +648,27 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     generation += 1;
     const current = generation;
     const hooks: SceneHooks = {
-      fallback: () => {
+      fallback: (options) => {
+        if (destroyed || current !== generation) {
+          return;
+        }
+        if (options?.recoverable) {
+          needsPrimaryRecovery = true;
+          recoveryEarliestAt = performance.now() + RECOVERY_COOLDOWN_MS;
+        }
         // Defer so a scene never disposes itself in the middle of a render.
         queueMicrotask(() => {
-          if (!destroyed && current === generation) {
-            mountNext();
-            sync();
+          if (destroyed || current !== generation) {
+            return;
           }
+          // When a background tab loses its GPU context, wait until the tab returns
+          // to visibility before remounting instead of burning through fallbacks.
+          if (options?.recoverable && doc.hidden) {
+            disposeScene();
+            return;
+          }
+          mountNext();
+          sync();
         });
       },
     };
@@ -558,6 +688,35 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
         candidate.dataset.fsRenderer = created.kind;
         canvas = candidate;
         scene = created;
+        if (created.kind === 'canvas2d') {
+          cachedCtx2d = candidate.getContext('2d') as
+            | (CanvasRenderingContext2D & { isContextLost?: () => boolean })
+            | null;
+          sceneAbort = new AbortController();
+          candidate.addEventListener(
+            'contextlost',
+            (event) => {
+              event.preventDefault();
+              needsPrimaryRecovery = true;
+              recoveryEarliestAt = performance.now() + RECOVERY_COOLDOWN_MS;
+              stop();
+            },
+            { signal: sceneAbort.signal },
+          );
+          candidate.addEventListener(
+            'contextrestored',
+            () => {
+              if (!destroyed && current === generation) {
+                needsPrimaryRecovery = true;
+                if (!doc.hidden) {
+                  tryRecoverPrimary(true);
+                  sync();
+                }
+              }
+            },
+            { signal: sceneAbort.signal },
+          );
+        }
         measure();
         return;
       }
@@ -580,8 +739,12 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
       // Normalize now so the jump to the first real position never reads as speed.
       normalizePointer();
     }
-    if (spec.onDemand && animating()) {
-      start();
+    if (
+      raf === 0 ||
+      needsPrimaryRecovery ||
+      (rafScheduledAt > 0 && performance.now() - rafScheduledAt > STALE_RAF_MS)
+    ) {
+      ensureAlive();
     }
   };
 
@@ -593,6 +756,19 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
     if (spec.onDemand && animating()) {
       start();
     }
+  };
+
+  const onWake = (): void => {
+    if (destroyed) {
+      return;
+    }
+    if (doc.hidden) {
+      sync();
+      return;
+    }
+    recoverIfNeeded(true, true);
+    clearStaleRaf();
+    sync();
   };
 
   mountNext();
@@ -608,7 +784,10 @@ export function mountScene(initial: BackdropContext, spec: SceneSpec): BackdropI
   } else {
     win.addEventListener('resize', () => measure(), { signal, passive: true });
   }
-  doc.addEventListener('visibilitychange', sync, { signal });
+  doc.addEventListener('visibilitychange', onWake, { signal });
+  doc.addEventListener('resume', onWake, { signal });
+  win.addEventListener('pageshow', onWake, { signal });
+  win.addEventListener('focus', onWake, { signal });
   reducedMotion?.addEventListener?.('change', sync, { signal });
   doc.addEventListener('pointermove', onPointerMove, { signal, passive: true, capture: true });
   doc.addEventListener('pointerout', onPointerOut, { signal, passive: true, capture: true });

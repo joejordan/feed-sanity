@@ -233,6 +233,7 @@ function stubAnimationFrames(): FrameRequestCallback[] {
 
 describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
     document.body.innerHTML = '';
   });
@@ -479,6 +480,123 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
 
     controller.dispose();
     vi.unstubAllGlobals();
+  });
+
+  it('recovers WebGL after background context loss, ignores throttled tab gaps in the watchdog, and revives stalled Canvas 2D scenes', async () => {
+    const shader: CustomShaderSpec = {
+      fragment: 'void main() { gl_FragColor = vec4(u_accent, 1.0); }',
+      renderScale: 0.5,
+      fps: 30,
+      fallbackColors: ['#0a0f18', '#38bdf8'],
+    };
+
+    const rafQueue = stubAnimationFrames();
+    const live = makeFakeWebGLContext({ compileOk: true });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((kind: string) =>
+      kind === 'webgl' ? live.gl : null) as HTMLCanvasElement['getContext']);
+    mockCanvasSize(1000, 600);
+
+    const controller = createEffectsLayerController(document);
+    try {
+      controller.sync(
+        {
+          ...DEFAULT_THEME_EFFECTS,
+          backdrop: 'custom-shader',
+          customShader: shader,
+          paused: false,
+        },
+        DARK_PALETTE,
+        'dark',
+      );
+      const initialCanvas = document.querySelector<HTMLCanvasElement>(
+        'canvas[data-fs-renderer="webgl"]',
+      );
+      expect(initialCanvas).not.toBeNull();
+      const initialWidth = initialCanvas!.width;
+
+      // 1. Long browser-throttled rAF gaps (>250ms) must NOT trip the watchdog.
+      let t = 100;
+      for (let i = 0; i < 30; i++) {
+        rafQueue.shift()?.(t);
+        t += 500;
+      }
+      expect(document.querySelector('canvas[data-fs-renderer="webgl"]')).not.toBeNull();
+      expect(initialCanvas!.width).toBe(initialWidth);
+
+      // 2. Background tab loses WebGL context -> recovers to live WebGL when returning to foreground.
+      const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+      document.dispatchEvent(new Event('visibilitychange'));
+      live.setLost(true);
+      initialCanvas!.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      live.setLost(false);
+      hiddenSpy.mockReturnValue(false);
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(document.querySelector('canvas[data-fs-renderer="webgl"]')).not.toBeNull();
+      expect(document.querySelector('div[data-fs-renderer="css"]')).toBeNull();
+      hiddenSpy.mockRestore();
+
+      // 3. A dropped/stale rAF handle self-heals on pointermove or focus.
+      const futureMs = performance.now() + 10_000;
+      const perfSpy = vi.spyOn(performance, 'now').mockReturnValue(futureMs);
+      rafQueue.length = 0;
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: 300, clientY: 200 }));
+      expect(rafQueue.length).toBeGreaterThan(0);
+      perfSpy.mockRestore();
+
+      // 4. Canvas 2D scenes pause on contextlost and remount on contextrestored / wake.
+      let ctx2dLost = false;
+      const fake2d = Object.assign(makeFake2dContext(), {
+        isContextLost: () => ctx2dLost,
+      });
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((kind: string) =>
+        kind === '2d' ? fake2d : null) as HTMLCanvasElement['getContext']);
+      controller.sync(
+        {
+          ...DEFAULT_THEME_EFFECTS,
+          backdrop: 'custom-scene',
+          customScene: {
+            layers: [
+              {
+                kind: 'gradient',
+                style: 'radial',
+                colors: ['background', 'accent'],
+                x: 0.5,
+                y: 0.4,
+              },
+            ],
+          },
+          paused: false,
+        },
+        DARK_PALETTE,
+        'dark',
+      );
+      const canvas2d = document.querySelector<HTMLCanvasElement>(
+        'canvas[data-fs-renderer="canvas2d"]',
+      );
+      expect(canvas2d).not.toBeNull();
+      ctx2dLost = true;
+      const lostEvent = new Event('contextlost', { cancelable: true });
+      canvas2d!.dispatchEvent(lostEvent);
+      expect(lostEvent.defaultPrevented).toBe(true);
+      rafQueue.length = 0;
+      // Moving the pointer while the 2D context is still lost must not restart rAF.
+      document.dispatchEvent(new PointerEvent('pointermove', { clientX: 320, clientY: 220 }));
+      expect(rafQueue.length).toBe(0);
+
+      // Once restored, the 2D scene remounts a fresh canvas and resumes animation.
+      ctx2dLost = false;
+      canvas2d!.dispatchEvent(new Event('contextrestored'));
+      const restoredCanvas = document.querySelector<HTMLCanvasElement>(
+        'canvas[data-fs-renderer="canvas2d"]',
+      );
+      expect(restoredCanvas).not.toBeNull();
+      expect(restoredCanvas).not.toBe(canvas2d);
+      expect(rafQueue.length).toBeGreaterThan(0);
+    } finally {
+      controller.dispose();
+    }
   });
 
   it('forwards click bursts to custom-shader u_click even when click effect is none, and hot-swaps shaders vs live param updates', () => {
@@ -977,7 +1095,7 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
       expect(lastUpload(fake.uniform1f, 'u_sky')).toEqual([2]);
       expect(lastUpload(fake.uniform1f, 'u_moon')).toEqual([2]);
       expect(lastUpload(fake.uniform1f, 'u_aurora')).toEqual([0]);
-      expect(lastUpload(fake.uniform1f, 'u_meteors')).toEqual([1]);
+      expect(lastUpload(fake.uniform1f, 'u_meteors')).toEqual([0]);
       expect(lastUpload(fake.uniform1f, 'u_swell')).toEqual([1]);
       expect(lastUpload(fake.uniform1f, 'u_bloom')).toEqual([1]);
       expect(lastUpload(fake.uniform3f, 'u_bloomColor')).toEqual([
@@ -985,6 +1103,17 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
         expect.closeTo(0xd8 / 255, 3),
         1,
       ]);
+
+      // Turning Shooting stars on uploads 1.
+      controller.sync(
+        {
+          ...effects,
+          backdropParams: { sky: 'dusk', moon: 'crescent', aurora: false, meteors: true },
+        },
+        DARK_PALETTE,
+        'dark',
+      );
+      expect(lastUpload(fake.uniform1f, 'u_meteors')).toEqual([1]);
 
       // Sky clock: tonight's lunar phase and the local time of day, both in 0..1.
       for (const name of ['u_moonPhase', 'u_dayPhase']) {

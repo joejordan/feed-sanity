@@ -179,9 +179,10 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
     let boundWidth = 0;
     let boundHeight = 0;
     let lost = false;
-    const onContextLost = (): void => {
+    const onContextLost = (event: Event): void => {
+      event.preventDefault();
       lost = true;
-      hooks.fallback();
+      hooks.fallback({ recoverable: true });
     };
     canvas.addEventListener('webglcontextlost', onContextLost);
 
@@ -204,7 +205,12 @@ export function createShaderScene<const U extends string>(spec: ShaderSceneSpec<
         }
       },
       render(frame) {
-        if (lost || gl.isContextLost()) {
+        if (lost) {
+          return;
+        }
+        if (gl.isContextLost()) {
+          lost = true;
+          hooks.fallback({ recoverable: true });
           return;
         }
         if (frame.palette !== boundPalette) {

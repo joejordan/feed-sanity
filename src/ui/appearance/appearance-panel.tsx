@@ -9,6 +9,7 @@ import type {
   ThemeDocumentV1,
   ThemeFontId,
   ThemeLibraryClient,
+  ThemeLibraryViewMode,
 } from '../../core/theming';
 import type { OptionsPanel, PanelProps, PanelSearchItem } from '../options-dialog/panel';
 import type { AuditState } from './health-disclosure';
@@ -101,16 +102,20 @@ function AppearancePanelView({
   const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState<boolean>(
     () => library?.getHoverPreview() ?? false,
   );
+  const [libraryViewMode, setLibraryViewMode] = useState<ThemeLibraryViewMode>(
+    () => library?.getLibraryView() ?? 'cards',
+  );
   useEffect(() => {
     if (!library) {
       return;
     }
-    setLibraryEntries(library.list());
-    setHoverPreviewEnabled(library.getHoverPreview());
-    return library.onChange((next) => {
-      setLibraryEntries(next.themes);
-      setHoverPreviewEnabled(next.hoverPreview === true);
-    });
+    const syncLibraryState = (): void => {
+      setLibraryEntries(library.list());
+      setHoverPreviewEnabled(library.getHoverPreview());
+      setLibraryViewMode(library.getLibraryView());
+    };
+    syncLibraryState();
+    return library.onChange(syncLibraryState);
   }, [library]);
   const activeFingerprint = useMemo(
     () => (library ? analyzeThemeDocument(value).fingerprint : ''),
@@ -195,21 +200,41 @@ function AppearancePanelView({
   );
   const hoverPreview = useThemePreview(value, handlePreview, hoverPreviewEnabled);
 
-  const handleToggleHoverPreview = (next: boolean): void => {
-    setHoverPreviewEnabled(next);
+  const updateLibraryPreference = <T,>(
+    next: T,
+    setState: (value: T) => void,
+    persist: (client: ThemeLibraryClient) => Promise<void>,
+    readCurrent: (client: ThemeLibraryClient) => T,
+    fallbackError: string,
+  ): void => {
+    setState(next);
     if (!library) {
       return;
     }
-    void runLibraryAction(
-      (client) => client.setHoverPreview(next),
-      undefined,
-      'Could not save hover preview preference',
-    ).then((ok) => {
+    void runLibraryAction(persist, undefined, fallbackError).then((ok) => {
       if (!ok) {
-        setHoverPreviewEnabled(library.getHoverPreview());
+        setState(readCurrent(library));
       }
     });
   };
+
+  const handleToggleHoverPreview = (next: boolean): void =>
+    updateLibraryPreference(
+      next,
+      setHoverPreviewEnabled,
+      (client) => client.setHoverPreview(next),
+      (client) => client.getHoverPreview(),
+      'Could not save hover preview preference',
+    );
+
+  const handleLibraryViewChange = (next: ThemeLibraryViewMode): void =>
+    updateLibraryPreference(
+      next,
+      setLibraryViewMode,
+      (client) => client.setLibraryView(next),
+      (client) => client.getLibraryView(),
+      'Could not save theme layout preference',
+    );
 
   const commitDocument = (next: ThemeDocumentV1): void => {
     hoverPreview.markCommitted();
@@ -490,6 +515,8 @@ function AppearancePanelView({
           items={analyzedLibrary.items}
           activeDocument={value}
           activeFingerprint={activeFingerprint}
+          viewMode={libraryViewMode}
+          onViewModeChange={handleLibraryViewChange}
           onSaveCurrent={(name) => {
             void handleSaveToLibrary(value, { name });
           }}

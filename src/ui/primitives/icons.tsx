@@ -21,7 +21,9 @@ export type UiIconName =
   | 'pencil'
   | 'download'
   | 'trash'
-  | 'check';
+  | 'check'
+  | 'layoutGrid'
+  | 'list';
 
 export interface UiIconProps {
   readonly name: UiIconName;
@@ -163,6 +165,24 @@ export function UiIcon({ name, size = 15, className }: UiIconProps) {
         </>
       )}
       {name === 'check' && <polyline points="20 6 9 17 4 12" />}
+      {name === 'layoutGrid' && (
+        <>
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </>
+      )}
+      {name === 'list' && (
+        <>
+          <line x1="8" y1="6" x2="21" y2="6" />
+          <line x1="8" y1="12" x2="21" y2="12" />
+          <line x1="8" y1="18" x2="21" y2="18" />
+          <circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" />
+          <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+          <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
+        </>
+      )}
     </svg>
   );
 }

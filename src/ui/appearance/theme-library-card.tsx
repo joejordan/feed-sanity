@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { SavedThemeEntry, ThemeCapabilities, ThemeDocumentV1 } from '../../core/theming';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import type {
+  SavedThemeEntry,
+  ThemeCapabilities,
+  ThemeDocumentV1,
+  ThemeLibraryViewMode,
+} from '../../core/theming';
 import {
   getBackdropDisplayName,
   getClickEffectLabel,
@@ -23,6 +28,8 @@ export interface ThemeLibraryCardProps {
   readonly items: readonly AnalyzedLibraryEntry[];
   readonly activeDocument: ThemeDocumentV1;
   readonly activeFingerprint: string;
+  readonly viewMode?: ThemeLibraryViewMode;
+  readonly onViewModeChange?: (mode: ThemeLibraryViewMode) => void;
   readonly onSaveCurrent: (name: string) => void;
   readonly onApplyEntry: (entry: SavedThemeEntry) => void;
   readonly onPreviewEntry?: (entry: SavedThemeEntry | null) => void;
@@ -122,6 +129,7 @@ function ThemeStage({ doc, size = 'card', tag = null, isActive = false }: ThemeS
 
 interface SavedThemeItemProps {
   readonly item: AnalyzedLibraryEntry;
+  readonly viewMode: ThemeLibraryViewMode;
   readonly isActive: boolean;
   readonly isRenaming: boolean;
   readonly onStartRename: () => void;
@@ -226,6 +234,7 @@ function InlineNameForm({
 
 function SavedThemeItem({
   item,
+  viewMode,
   isActive,
   isRenaming,
   onStartRename,
@@ -239,8 +248,16 @@ function SavedThemeItem({
 }: SavedThemeItemProps) {
   const { entry, capabilities, swatches } = item;
   const name = entry.document.meta.name;
-  const backdropLabel = libraryBackdropLabel(capabilities);
-  const stage = <ThemeStage doc={entry.document} tag={backdropLabel} isActive={isActive} />;
+  const isCompact = viewMode === 'list';
+  const backdropLabel = isCompact ? null : libraryBackdropLabel(capabilities);
+  const stage = (
+    <ThemeStage
+      doc={entry.document}
+      size={isCompact ? 'thumb' : 'card'}
+      tag={backdropLabel}
+      isActive={isActive}
+    />
+  );
   const iconActions = [
     { icon: 'pencil', verb: 'Rename', title: 'Rename', onClick: onStartRename },
     {
@@ -255,6 +272,7 @@ function SavedThemeItem({
   return (
     <div
       className="theme-library-card"
+      data-view={viewMode}
       data-active={isActive ? 'true' : undefined}
       data-renaming={isRenaming ? 'true' : undefined}
     >
@@ -262,7 +280,7 @@ function SavedThemeItem({
         <>
           {stage}
           <InlineNameForm
-            className="theme-library-rename"
+            className={isCompact ? 'theme-library-inline-form' : 'theme-library-rename'}
             ariaLabel="Rename saved theme"
             initialValue={name}
             onCommit={onCommitRename}
@@ -334,10 +352,128 @@ function SavedThemeItem({
   );
 }
 
+const VIEW_MODES = [
+  { mode: 'cards', icon: 'layoutGrid', label: 'Card view' },
+  { mode: 'list', icon: 'list', label: 'Compact list view' },
+] as const;
+
+interface DeleteThemeConfirmDialogProps {
+  readonly item: AnalyzedLibraryEntry;
+  readonly onCancel: () => void;
+  readonly onConfirm: () => void;
+}
+
+function DeleteThemeConfirmDialog({ item, onCancel, onConfirm }: DeleteThemeConfirmDialogProps) {
+  const titleId = useId();
+  const descId = useId();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const pointerDownOnBackdropRef = useRef(false);
+  const name = item.entry.document.meta.name;
+
+  useEffect(() => {
+    const el = dialogRef.current;
+    const root = el?.getRootNode();
+    const prevFocus =
+      root && 'activeElement' in root ? (root.activeElement as HTMLElement | null) : null;
+    if (el && !el.open && typeof el.showModal === 'function') {
+      el.showModal();
+    }
+    cancelRef.current?.focus();
+    return () => {
+      if (el?.open && typeof el.close === 'function') {
+        el.close();
+      }
+      if (prevFocus?.isConnected) {
+        prevFocus.focus();
+      }
+    };
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="theme-confirm-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={descId}
+      onPointerDown={(event) => {
+        pointerDownOnBackdropRef.current = event.target === event.currentTarget;
+      }}
+      onClick={(event) => {
+        if (pointerDownOnBackdropRef.current && event.target === event.currentTarget) {
+          onCancel();
+        }
+        pointerDownOnBackdropRef.current = false;
+      }}
+      onCancel={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          onCancel();
+          return;
+        }
+        if (event.key === 'Tab') {
+          event.preventDefault();
+          const root = dialogRef.current?.getRootNode();
+          const active = root && 'activeElement' in root ? root.activeElement : null;
+          const next = active === cancelRef.current ? confirmRef.current : cancelRef.current;
+          next?.focus();
+          return;
+        }
+        // Keep OptionsDialog shortcuts (`/` and `Cmd/Ctrl+K`) from opening Command Jump underneath.
+        if (
+          event.key === '/' ||
+          ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k')
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+    >
+      <div className="theme-confirm-box">
+        <div className="theme-confirm-head">
+          <ThemeStage doc={item.entry.document} size="thumb" />
+          <div className="theme-confirm-copy">
+            <h4 id={titleId} className="theme-confirm-title">
+              Delete "{name}"?
+            </h4>
+            <p id={descId} className="theme-confirm-desc">
+              Remove this saved theme from My Themes. You can still undo right after deleting.
+            </p>
+          </div>
+        </div>
+        <div className="theme-confirm-actions">
+          <button ref={cancelRef} type="button" className="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            ref={confirmRef}
+            type="button"
+            className="button theme-confirm-danger"
+            onClick={onConfirm}
+          >
+            Delete theme
+          </button>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
 export function ThemeLibraryCard({
   items,
   activeDocument,
   activeFingerprint,
+  viewMode: controlledViewMode,
+  onViewModeChange,
   onSaveCurrent,
   onApplyEntry,
   onPreviewEntry,
@@ -346,19 +482,34 @@ export function ThemeLibraryCard({
   onDeleteEntry,
   onExportEntry,
 }: ThemeLibraryCardProps) {
+  const [localViewMode, setLocalViewMode] = useState<ThemeLibraryViewMode>('cards');
+  const viewMode = controlledViewMode ?? localViewMode;
+  const setViewMode = (next: ThemeLibraryViewMode): void => {
+    setLocalViewMode(next);
+    onViewModeChange?.(next);
+  };
   const [saveForm, setSaveForm] = useState<{
     readonly key: number;
     readonly initialValue: string;
   } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const activeRenamingId =
     renamingId !== null && items.some((item) => item.entry.id === renamingId) ? renamingId : null;
+  const deletingItem =
+    deletingId === null ? null : (items.find((item) => item.entry.id === deletingId) ?? null);
 
   useEffect(() => {
     if (renamingId !== null && activeRenamingId === null) {
       setRenamingId(null);
     }
   }, [renamingId, activeRenamingId]);
+
+  useEffect(() => {
+    if (deletingId !== null && deletingItem === null) {
+      setDeletingId(null);
+    }
+  }, [deletingId, deletingItem]);
 
   const openSaveForm = (): void => {
     setSaveForm((prev) => ({
@@ -400,6 +551,22 @@ export function ThemeLibraryCard({
           >
             Save current
           </button>
+          <div className="theme-library-view-toggle" role="group" aria-label="Theme layout">
+            <span className="theme-library-view-thumb" aria-hidden="true" data-mode={viewMode} />
+            {VIEW_MODES.map((option) => (
+              <button
+                key={option.mode}
+                type="button"
+                className="theme-library-view-btn"
+                aria-label={option.label}
+                aria-pressed={viewMode === option.mode}
+                title={option.label}
+                onClick={() => setViewMode(option.mode)}
+              >
+                <UiIcon name={option.icon} size={13} />
+              </button>
+            ))}
+          </div>
         </div>
       }
     >
@@ -427,6 +594,7 @@ export function ThemeLibraryCard({
         ) : (
           <div
             className="theme-library-grid"
+            data-view={viewMode}
             role="group"
             aria-label="Saved themes"
             {...previewLeaveProps(() => onPreviewEntry?.(null))}
@@ -435,6 +603,7 @@ export function ThemeLibraryCard({
               <SavedThemeItem
                 key={item.entry.id}
                 item={item}
+                viewMode={viewMode}
                 isActive={item.capabilities.fingerprint === activeFingerprint}
                 isRenaming={activeRenamingId === item.entry.id}
                 onStartRename={() => {
@@ -445,7 +614,7 @@ export function ThemeLibraryCard({
                 onCancelRename={() => setRenamingId(null)}
                 onApply={() => onApplyEntry(item.entry)}
                 onPreview={() => {
-                  if (activeRenamingId === null) {
+                  if (activeRenamingId === null && deletingId === null) {
                     onPreviewEntry?.(item.entry);
                   }
                 }}
@@ -456,13 +625,25 @@ export function ThemeLibraryCard({
                 }}
                 onDelete={() => {
                   onPreviewEntry?.(null);
-                  onDeleteEntry(item.entry);
+                  setDeletingId(item.entry.id);
                 }}
               />
             ))}
           </div>
         )}
       </div>
+
+      {deletingItem && (
+        <DeleteThemeConfirmDialog
+          item={deletingItem}
+          onCancel={() => setDeletingId(null)}
+          onConfirm={() => {
+            const target = deletingItem.entry;
+            setDeletingId(null);
+            onDeleteEntry(target);
+          }}
+        />
+      )}
     </SettingCard>
   );
 }

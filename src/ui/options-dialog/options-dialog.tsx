@@ -108,6 +108,49 @@ export function OptionsDialog({
 
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const closedRef = useRef(false);
+  const navRef = useRef<HTMLElement>(null);
+  const pillRef = useRef<HTMLSpanElement>(null);
+  const sectionButtonsRef = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const pillInitializedRef = useRef(false);
+  const visualTargetRef = useRef<string | undefined>(undefined);
+  const lastPillHeightRef = useRef(0);
+  const pointerTargetRef = useRef<string | null>(null);
+  const activeSectionRef = useRef(section);
+  activeSectionRef.current = section;
+
+  const syncVisualHighlight = useCallback(
+    (targetName: string | undefined, animate: boolean): boolean => {
+      const pill = pillRef.current;
+      const nav = navRef.current;
+      const targetBtn = targetName ? sectionButtonsRef.current.get(targetName) : undefined;
+      // Read geometry BEFORE mutating button attributes/styles to avoid forced synchronous reflow.
+      const offsetTop = targetBtn?.offsetTop ?? 0;
+      const offsetHeight = targetBtn?.offsetHeight ?? 0;
+
+      for (const [name, btn] of sectionButtonsRef.current) {
+        if (name === targetName) {
+          btn.dataset.visualActive = 'true';
+        } else {
+          btn.removeAttribute('data-visual-active');
+        }
+      }
+      visualTargetRef.current = targetName;
+
+      if (!pill || !nav || !targetBtn || offsetHeight <= 0) {
+        return false;
+      }
+      pill.dataset.animate = animate ? 'true' : 'false';
+      pill.style.transform = `translate3d(0, ${offsetTop}px, 0)`;
+      if (lastPillHeightRef.current !== offsetHeight) {
+        lastPillHeightRef.current = offsetHeight;
+        pill.style.height = `${offsetHeight}px`;
+      }
+      pill.dataset.ready = 'true';
+      nav.dataset.pillReady = 'true';
+      return true;
+    },
+    [],
+  );
 
   const closePanelsOnce = useCallback(() => {
     if (!closedRef.current) {
@@ -123,6 +166,7 @@ export function OptionsDialog({
     onClose();
   };
 
+  // Open the modal dialog before measuring the sidebar pill so `.dialog:not([open])` is visible.
   useEffect(() => {
     const el = dialog.current;
     if (el && !el.open) {
@@ -135,6 +179,35 @@ export function OptionsDialog({
       closePanelsOnce();
     };
   }, [closePanelsOnce]);
+
+  useEffect(() => {
+    pointerTargetRef.current = null;
+    if (pillInitializedRef.current && visualTargetRef.current === section) {
+      return;
+    }
+    if (syncVisualHighlight(section, pillInitializedRef.current)) {
+      pillInitializedRef.current = true;
+    }
+  }, [section, syncVisualHighlight]);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) {
+      return;
+    }
+    const resync = (): void => {
+      if (syncVisualHighlight(pointerTargetRef.current ?? activeSectionRef.current, false)) {
+        pillInitializedRef.current = true;
+      }
+    };
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver(resync);
+      observer.observe(nav);
+      return () => observer.disconnect();
+    }
+    globalThis.addEventListener('resize', resync, { passive: true });
+    return () => globalThis.removeEventListener('resize', resync);
+  }, [syncVisualHighlight]);
 
   useEffect(() => {
     if (!registerSectionJump) {
@@ -188,22 +261,25 @@ export function OptionsDialog({
     }
   };
 
+  const persistOption = (
+    key: string,
+    next: OptionValue,
+    errorMessage = 'could not save option',
+  ): void => {
+    void options
+      .set(key, next)
+      .then(() => setTick((t) => t + 1))
+      .catch((error: unknown) => log.error(errorMessage, error));
+  };
+
   const saveOptionWithUndo = (
     key: string,
     previous: OptionValue,
     next: OptionValue,
     label: string,
   ): void => {
-    void options
-      .set(key, next)
-      .then(() => setTick((t) => t + 1))
-      .catch((error: unknown) => log.error('could not save option', error));
-    notify(label, () => {
-      void options
-        .set(key, previous)
-        .then(() => setTick((t) => t + 1))
-        .catch((error: unknown) => log.error('could not undo option', error));
-    });
+    persistOption(key, next);
+    notify(label, () => persistOption(key, previous, 'could not undo option'));
   };
 
   const instantSaveOption = (key: string, spec: OptionSpec, next: OptionValue): void => {
@@ -213,10 +289,7 @@ export function OptionsDialog({
     }
     // Simple boolean switches are already 1-click reversible, so save silently without toast clutter.
     if (typeof next === 'boolean') {
-      void options
-        .set(key, next)
-        .then(() => setTick((t) => t + 1))
-        .catch((error: unknown) => log.error('could not save option', error));
+      persistOption(key, next);
       return;
     }
     let label = `${spec.title} updated`;
@@ -417,17 +490,46 @@ export function OptionsDialog({
     const panel = panelBySection.get(name);
     const badgeText = panel?.badge?.() ?? null;
     const swatch = panel?.swatch?.() ?? null;
+    const isActive = name === section;
+    const cancelPointerPreview = (): void => {
+      if (pointerTargetRef.current === name && name !== section) {
+        pointerTargetRef.current = null;
+        syncVisualHighlight(section, true);
+      }
+    };
     return (
       <button
         key={name}
+        ref={(el) => {
+          if (el) {
+            sectionButtonsRef.current.set(name, el);
+          } else {
+            sectionButtonsRef.current.delete(name);
+          }
+        }}
         className="section"
         type="button"
-        aria-current={name === section ? 'page' : undefined}
-        onClick={() => setSection(name)}
+        aria-current={isActive ? 'page' : undefined}
+        onPointerDown={(event) => {
+          if (event.button === 0 && name !== section) {
+            // Start the compositor-driven pill glide immediately on pointerdown, before
+            // click fires and mounts heavier tab panels, so the animation never stalls.
+            pointerTargetRef.current = name;
+            syncVisualHighlight(name, true);
+          }
+        }}
+        onPointerLeave={cancelPointerPreview}
+        onPointerCancel={cancelPointerPreview}
+        onClick={() => {
+          pointerTargetRef.current = null;
+          setSection(name);
+        }}
       >
         <span className="section-left">
-          <UiIcon name={meta.icon} size={15} />
-          <span>{name}</span>
+          <span className="section-icon" aria-hidden="true">
+            <UiIcon name={meta.icon} size={14} />
+          </span>
+          <span className="section-label">{name}</span>
         </span>
         {swatch && (
           <span
@@ -534,7 +636,8 @@ export function OptionsDialog({
             </span>
           </button>
 
-          <nav className="sections" aria-label="Sections">
+          <nav ref={navRef} className="sections" aria-label="Sections">
+            <span ref={pillRef} className="nav-active-pill" aria-hidden="true" />
             {siteSections.length > 0 && (
               <div className="nav-group">
                 {manageSections.length > 0 && <div className="nav-kicker">This Site</div>}
@@ -542,7 +645,7 @@ export function OptionsDialog({
               </div>
             )}
             {manageSections.length > 0 && (
-              <div className="nav-group">
+              <div className="nav-group nav-group-manage">
                 <div className="nav-kicker">Feed Sanity</div>
                 {manageSections.map(renderSectionNavButton)}
               </div>
@@ -571,54 +674,56 @@ export function OptionsDialog({
           </header>
 
           <div className="list">
-            {sectionOptions.length === 0 && shownPanels.length === 0 && (
-              <p className="empty">Nothing to set here yet.</p>
-            )}
+            <div key={section ?? '__empty__'} className="pane-content">
+              {sectionOptions.length === 0 && shownPanels.length === 0 && (
+                <p className="empty">Nothing to set here yet.</p>
+              )}
 
-            {sectionGroups.map((bucket) => {
-              const discKey = `${section ?? ''}:${bucket.group}`;
-              const isOpen = openDisclosures.has(discKey);
-              const advLabel =
-                bucket.primary.length === 0 && bucket.group
-                  ? bucket.group
-                  : `More options (${bucket.advanced.length})`;
-              return (
-                <SettingCard
-                  key={discKey}
-                  {...(bucket.primary.length > 0 && bucket.group ? { title: bucket.group } : {})}
-                >
-                  {renderOptionEntries(bucket.primary)}
-                  {bucket.advanced.length > 0 && (
-                    <Disclosure
-                      label={advLabel}
-                      badge={
-                        bucket.primary.length === 0 ? (
-                          <Badge>{bucket.advanced.length}</Badge>
-                        ) : undefined
-                      }
-                      open={isOpen}
-                      onToggle={() => toggleDisclosure(discKey)}
-                    >
-                      {renderOptionEntries(bucket.advanced)}
-                    </Disclosure>
-                  )}
-                </SettingCard>
-              );
-            })}
+              {sectionGroups.map((bucket) => {
+                const discKey = `${section ?? ''}:${bucket.group}`;
+                const isOpen = openDisclosures.has(discKey);
+                const advLabel =
+                  bucket.primary.length === 0 && bucket.group
+                    ? bucket.group
+                    : `More options (${bucket.advanced.length})`;
+                return (
+                  <SettingCard
+                    key={discKey}
+                    {...(bucket.primary.length > 0 && bucket.group ? { title: bucket.group } : {})}
+                  >
+                    {renderOptionEntries(bucket.primary)}
+                    {bucket.advanced.length > 0 && (
+                      <Disclosure
+                        label={advLabel}
+                        badge={
+                          bucket.primary.length === 0 ? (
+                            <Badge>{bucket.advanced.length}</Badge>
+                          ) : undefined
+                        }
+                        open={isOpen}
+                        onToggle={() => toggleDisclosure(discKey)}
+                      >
+                        {renderOptionEntries(bucket.advanced)}
+                      </Disclosure>
+                    )}
+                  </SettingCard>
+                );
+              })}
 
-            {shownPanels.map((panel) => {
-              const Panel = panel.Panel;
-              const value = panelEdits.has(panel) ? panelEdits.get(panel) : panel.read();
-              return (
-                <Panel
-                  key={panel.section}
-                  value={value}
-                  onChange={(next) => handlePanelChange(panel, next)}
-                  notify={notify}
-                  options={options}
-                />
-              );
-            })}
+              {shownPanels.map((panel) => {
+                const Panel = panel.Panel;
+                const value = panelEdits.has(panel) ? panelEdits.get(panel) : panel.read();
+                return (
+                  <Panel
+                    key={panel.section}
+                    value={value}
+                    onChange={(next) => handlePanelChange(panel, next)}
+                    notify={notify}
+                    options={options}
+                  />
+                );
+              })}
+            </div>
           </div>
 
           {hasBufferedChanges && (

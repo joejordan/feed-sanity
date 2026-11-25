@@ -240,8 +240,9 @@ function compileAndDrawShader({
     set('u_accent', [0.27, 0.85, 1]);
     set('u_accent2', [0.37, 0.95, 0.76]);
     set('u_danger', [1, 0.54, 0.48]);
+    set('u_click', [0.2, 0.8, 0.3, 2]);
     gl.uniform4fv(
-      gl.getUniformLocation(program, 'u_clicks[0]'),
+      gl.getUniformLocation(linked, 'u_clicks[0]'),
       new Float32Array([0.7, 0.3, 0.4, 1, 0.2, 0.8, 0.3, 1, 0.5, 0.5, 999, 0, 0.5, 0.5, 999, 0]),
     );
     for (const [name, values] of params) {
@@ -843,9 +844,13 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
       ] as const) {
         const source = buildCustomFragmentSource(shader);
         expect(source, name).not.toBeNull();
+        const params = defaultParamUniforms(shader);
+        if (name === 'luminous-tide') {
+          params.push(['u_meteors', [1]]);
+        }
         const result = await page.evaluate(compileAndDrawShader, {
           source: source ?? '',
-          params: defaultParamUniforms(shader),
+          params,
         });
         // A null context would make this check pass without compiling anything.
         expect(result.webgl, `${name}: WebGL 1 context`).toBe(true);
