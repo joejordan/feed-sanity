@@ -96,6 +96,7 @@ export function compileUiThemeCss(theme: ResolvedTheme): string {
       `--fs-shadow-2: ${p.colorScheme === 'dark' ? 'rgb(0 0 0 / 45%)' : 'rgb(0 0 0 / 18%)'};`,
       `--fs-input: ${p.background};`,
       `--fs-error: ${p.danger};`,
+      `--fs-brand-tittle: ${p.colorScheme === 'dark' ? '#ffdc98' : '#b7791f'};`,
     );
   }
   if (theme.fontFamily) {

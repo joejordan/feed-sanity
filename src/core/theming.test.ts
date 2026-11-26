@@ -201,7 +201,11 @@ describe('first-class multi-site theming engine', () => {
     expect(uiCss).toContain(':host {');
     expect(uiCss).toContain('--fs-accent: #cba6f7;');
     expect(uiCss).toContain('--fs-surface: #1e1e2e;');
+    expect(uiCss).toContain('--fs-brand-tittle: #ffdc98;');
     expect(uiCss).toContain(`--fs-font: ${THEME_FONT_STACKS.mono};`);
+
+    const lightUiCss = compileUiThemeCss(warmPaperResolved);
+    expect(lightUiCss).toContain('--fs-brand-tittle: #b7791f;');
   });
 
   it('propagates live themes into light DOM, host Shadow DOM (:host), same-origin iframes, and Feed Sanity UI while skipping own shadow roots', async () => {

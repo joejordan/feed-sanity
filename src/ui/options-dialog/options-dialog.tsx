@@ -3,11 +3,12 @@ import type { OptionSpec, Options, OptionValue } from '../../core/options';
 import type { IndexedSearchHit } from './command-jump';
 import type { Edit } from './option-row';
 import type { OptionsPanel } from './panel';
-import { OPTIONS_TITLE } from '../../../project';
+import { NAME, OPTIONS_TITLE } from '../../../project';
 import { createLogger } from '../../core/log';
 import {
   Badge,
   BrandMark,
+  BrandWordmark,
   Disclosure,
   getSiteMark,
   SettingCard,
@@ -604,7 +605,9 @@ export function OptionsDialog({
                 <BrandMark size={30} />
               )}
               <div className="site-meta">
-                <h2 className="site-title">{site ? site.displayName : OPTIONS_TITLE}</h2>
+                <h2 className="site-title">
+                  {site ? site.displayName : <BrandWordmark height={15} label={NAME} />}
+                </h2>
                 {site && (
                   <span className="site-status">
                     <span
@@ -655,8 +658,8 @@ export function OptionsDialog({
             {manageSections.length > 0 && (
               <div className="nav-group nav-group-manage">
                 <div className="nav-kicker nav-kicker-brand">
-                  <BrandMark size={14} />
-                  <span>Feed Sanity</span>
+                  <BrandMark size={18} />
+                  <BrandWordmark height={14} label={NAME} />
                 </div>
                 {manageSections.map(renderSectionNavButton)}
               </div>

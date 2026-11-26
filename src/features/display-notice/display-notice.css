@@ -46,11 +46,18 @@
 }
 
 .fs-display-notice-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin: 0;
   font-size: 14px;
   font-weight: 700;
   line-height: 1.3;
   color: var(--fs-text);
+}
+
+.fs-display-notice-title .fs-brand-wordmark {
+  transform: translateY(1.5px);
 }
 
 .fs-display-notice-badge {

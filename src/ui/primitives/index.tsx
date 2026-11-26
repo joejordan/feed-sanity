@@ -4,9 +4,11 @@ import { UiIcon } from './icons';
 import primitivesCss from './primitives.css?inline';
 
 export type { BrandMarkProps } from './brand-mark';
+export type { BrandWordmarkProps } from './brand-wordmark';
 export type { UiIconName } from './icons';
 export type { DraggableResult, DragHandleProps, DragOffset } from './use-draggable';
 export { BrandMark } from './brand-mark';
+export { BrandWordmark } from './brand-wordmark';
 export { UiIcon } from './icons';
 export { useDraggable } from './use-draggable';
 export { primitivesCss };

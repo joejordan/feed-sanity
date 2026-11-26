@@ -20,9 +20,13 @@ export interface DragPointerEvent {
   readonly target: EventTarget | null;
 }
 
+export interface DragDoubleClickEvent {
+  readonly target: EventTarget | null;
+}
+
 export interface DragHandleProps {
   readonly onPointerDown: (event: DragPointerEvent) => void;
-  readonly onDoubleClick: () => void;
+  readonly onDoubleClick: (event: DragDoubleClickEvent) => void;
 }
 
 export interface DraggableResult {
@@ -168,6 +172,17 @@ export function useDraggable(targetRef: { readonly current: HTMLElement | null }
     [targetRef],
   );
 
+  const onDoubleClick = useCallback(
+    (event: DragDoubleClickEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(INTERACTIVE_SELECTOR)) {
+        return;
+      }
+      resetPosition();
+    },
+    [resetPosition],
+  );
+
   const moved = offset.x !== 0 || offset.y !== 0;
   const style = moved ? { transform: `translate3d(${offset.x}px, ${offset.y}px, 0)` } : undefined;
 
@@ -176,7 +191,7 @@ export function useDraggable(targetRef: { readonly current: HTMLElement | null }
     dragging,
     moved,
     style,
-    handleProps: { onPointerDown, onDoubleClick: resetPosition },
+    handleProps: { onPointerDown, onDoubleClick },
     resetPosition,
   };
 }

@@ -7,12 +7,13 @@ import type { Scope } from '../../core/scope';
 import type { SlotPlacement } from '../../core/surface';
 import type { ThemeDocumentV1 } from '../../core/theming';
 import type { Watched } from '../../ui/watched';
+import { NAME } from '../../../project';
 import { defineFeature } from '../../core/feature';
 import { pageWatcher } from '../../core/page-watcher';
 import { OWN_ATTR, whileOnRoute } from '../../core/surface';
 import { describeThemeDocument, readThemeDocument, THEME_DATA_KEY } from '../../core/theming';
 import { HOST_TAG, renderInShadow } from '../../ui/mount';
-import { BrandMark, UiIcon } from '../../ui/primitives';
+import { BrandMark, BrandWordmark, UiIcon } from '../../ui/primitives';
 import css from './display-notice.css?inline';
 
 export const DISPLAY_NOTICE_HOST_ID = 'feed_sanity_display_notice';
@@ -170,7 +171,11 @@ function DisplayNotice({
         <BrandMark size={32} />
         <div className="fs-display-notice-copy">
           <div className="fs-display-notice-head">
-            <h3 className="fs-display-notice-title">Feed Sanity is active</h3>
+            <h3 className="fs-display-notice-title">
+              <span className="fs-sr-only">{NAME}</span>
+              <BrandWordmark height={15} />
+              <span> is active</span>
+            </h3>
             <span className="fs-display-notice-badge" data-active={overriding ? 'true' : undefined}>
               {label}
             </span>

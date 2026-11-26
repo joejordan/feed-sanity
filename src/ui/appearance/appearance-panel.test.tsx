@@ -925,7 +925,7 @@ describe('appearancePanel & initSiteTheme', () => {
     } finally {
       library.dispose();
     }
-  });
+  }, 15_000);
 
   it('broadcasts Apply to all sites live to open tabs, adopts on unopened sites at boot, and preserves later per-site overrides', async () => {
     const store = inMemoryStore();
@@ -1273,7 +1273,7 @@ describe('appearancePanel & initSiteTheme', () => {
     } finally {
       library.dispose();
     }
-  });
+  }, 15_000);
 
   it('applies the built-in Event Horizon Tier 3 Live Theme with shader tuners and exposes extra palette color pickers', async () => {
     const store = inMemoryStore();

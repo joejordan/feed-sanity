@@ -239,6 +239,12 @@ describe('display-notice feature (X & Facebook)', () => {
       expect(shadowText).toContain('Feed Sanity is active');
       expect(shadowText).toContain('Warm Paper');
       expect(shadowText).toContain("overrides X's display colors");
+      const wordmark = host?.shadowRoot?.querySelector('svg.fs-brand-wordmark');
+      expect(wordmark?.getAttribute('aria-hidden')).toBe('true');
+      expect(host?.shadowRoot?.querySelector('span.fs-sr-only')?.textContent).toBe('Feed Sanity');
+      expect(host?.shadowRoot?.querySelector('style')?.textContent).toContain(
+        '--fs-brand-tittle: #b7791f;',
+      );
     });
 
     // Clicking "Open Appearance" opens the Options dialog directly on Appearance.

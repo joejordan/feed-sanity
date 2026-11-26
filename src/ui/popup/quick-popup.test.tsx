@@ -72,10 +72,12 @@ describe('QuickPopup', () => {
       'x/123/options': { x_hide_sponsored: true, x_hide_suggested: true },
     });
     const onOpenSettings = vi.fn();
-    renderXPopup(store, { hiddenCount: 7, onOpenSettings });
+    const { container } = renderXPopup(store, { hiddenCount: 7, onOpenSettings });
 
     expect(screen.getByText('X (Twitter)')).toBeTruthy();
     expect(screen.getByText(/7 hidden here/)).toBeTruthy();
+    const activeWordmark = container.querySelector('svg.fs-brand-wordmark');
+    expect(activeWordmark?.getAttribute('aria-hidden')).toBe('true');
 
     // Starter Mode: Focus applies preset patch immediately and supports Undo.
     await userEvent.click(screen.getByRole('button', { name: 'Focus' }));
@@ -203,7 +205,7 @@ describe('QuickPopup', () => {
     const store = inMemoryStore();
     const onOpenSiteUrl = vi.fn();
 
-    render(
+    const { container } = render(
       <QuickPopup
         store={store}
         activeTab={null}
@@ -212,6 +214,9 @@ describe('QuickPopup', () => {
       />,
     );
 
+    const unsupportedWordmark = container.querySelector('h1 svg.fs-brand-wordmark');
+    expect(unsupportedWordmark?.getAttribute('role')).toBe('img');
+    expect(unsupportedWordmark?.getAttribute('aria-label')).toBe('Feed Sanity');
     expect(screen.getByText('Not active on this page')).toBeTruthy();
     // Production sites (Facebook, X) appear by default; disabled experimental sites stay hidden.
     expect(screen.getByText('Facebook')).toBeTruthy();

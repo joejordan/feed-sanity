@@ -66,7 +66,11 @@ describe('OptionsDialog', () => {
   const show = () => render(<OptionsDialog options={options} onClose={onClose} />);
 
   it('lists the first section with saved values, and another section when chosen', async () => {
-    show();
+    const { container } = show();
+
+    const headerWordmark = container.querySelector('h2.site-title svg.fs-brand-wordmark');
+    expect(headerWordmark?.getAttribute('role')).toBe('img');
+    expect(headerWordmark?.getAttribute('aria-label')).toBe('Feed Sanity');
 
     expect(field('checkbox', 'Hide ads').checked).toBe(false);
     expect(field('spinbutton', 'Pause after').value).toBe('25');

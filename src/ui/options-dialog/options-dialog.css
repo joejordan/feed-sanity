@@ -324,7 +324,9 @@
 .nav-kicker-brand {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  margin-bottom: 6px;
+  color: var(--fs-text);
 }
 
 .section {

@@ -42,6 +42,7 @@ import {
 import {
   Badge,
   BrandMark,
+  BrandWordmark,
   getSiteMark,
   SegmentedControl,
   SettingCard,
@@ -250,7 +251,9 @@ function UnsupportedTabView({
         <div className="qp-identity">
           <BrandMark size={28} />
           <div className="qp-meta">
-            <h1 className="qp-title">{NAME}</h1>
+            <h1 className="qp-title">
+              <BrandWordmark height={17} label={NAME} />
+            </h1>
             <span className="qp-status">Not active on this page</span>
           </div>
         </div>
@@ -760,20 +763,31 @@ function ActiveTabView({
         : 'Active on this tab';
   }
 
+  const dragAttrs = headerDragProps
+    ? {
+        'data-draggable': 'true' as const,
+        title: 'Drag to move · Double-click to reset',
+        ...headerDragProps,
+      }
+    : undefined;
+
   return (
     <div className="qp-root" role="region" aria-label={`${activeTab.displayName} quick controls`}>
-      <header
-        className="qp-header"
-        data-draggable={headerDragProps ? 'true' : undefined}
-        title={headerDragProps ? 'Drag to move · Double-click to reset' : undefined}
-        {...headerDragProps}
-      >
-        <div className="qp-identity">
+      <div className="qp-brand-bar" {...dragAttrs}>
+        <div className="qp-brand-lockup">
           {headerDragProps && (
             <span className="qp-grip" aria-hidden="true">
-              <UiIcon name="grip" size={13} />
+              <UiIcon name="grip" size={12} />
             </span>
           )}
+          <BrandMark size={16} />
+          <BrandWordmark height={13} />
+        </div>
+        {closeButton}
+      </div>
+
+      <header className="qp-header" {...dragAttrs}>
+        <div className="qp-identity">
           <span className="qp-mark" aria-hidden="true">
             {getSiteMark(activeTab.siteId, activeTab.displayName)}
           </span>
@@ -789,14 +803,11 @@ function ActiveTabView({
             </span>
           </div>
         </div>
-        <div className="qp-header-actions">
-          <Switch
-            checked={siteEnabled}
-            ariaLabel={`Enable ${NAME} on ${activeTab.displayName}`}
-            onChange={(next) => onSetSiteEnabled(activeTab.siteId, next)}
-          />
-          {closeButton}
-        </div>
+        <Switch
+          checked={siteEnabled}
+          ariaLabel={`Enable ${NAME} on ${activeTab.displayName}`}
+          onChange={(next) => onSetSiteEnabled(activeTab.siteId, next)}
+        />
       </header>
 
       <div className="qp-body">
