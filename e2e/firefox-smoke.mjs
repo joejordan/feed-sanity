@@ -388,26 +388,32 @@ function assertManifest() {
   );
   assert.deepEqual(manifest.permissions, ['storage']);
   assert.ok(manifest.icons && Object.keys(manifest.icons).length > 0, 'Manifest icons must be set');
-  for (const iconPath of Object.values(manifest.icons)) {
-    assert.ok(
-      fs.existsSync(path.join(EXT_DIR, iconPath)),
-      `Missing packaged manifest icon: ${iconPath}`,
-    );
-  }
   const defaultIcon = manifest.browser_action?.default_icon;
   assert.equal(
     defaultIcon,
     'icon/icon.svg',
     'Firefox browser_action.default_icon should use the vector SVG icon',
   );
-  for (const iconPath of [
+  const expectedThemeIcons = [
+    { size: 16, light: 'icon/toolbar-dark.svg', dark: 'icon/toolbar-light.svg' },
+    { size: 32, light: 'icon/toolbar-dark.svg', dark: 'icon/toolbar-light.svg' },
+  ];
+  assert.deepEqual(
+    manifest.browser_action?.theme_icons,
+    expectedThemeIcons,
+    'Firefox browser_action.theme_icons should declare light and dark toolbar variants',
+  );
+  const requiredIcons = new Set([
+    ...Object.values(manifest.icons),
     defaultIcon,
+    ...expectedThemeIcons.flatMap((entry) => [entry.light, entry.dark]),
     'icon/icon-monochrome-16.png',
     'icon/icon-monochrome-32.png',
-  ]) {
+  ]);
+  for (const iconPath of requiredIcons) {
     assert.ok(
       fs.existsSync(path.join(EXT_DIR, iconPath)),
-      `Missing packaged toolbar icon: ${iconPath}`,
+      `Missing packaged extension icon: ${iconPath}`,
     );
   }
 }

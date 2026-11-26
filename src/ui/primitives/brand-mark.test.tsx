@@ -30,8 +30,20 @@ describe('BrandMark', () => {
 
     const firstIds = [...first.querySelectorAll('defs [id]')].map((el) => el.id);
     const secondIds = [...second.querySelectorAll('defs [id]')].map((el) => el.id);
-    expect(firstIds.length).toBeGreaterThanOrEqual(6);
+    expect(firstIds).toHaveLength(2);
     expect(new Set([...firstIds, ...secondIds]).size).toBe(firstIds.length + secondIds.length);
+    // Borderless glyph: no badge tile clipPath or rim path, only the moon circle and 3 wake bars.
+    expect(first.querySelector('clipPath')).toBeNull();
+    expect(first.querySelector('path')).toBeNull();
+    expect(first.querySelectorAll('circle')).toHaveLength(1);
+    expect(first.querySelectorAll('rect')).toHaveLength(3);
+    expect([...first.querySelectorAll('stop')].map((el) => el.getAttribute('style'))).toEqual([
+      expect.stringContaining('--fs-brand-moon-start'),
+      expect.stringContaining('--fs-brand-tittle'),
+      expect.stringContaining('--fs-brand-wake-start'),
+      expect.stringContaining('--fs-brand-wake-mid'),
+      expect.stringContaining('--fs-brand-wake-end'),
+    ]);
     expect(container.querySelector('text')).toBeNull();
   });
 });

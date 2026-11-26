@@ -66,21 +66,39 @@ export function compileUiSurfaceCss(
   return '';
 }
 
+const BRAND_TOKENS = {
+  dark: [
+    '--fs-brand-tittle: #ffdc98;',
+    '--fs-brand-moon-start: #fffcee;',
+    '--fs-brand-wake-start: #b9fff1;',
+    '--fs-brand-wake-mid: #5be9e0;',
+    '--fs-brand-wake-end: #22aeea;',
+  ],
+  light: [
+    '--fs-brand-tittle: #b7791f;',
+    '--fs-brand-moon-start: #f2c15a;',
+    '--fs-brand-wake-start: #1ea6d6;',
+    '--fs-brand-wake-mid: #1488b2;',
+    '--fs-brand-wake-end: #0b6b8f;',
+  ],
+} as const;
+
 /** Compiles `theme` into Feed Sanity's own Shadow DOM `--fs-*` token overrides. */
 export function compileUiThemeCss(theme: ResolvedTheme): string {
   const lines: string[] = [];
   if (theme.palette) {
     const p = theme.palette;
-    const hoverOverlay = p.colorScheme === 'dark' ? 'rgb(255 255 255 / 7%)' : 'rgb(0 0 0 / 5%)';
-    const pressOverlay = p.colorScheme === 'dark' ? 'rgb(255 255 255 / 13%)' : 'rgb(0 0 0 / 10%)';
+    const isDark = p.colorScheme === 'dark';
+    const hoverOverlay = isDark ? 'rgb(255 255 255 / 7%)' : 'rgb(0 0 0 / 5%)';
+    const pressOverlay = isDark ? 'rgb(255 255 255 / 13%)' : 'rgb(0 0 0 / 10%)';
     lines.push(
       `color-scheme: ${p.colorScheme};`,
       `--fs-background: ${p.surface};`,
       `--fs-surface: ${p.background};`,
       `--fs-dialog-bg: ${p.surface};`,
       `--fs-sidebar-bg: ${p.background};`,
-      `--fs-card-bg: ${p.colorScheme === 'dark' ? p.surfaceAlt : p.background};`,
-      `--fs-control-bg: ${p.colorScheme === 'dark' ? p.background : p.surface};`,
+      `--fs-card-bg: ${isDark ? p.surfaceAlt : p.background};`,
+      `--fs-control-bg: ${isDark ? p.background : p.surface};`,
       `--fs-hover: ${hoverOverlay};`,
       `--fs-press: ${pressOverlay};`,
       `--fs-icon: ${p.text};`,
@@ -93,10 +111,10 @@ export function compileUiThemeCss(theme: ResolvedTheme): string {
       `--fs-accent-text: ${p.accentText};`,
       `--fs-button-secondary: ${p.surfaceAlt};`,
       `--fs-comment: ${p.surfaceAlt};`,
-      `--fs-shadow-2: ${p.colorScheme === 'dark' ? 'rgb(0 0 0 / 45%)' : 'rgb(0 0 0 / 18%)'};`,
+      `--fs-shadow-2: ${isDark ? 'rgb(0 0 0 / 45%)' : 'rgb(0 0 0 / 18%)'};`,
       `--fs-input: ${p.background};`,
       `--fs-error: ${p.danger};`,
-      `--fs-brand-tittle: ${p.colorScheme === 'dark' ? '#ffdc98' : '#b7791f'};`,
+      ...BRAND_TOKENS[p.colorScheme],
     );
   }
   if (theme.fontFamily) {

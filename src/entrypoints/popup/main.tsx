@@ -83,7 +83,10 @@ function injectStyle(id: string, text: string): void {
 // Adapt `:host` rules from baseThemeCss and compileUiThemeCss to `:root` for the
 // popup document without resetting `<html>` layout via Shadow DOM's `all: initial`.
 function toDocumentCss(cssText: string): string {
-  return cssText.replaceAll(':host', ':root').replace(/\ball\s*:\s*initial\s*;/g, '');
+  return cssText
+    .replace(/:host\(([^)]+)\)/g, ':root$1')
+    .replaceAll(':host', ':root')
+    .replace(/\ball\s*:\s*initial\s*;/g, '');
 }
 
 injectStyle(

@@ -20,6 +20,11 @@
   --fs-shadow-2: rgb(0 0 0 / 22%);
   --fs-input: #eaf1fb;
   --fs-error: #b3261e;
+  /* Pin Daybreak light brand tokens so Gmail's always-light UI overrides theme.css dark media query. */
   --fs-brand-tittle: #b7791f;
+  --fs-brand-moon-start: #f2c15a;
+  --fs-brand-wake-start: #1ea6d6;
+  --fs-brand-wake-mid: #1488b2;
+  --fs-brand-wake-end: #0b6b8f;
   --fs-font: "Google Sans", Roboto, Arial, sans-serif;
 }

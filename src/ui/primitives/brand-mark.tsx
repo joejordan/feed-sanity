@@ -1,40 +1,35 @@
 import { useId, useMemo } from 'react';
 
 export interface BrandMarkProps {
-  /** Pixel width and height of the square Moonglade mark (small cut, designed for 14–48px). */
+  /** Pixel width and height of the borderless Moonglade glyph (small cut, designed for 14–48px). */
   readonly size?: number;
   readonly className?: string;
   /** Accessible label; when omitted, the mark is decorative (`aria-hidden="true"`). */
   readonly label?: string;
 }
 
-const TILE_PATH =
-  'M36 0h56c26 0 36 10 36 36v56c0 26-10 36-36 36H36C10 128 0 118 0 92V36C0 10 10 0 36 0Z';
 const SVG_STYLE = { display: 'block', flex: 'none' } as const;
+const MOON_START_STYLE = { stopColor: 'var(--fs-brand-moon-start, #fffcee)' } as const;
+const MOON_END_STYLE = { stopColor: 'var(--fs-brand-tittle, #ffdc98)' } as const;
+const WAKE_START_STYLE = { stopColor: 'var(--fs-brand-wake-start, #b9fff1)' } as const;
+const WAKE_MID_STYLE = { stopColor: 'var(--fs-brand-wake-mid, #5be9e0)' } as const;
+const WAKE_END_STYLE = { stopColor: 'var(--fs-brand-wake-end, #22aeea)' } as const;
 
 /**
- * Feed Sanity Moonglade small-cut mark (Night Edition).
- * Pure JSX SVG (100% Trusted Types safe) with `useId()`-scoped `<defs>` IDs so
- * multiple marks rendered in the same document or ShadowRoot never collide.
+ * Borderless Feed Sanity Moonglade small-cut glyph (moon + water wake, no badge tile or rim).
+ * Pure JSX SVG (100% Trusted Types safe) with `useId()`-scoped `<defs>` IDs so multiple marks
+ * in the same document or ShadowRoot never collide, and CSS-token gradient stops that adapt
+ * automatically between light (Daybreak) and dark (Night Edition) surfaces.
  */
 export function BrandMark({ size = 28, className, label }: BrandMarkProps) {
   const uid = useId();
   const artwork = useMemo(() => {
-    const skyId = `${uid}-sky`;
     const moonId = `${uid}-moon`;
     const wakeId = `${uid}-wake`;
-    const haloId = `${uid}-halo`;
-    const rimId = `${uid}-rim`;
-    const clipId = `${uid}-clip`;
 
     return (
       <>
         <defs>
-          <linearGradient id={skyId} x1="64" y1="0" x2="64" y2="128" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#080D26" />
-            <stop offset="0.5" stopColor="#11224D" />
-            <stop offset="1" stopColor="#1C427C" />
-          </linearGradient>
           <linearGradient
             id={moonId}
             x1="50"
@@ -43,8 +38,8 @@ export function BrandMark({ size = 28, className, label }: BrandMarkProps) {
             y2="45.667"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0" stopColor="#FFFCEE" />
-            <stop offset="1" stopColor="#FFDC98" />
+            <stop offset="0" style={MOON_START_STYLE} />
+            <stop offset="1" style={MOON_END_STYLE} />
           </linearGradient>
           <linearGradient
             id={wakeId}
@@ -54,34 +49,16 @@ export function BrandMark({ size = 28, className, label }: BrandMarkProps) {
             y2="120"
             gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0" stopColor="#B9FFF1" />
-            <stop offset="0.5" stopColor="#5BE9E0" />
-            <stop offset="1" stopColor="#22AEEA" />
+            <stop offset="0" style={WAKE_START_STYLE} />
+            <stop offset="0.5" style={WAKE_MID_STYLE} />
+            <stop offset="1" style={WAKE_END_STYLE} />
           </linearGradient>
-          <radialGradient id={haloId} cx="64" cy="27" r="56" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#FFE7AE" stopOpacity="0.5" />
-            <stop offset="0.4" stopColor="#6FD8F0" stopOpacity="0.14" />
-            <stop offset="1" stopColor="#6FD8F0" stopOpacity="0" />
-          </radialGradient>
-          <linearGradient id={rimId} x1="64" y1="0" x2="64" y2="128" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#FFFFFF" stopOpacity="0.6" />
-            <stop offset="0.5" stopColor="#CDEBFF" stopOpacity="0.24" />
-            <stop offset="1" stopColor="#7FE3EC" stopOpacity="0.42" />
-          </linearGradient>
-          <clipPath id={clipId}>
-            <path d={TILE_PATH} />
-          </clipPath>
         </defs>
-        <g clipPath={`url(#${clipId})`}>
-          <path d="M0 0h128v128H0z" fill={`url(#${skyId})`} />
-          <path d="M0 0h128v128H0z" fill={`url(#${haloId})`} />
-          <circle cx="64" cy="27" r="21" fill={`url(#${moonId})`} />
-          <g fill={`url(#${wakeId})`}>
-            <rect x="16" y="56" width="96" height="16" rx="8" />
-            <rect x="32" y="80" width="64" height="16" rx="8" />
-            <rect x="48" y="104" width="32" height="16" rx="8" />
-          </g>
-          <path d={TILE_PATH} fill="none" stroke={`url(#${rimId})`} strokeWidth="8" />
+        <circle cx="64" cy="27" r="21" fill={`url(#${moonId})`} />
+        <g fill={`url(#${wakeId})`}>
+          <rect x="16" y="56" width="96" height="16" rx="8" />
+          <rect x="32" y="80" width="64" height="16" rx="8" />
+          <rect x="48" y="104" width="32" height="16" rx="8" />
         </g>
       </>
     );
@@ -92,7 +69,7 @@ export function BrandMark({ size = 28, className, label }: BrandMarkProps) {
       className={className ? `fs-brand-mark ${className}` : 'fs-brand-mark'}
       width={size}
       height={size}
-      viewBox="0 0 128 128"
+      viewBox="7 6 114 114"
       role={label ? 'img' : undefined}
       aria-label={label}
       aria-hidden={label ? undefined : 'true'}

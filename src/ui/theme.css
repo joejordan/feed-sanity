@@ -26,12 +26,39 @@
   --fs-success: #16a34a;
   --fs-warning: #d97706;
   --fs-brand-tittle: #b7791f;
+  --fs-brand-moon-start: #f2c15a;
+  --fs-brand-wake-start: #1ea6d6;
+  --fs-brand-wake-mid: #1488b2;
+  --fs-brand-wake-end: #0b6b8f;
 }
 
 @media (prefers-color-scheme: dark) {
   :host {
     --fs-brand-tittle: #ffdc98;
+    --fs-brand-moon-start: #fffcee;
+    --fs-brand-wake-start: #b9fff1;
+    --fs-brand-wake-mid: #5be9e0;
+    --fs-brand-wake-end: #22aeea;
   }
+}
+
+/* Synced from each ShadowRoot host's actual rendered `--fs-background` surface so the
+ * borderless Moonglade mark and wordmark tittle stay high-contrast even when a host site's
+ * in-app theme (e.g. Facebook or Instagram) differs from the OS `prefers-color-scheme`. */
+:host([data-fs-brand-scheme="light"]) {
+  --fs-brand-tittle: #b7791f;
+  --fs-brand-moon-start: #f2c15a;
+  --fs-brand-wake-start: #1ea6d6;
+  --fs-brand-wake-mid: #1488b2;
+  --fs-brand-wake-end: #0b6b8f;
+}
+
+:host([data-fs-brand-scheme="dark"]) {
+  --fs-brand-tittle: #ffdc98;
+  --fs-brand-moon-start: #fffcee;
+  --fs-brand-wake-start: #b9fff1;
+  --fs-brand-wake-mid: #5be9e0;
+  --fs-brand-wake-end: #22aeea;
 }
 
 .fs-sr-only {

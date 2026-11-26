@@ -3,6 +3,7 @@ import { PREACT_ALIAS } from './preact-alias';
 import {
   ACTIVE_ICON_PATHS,
   DESCRIPTION,
+  FIREFOX_THEME_ICONS,
   FIREFOX_TOOLBAR_ICON,
   NAME,
   OPTIONS_TITLE,
@@ -15,16 +16,36 @@ const MANIFEST_ICONS = {
   128: 'icon/icon-128.png',
 } as const;
 
+const FIREFOX_ONLY_ASSETS = new Set<string>(
+  FIREFOX_THEME_ICONS.flatMap((entry) => [entry.light, entry.dark]),
+);
+
 export default defineConfig({
   srcDir: 'src',
   // Every import is written out, so the linter and the type checker see
   // the same names as the bundler.
   imports: false,
   vite: () => ({ resolve: { alias: PREACT_ALIAS } }),
+  hooks: {
+    'build:publicAssets'(wxt, files) {
+      if (wxt.config.browser === 'firefox') {
+        return;
+      }
+      for (let i = files.length - 1; i >= 0; i--) {
+        const dest = files[i]?.relativeDest.replaceAll('\\', '/');
+        if (dest && FIREFOX_ONLY_ASSETS.has(dest)) {
+          files.splice(i, 1);
+        }
+      }
+    },
+  },
   manifest: ({ browser, manifestVersion }) => {
     const toolbarAction = {
       default_title: OPTIONS_TITLE,
       default_icon: browser === 'firefox' ? FIREFOX_TOOLBAR_ICON : ACTIVE_ICON_PATHS,
+      ...(browser === 'firefox'
+        ? { theme_icons: FIREFOX_THEME_ICONS.map((entry) => ({ ...entry })) }
+        : {}),
     };
     return {
       name: NAME,

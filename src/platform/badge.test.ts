@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ToolbarButton, ToolbarIconPath } from './badge';
-import { FIREFOX_TOOLBAR_ICON, OPTIONS_TITLE } from '../../project';
-import { ACTIVE_ICON_PATHS, badgeListener, badgeText, PAUSED_ICON_PATHS, showBadge } from './badge';
+import {
+  ACTIVE_ICON_PATHS,
+  FIREFOX_TOOLBAR_ICON,
+  OPTIONS_TITLE,
+  PAUSED_ICON_PATHS,
+} from '../../project';
+import { badgeListener, badgeText, showBadge } from './badge';
 import { badgeMessage, OPEN_OPTIONS } from './messages';
 
 /** A toolbar button that records what is set on it, as `action` (MV3) and `browserAction` (MV2) both take it. */
@@ -88,7 +93,7 @@ describe('badgeListener', () => {
     expect(set.title.get(12)).toContain('paused');
   });
 
-  it('restores a custom active icon (e.g. Firefox SVG) through badgeListener after unpausing', async () => {
+  it('restores a custom active icon or clears overrides (null) for Firefox theme_icons after unpausing', async () => {
     const { button, set } = fakeButton();
     const listener = badgeListener(button, FIREFOX_TOOLBAR_ICON);
 
@@ -97,6 +102,13 @@ describe('badgeListener', () => {
 
     listener(badgeMessage({ count: 0, failed: false }), { tab: { id: 7 } });
     await vi.waitFor(() => expect(set.icon.get(7)).toBe(FIREFOX_TOOLBAR_ICON));
+
+    const themeListener = badgeListener(button, null);
+    themeListener(badgeMessage({ count: 0, failed: false, paused: true }), { tab: { id: 8 } });
+    await vi.waitFor(() => expect(set.icon.get(8)).toEqual(PAUSED_ICON_PATHS));
+
+    themeListener(badgeMessage({ count: 0, failed: false }), { tab: { id: 8 } });
+    await vi.waitFor(() => expect(set.icon.get(8)).toBeNull());
   });
 
   it('ignores other messages and messages from outside a tab', async () => {

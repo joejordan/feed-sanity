@@ -202,10 +202,18 @@ describe('first-class multi-site theming engine', () => {
     expect(uiCss).toContain('--fs-accent: #cba6f7;');
     expect(uiCss).toContain('--fs-surface: #1e1e2e;');
     expect(uiCss).toContain('--fs-brand-tittle: #ffdc98;');
+    expect(uiCss).toContain('--fs-brand-moon-start: #fffcee;');
+    expect(uiCss).toContain('--fs-brand-wake-start: #b9fff1;');
+    expect(uiCss).toContain('--fs-brand-wake-mid: #5be9e0;');
+    expect(uiCss).toContain('--fs-brand-wake-end: #22aeea;');
     expect(uiCss).toContain(`--fs-font: ${THEME_FONT_STACKS.mono};`);
 
     const lightUiCss = compileUiThemeCss(warmPaperResolved);
     expect(lightUiCss).toContain('--fs-brand-tittle: #b7791f;');
+    expect(lightUiCss).toContain('--fs-brand-moon-start: #f2c15a;');
+    expect(lightUiCss).toContain('--fs-brand-wake-start: #1ea6d6;');
+    expect(lightUiCss).toContain('--fs-brand-wake-mid: #1488b2;');
+    expect(lightUiCss).toContain('--fs-brand-wake-end: #0b6b8f;');
   });
 
   it('propagates live themes into light DOM, host Shadow DOM (:host), same-origin iframes, and Feed Sanity UI while skipping own shadow roots', async () => {

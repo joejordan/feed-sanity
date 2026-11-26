@@ -77,4 +77,40 @@ describe('mount', () => {
     setUserThemeCss(':host { --fs-accent: #333; }');
     expect(writes).toBe(3);
   });
+
+  it('syncs data-fs-brand-scheme from the host surface background and updates on root class flips', async () => {
+    let surfaceBg = '#ffffff';
+    const computedSpy = vi.spyOn(globalThis, 'getComputedStyle').mockImplementation(
+      () =>
+        ({
+          getPropertyValue: (name: string) => (name === '--fs-background' ? surfaceBg : ''),
+        }) as CSSStyleDeclaration,
+    );
+
+    try {
+      const shadow = show();
+      const host = shadow.host as HTMLElement;
+      expect(host.getAttribute('data-fs-brand-scheme')).toBe('light');
+
+      // Flip host appearance (e.g. Facebook toggles `.__fb-dark-mode` on `<html>`).
+      surfaceBg = '#242526';
+      document.documentElement.classList.add('__fb-dark-mode');
+      await vi.waitFor(() => {
+        expect(host.getAttribute('data-fs-brand-scheme')).toBe('dark');
+      });
+
+      // Switching to a light user theme updates the attribute synchronously.
+      surfaceBg = '#f4efe6';
+      setUserThemeCss(':host { --fs-background: #f4efe6; }');
+      expect(host.getAttribute('data-fs-brand-scheme')).toBe('light');
+
+      // Unresolved computed values clear the attribute so CSS fallbacks take over.
+      surfaceBg = '';
+      setUserThemeCss(':host { --fs-background: var(--unresolved); }');
+      expect(host.hasAttribute('data-fs-brand-scheme')).toBe(false);
+    } finally {
+      document.documentElement.classList.remove('__fb-dark-mode');
+      computedSpy.mockRestore();
+    }
+  });
 });

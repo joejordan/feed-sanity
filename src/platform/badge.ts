@@ -2,9 +2,7 @@ import type { Badge } from '../core/platform';
 import { ACTIVE_ICON_PATHS, OPTIONS_TITLE, PAUSED_ICON_PATHS } from '../../project';
 import { isBadgeMessage } from './badge-message';
 
-export { ACTIVE_ICON_PATHS, PAUSED_ICON_PATHS };
-
-export type ToolbarIconPath = string | Record<number, string>;
+export type ToolbarIconPath = string | Readonly<Record<number, string>> | null;
 
 /**
  * The parts of the toolbar button's API the badge uses. Manifest V3 calls
@@ -51,7 +49,7 @@ interface Sender {
  */
 export function badgeListener(
   button: ToolbarButton,
-  activeIcon: Readonly<Record<number, string>> | string = ACTIVE_ICON_PATHS,
+  activeIcon: ToolbarIconPath = ACTIVE_ICON_PATHS,
 ): (message: unknown, sender: Sender) => void {
   return (message, sender) => {
     const tabId = sender.tab?.id;
@@ -64,18 +62,14 @@ export function badgeListener(
   };
 }
 
-function toIconPath(path: Readonly<Record<number, string>> | string): ToolbarIconPath {
-  return typeof path === 'string' ? path : { ...path };
-}
-
 /** Shows `badge` on `button` for the tab `tabId` only. */
 export async function showBadge(
   button: ToolbarButton,
   tabId: number,
   badge: Badge,
-  activeIcon: Readonly<Record<number, string>> | string = ACTIVE_ICON_PATHS,
+  activeIcon: ToolbarIconPath = ACTIVE_ICON_PATHS,
 ): Promise<void> {
-  const iconPath = toIconPath(badge.paused ? PAUSED_ICON_PATHS : activeIcon);
+  const iconPath = badge.paused ? PAUSED_ICON_PATHS : activeIcon;
   await Promise.all([
     button.setBadgeText({ tabId, text: badgeText(badge) }),
     ...(badge.failed ? [button.setBadgeBackgroundColor({ tabId, color: FAILED_COLOUR })] : []),
