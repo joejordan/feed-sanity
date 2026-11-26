@@ -159,8 +159,8 @@ function PopupApp() {
     };
   }, []);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const disconnectPreview = (): void => {
       const port = previewPortRef.current;
       previewPortRef.current = null;
       try {
@@ -168,9 +168,13 @@ function PopupApp() {
       } catch {
         // Port already closed.
       }
-    },
-    [],
-  );
+    };
+    globalThis.addEventListener('pagehide', disconnectPreview);
+    return () => {
+      globalThis.removeEventListener('pagehide', disconnectPreview);
+      disconnectPreview();
+    };
+  }, []);
 
   const handleThemeChange = useCallback(
     (doc: ThemeDocumentV1, meta?: { readonly committed?: boolean }) => {

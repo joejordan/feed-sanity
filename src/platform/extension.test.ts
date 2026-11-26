@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { DEFAULT_THEME_DOCUMENT, findThemePreset, presetToThemeDocument } from '../core/theming';
-import { BADGE_DELAY_MS, extensionPlatform } from './extension';
+import { BADGE_DELAY_MS, buildName, extensionPlatform } from './extension';
 import {
   badgeMessage,
   GET_POPUP_STATE,
@@ -122,6 +122,8 @@ describe('extensionPlatform', () => {
   it('names the browser it was built for', () => {
     // The unit tests run as the Chrome build.
     expect(extensionPlatform.build).toBe('Chrome extension');
+    expect(buildName('firefox')).toBe('Firefox extension');
+    expect(buildName('safari')).toBe('Safari extension');
   });
 
   it('sends the last of the badges set close together to the background script', async () => {

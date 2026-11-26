@@ -8,6 +8,10 @@ import {
   NAME,
   OPTIONS_TITLE,
 } from './project';
+import { MATCHES as FACEBOOK_MATCHES } from './src/facebook/urls';
+import { INSTAGRAM_MATCHES } from './src/sites/instagram/urls';
+import { REDDIT_MATCHES } from './src/sites/reddit/urls';
+import { X_MATCHES } from './src/sites/x/urls';
 
 const MANIFEST_ICONS = {
   ...ACTIVE_ICON_PATHS,
@@ -20,12 +24,70 @@ const FIREFOX_ONLY_ASSETS = new Set<string>(
   FIREFOX_THEME_ICONS.flatMap((entry) => [entry.light, entry.dark]),
 );
 
+// Minimal host permissions for Safari's dynamic `scripting` MAIN-world bridge
+// (excludes Gmail, which runs strictly in the isolated world with no page-world script).
+const SAFARI_HOST_PERMISSIONS = [
+  ...FACEBOOK_MATCHES,
+  ...X_MATCHES,
+  ...INSTAGRAM_MATCHES,
+  ...REDDIT_MATCHES,
+];
+
 export default defineConfig({
   srcDir: 'src',
   // Every import is written out, so the linter and the type checker see
   // the same names as the bundler.
   imports: false,
   vite: () => ({ resolve: { alias: PREACT_ALIAS } }),
+  manifest: ({ browser, manifestVersion }) => {
+    const firefox = browser === 'firefox';
+    const safari = browser === 'safari';
+    const toolbarAction = {
+      default_title: OPTIONS_TITLE,
+      default_icon: firefox ? FIREFOX_TOOLBAR_ICON : ACTIVE_ICON_PATHS,
+      ...(firefox ? { theme_icons: FIREFOX_THEME_ICONS.map((entry) => ({ ...entry })) } : {}),
+    };
+    return {
+      name: NAME,
+      description: DESCRIPTION,
+      // Safari needs `scripting` + page-world host permissions to register and
+      // inject MAIN-world scripts, because Safari does not support `world: 'MAIN'`
+      // in static manifest `content_scripts`.
+      permissions: safari ? ['storage', 'scripting'] : ['storage'],
+      ...(safari && { host_permissions: SAFARI_HOST_PERMISSIONS }),
+      icons: MANIFEST_ICONS,
+      // Fallback toolbar title and icon; clicking opens `src/entrypoints/popup/index.html`.
+      // Firefox MV2 reads `browser_action` and scales the small-cut SVG across arbitrary HiDPI factors.
+      ...(manifestVersion === 2 ? { browser_action: toolbarAction } : { action: toolbarAction }),
+      ...(firefox && {
+        browser_specific_settings: {
+          // Do not change this ID once the add-on is published: Firefox would
+          // treat it as a different add-on and users would lose their settings.
+          // Firefox stays on MV2 intentionally so content-script host matches apply
+          // automatically on install (MV3 makes host permissions opt-in per site).
+          gecko: {
+            id: 'feed-sanity@burgtech.com',
+            // Matches Firefox 140 ESR, which supports data_collection_permissions,
+            // content_scripts[].world: "MAIN", popover="manual", @layer, and scrollbar-gutter.
+            strict_min_version: '140.0',
+            // The extension sends no data anywhere. Update this if that changes.
+            data_collection_permissions: { required: ['none'] },
+          },
+          gecko_android: {
+            strict_min_version: '142.0',
+          },
+        },
+      }),
+      ...(safari && {
+        browser_specific_settings: {
+          // `URL.canParse`, Popover API, and `scripting.registerContentScripts({ world: 'MAIN' })`.
+          safari: {
+            strict_min_version: '17.0',
+          },
+        },
+      }),
+    };
+  },
   hooks: {
     'build:publicAssets'(wxt, files) {
       if (wxt.config.browser === 'firefox') {
@@ -38,40 +100,15 @@ export default defineConfig({
         }
       }
     },
-  },
-  manifest: ({ browser, manifestVersion }) => {
-    const toolbarAction = {
-      default_title: OPTIONS_TITLE,
-      default_icon: browser === 'firefox' ? FIREFOX_TOOLBAR_ICON : ACTIVE_ICON_PATHS,
-      ...(browser === 'firefox'
-        ? { theme_icons: FIREFOX_THEME_ICONS.map((entry) => ({ ...entry })) }
-        : {}),
-    };
-    return {
-      name: NAME,
-      description: DESCRIPTION,
-      permissions: ['storage'],
-      icons: MANIFEST_ICONS,
-      // Fallback toolbar title and icon; clicking opens `src/entrypoints/popup/index.html`.
-      // Firefox MV2 reads `browser_action` and scales the small-cut SVG across arbitrary HiDPI factors.
-      ...(manifestVersion === 2 ? { browser_action: toolbarAction } : { action: toolbarAction }),
-      browser_specific_settings: {
-        // Do not change this ID once the add-on is published: Firefox would
-        // treat it as a different add-on and users would lose their settings.
-        // Firefox stays on MV2 intentionally so content-script host matches apply
-        // automatically on install (MV3 makes host permissions opt-in per site).
-        gecko: {
-          id: 'feed-sanity@burgtech.com',
-          // Matches Firefox 140 ESR, which supports data_collection_permissions,
-          // content_scripts[].world: "MAIN", popover="manual", @layer, and scrollbar-gutter.
-          strict_min_version: '140.0',
-          // The extension sends no data anywhere. Update this if that changes.
-          data_collection_permissions: { required: ['none'] },
-        },
-        gecko_android: {
-          strict_min_version: '142.0',
-        },
-      },
-    };
+    'build:manifestGenerated': (wxt, manifest) => {
+      if (wxt.config.browser !== 'safari' || !manifest.content_scripts) {
+        return;
+      }
+      // Safari does not support `exclude_globs` in manifest `content_scripts`;
+      // Facebook's content and page-world scripts check `isExcludedByGlob` instead.
+      manifest.content_scripts = manifest.content_scripts.map(
+        ({ exclude_globs: _, ...script }) => script,
+      );
+    },
   },
 });

@@ -8,8 +8,16 @@ import {
   parseThemePreviewMessage,
   THEME_PREVIEW_PORT,
 } from './messages';
+import { requestSafariPageWorld } from './safari-page-world';
 
-const BUILDS: Record<string, string> = { firefox: 'Firefox extension', chrome: 'Chrome extension' };
+const BUILDS: Record<string, string> = {
+  firefox: 'Firefox extension',
+  chrome: 'Chrome extension',
+  safari: 'Safari extension',
+};
+
+/** The build name shown in Diagnostics for WXT's `import.meta.env.BROWSER`. */
+export const buildName = (target: string): string => BUILDS[target] ?? `${target} extension`;
 
 /** How long a new badge waits before it is sent, so that changes close together are sent once. */
 export const BADGE_DELAY_MS = 100;
@@ -35,7 +43,7 @@ async function sendBadge(): Promise<void> {
 /** The browser extension builds. */
 export const extensionPlatform: Platform = {
   store: extensionStore,
-  build: BUILDS[import.meta.env.BROWSER] ?? `${import.meta.env.BROWSER} extension`,
+  build: buildName(import.meta.env.BROWSER),
   onOpenOptions(listener) {
     browser.runtime.onMessage.addListener((message) => {
       const parsed = parseOpenOptionsMessage(message);
@@ -100,6 +108,10 @@ export const extensionPlatform: Platform = {
       setTimeout(() => void sendBadge(), BADGE_DELAY_MS);
     }
   },
-  // The manifest registers each site's `*-page-world.content.ts` in `world: 'MAIN'`.
-  installPageWorld: () => Promise.resolve(),
+  // Chrome and Firefox register each site's `*-page-world.content.ts` with
+  // `world: 'MAIN'` in the manifest. Safari uses dynamic `registerContentScripts`
+  // at `document_start`, with this on-demand `executeScript` fallback for
+  // cold-start or already-open tabs when `PageBridge` does not connect synchronously.
+  installPageWorld: (siteId) =>
+    import.meta.env.BROWSER === 'safari' ? requestSafariPageWorld(siteId) : Promise.resolve(),
 };

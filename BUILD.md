@@ -24,16 +24,25 @@ pnpm --version   # 10.33.2
    pnpm install --frozen-lockfile
    ```
 
-3. Build the Firefox MV2 extension, Chrome MV3 extension, and userscript:
+3. Build the Firefox MV2 extension, Chrome MV3 extension, Safari MV3 extension, and userscript:
 
    ```sh
    pnpm build
    ```
 
-4. Package the Firefox and Chrome release archives:
+4. Package the Firefox, Chrome, and Safari release archives:
 
    ```sh
    pnpm zip
+   ```
+
+5. *(macOS with Xcode only)* Wrap and build the Safari extension app container:
+
+   ```sh
+   pnpm build:safari-xcode                     # macOS app (auto-signs with Apple Development if present)
+   pnpm build:safari-xcode -- --all-platforms  # universal macOS + iOS/iPadOS project
+   pnpm build:safari-xcode -- --no-sign        # unsigned build (CODE_SIGNING_ALLOWED=NO)
+   pnpm build:safari-xcode -- --open           # register extension and launch Feed Sanity.app
    ```
 
 ## Output Artifacts
@@ -43,14 +52,18 @@ pnpm --version   # 10.33.2
 - `.output/feed-sanity-<version>-sources.zip` — Full source archive matching the build
 - `.output/chrome-mv3/` — Unpacked Chrome Manifest V3 extension
 - `.output/feed-sanity-<version>-chrome.zip` — Packaged Chrome extension (for Chrome Web Store)
+- `.output/safari-mv3/` — Unpacked Safari Manifest V3 web extension
+- `.output/feed-sanity-<version>-safari.zip` — Packaged Safari web extension resources
+- `.output/safari-xcode/` — Generated Xcode Safari Web Extension wrapper project and app bundle (macOS)
 - `.output/userscript/feed-sanity.user.js` — Unminified userscript for Tampermonkey, Violentmonkey, and Greasemonkey
 
 ## Verification
 
 ```sh
-pnpm check          # TypeScript typecheck, Biome lint, and Vitest unit suite
-pnpm test:e2e       # Chromium Playwright end-to-end suite
-pnpm test:firefox   # Firefox MV2 WebDriver BiDi smoke test
+pnpm check                # TypeScript typecheck, Biome lint, and Vitest unit suite
+pnpm test:e2e             # Chromium Playwright end-to-end suite
+pnpm test:firefox         # Firefox MV2 WebDriver BiDi smoke test
+pnpm test:safari:manifest # Safari MV3 manifest and cross-browser isolation smoke check
 pnpm dlx addons-linter@10.16.0 .output/feed-sanity-*-firefox.zip
 ```
 

@@ -1,5 +1,5 @@
 name: Verify Build & Tests
-description: Install dependencies, run static/unit checks, build & package Chrome/Firefox/userscript artifacts, lint Firefox AMO package, and run Chromium + Firefox E2E suites.
+description: Install dependencies, run static/unit checks, build & package Chrome/Firefox/Safari/userscript artifacts, lint Firefox AMO & Safari MV3 packages, and run Chromium + Firefox E2E suites.
 
 runs:
   using: composite
@@ -17,9 +17,13 @@ runs:
       run: pnpm check
     - name: Build and zip extensions + userscript
       shell: bash
-      # `pnpm zip` runs `wxt zip` for Firefox & Chrome (which builds `.output/firefox-mv2`
-      # and `.output/chrome-mv3` before zipping), avoiding a redundant double WXT build.
+      # `pnpm zip` runs `wxt zip` for Firefox, Chrome, and Safari (which builds
+      # `.output/firefox-mv2`, `.output/chrome-mv3`, and `.output/safari-mv3`
+      # before zipping), avoiding a redundant double WXT build.
       run: pnpm zip && pnpm build:userscript
+    - name: Verify Safari MV3 manifest and cross-browser isolation
+      shell: bash
+      run: pnpm test:safari:manifest
     - name: Lint Firefox add-on package (AMO rules)
       shell: bash
       run: pnpm dlx addons-linter@10.16.0 .output/feed-sanity-*-firefox.zip

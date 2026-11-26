@@ -99,11 +99,13 @@ describe('PageBridge', () => {
     expect(errors).not.toHaveBeenCalled();
   });
 
-  it('connects to a page-world side that was there before it', async () => {
+  it('connects to a page-world side that was there before it without calling install', async () => {
     servePageWorld({ early: () => 'here' });
-    const bridge = make(() => Promise.resolve(), { log });
+    const install = vi.fn(() => Promise.resolve());
+    const bridge = make(install, { log });
 
     expect(await bridge.ask(video, 'early')).toBe('here');
+    expect(install).not.toHaveBeenCalled();
   });
 
   it('connects again when a page-world side starts after its first connect', async () => {

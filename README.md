@@ -54,18 +54,21 @@ Developed with Node 26 and pnpm 10.
 
 ```sh
 pnpm install
-pnpm dev            # run in Firefox and reload on change
-pnpm dev:chrome     # run in Chrome and reload on change
-pnpm check          # typecheck, lint, and unit tests
-pnpm build          # builds .output/firefox-mv2, .output/chrome-mv3, and .output/userscript
-pnpm zip            # packages release zips (including Firefox AMO sources zip)
-pnpm test:e2e       # build Chrome extension + userscript and run Playwright E2E suite
-pnpm test:firefox   # run Firefox MV2 WebDriver BiDi smoke test against .output/firefox-mv2
+pnpm dev                  # run in Firefox and reload on change
+pnpm dev:chrome           # run in Chrome and reload on change
+pnpm dev:safari           # rebuild the Safari MV3 extension on change
+pnpm check                # typecheck, lint, and unit tests
+pnpm build                # builds .output/firefox-mv2, .output/chrome-mv3, .output/safari-mv3, and .output/userscript
+pnpm build:safari-xcode   # wrap and build the Safari Xcode app at .output/safari-xcode (macOS)
+pnpm zip                  # packages release zips (including Firefox AMO sources zip)
+pnpm test:e2e             # build Chrome extension + userscript and run Playwright E2E suite
+pnpm test:firefox         # run Firefox MV2 WebDriver BiDi smoke test against .output/firefox-mv2
+pnpm test:safari:manifest # verify Safari MV3 manifest, unlisted MAIN-world scripts, and zero bleed
 ```
 
-For reproducible release builds (including Firefox AMO review steps), see [BUILD.md](BUILD.md). For data handling and permissions, see [PRIVACY.md](PRIVACY.md).
+For reproducible release builds (including Firefox AMO review steps and Safari Xcode builds), see [BUILD.md](BUILD.md). For data handling and permissions, see [PRIVACY.md](PRIVACY.md).
 
-To load the unpacked Chrome extension locally, open `chrome://extensions`, enable Developer Mode, and load `.output/chrome-mv3`. After rebuilding, reload the extension there and refresh open tabs.
+To load the unpacked Chrome extension locally, open `chrome://extensions`, enable Developer Mode, and load `.output/chrome-mv3`. On macOS Safari 18.4+, you can load `.output/safari-mv3` temporarily via **Develop → Add Temporary Extension...**, or run `pnpm build:safari-xcode -- --open` to build and open the signed Safari app wrapper. After rebuilding, reload the extension and refresh open tabs.
 
 ## Adding a feature
 

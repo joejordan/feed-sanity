@@ -568,11 +568,15 @@ export class PageBridge {
       // A page-world side that starts later says so, and is sent this again.
       document.addEventListener(READY_EVENT, hello, true);
       hello();
-      Promise.resolve()
-        .then(() => this.#install())
-        .catch((error: unknown) => {
-          unavailable(`the page script could not be added: ${messageOf(error)}`);
-        });
+      // If a `document_start` page-world script already answered `hello()`
+      // synchronously, skip `#install()` to avoid redundant IPC or injection.
+      if (this.#status.state === 'connecting') {
+        Promise.resolve()
+          .then(() => this.#install())
+          .catch((error: unknown) => {
+            unavailable(`the page script could not be added: ${messageOf(error)}`);
+          });
+      }
     });
   }
 }

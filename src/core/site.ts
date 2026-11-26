@@ -220,7 +220,7 @@ export async function startSite<P, F extends PageFactory<P>>(
       : undefined;
     const page = site.createPage(
       data,
-      () => platform.installPageWorld(),
+      () => platform.installPageWorld(site.id),
       env,
       (section) => openOptions(section),
     );

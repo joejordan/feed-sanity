@@ -3,6 +3,7 @@ import { EXCLUDE_GLOBS, EXCLUDE_MATCHES, MATCHES } from '../facebook/urls';
 import { startFacebookPageWorld } from '../sites/facebook/page-world';
 
 export default defineContentScript({
+  exclude: ['safari'],
   matches: [...MATCHES],
   excludeMatches: [...EXCLUDE_MATCHES],
   excludeGlobs: [...EXCLUDE_GLOBS],

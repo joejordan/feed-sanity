@@ -31,6 +31,7 @@ jobs:
           mkdir -p release-assets
           cp .output/feed-sanity-*-chrome.zip release-assets/
           cp .output/feed-sanity-*-firefox.zip release-assets/
+          cp .output/feed-sanity-*-safari.zip release-assets/
           cp .output/feed-sanity-*-sources.zip release-assets/
           cp .output/userscript/feed-sanity.user.js release-assets/
           (cd release-assets && sha256sum * > SHA256SUMS.txt)

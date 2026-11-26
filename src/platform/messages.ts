@@ -4,7 +4,14 @@ import { isRecord } from '../core/storage';
 import { parseThemeDocument } from '../core/theming/document';
 
 export type { BadgeMessage } from './badge-message';
+export type { RequestPageWorldMessage, RequestPageWorldReply } from './safari-page-world';
 export { badgeMessage, isBadgeMessage } from './badge-message';
+export {
+  isRequestPageWorldMessage,
+  isRequestPageWorldReply,
+  REQUEST_PAGE_WORLD,
+  requestPageWorldMessage,
+} from './safari-page-world';
 
 /** Sent from the background script or toolbar popup to a tab to open the options dialog. */
 export const OPEN_OPTIONS = 'feed-sanity/open-options';

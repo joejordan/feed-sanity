@@ -40,17 +40,20 @@
 .dialog::backdrop {
   background: rgb(0 0 0 / 48%);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   transition: background 140ms ease;
 }
 
 .dialog[data-moved="true"]::backdrop {
   background: rgb(0 0 0 / 16%);
   backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .dialog[data-dragging="true"]::backdrop {
   background: transparent;
   backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .drag-handle {

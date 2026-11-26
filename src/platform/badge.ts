@@ -11,9 +11,11 @@ export type ToolbarIconPath = string | Readonly<Record<number, string>> | null;
  */
 export interface ToolbarButton {
   setBadgeText: (details: { tabId: number; text: string }) => Promise<void>;
-  setBadgeBackgroundColor: (details: { tabId: number; color: string }) => Promise<void>;
+  setBadgeBackgroundColor?:
+    | ((details: { tabId: number; color: string }) => Promise<void>)
+    | undefined;
   setTitle: (details: { tabId: number; title: string }) => Promise<void>;
-  setIcon: (details: { tabId: number; path: ToolbarIconPath }) => Promise<void>;
+  setIcon?: ((details: { tabId: number; path: ToolbarIconPath }) => Promise<void>) | undefined;
 }
 
 /** The mark shown when a feature has failed. */
@@ -70,10 +72,22 @@ export async function showBadge(
   activeIcon: ToolbarIconPath = ACTIVE_ICON_PATHS,
 ): Promise<void> {
   const iconPath = badge.paused ? PAUSED_ICON_PATHS : activeIcon;
+  const colour = badge.failed
+    ? Promise.resolve()
+        .then(() => button.setBadgeBackgroundColor?.({ tabId, color: FAILED_COLOUR }))
+        .catch(() => {
+          // Safari does not support custom badge colours on every version.
+        })
+    : Promise.resolve();
+  const icon = Promise.resolve()
+    .then(() => button.setIcon?.({ tabId, path: iconPath }))
+    .catch(() => {
+      // Some Safari platforms restrict per-tab toolbar icon overrides.
+    });
   await Promise.all([
     button.setBadgeText({ tabId, text: badgeText(badge) }),
-    ...(badge.failed ? [button.setBadgeBackgroundColor({ tabId, color: FAILED_COLOUR })] : []),
+    colour,
     button.setTitle({ tabId, title: badgeTitle(badge) }),
-    button.setIcon({ tabId, path: iconPath }),
+    icon,
   ]);
 }

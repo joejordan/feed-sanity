@@ -75,6 +75,35 @@ describe('showBadge', () => {
     expect(set.icon.get(11)).toEqual(PAUSED_ICON_PATHS);
     expect(set.icon.get(14)).toBe(FIREFOX_TOOLBAR_ICON);
   });
+
+  it('still sets text and title when setBadgeBackgroundColor or setIcon are unsupported or throw', async () => {
+    const { button, set } = fakeButton();
+    button.setBadgeBackgroundColor = undefined;
+    button.setIcon = undefined;
+
+    await showBadge(button, 4, { count: 0, failed: true });
+
+    expect(set.text.get(4)).toBe('!');
+    expect(set.title.get(4)).toContain('stopped working');
+
+    button.setBadgeBackgroundColor = vi.fn(() => Promise.reject(new Error('not supported')));
+    button.setIcon = vi.fn(() => Promise.reject(new Error('not supported')));
+    await showBadge(button, 5, { count: 0, failed: true, paused: true });
+
+    expect(set.text.get(5)).toBe('!');
+    expect(set.title.get(5)).toContain('stopped working');
+
+    button.setBadgeBackgroundColor = vi.fn(() => {
+      throw new Error('sync unsupported');
+    });
+    button.setIcon = vi.fn(() => {
+      throw new Error('sync unsupported');
+    });
+    await showBadge(button, 6, { count: 0, failed: true });
+
+    expect(set.text.get(6)).toBe('!');
+    expect(set.title.get(6)).toContain('stopped working');
+  });
 });
 
 describe('badgeListener', () => {

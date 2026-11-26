@@ -73,5 +73,5 @@ export interface Platform {
    * it runs is known only once it answers; see `PageBridge` in
    * `src/core/bridge.ts`. Called at most once per page load.
    */
-  installPageWorld: () => Promise<void>;
+  installPageWorld: (siteId?: string) => Promise<void>;
 }
