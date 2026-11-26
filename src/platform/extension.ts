@@ -3,6 +3,7 @@ import type { Badge, Platform } from '../core/platform';
 import { extensionStore } from './extension-store';
 import {
   badgeMessage,
+  badgeVisualKey,
   GET_POPUP_STATE,
   PING_RUNTIME,
   parseOpenOptionsMessage,
@@ -25,20 +26,65 @@ export const BADGE_DELAY_MS = 100;
 
 /** The badge last set, which is sent once the wait is over. */
 let latestBadge: Badge | undefined;
+/** Key for the last toolbar-visible state (`failed`, `paused`) delivered to the background script. */
+let lastSentBadgeKey: string | undefined;
+let badgeInFlight = false;
+let pendingForce = false;
+let badgeGeneration = 0;
 let badgeTimer: ReturnType<typeof setTimeout> | undefined;
 let pageShowListener: ((event: PageTransitionEvent) => void) | undefined;
 
-async function sendBadge(): Promise<void> {
-  badgeTimer = undefined;
-  if (!latestBadge) {
+function clearBadgeTimer(): void {
+  if (badgeTimer !== undefined) {
+    clearTimeout(badgeTimer);
+    badgeTimer = undefined;
+  }
+}
+
+async function sendBadge(force = false): Promise<void> {
+  clearBadgeTimer();
+  const badge = latestBadge;
+  if (!badge) {
     return;
   }
+  if (badgeInFlight) {
+    pendingForce = pendingForce || force;
+    return;
+  }
+  const visualKey = badgeVisualKey(badge);
+  // The toolbar button only reacts to `failed` (`!`) and `paused` (monochrome icon),
+  // so skip redundant IPCs when only `count` changed to avoid waking the MV3 service worker.
+  if (!force && lastSentBadgeKey === visualKey) {
+    return;
+  }
+  const generation = badgeGeneration;
+  badgeInFlight = true;
+  let succeeded = false;
   try {
     // Chrome throws at once, rather than rejecting, once the extension has
     // been reloaded or updated under this page.
-    await browser.runtime.sendMessage(badgeMessage(latestBadge));
+    await browser.runtime.sendMessage(badgeMessage(badge));
+    succeeded = true;
+    if (generation === badgeGeneration) {
+      lastSentBadgeKey = visualKey;
+    }
   } catch {
     // The background script is being updated or reloaded. The next change sends the badge again.
+  } finally {
+    if (generation === badgeGeneration) {
+      badgeInFlight = false;
+      const nextForce = pendingForce;
+      pendingForce = false;
+      const current = latestBadge;
+      if (current) {
+        const currentKey = badgeVisualKey(current);
+        const shouldDrain =
+          nextForce || (currentKey !== lastSentBadgeKey && (succeeded || currentKey !== visualKey));
+        if (shouldDrain) {
+          void sendBadge(nextForce);
+        }
+      }
+    }
   }
 }
 
@@ -108,24 +154,25 @@ export const extensionPlatform: Platform = {
       // A page restored from the browser's back and forward cache has lost its badge.
       pageShowListener = (event) => {
         if (event.persisted) {
-          void sendBadge();
+          void sendBadge(true);
         }
       };
       globalThis.addEventListener('pageshow', pageShowListener);
     }
     latestBadge = badge;
-    // Filtering a page of posts changes the count once for each post, and
-    // only the last of those changes is sent.
-    if (badgeTimer === undefined) {
+    // Filtering a page of posts changes the count once for each post; skip arming
+    // a no-op debounce timer when the toolbar-visible state is already delivered.
+    if (badgeTimer === undefined && (badgeInFlight || lastSentBadgeKey !== badgeVisualKey(badge))) {
       badgeTimer = setTimeout(() => void sendBadge(), BADGE_DELAY_MS);
     }
   },
   stopBadge() {
+    badgeGeneration += 1;
     latestBadge = undefined;
-    if (badgeTimer !== undefined) {
-      clearTimeout(badgeTimer);
-      badgeTimer = undefined;
-    }
+    lastSentBadgeKey = undefined;
+    badgeInFlight = false;
+    pendingForce = false;
+    clearBadgeTimer();
     if (pageShowListener) {
       globalThis.removeEventListener('pageshow', pageShowListener);
       pageShowListener = undefined;

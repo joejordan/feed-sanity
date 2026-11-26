@@ -11,6 +11,10 @@ export interface BadgeMessage {
 
 export const badgeMessage = (badge: Badge): BadgeMessage => ({ type: BADGE_MESSAGE, badge });
 
+/** Key for the toolbar-visible badge state (`failed` and `paused`); ignores scroll-only `count` updates. */
+export const badgeVisualKey = ({ failed, paused }: Badge): string =>
+  `${failed ? '1' : '0'}:${paused ? '1' : '0'}`;
+
 export function isBadgeMessage(message: unknown): message is BadgeMessage {
   if (!isRecord(message) || message.type !== BADGE_MESSAGE || !isRecord(message.badge)) {
     return false;

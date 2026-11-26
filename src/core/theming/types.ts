@@ -184,6 +184,8 @@ export interface BackdropRevealMetrics {
 
 export interface SurfaceRevealMetrics extends BackdropRevealMetrics {
   readonly popupAlpha: number;
+  readonly hostScheme: ThemeColorScheme;
+  readonly surfaceBg: string;
 }
 
 /**

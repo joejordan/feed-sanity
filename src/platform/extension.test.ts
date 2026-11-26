@@ -18,6 +18,7 @@ describe('extensionPlatform', () => {
   });
 
   afterEach(() => {
+    extensionPlatform.stopBadge?.();
     vi.useRealTimers();
   });
 
@@ -141,6 +142,17 @@ describe('extensionPlatform', () => {
     extensionPlatform.setBadge({ count: 0, failed: true });
     await vi.advanceTimersByTimeAsync(BADGE_DELAY_MS);
     expect(send).toHaveBeenLastCalledWith(badgeMessage({ count: 0, failed: true }));
+
+    // Count-only updates with identical `failed` and `paused` skip redundant IPC wakeups.
+    extensionPlatform.setBadge({ count: 9, failed: true });
+    await vi.advanceTimersByTimeAsync(BADGE_DELAY_MS);
+    expect(send).toHaveBeenCalledTimes(2);
+
+    // Toggling `paused` sends a fresh update.
+    extensionPlatform.setBadge({ count: 9, failed: true, paused: true });
+    await vi.advanceTimersByTimeAsync(BADGE_DELAY_MS);
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(send).toHaveBeenLastCalledWith(badgeMessage({ count: 9, failed: true, paused: true }));
   });
 
   it('sends the badge again when the page comes back from the back and forward cache', async () => {
@@ -179,5 +191,61 @@ describe('extensionPlatform', () => {
     await vi.advanceTimersByTimeAsync(BADGE_DELAY_MS);
 
     expect(send).toHaveBeenCalled();
+  });
+
+  it('serializes overlapping sends, drains reverts, ignores stale pre-stop completions, and retries after failure', async () => {
+    vi.useFakeTimers();
+    const pending: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
+    const send = vi.spyOn(browser.runtime, 'sendMessage').mockImplementation(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          pending.push({ resolve, reject });
+        }),
+    );
+
+    // Initial active badge (`0:0`) succeeds.
+    extensionPlatform.setBadge({ count: 0, failed: false });
+    await vi.advanceTimersByTimeAsync(BADGE_DELAY_MS);
+    expect(send).toHaveBeenCalledTimes(1);
+    pending.shift()!.resolve();
+    await Promise.resolve();
+
+    // Pause (`0:1`) starts sending, then user unpauses back to `0:0` before the first send resolves.
+    extensionPlatform.setBadge({ count: 0, failed: false, paused: true });
+    await vi.advanceTimersByTimeAsync(BADGE_DELAY_MS);
+    expect(send).toHaveBeenCalledTimes(2);
+
+    extensionPlatform.setBadge({ count: 0, failed: false, paused: false });
+    await vi.advanceTimersByTimeAsync(BADGE_DELAY_MS);
+    // Must not overlap while #2 is still in flight.
+    expect(send).toHaveBeenCalledTimes(2);
+
+    // Resolving #2 immediately drains the reverted `0:0` state.
+    pending.shift()!.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(send).toHaveBeenLastCalledWith(badgeMessage({ count: 0, failed: false, paused: false }));
+
+    // Calling stopBadge() while #3 is in flight invalidates #3 so its later resolution cannot
+    // clobber a fresh post-stop send.
+    extensionPlatform.stopBadge?.();
+    extensionPlatform.setBadge({ count: 1, failed: true });
+    await vi.advanceTimersByTimeAsync(BADGE_DELAY_MS);
+    expect(send).toHaveBeenCalledTimes(4);
+
+    pending.shift()!.resolve(); // Stale #3 settles — ignored.
+    await Promise.resolve();
+    pending.shift()!.reject(new Error('transient worker wake error')); // #4 fails.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(send).toHaveBeenCalledTimes(4);
+
+    // Next update with the same failed state retries because #4 never succeeded.
+    extensionPlatform.setBadge({ count: 2, failed: true });
+    await vi.advanceTimersByTimeAsync(BADGE_DELAY_MS);
+    expect(send).toHaveBeenCalledTimes(5);
+    expect(send).toHaveBeenLastCalledWith(badgeMessage({ count: 2, failed: true }));
+    pending.shift()!.resolve();
   });
 });

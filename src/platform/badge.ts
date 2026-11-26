@@ -44,37 +44,27 @@ interface Sender {
   tab?: { id?: number | undefined } | undefined;
 }
 
-const MAX_TRACKED_TABS = 200;
-
 /**
  * A `runtime.onMessage` listener for the background script that shows each
  * badge a tab sends on that tab's button. Other messages are left alone, and
  * so are messages that do not come from a tab.
+ *
+ * Scroll-only `count` updates are deduplicated on the sender side in
+ * `extension.ts`, so every message that reaches `badgeListener` (including
+ * reloads, same-tab navigations, and bfcache `pageshow` restores, all of which
+ * reset per-tab toolbar state) is applied unconditionally.
  */
 export function badgeListener(
   button: ToolbarButton,
   activeIcon: ToolbarIconPath = ACTIVE_ICON_PATHS,
 ): (message: unknown, sender: Sender) => void {
-  // Deduplicate redundant `setIcon` / `setBadgeText` / `setTitle` IPC per tab
-  // when only `badge.count` increments while scrolling (the toolbar shows
-  // failure & paused state only, not numeric counts).
-  const lastVisualState = new Map<number, string>();
   return (message, sender) => {
     const tabId = sender.tab?.id;
     if (!isBadgeMessage(message) || tabId === undefined) {
       return;
     }
-    const visualKey = `${message.badge.failed ? '1' : '0'}:${message.badge.paused ? '1' : '0'}`;
-    if (lastVisualState.get(tabId) === visualKey) {
-      return;
-    }
-    if (lastVisualState.size >= MAX_TRACKED_TABS) {
-      lastVisualState.clear();
-    }
-    lastVisualState.set(tabId, visualKey);
     showBadge(button, tabId, message.badge, activeIcon).catch(() => {
       // The tab was closed before the badge reached it.
-      lastVisualState.delete(tabId);
     });
   };
 }

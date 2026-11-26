@@ -75,9 +75,9 @@ export interface AttachableSiteSpec {
 function pageWorldFile(
   siteId: 'facebook' | 'instagram' | 'reddit' | 'x',
 ): AttachablePageWorldScript {
-  // Branch on `import.meta.env.BROWSER === 'safari'` directly so Chrome and Firefox
-  // builds constant-fold and tree-shake Safari-only unlisted script filenames.
-  return import.meta.env.BROWSER === 'safari'
+  // Guard `import.meta.env` for plain Node runtimes (e.g. Playwright E2E importing shared
+  // message modules) while preserving Vite's literal `import.meta.env.BROWSER` constant folding.
+  return typeof import.meta.env !== 'undefined' && import.meta.env.BROWSER === 'safari'
     ? `/safari-${siteId}-page-world.js`
     : `/content-scripts/${siteId}-page-world.js`;
 }

@@ -12,6 +12,13 @@ const RNW_CANVAS_SELECTORS = [
   `.r-yfoy6g${NOT_IN_VIDEO}`,
   `.r-14lw9ot:not(:where(button, [role="button"], [role="switch"], [role="switch"] *, ${IN_VIDEO}))`,
 ] as const;
+const X_CANVAS_CLASS = ':is(.r-kemksi, .r-yfoy6g, .r-14lw9ot)';
+const X_TYPEAHEAD_SELECTORS = [
+  '[role="listbox"]',
+  '[id^="typeaheadDropdown"]',
+  '[data-testid="typeaheadDropdown"]',
+] as const;
+const X_SEARCH_PILL_SELECTOR = `form[role="search"] > div:first-child > div:not(${X_TYPEAHEAD_SELECTORS.join(', ')})`;
 
 const NEUTRAL_STEPS = [
   ['000', 0.96],
@@ -333,26 +340,27 @@ button[aria-label="Manage timelines"] svg,
 [data-testid="sidebarColumn"] [data-testid="pill-contents-container"] > div {
   background-color: ${p.surfaceAlt} !important;
 }
-/* Search pill: keep full 9999px rounding by leaving the inner <input> transparent */
-[data-testid="sidebarColumn"] form[role="search"] > div > div {
+/* Search pill (sidebar, Explore, and GIF search modal): keep 9999px rounding with a transparent inner <input> */
+${X_SEARCH_PILL_SELECTOR} {
   background-color: ${p.surfaceAlt} !important;
   border-color: ${p.border} !important;
   border-radius: 9999px !important;
   overflow: hidden !important;
   color: ${p.text} !important;
 }
-[data-testid="SearchBox_Search_Input"] {
-  background-color: transparent !important;
-  color: ${p.text} !important;
-}
 [data-testid="SearchBox_Search_Input"]::placeholder,
-[data-testid="sidebarColumn"] form[role="search"] svg {
+[data-testid="gifSearchSearchInput"]::placeholder,
+form[role="search"] svg {
   color: ${p.textMuted} !important;
 }
 
 /* === 7. Popovers, menus, dialogs, HoverCards, Emoji/GIF/Poll/Schedule/Location === */
-[role="dialog"],
+/* On X, [role="dialog"] is often a tall transparent 600x650 centering frame (e.g. Views modal)
+ * whose actual visible card is a nested canvas surface (.r-kemksi / .r-yfoy6g / .r-14lw9ot)
+ * or [data-testid="sheetDialog"] / [data-testid="confirmationSheetDialog"]. */
+[role="dialog"]${X_CANVAS_CLASS},
 [data-testid="sheetDialog"],
+[data-testid="confirmationSheetDialog"],
 [role="menu"],
 [role="listbox"],
 [data-testid="Dropdown"],
@@ -362,11 +370,12 @@ button[aria-label="Manage timelines"] svg,
   color: ${p.text} !important;
 }
 [role="dialog"] [data-testid="toolBar"],
-[role="dialog"] .r-kemksi${NOT_IN_VIDEO},
-[data-testid="sheetDialog"] .r-kemksi,
-[role="menu"] .r-kemksi,
-[data-testid="Dropdown"] .r-kemksi,
-[data-testid="HoverCard"] .r-kemksi {
+[role="dialog"] ${X_CANVAS_CLASS}${NOT_IN_VIDEO},
+[data-testid="sheetDialog"] ${X_CANVAS_CLASS},
+[data-testid="confirmationSheetDialog"] ${X_CANVAS_CLASS},
+[role="menu"] ${X_CANVAS_CLASS},
+[data-testid="Dropdown"] ${X_CANVAS_CLASS},
+[data-testid="HoverCard"] ${X_CANVAS_CLASS} {
   background-color: ${p.surface} !important;
 }
 [role="menu"] a,
@@ -399,6 +408,15 @@ button[aria-label="Manage timelines"] svg,
 [data-testid="attachments"] > div {
   background-color: ${p.surfaceAlt} !important;
   border-color: ${p.border} !important;
+  color: ${p.text} !important;
+}
+/* Keep inner <input> nodes inside pill search bars transparent even inside dialogs (e.g. GIF search). */
+form[role="search"] ${TEXT_INPUT_SELECTOR},
+[role="dialog"] form[role="search"] ${TEXT_INPUT_SELECTOR},
+[data-testid="SearchBox_Search_Input"],
+[data-testid="gifSearchSearchInput"] {
+  background-color: transparent !important;
+  border-color: transparent !important;
   color: ${p.text} !important;
 }
 [role="dialog"] option {
@@ -491,15 +509,13 @@ svg[data-testid="icon-verified"] {
       '[data-testid="sidebarColumn"] .r-1867qdf.r-1phboty',
     ],
     popups: [
-      '[role="dialog"]',
+      `[role="dialog"]${X_CANVAS_CLASS}`,
+      `[role="dialog"] ${X_CANVAS_CLASS}.r-1867qdf`,
       '[data-testid="sheetDialog"]',
+      '[data-testid="confirmationSheetDialog"]',
       '[role="menu"]',
-      '[role="listbox"]',
-      '[id^="typeaheadDropdown"]',
-      '[data-testid="typeaheadDropdown"]',
-      'form[role="search"] :is([role="listbox"], [id^="typeaheadDropdown"], [data-testid="typeaheadDropdown"])',
-      'form[role="search"] :has(> [role="listbox"], > [id^="typeaheadDropdown"], > [data-testid="typeaheadDropdown"])',
-      '#layers :is([role="dialog"], [role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="HoverCard"], [data-testid="sheetDialog"])',
+      ...X_TYPEAHEAD_SELECTORS,
+      `form[role="search"] div:has(${X_TYPEAHEAD_SELECTORS.map((sel) => `> ${sel}`).join(', ')})`,
       '[data-testid="Dropdown"]',
       '[data-testid="HoverCard"]',
     ],
@@ -509,10 +525,13 @@ svg[data-testid="icon-verified"] {
       '[data-testid="tweetButton"]',
     ],
     feedCards: ['article[data-testid="tweet"]'],
-    searchContainers: ['[data-testid="sidebarColumn"] form[role="search"] > div > div'],
-    extraRevealCss: (p, { popupAlpha }) => {
-      const hoverTint = hexWithAlpha(p?.text ?? '#ffffff', 0.06);
-      const popBg = hexWithAlpha(p?.surface ?? '#111622', popupAlpha);
+    searchContainers: [X_SEARCH_PILL_SELECTOR],
+    extraRevealCss: (p, { popupAlpha, hostScheme, surfaceBg }) => {
+      const hoverTint = hexWithAlpha(
+        p?.text ?? (hostScheme === 'light' ? '#0f1419' : '#ffffff'),
+        0.06,
+      );
+      const popBg = hexWithAlpha(p?.surface ?? surfaceBg, popupAlpha);
       return `
 #layers,
 form[role="search"] {

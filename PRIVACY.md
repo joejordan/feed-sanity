@@ -12,11 +12,12 @@ All settings, filter rules, saved themes (`My Themes`), and read-post state are 
 
 ## Permissions
 
-Feed Sanity requests only the single permission required to persist your local settings:
+Feed Sanity requests only the minimal permissions required to run locally:
 
 - **`storage`**: Saves your preferences, filter rules, and themes locally in your browser.
+- **`scripting`** *(scoped strictly to the five supported domains below)*: Automatically attaches and live-upgrades already-open supported tabs when the extension installs, updates, or reloads without requiring a manual page refresh—and on Safari, registers Feed Sanity's page-world scripts at `document_start` because Safari does not yet support declarative `world: "MAIN"` content scripts in `manifest.json`.
 
-Content-script host matches in `manifest.json` cover only the five supported domains (`facebook.com`, `x.com` / `twitter.com`, `instagram.com`, `reddit.com`, and `mail.google.com`). Experimental sites (`instagram.com`, `reddit.com`, and `mail.google.com`) are disabled by default and exit immediately without modifying the page unless you explicitly enable them under **Sites → Show experimental sites**.
+Content-script and host permissions in `manifest.json` cover only the five supported domains (`facebook.com`, `x.com` / `twitter.com`, `instagram.com`, `reddit.com`, and `mail.google.com`). Experimental sites (`instagram.com`, `reddit.com`, and `mail.google.com`) are paused by default and apply no filtering, theming, or visible page changes unless you explicitly enable them under **Sites → Show experimental sites**.
 
 ## Contact
 

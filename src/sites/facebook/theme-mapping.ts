@@ -93,17 +93,20 @@ ${LOADER_SCOPE} stop {
   surfaces: {
     transparentShell: ['[role="feed"]'],
     popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
-    revealCssVars: (p, { cardAlpha, popupAlpha }) => {
-      const surface = p?.surface ?? '#18191a';
+    revealCssVars: (p, { cardAlpha, popupAlpha, surfaceBg }) => {
+      const surface = p?.surface ?? surfaceBg;
+      const cardBg = hexWithAlpha(surface, cardAlpha);
       return {
         '--web-wash': 'transparent',
         '--wash': 'transparent',
         '--base-wash': 'transparent',
         '--card-background-wash': 'transparent',
         '--messenger-application-background': 'transparent',
+        '--nav-bar-background-gradient': 'transparent',
         '--nav-bar-background-gradient-wash': 'transparent',
-        '--card-background': hexWithAlpha(surface, cardAlpha),
-        '--surface-background': hexWithAlpha(surface, cardAlpha),
+        '--card-background': cardBg,
+        '--card-background-flat': cardBg,
+        '--surface-background': cardBg,
         '--nav-bar-background': hexWithAlpha(surface, Math.max(0.92, cardAlpha)),
         '--popover-background': hexWithAlpha(surface, popupAlpha),
       };

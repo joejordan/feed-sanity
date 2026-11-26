@@ -83,7 +83,9 @@ export function createBackdropShellManager(
   doc: Document,
   surfaces: SurfaceSelectors | undefined,
 ): BackdropShellManager {
-  const popups = surfaces?.popups?.length ? surfaces.popups : DEFAULT_POPUPS;
+  // Always keep semantic dialog/menu/listbox wrappers as hard traversal boundaries even when
+  // a site narrows `surfaces.popups` to inner card surfaces (e.g. X's transparent modal frame).
+  const popupBoundaries = [...DEFAULT_POPUPS, ...(surfaces?.popups ?? [])];
   const contentSurfaces = [
     ...new Set([
       ...(surfaces?.columns ?? []),
@@ -92,7 +94,7 @@ export function createBackdropShellManager(
       ...(surfaces?.feedCards ?? []),
     ]),
   ];
-  const popupGroup = compileSelectorGroup(popups);
+  const popupGroup = compileSelectorGroup(popupBoundaries);
   const opaqueSurfaceGroup = compileSelectorGroup([
     ...contentSurfaces,
     ...(surfaces?.searchContainers ?? []),
@@ -110,7 +112,7 @@ export function createBackdropShellManager(
 
   // Popups (hard traversal boundaries) and leaf cards cannot wrap new outer shell ancestors.
   const containedSurfaceSelector = compileSelectorGroup([
-    ...popups,
+    ...popupBoundaries,
     ...(surfaces?.feedCards ?? []),
     ...(surfaces?.leafCards ?? []),
   ]).basic;
@@ -136,12 +138,7 @@ export function createBackdropShellManager(
     const nextMarked = new Set<Element>();
 
     const markAncestors = (start: Element | null): void => {
-      if (
-        !start ||
-        start === doc.body ||
-        start === doc.documentElement ||
-        (visited.has(start) && !blocked.has(start))
-      ) {
+      if (!start || start === doc.body || start === doc.documentElement || visited.has(start)) {
         return;
       }
       const path: Element[] = [];

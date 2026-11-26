@@ -855,7 +855,33 @@ describe('Creative Theme & Effects Studio engine', () => {
     expect(neonWithSurfaces).toContain('article:hover,\n[role="article"]:hover');
     expect(neonWithSurfaces).toContain('button.compose');
     expect(neonWithSurfaces).toContain('form[role="search"] > div');
+    expect(neonWithSurfaces).toContain('form[role="search"] > div:focus-within');
+    expect(neonWithSurfaces).toContain('box-shadow: none !important;\n  outline: none !important;');
     expect(neonWithSurfaces).toContain('main > .col');
+
+    // Popups stay 100% opaque under live backdrops so bright page content never bleeds through.
+    expect(xCss).toContain(`background-color: ${resolved.palette?.surface} !important;`);
+    expect(xCss).not.toMatch(/\[role="dialog"\],\n\[data-testid="sheetDialog"\]/);
+    expect(xCss).toContain('[role="dialog"]:is(.r-kemksi, .r-yfoy6g, .r-14lw9ot)');
+    expect(xCss).toContain('[data-testid="gifSearchSearchInput"]');
+
+    // Site Default (`palette: null`) on a light host uses light surface fallbacks, not dark hexes.
+    const fbLightDefault = compileBackdropRevealCss(
+      null,
+      'light',
+      { ...DEFAULT_THEME_EFFECTS, backdrop: 'aurora' },
+      facebookThemeMapping,
+    );
+    expect(fbLightDefault).toContain('--popover-background: rgb(255 255 255 / 100%) !important;');
+    expect(fbLightDefault).not.toContain('#18191a');
+    const xLightDefault = compileBackdropRevealCss(
+      null,
+      'light',
+      { ...DEFAULT_THEME_EFFECTS, backdrop: 'aurora' },
+      xThemeMapping,
+    );
+    expect(xLightDefault).toContain('--fs-reveal-canvas: rgb(255 255 255 / 100%);');
+    expect(xLightDefault).not.toContain('#111622');
 
     const glassNoLeaves = compileSurfaceFinishCss(
       resolved.palette,
@@ -929,18 +955,21 @@ describe('Creative Theme & Effects Studio engine', () => {
         }
 
         // Invariant 3: Every declared popup selector receives a high-opacity (>= 0.95) background fill.
+        const declaredPopups = new Set(mapping.surfaces?.popups ?? []);
         const popupRules = rules.filter((r) =>
-          (mapping.surfaces?.popups ?? []).some((p) => r.selector.includes(p)),
+          r.selector.split(/,\s*(?![^(]*\))/).some((sel) => declaredPopups.has(sel.trim())),
         );
         expect(
           popupRules.length,
           `${siteName}/${vibe.id}: missing opaque popup background rule`,
         ).toBeGreaterThan(0);
         for (const rule of popupRules) {
-          const alphaMatch = /background-color:\s*rgb\([^/]+\/\s*([0-9.]+)\)/i.exec(rule.body);
+          const alphaMatch = /background-color:\s*rgb\([^/]+\/\s*([0-9.]+)(%?)\)/i.exec(rule.body);
           if (alphaMatch?.[1]) {
+            const raw = Number.parseFloat(alphaMatch[1]);
+            const alpha = alphaMatch[2] === '%' ? raw / 100 : raw;
             expect(
-              Number.parseFloat(alphaMatch[1]),
+              alpha,
               `${siteName}/${vibe.id}: popup alpha too low in "${rule.selector}"`,
             ).toBeGreaterThanOrEqual(0.95);
           }

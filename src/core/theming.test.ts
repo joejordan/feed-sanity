@@ -166,7 +166,9 @@ describe('first-class multi-site theming engine', () => {
     expect(xCss).toContain('--x-fg-primary: #cdd6f4 !important;');
     expect(xCss).toContain('[data-testid="SearchBox_Search_Input"]');
     expect(xCss).toContain('background-color: transparent !important;');
+    expect(xCss).toContain('[data-testid="gifSearchSearchInput"]');
     expect(xCss).toContain('[data-testid="sheetDialog"]');
+    expect(xCss).toContain('[data-testid="confirmationSheetDialog"]');
     expect(xCss).toContain('[data-testid="UserDescription"]');
     expect(xCss).toContain('[data-testid="ScrollSnap-prevButtonWrapper"] button');
     expect(xCss).toContain(

@@ -12,7 +12,7 @@ export {
   isAttachTabMessage,
   isAttachTabReply,
 } from './auto-attach';
-export { badgeMessage, isBadgeMessage } from './badge-message';
+export { badgeMessage, badgeVisualKey, isBadgeMessage } from './badge-message';
 export {
   isRequestPageWorldMessage,
   isRequestPageWorldReply,

@@ -38,7 +38,7 @@ For what is planned after the initial release (including site layout presets and
 
 | Path                             | What lives there                                                                                                                        |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/entrypoints/`               | Browser entrypoints: `content.ts`, `background.ts`, and `popup/` (Quick Control Center).                                                |
+| `src/entrypoints/`               | Browser entrypoints: per-site `*.content.ts` & `*-page-world.content.ts`, Safari unlisted page-world scripts, `background.ts`, and `popup/`. |
 | `src/core/`                      | Site-agnostic framework: feature registry, options store, `PageWatcher`, `DomEnvironment`, filter engine, `theming/`, `theme-effects/`. |
 | `src/sites/`                     | Per-site adapters (`facebook`, `x`, `instagram`, `reddit`, `gmail`) with each site's `theme-mapping.ts` and site-specific features.     |
 | `src/facebook/`                  | Facebook DOM layer: locators, generated class-name translator, post detection, and React bridge readers.                                |

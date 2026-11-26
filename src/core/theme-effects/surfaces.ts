@@ -67,12 +67,15 @@ function compileDeclarativeReveal(
   rootSelectors: readonly string[],
   surfaces: SurfaceSelectors,
   palette: ThemePalette | null,
+  hostScheme: ThemeColorScheme,
   baseBg: string,
   surfaceBg: string,
   metrics: { readonly columnAlpha: number; readonly cardAlpha: number; readonly blurPx: number },
 ): { readonly shellCss: string; readonly revealCss: string } {
-  const popupAlpha = Math.max(0.96, metrics.cardAlpha);
-  const fullMetrics = { ...metrics, popupAlpha };
+  // Keep floating popups, dropdowns, and dialogs fully opaque so bright page text/ads
+  // underneath never bleed through while columns and feed cards remain gently translucent.
+  const popupAlpha = 1;
+  const fullMetrics = { ...metrics, popupAlpha, hostScheme, surfaceBg };
   const revealBlocks: string[] = [];
 
   // Bind `--fs-reveal-canvas` to transparent at the document root so Layer 1
@@ -178,6 +181,7 @@ ${BACKDROP_SELECTOR} {
       mapping.rootSelectors,
       mapping.surfaces,
       palette,
+      hostScheme,
       baseBg,
       surfaceBg,
       metrics,
@@ -194,7 +198,7 @@ ${DEFAULT_SHELL_LANDMARKS.join(', ')}, article {
   background-color: ${hexWithAlpha(surfaceBg, metrics.cardAlpha)} !important;
 }
 ${DEFAULT_POPUPS.join(', ')} {
-  background-color: ${hexWithAlpha(surfaceBg, Math.max(0.96, metrics.cardAlpha))} !important;
+  background-color: ${surfaceBg} !important;
 }`;
 
   return [
@@ -205,6 +209,32 @@ ${DEFAULT_POPUPS.join(', ')} {
 
 function scaledHex(hex: string, alpha: number): string {
   return hexWithAlpha(hex, Number(Math.min(0.85, Math.max(0.02, alpha)).toFixed(3)));
+}
+
+/**
+ * Applies a surface finish focus ring to standalone text inputs while moving the ring
+ * onto rounded `searchContainers` via `:focus-within` so bare inner `<input>` nodes inside
+ * pill wrappers never paint a rectangular focus box over curved pill edges.
+ */
+function compileInputFocusRules(
+  searchContainers: readonly string[] | undefined,
+  focusShadow: string,
+): string[] {
+  const rules: string[] = [
+    `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: ${focusShadow} !important;\n}`,
+  ];
+  const expanded = searchContainers?.flatMap((entry) => splitSelectorList(entry)) ?? [];
+  if (expanded.length > 0) {
+    const focusWithin = expanded.map((sel) => `${sel}:focus-within`).join(',\n');
+    const innerInputs = expanded
+      .map((sel) => `${sel} ${TEXT_INPUT_SELECTOR}:focus-visible`)
+      .join(',\n');
+    rules.push(
+      `${focusWithin} {\n  box-shadow: ${focusShadow} !important;\n}`,
+      `${innerInputs} {\n  box-shadow: none !important;\n  outline: none !important;\n}`,
+    );
+  }
+  return rules;
 }
 
 /**
@@ -247,7 +277,7 @@ export function compileSurfaceFinishCss(
       );
     }
     blocks.push(
-      `${popupTargets} {\n  background-color: ${hexWithAlpha(surface, Math.max(0.96, cardAlpha))} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 10px 28px rgb(0 0 0 / 26%) !important;\n}`,
+      `${popupTargets} {\n  background-color: ${surface} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 10px 28px rgb(0 0 0 / 26%) !important;\n}`,
     );
     return blocks.join('\n\n');
   }
@@ -290,7 +320,10 @@ export function compileSurfaceFinishCss(
     const angleExpr = `var(${PRISM_ANGLE_VAR}, ${baseAngle}deg)`;
     const blocks: string[] = [
       `${cardTargets} {\n  background-image: linear-gradient(${angleExpr}, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 42%, ${sheenB} 100%) !important;\n  border-color: ${rim} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 0 0 1px ${scaledHex(accent, 0.18 * glow)}, 0 6px 16px ${outerGlow} !important;\n}`,
-      `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.55 * glow)}, 0 0 14px ${scaledHex(secondary, 0.32 * glow)} !important;\n}`,
+      ...compileInputFocusRules(
+        surfaces?.searchContainers,
+        `0 0 0 2px ${scaledHex(accent, 0.55 * glow)}, 0 0 14px ${scaledHex(secondary, 0.32 * glow)}`,
+      ),
     ];
     if (feedCardHoverTargets) {
       blocks.push(
@@ -328,7 +361,10 @@ export function compileSurfaceFinishCss(
     const underglow = scaledHex(accent, (isLight ? 0.22 : 0.3) * glow);
     const blocks: string[] = [
       `${cardTargets} {\n  background-image: linear-gradient(180deg, ${topLight} 0%, transparent 38%, transparent 66%, ${bounce} 100%) !important;\n  box-shadow: inset 0 1px 0 0 ${topEdge}, inset 0 -1px 0 0 ${waterline}, 0 14px 26px -16px ${underglow} !important;\n}`,
-      `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 10px 20px -10px ${scaledHex(accent, 0.45 * glow)} !important;\n}`,
+      ...compileInputFocusRules(
+        surfaces?.searchContainers,
+        `0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 10px 20px -10px ${scaledHex(accent, 0.45 * glow)}`,
+      ),
     ];
     if (feedCardHoverTargets) {
       // Hovering a post stirs the water under it (inset-only avoids outer blur repaints).
@@ -358,7 +394,10 @@ export function compileSurfaceFinishCss(
   const glow = (sp.glow as number | undefined) ?? 1;
   const blocks: string[] = [
     `${cardTargets} {\n  border-color: ${scaledHex(accent, 0.45 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.25 * glow)}, 0 0 16px ${scaledHex(accent, 0.16 * glow)} !important;\n}`,
-    `${TEXT_INPUT_SELECTOR}:focus-visible, textarea:focus-visible {\n  box-shadow: 0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 0 12px ${scaledHex(accent, 0.28 * glow)} !important;\n}`,
+    ...compileInputFocusRules(
+      surfaces?.searchContainers,
+      `0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 0 12px ${scaledHex(accent, 0.28 * glow)}`,
+    ),
   ];
   if (feedCardHoverTargets) {
     blocks.push(
