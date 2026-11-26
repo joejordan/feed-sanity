@@ -8,6 +8,9 @@ export const DESCRIPTION =
 /** The toolbar button, the userscript menu entry and the options dialog's heading. */
 export const OPTIONS_TITLE = `${NAME} options`;
 
+/** Support / donation landing page opened by the "Keep Feed Sanity Alive" CTA. */
+export const SUPPORT_URL = 'https://feed-sanity.com/support';
+
 /** Pixel-hinted small-cut PNG icons accepted by both Chrome MV3 and Firefox MV2. */
 export const ACTIVE_ICON_PATHS: Readonly<Record<number, string>> = {
   16: 'icon/icon-16.png',

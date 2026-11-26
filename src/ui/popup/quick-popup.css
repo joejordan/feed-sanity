@@ -43,43 +43,72 @@
 }
 
 .qp-brand-bar {
-  position: relative;
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 9px 36px 8px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
   background: var(--fs-sidebar-bg);
   border-bottom: 1px solid var(--fs-divider-subtle);
-}
-
-.qp-brand-bar .qp-grip {
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.qp-brand-bar .qp-close,
-.qp-header-brand .qp-close {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
 }
 
 .qp-brand-lockup {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
+  min-width: 0;
   color: var(--fs-text);
 }
 
-.qp-brand-stack {
+.qp-brand-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.qp-support-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--fs-brand-tittle) 42%, var(--fs-divider));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fs-brand-tittle) 14%, transparent);
+  color: var(--fs-text);
+  font: 600 11px / 1 var(--fs-font);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.qp-support-btn:hover {
+  background: color-mix(in srgb, var(--fs-brand-tittle) 24%, transparent);
+  border-color: color-mix(in srgb, var(--fs-brand-tittle) 65%, var(--fs-divider));
+}
+
+.qp-support-btn:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 1px;
+}
+
+.qp-unsupported-header {
+  flex: none;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 3px;
+}
+
+.qp-unsupported-bar {
+  padding: 5px 12px;
+  background: var(--fs-sidebar-bg);
+  border-bottom: 1px solid var(--fs-divider-subtle);
+}
+
+.qp-unsupported-bar .qp-status {
+  margin-top: 0;
 }
 
 .qp-header {
@@ -91,12 +120,6 @@
   padding: 8px 12px;
   background: var(--fs-sidebar-bg);
   border-bottom: 1px solid var(--fs-divider-subtle);
-}
-
-.qp-header-brand {
-  position: relative;
-  justify-content: center;
-  padding: 11px 36px 10px;
 }
 
 .qp-brand-bar[data-draggable="true"],

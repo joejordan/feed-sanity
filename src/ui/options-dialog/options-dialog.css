@@ -323,9 +323,10 @@
 
 .sidebar-brand {
   margin-top: auto;
-  padding: 12px 10px 2px;
+  padding: 12px 10px 4px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   color: var(--fs-text);
 }

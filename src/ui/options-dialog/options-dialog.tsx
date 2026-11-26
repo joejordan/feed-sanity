@@ -665,8 +665,8 @@ export function OptionsDialog({
 
           {site && (
             <div className="sidebar-brand">
-              <BrandMark size={24} />
-              <BrandWordmark height={17} label={NAME} />
+              <BrandMark size={28} />
+              <BrandWordmark height={21} label={NAME} />
             </div>
           )}
         </aside>

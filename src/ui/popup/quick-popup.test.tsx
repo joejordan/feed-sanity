@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SUPPORT_URL } from '../../../project';
 import { readFilters } from '../../core/filter-types';
 import { Options } from '../../core/options';
 import { SITES_STORAGE_KEY } from '../../core/site-settings';
@@ -72,12 +73,16 @@ describe('QuickPopup', () => {
       'x/123/options': { x_hide_sponsored: true, x_hide_suggested: true },
     });
     const onOpenSettings = vi.fn();
-    const { container } = renderXPopup(store, { hiddenCount: 7, onOpenSettings });
+    const onOpenSiteUrl = vi.fn();
+    const { container } = renderXPopup(store, { hiddenCount: 7, onOpenSettings, onOpenSiteUrl });
 
     expect(screen.getByText('X (Twitter)')).toBeTruthy();
     expect(screen.getByText(/7 hidden here/)).toBeTruthy();
     const activeWordmark = container.querySelector('svg.fs-brand-wordmark');
     expect(activeWordmark?.getAttribute('aria-hidden')).toBe('true');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Keep Feed Sanity Alive' }));
+    expect(onOpenSiteUrl).toHaveBeenCalledWith(SUPPORT_URL);
 
     // Starter Mode: Focus applies preset patch immediately and supports Undo.
     await userEvent.click(screen.getByRole('button', { name: 'Focus' }));
@@ -217,6 +222,8 @@ describe('QuickPopup', () => {
     const unsupportedWordmark = container.querySelector('h1 svg.fs-brand-wordmark');
     expect(unsupportedWordmark?.getAttribute('role')).toBe('img');
     expect(unsupportedWordmark?.getAttribute('aria-label')).toBe('Feed Sanity');
+    await userEvent.click(screen.getByRole('button', { name: 'Keep Feed Sanity Alive' }));
+    expect(onOpenSiteUrl).toHaveBeenCalledWith(SUPPORT_URL);
     expect(screen.getByText('Not active on this page')).toBeTruthy();
     // Production sites (Facebook, X) appear by default; disabled experimental sites stay hidden.
     expect(screen.getByText('Facebook')).toBeTruthy();

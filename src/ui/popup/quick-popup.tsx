@@ -14,7 +14,7 @@ import type { SavedVideoSpeed } from '../../sites/x/features/video-speed-model';
 import type { DragHandleProps } from '../primitives';
 import type { AnalyzedSavedTheme } from './popup-theme-card';
 import type { SiteQuickConfig, StarterModeId } from './starter-modes';
-import { NAME } from '../../../project';
+import { NAME, SUPPORT_URL } from '../../../project';
 import { newFilter, newRule, readFilters } from '../../core/filter-types';
 import { createLogger } from '../../core/log';
 import { createSiteSettings, isSiteVisible } from '../../core/site-settings';
@@ -204,6 +204,46 @@ function QuickMuteForm({ placeholder, onSubmitTerm }: QuickMuteFormProps) {
   );
 }
 
+function PopupBrandBar({
+  asHeading = false,
+  dragAttrs,
+  showGrip = false,
+  closeButton,
+  onSupport,
+}: {
+  readonly asHeading?: boolean;
+  readonly dragAttrs?: {
+    readonly 'data-draggable': 'true';
+    readonly title: string;
+    readonly onPointerDown: DragHandleProps['onPointerDown'];
+    readonly onDoubleClick: DragHandleProps['onDoubleClick'];
+  };
+  readonly showGrip?: boolean;
+  readonly closeButton: ReactNode;
+  readonly onSupport: () => void;
+}) {
+  const wordmark = <BrandWordmark height={17} {...(asHeading ? { label: NAME } : {})} />;
+  return (
+    <div className="qp-brand-bar" {...dragAttrs}>
+      <div className="qp-brand-lockup">
+        {showGrip && (
+          <span className="qp-grip" aria-hidden="true">
+            <UiIcon name="grip" size={12} />
+          </span>
+        )}
+        <BrandMark size={22} />
+        {asHeading ? <h1 className="qp-title">{wordmark}</h1> : wordmark}
+      </div>
+      <div className="qp-brand-actions">
+        <button type="button" className="qp-support-btn" onClick={onSupport}>
+          Keep {NAME} Alive
+        </button>
+        {closeButton}
+      </div>
+    </div>
+  );
+}
+
 interface UnsupportedTabViewProps {
   readonly sites: readonly SiteStatus[];
   readonly savedThemes: readonly AnalyzedSavedTheme[];
@@ -247,17 +287,15 @@ function UnsupportedTabView({
 
   return (
     <div className="qp-root" role="region" aria-label={`${NAME} quick controls`}>
-      <header className="qp-header qp-header-brand">
-        <div className="qp-brand-stack">
-          <div className="qp-brand-lockup">
-            <BrandMark size={26} />
-            <h1 className="qp-title">
-              <BrandWordmark height={19} label={NAME} />
-            </h1>
-          </div>
+      <header className="qp-unsupported-header">
+        <PopupBrandBar
+          asHeading
+          closeButton={closeButton}
+          onSupport={() => onOpenSiteUrl(SUPPORT_URL)}
+        />
+        <div className="qp-unsupported-bar">
           <span className="qp-status">Not active on this page</span>
         </div>
-        {closeButton}
       </header>
 
       <div className="qp-body">
@@ -334,6 +372,7 @@ interface ActiveTabViewProps {
   readonly onSetSiteEnabled: (siteId: string, enabled: boolean) => void;
   readonly onApplyAllSites: (doc: ThemeDocumentV1, displayName?: string) => void;
   readonly onOpenSettings: (section?: string) => void;
+  readonly onOpenSiteUrl: (url: string) => void;
   readonly headerDragProps?: DragHandleProps;
 }
 
@@ -352,6 +391,7 @@ function ActiveTabView({
   onSetSiteEnabled,
   onApplyAllSites,
   onOpenSettings,
+  onOpenSiteUrl,
   headerDragProps,
 }: ActiveTabViewProps) {
   const [optionsMap, setOptionsMap] = useState<Record<string, OptionValue>>({});
@@ -773,18 +813,11 @@ function ActiveTabView({
 
   return (
     <div className="qp-root" role="region" aria-label={`${activeTab.displayName} quick controls`}>
-      <div className="qp-brand-bar" {...dragAttrs}>
-        {headerDragProps && (
-          <span className="qp-grip" aria-hidden="true">
-            <UiIcon name="grip" size={12} />
-          </span>
-        )}
-        <div className="qp-brand-lockup">
-          <BrandMark size={24} />
-          <BrandWordmark height={18} />
-        </div>
-        {closeButton}
-      </div>
+      <PopupBrandBar
+        {...(dragAttrs ? { dragAttrs, showGrip: true } : {})}
+        closeButton={closeButton}
+        onSupport={() => onOpenSiteUrl(SUPPORT_URL)}
+      />
 
       <header className="qp-header" {...dragAttrs}>
         <div className="qp-identity">
@@ -1065,6 +1098,7 @@ export function QuickPopup({
       onSetSiteEnabled={setSiteEnabled}
       onApplyAllSites={applyDocumentToAllSites}
       onOpenSettings={onOpenSettings}
+      onOpenSiteUrl={onOpenSiteUrl}
       {...(headerDragProps ? { headerDragProps } : {})}
     />
   );
