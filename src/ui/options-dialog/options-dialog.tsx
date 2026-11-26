@@ -657,14 +657,18 @@ export function OptionsDialog({
             )}
             {manageSections.length > 0 && (
               <div className="nav-group nav-group-manage">
-                <div className="nav-kicker nav-kicker-brand">
-                  <BrandMark size={18} />
-                  <BrandWordmark height={14} label={NAME} />
-                </div>
+                <div className="nav-kicker">{NAME}</div>
                 {manageSections.map(renderSectionNavButton)}
               </div>
             )}
           </nav>
+
+          {site && (
+            <div className="sidebar-brand">
+              <BrandMark size={24} />
+              <BrandWordmark height={17} label={NAME} />
+            </div>
+          )}
         </aside>
 
         <div className="pane">

@@ -247,15 +247,15 @@ function UnsupportedTabView({
 
   return (
     <div className="qp-root" role="region" aria-label={`${NAME} quick controls`}>
-      <header className="qp-header">
-        <div className="qp-identity">
-          <BrandMark size={28} />
-          <div className="qp-meta">
+      <header className="qp-header qp-header-brand">
+        <div className="qp-brand-stack">
+          <div className="qp-brand-lockup">
+            <BrandMark size={26} />
             <h1 className="qp-title">
-              <BrandWordmark height={17} label={NAME} />
+              <BrandWordmark height={19} label={NAME} />
             </h1>
-            <span className="qp-status">Not active on this page</span>
           </div>
+          <span className="qp-status">Not active on this page</span>
         </div>
         {closeButton}
       </header>
@@ -774,14 +774,14 @@ function ActiveTabView({
   return (
     <div className="qp-root" role="region" aria-label={`${activeTab.displayName} quick controls`}>
       <div className="qp-brand-bar" {...dragAttrs}>
+        {headerDragProps && (
+          <span className="qp-grip" aria-hidden="true">
+            <UiIcon name="grip" size={12} />
+          </span>
+        )}
         <div className="qp-brand-lockup">
-          {headerDragProps && (
-            <span className="qp-grip" aria-hidden="true">
-              <UiIcon name="grip" size={12} />
-            </span>
-          )}
-          <BrandMark size={16} />
-          <BrandWordmark height={13} />
+          <BrandMark size={24} />
+          <BrandWordmark height={18} />
         </div>
         {closeButton}
       </div>

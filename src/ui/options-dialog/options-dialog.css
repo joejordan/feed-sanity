@@ -321,12 +321,19 @@
   color: color-mix(in srgb, var(--fs-text-secondary) 82%, transparent);
 }
 
-.nav-kicker-brand {
+.sidebar-brand {
+  margin-top: auto;
+  padding: 12px 10px 2px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-bottom: 6px;
+  gap: 8px;
   color: var(--fs-text);
+}
+
+@media (max-width: 680px) {
+  .sidebar-brand {
+    display: none;
+  }
 }
 
 .section {

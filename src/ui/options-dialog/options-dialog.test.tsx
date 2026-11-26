@@ -65,6 +65,23 @@ describe('OptionsDialog', () => {
 
   const show = () => render(<OptionsDialog options={options} onClose={onClose} />);
 
+  it('renders the Feed Sanity brand lockup at the floor of the sidebar when opened on a host site', () => {
+    const { container } = render(
+      <OptionsDialog
+        options={options}
+        site={{ id: 'facebook', displayName: 'Facebook' }}
+        siteEnabled={true}
+        onClose={onClose}
+      />,
+    );
+
+    const floorBrand = container.querySelector('.sidebar > .sidebar-brand');
+    expect(floorBrand?.querySelector('svg.fs-brand-mark')).not.toBeNull();
+    const wordmark = floorBrand?.querySelector('svg.fs-brand-wordmark');
+    expect(wordmark?.getAttribute('role')).toBe('img');
+    expect(wordmark?.getAttribute('aria-label')).toBe('Feed Sanity');
+  });
+
   it('lists the first section with saved values, and another section when chosen', async () => {
     const { container } = show();
 
