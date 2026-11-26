@@ -66,7 +66,10 @@ export function createRedditPage(
   locators.override(overrides.get());
   env.scope.add(overrides.onChange((value) => locators.override(value)));
 
-  const bridge = new PageBridge(installPageWorld, { log: createLogger('reddit-bridge') });
+  const bridge = new PageBridge(installPageWorld, {
+    log: createLogger('reddit-bridge'),
+    reconnectOnReady: true,
+  });
   env.scope.add(() => bridge.dispose());
 
   let latestRuntime: RedditRuntimeStats = {

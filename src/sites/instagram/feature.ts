@@ -71,7 +71,10 @@ export function createInstagramPage(
   locators.override(overrides.get());
   env.scope.add(overrides.onChange((value) => locators.override(value)));
 
-  const bridge = new PageBridge(installPageWorld, { log: createLogger('ig-bridge') });
+  const bridge = new PageBridge(installPageWorld, {
+    log: createLogger('ig-bridge'),
+    reconnectOnReady: true,
+  });
   env.scope.add(() => bridge.dispose());
   let latestNetwork: InstagramNetworkStats = { matchedResponses: 0, cachedItems: 0 };
   let listeningStats = false;

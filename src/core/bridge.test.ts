@@ -63,7 +63,9 @@ describe('PageBridge', () => {
     await vi.waitFor(() => {
       expect(bridges.filter((bridge) => bridge.status().state === 'connecting')).toEqual([]);
     });
-    bridges.length = 0;
+    for (const bridge of bridges.splice(0)) {
+      bridge.dispose();
+    }
   });
 
   it('does nothing until it is first used', () => {
@@ -127,6 +129,33 @@ describe('PageBridge', () => {
     start();
 
     expect(await asked).toBe('late');
+  });
+
+  it('recovers once from initial unavailability on READY_EVENT, refuses post-connect hijacking, and disconnects servePageWorld on dispose', async () => {
+    const bridge = make(() => Promise.reject(new Error('background booting')), {
+      log,
+      reconnectOnReady: true,
+    });
+    await expect(bridge.ask(video, 'ver')).rejects.toMatchObject({ failure: 'unavailable' });
+
+    // Late arrival recovers from initial unavailability.
+    const onDispose = vi.fn();
+    const emitter = servePageWorld({ ver: () => 'v1' });
+    emitter.onDispose(onDispose);
+    expect(bridge.status().state).toBe('connected');
+    expect(await bridge.ask(video, 'ver')).toBe('v1');
+
+    // Once connected, a spoofed READY_EVENT cannot hijack the active channel.
+    const spoofedConnect = vi.fn();
+    document.addEventListener(CONNECT_EVENT, spoofedConnect, true);
+    document.dispatchEvent(new CustomEvent(READY_EVENT));
+    document.removeEventListener(CONNECT_EVENT, spoofedConnect, true);
+    expect(spoofedConnect).not.toHaveBeenCalled();
+    expect(await bridge.ask(video, 'ver')).toBe('v1');
+
+    // Disposing the bridge sends the authenticated disconnect signal to tear down servePageWorld.
+    bridge.dispose();
+    expect(onDispose).toHaveBeenCalledTimes(1);
   });
 
   it('uses a new random channel on each page load', async () => {

@@ -306,6 +306,17 @@ describe('mountOverlay', () => {
     expect(FakeResizeObserver.latest?.observed.has(container)).toBe(true);
   });
 
+  it('tracks document.body anchors via window resize instead of ResizeObserver', () => {
+    const host = show();
+    Object.defineProperty(host, 'offsetParent', { get: () => document.body, configurable: true });
+
+    FakeResizeObserver.latest?.report();
+
+    expect(FakeResizeObserver.latest?.observed.has(document.body)).toBe(false);
+    act(() => removes.pop()?.());
+    expect(FakeResizeObserver.latest?.observed.size ?? 0).toBe(0);
+  });
+
   it('removes the host and stops watching sizes when removed', () => {
     const host = show();
     const observer = FakeResizeObserver.latest;

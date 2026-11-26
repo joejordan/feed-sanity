@@ -5,7 +5,7 @@ import type { Badge, Platform } from './platform';
 import type { SiteThemeMapping, ThemeDocumentV1, ThemeLibraryClient } from './theming';
 import { initSiteTheme, THEME_DATA_KEY } from '../ui/appearance';
 import { setSiteThemeCss } from '../ui/mount';
-import { openOptionsDialog } from '../ui/options-dialog';
+import { closeOptionsDialog, openOptionsDialog } from '../ui/options-dialog';
 import { sitesPanel } from '../ui/sites-panel';
 import { FeatureRunner } from './app';
 import { createDomEnvironment } from './dom-env';
@@ -15,6 +15,7 @@ import { SavedData } from './saved';
 import { createSiteSettings, SITES_STORAGE_KEY } from './site-settings';
 import { siteStoragePrefix } from './site-storage';
 import { createPreloadedStore, readStoreMany } from './storage';
+import { OWN_ATTR, OWN_UI_TAG } from './surface';
 import {
   applyEarlyThemeCss,
   clearEarlyThemeStyle,
@@ -26,6 +27,46 @@ import {
 } from './theming';
 
 export { scrubCommonPii } from './pii';
+
+/**
+ * Dispatched synchronously on `document` at the start of `startSite` so any
+ * previous (orphaned) Feed Sanity runtime in the same tab tears itself down
+ * cleanly before the new runtime boots.
+ */
+export const SITE_INSTANCE_REPLACE_EVENT = 'feed-sanity-instance-replace';
+
+/** Tracks replace events created in this JS realm (tests & userscript) so page JS cannot forge them. */
+const localReplaceEvents = new WeakSet<Event>();
+
+const LEGACY_STYLE_SELECTOR = [
+  '#feed_sanity_options',
+  '#feed_sanity_user_theme',
+  '#feed_sanity_adaptive_theme',
+  '#feed_sanity_theme_healer',
+  '#feed_sanity_early_theme',
+  '#feed_sanity_surface',
+  OWN_UI_TAG,
+  `[${OWN_ATTR}]`,
+].join(', ');
+
+/**
+ * Best-effort cleanup of DOM artifacts left behind when upgrading in-place from
+ * an older Feed Sanity build that did not listen for `SITE_INSTANCE_REPLACE_EVENT`.
+ */
+function cleanupOrphanedDomArtifacts(siteId: string): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  for (const el of document.querySelectorAll(LEGACY_STYLE_SELECTOR)) {
+    el.remove();
+  }
+  if (siteId === 'facebook') {
+    for (const post of document.querySelectorAll('[fs_post]')) {
+      post.removeAttribute('fs_post');
+      post.removeAttribute('fs_id');
+    }
+  }
+}
 
 /** One site-contributed section rendered in Diagnostics and text bug reports. */
 export interface DiagnosticSection {
@@ -125,6 +166,26 @@ export async function startSite<P, F extends PageFactory<P>>(
   site: SiteAdapter<P, F>,
   platform: Platform,
 ): Promise<string[]> {
+  const instanceId = crypto.randomUUID();
+  if (typeof document !== 'undefined') {
+    const replaceEvent = new CustomEvent(SITE_INSTANCE_REPLACE_EVENT, { detail: instanceId });
+    localReplaceEvents.add(replaceEvent);
+    document.dispatchEvent(replaceEvent);
+    cleanupOrphanedDomArtifacts(site.id);
+  }
+
+  let disposed = false;
+  const cleanups: Array<() => void> = [];
+  const registerCleanup = (fn: (() => void) | void): void => {
+    if (typeof fn === 'function') {
+      if (disposed) {
+        fn();
+      } else {
+        cleanups.push(fn);
+      }
+    }
+  };
+
   setSiteThemeCss(site.themeCss);
   if (site.themeMapping) {
     applyEarlyThemeCss(site.id);
@@ -132,6 +193,9 @@ export async function startSite<P, F extends PageFactory<P>>(
 
   let lastBadge: Badge | undefined;
   const emitBadge = (badge: Badge): void => {
+    if (disposed) {
+      return;
+    }
     if (
       lastBadge &&
       lastBadge.count === badge.count &&
@@ -176,7 +240,9 @@ export async function startSite<P, F extends PageFactory<P>>(
     : Promise.resolve(platform.store);
 
   interface SiteRuntime {
+    readonly env: DomEnvironment;
     readonly options: Options;
+    readonly data: SavedData;
     readonly runner: FeatureRunner<P>;
     readonly theme: ReturnType<typeof initSiteTheme> | undefined;
     readonly ensurePanels: () => OptionsPanel[];
@@ -186,6 +252,95 @@ export async function startSite<P, F extends PageFactory<P>>(
   let bootStore = platform.store;
   let siteSettings: ReturnType<typeof createSiteSettings> | undefined;
   let themeLibrary: ThemeLibraryClient | undefined;
+  let active = false;
+  let generation = 0;
+
+  const dispose = (): void => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    active = false;
+    generation++;
+    for (const cleanup of cleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        // Ignore teardown errors.
+      }
+    }
+    platform.stopBadge?.();
+    closeOptionsDialog();
+    if (runtime) {
+      runtime.runner.stop();
+      runtime.theme?.dispose();
+      runtime.env.dispose();
+      runtime.options.dispose();
+      runtime.data.dispose();
+      runtime = undefined;
+    }
+    siteSettings?.dispose?.();
+    siteSettings = undefined;
+    themeLibrary?.dispose();
+    themeLibrary = undefined;
+    preloadedStore?.clear();
+  };
+
+  if (typeof document !== 'undefined') {
+    let checkingInvalidation = false;
+    let recheckPending = false;
+    const runInvalidationCheck = (): void => {
+      if (disposed || !platform.isContextInvalidated) {
+        return;
+      }
+      const invalidated = platform.isContextInvalidated();
+      if (invalidated === true) {
+        dispose();
+        return;
+      }
+      if (invalidated && typeof invalidated === 'object' && 'then' in invalidated) {
+        checkingInvalidation = true;
+        void invalidated.then(
+          (dead) => {
+            checkingInvalidation = false;
+            if (dead) {
+              dispose();
+            } else if (recheckPending && !disposed) {
+              recheckPending = false;
+              runInvalidationCheck();
+            }
+          },
+          () => {
+            checkingInvalidation = false;
+            dispose();
+          },
+        );
+      }
+    };
+    const onReplace = (event: Event): void => {
+      if (disposed || (event as CustomEvent<unknown>).detail === instanceId) {
+        return;
+      }
+      // Same-realm replacement (userscript or unit tests) is authenticated by object identity.
+      if (localReplaceEvents.has(event)) {
+        dispose();
+        return;
+      }
+      // Cross-world replacement (e.g. a newly loaded extension replacing an invalidated one):
+      // ignore unless the platform confirms this instance's runtime is actually invalidated,
+      // preventing untrusted host-page JS from killing Feed Sanity by spoofing the event.
+      if (!platform.isContextInvalidated) {
+        return;
+      }
+      if (checkingInvalidation) {
+        recheckPending = true;
+        return;
+      }
+      runInvalidationCheck();
+    };
+    document.addEventListener(SITE_INSTANCE_REPLACE_EVENT, onReplace, true);
+    cleanups.push(() => document.removeEventListener(SITE_INSTANCE_REPLACE_EVENT, onReplace, true));
+  }
 
   const ensureSiteSettings = (): ReturnType<typeof createSiteSettings> => {
     siteSettings ??= createSiteSettings(bootStore);
@@ -243,11 +398,11 @@ export async function startSite<P, F extends PageFactory<P>>(
     };
 
     runner.onBadgeChange((badge) => {
-      if (active) {
+      if (active && !disposed) {
         emitBadge(badge);
       }
     });
-    runtime = { options, runner, theme, ensurePanels };
+    runtime = { env, options, data, runner, theme, ensurePanels };
     return runtime;
   };
 
@@ -257,16 +412,22 @@ export async function startSite<P, F extends PageFactory<P>>(
 
   const resolveBootSettings = async () => {
     const resolvedStore = await bootStoreReady;
+    if (disposed) {
+      return;
+    }
     if (!bootSettled) {
       bootStore = resolvedStore;
     }
     const settings = ensureSiteSettings();
     await settings.ready;
-    return settings;
+    return disposed ? undefined : settings;
   };
 
   const readPopupTabState = async () => {
     const settings = await resolveBootSettings();
+    if (!settings) {
+      throw new Error('site runtime disposed');
+    }
     return {
       settings,
       state: {
@@ -280,11 +441,20 @@ export async function startSite<P, F extends PageFactory<P>>(
   };
 
   const openOptions = (initialSection?: string): void => {
+    if (disposed) {
+      return;
+    }
     void resolveBootSettings()
       .then((settings) => {
+        if (disposed || !settings) {
+          return;
+        }
         const { options, runner, ensurePanels } = ensureRuntime();
-        return runner.prepare().then(() =>
-          openOptionsDialog(options, ensurePanels(), {
+        return runner.prepare().then(() => {
+          if (disposed) {
+            return;
+          }
+          return openOptionsDialog(options, ensurePanels(), {
             site: { id: site.id, displayName: site.displayName },
             siteEnabled: settings.isEnabled(site.id),
             onToggleSite: (enabled) => {
@@ -295,18 +465,16 @@ export async function startSite<P, F extends PageFactory<P>>(
             onSiteEnabledChange: (listener) =>
               settings.onChange(() => listener(settings.isEnabled(site.id))),
             ...(initialSection ? { initialSection } : {}),
-          }),
-        );
+          });
+        });
       })
       .catch((error: unknown) => {
         createLogger('options').error('could not open the options dialog', error);
       });
   };
 
-  let active = false;
-
   const applyThemePreview = (doc: ThemeDocumentV1 | null): void => {
-    if (!active || !runtime?.theme) {
+    if (disposed || !active || !runtime?.theme) {
       return;
     }
     if (doc === null) {
@@ -316,29 +484,37 @@ export async function startSite<P, F extends PageFactory<P>>(
     }
   };
 
-  platform.onOpenOptions(openOptions);
+  registerCleanup(platform.onOpenOptions(openOptions));
 
-  platform.onPopupStateRequest?.(async () => (await readPopupTabState()).state);
+  registerCleanup(platform.onPopupStateRequest?.(async () => (await readPopupTabState()).state));
 
-  platform.onThemePreview?.(applyThemePreview);
+  registerCleanup(platform.onThemePreview?.(applyThemePreview));
 
-  platform.registerQuickPopup?.(async () => {
-    const { settings, state } = await readPopupTabState();
-    const library = ensureThemeLibrary();
-    return {
-      store: platform.store,
-      activeTab: state,
-      siteSettings: settings,
-      ...(library ? { themeLibrary: library } : {}),
-      ...(site.themeMapping ? { onPreviewTheme: applyThemePreview } : {}),
-      onOpenSettings: openOptions,
-    };
-  });
+  registerCleanup(
+    platform.registerQuickPopup?.(async () => {
+      const { settings, state } = await readPopupTabState();
+      const library = ensureThemeLibrary();
+      return {
+        store: platform.store,
+        activeTab: state,
+        siteSettings: settings,
+        ...(library ? { themeLibrary: library } : {}),
+        ...(site.themeMapping ? { onPreviewTheme: applyThemePreview } : {}),
+        onOpenSettings: openOptions,
+      };
+    }),
+  );
 
   bootStore = await bootStoreReady;
+  if (disposed) {
+    return [];
+  }
   bootSettled = true;
   const resolvedSiteSettings = ensureSiteSettings();
   await resolvedSiteSettings.ready;
+  if (disposed) {
+    return [];
+  }
   if (!resolvedSiteSettings.isEnabled(site.id)) {
     // Discard unconsumed preloaded keys so re-enabling or opening Options later
     // reads fresh values instead of stale T=0 startup snapshots.
@@ -350,8 +526,6 @@ export async function startSite<P, F extends PageFactory<P>>(
     emitBadge(PAUSED_BADGE);
   }
 
-  let generation = 0;
-
   const deactivate = (): void => {
     if (runtime) {
       runtime.runner.stop();
@@ -361,6 +535,9 @@ export async function startSite<P, F extends PageFactory<P>>(
   };
 
   const syncEnabled = async (): Promise<string[]> => {
+    if (disposed) {
+      return [];
+    }
     const want = resolvedSiteSettings.isEnabled(site.id);
     if (want === active) {
       return [];
@@ -374,6 +551,9 @@ export async function startSite<P, F extends PageFactory<P>>(
     const current = ensureRuntime();
     current.theme?.setActive(true);
     const failed = await current.runner.start();
+    if (disposed) {
+      return [];
+    }
     // If the user disabled the site while an async feature setup was in flight,
     // stop immediately. If a newer re-enable superseded this token, leave the
     // newer run active.
@@ -388,9 +568,11 @@ export async function startSite<P, F extends PageFactory<P>>(
     return failed;
   };
 
-  resolvedSiteSettings.onChange(() => {
-    void syncEnabled();
-  });
+  registerCleanup(
+    resolvedSiteSettings.onChange(() => {
+      void syncEnabled();
+    }),
+  );
 
   return syncEnabled();
 }

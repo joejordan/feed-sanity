@@ -57,7 +57,7 @@ export function createGmailPage(
   const locators = new Locators(IDENTITY_RESOLVER, Object.values(selectors).filter(isLocatorSpec));
   const overrides = data.value(GMAIL_LOCATOR_OVERRIDES, readLocatorOverrides);
   locators.override(overrides.get());
-  overrides.onChange((value) => locators.override(value));
+  env.scope.add(overrides.onChange((value) => locators.override(value)));
 
   const locate: Locate = (spec) => locators.locate(spec);
   const threads = new GmailThreadList(env, locate);

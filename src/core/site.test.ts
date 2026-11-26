@@ -6,7 +6,7 @@ import type { SiteAdapter } from './site';
 import type { Store } from './storage';
 import { defineCapabilityFeature } from '../capabilities';
 import { defineFeature } from './feature';
-import { SiteRegistry, scrubCommonPii, startSite } from './site';
+import { SITE_INSTANCE_REPLACE_EVENT, SiteRegistry, scrubCommonPii, startSite } from './site';
 import { SITES_STORAGE_KEY } from './site-settings';
 import { inMemoryStore } from './testing';
 import {
@@ -119,7 +119,9 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       build: 'test',
       store,
       setBadge: (badge) => badges.push(badge),
-      onOpenOptions: (listener) => openHandlers.push(listener),
+      onOpenOptions: (listener) => {
+        openHandlers.push(listener);
+      },
       installPageWorld: () => Promise.resolve(),
     });
     expect(events).toEqual([]);
@@ -266,7 +268,9 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       build: 'test',
       store: inMemoryStore(),
       setBadge: () => undefined,
-      onOpenOptions: (listener) => openHandlers.push(listener),
+      onOpenOptions: (listener) => {
+        openHandlers.push(listener);
+      },
       installPageWorld: () => Promise.resolve(),
     });
 
@@ -363,5 +367,130 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     await vi.waitFor(() => expect(document.querySelector('#feed_sanity_user_theme')).toBeNull());
     sendThemePreview?.(warmDoc);
     expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
+  });
+
+  it('cleanly tears down a prior instance and orphaned legacy DOM artifacts on live upgrade', async () => {
+    const events: string[] = [];
+    const trackedFeature = defineFeature({
+      id: 'upgrade_feature',
+      options: {},
+      setup({ scope }) {
+        const marker = document.createElement('span');
+        marker.setAttribute('data-feed-sanity', '');
+        marker.className = 'upgrade-marker';
+        document.body.append(marker);
+        events.push('start');
+        scope.add(() => {
+          marker.remove();
+          events.push('stop');
+        });
+      },
+    });
+    const site: SiteAdapter<Record<string, never>> = {
+      id: 'facebook',
+      displayName: 'Facebook',
+      matchesHost: () => true,
+      themeCss: '',
+      accountId: () => 'u1',
+      scrubPii: scrubCommonPii,
+      createPage: () => () => ({}),
+      features: [trackedFeature],
+      createPanels: () => [],
+    };
+
+    // Simulate legacy pre-teardown artifacts sitting in the DOM before the first boot.
+    const legacyUi = document.createElement('div');
+    legacyUi.setAttribute('data-feed-sanity', '');
+    legacyUi.id = 'legacy_ui';
+    const post = document.createElement('article');
+    post.setAttribute('fs_post', '1');
+    post.setAttribute('fs_id', '999');
+    document.body.append(legacyUi, post);
+
+    const store = inMemoryStore();
+    const unsubOptions = vi.fn();
+    const unsubPopup = vi.fn();
+    const unsubPreview = vi.fn();
+    const stopBadge = vi.fn();
+
+    await startSite(site, {
+      build: 'test',
+      store,
+      setBadge: () => undefined,
+      stopBadge,
+      onOpenOptions: () => unsubOptions,
+      onPopupStateRequest: () => unsubPopup,
+      onThemePreview: () => unsubPreview,
+      installPageWorld: () => Promise.resolve(),
+    });
+
+    expect(document.querySelector('#legacy_ui')).toBeNull();
+    expect(post.hasAttribute('fs_post')).toBe(false);
+    expect(post.hasAttribute('fs_id')).toBe(false);
+    expect(document.querySelectorAll('.upgrade-marker')).toHaveLength(1);
+    expect(events).toEqual(['start']);
+
+    // Starting a second instance (simulating extension reload/upgrade in the same tab)
+    // disposes the first instance cleanly so zero duplicate UI or platform listeners remain.
+    await startSite(site, {
+      build: 'test',
+      store,
+      setBadge: () => undefined,
+      onOpenOptions: () => () => undefined,
+      installPageWorld: () => Promise.resolve(),
+    });
+
+    expect(events).toEqual(['start', 'stop', 'start']);
+    expect(unsubOptions).toHaveBeenCalledTimes(1);
+    expect(unsubPopup).toHaveBeenCalledTimes(1);
+    expect(unsubPreview).toHaveBeenCalledTimes(1);
+    expect(stopBadge).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('.upgrade-marker')).toHaveLength(1);
+    post.remove();
+  });
+
+  it('ignores spoofed replace events from host page JS while runtime is alive, and disposes once invalidated', async () => {
+    const events: string[] = [];
+    const trackedFeature = defineFeature({
+      id: 'spoof_guard_feature',
+      options: {},
+      setup({ scope }) {
+        events.push('start');
+        scope.add(() => events.push('stop'));
+      },
+    });
+    const site: SiteAdapter<Record<string, never>> = {
+      id: 'facebook',
+      displayName: 'Facebook',
+      matchesHost: () => true,
+      themeCss: '',
+      accountId: () => 'u1',
+      scrubPii: scrubCommonPii,
+      createPage: () => () => ({}),
+      features: [trackedFeature],
+      createPanels: () => [],
+    };
+
+    let invalidated = false;
+    await startSite(site, {
+      build: 'test',
+      store: inMemoryStore(),
+      setBadge: () => undefined,
+      onOpenOptions: () => () => undefined,
+      isContextInvalidated: () => Promise.resolve(invalidated),
+      installPageWorld: () => Promise.resolve(),
+    });
+    expect(events).toEqual(['start']);
+
+    // Host page JS spoofing SITE_INSTANCE_REPLACE_EVENT while runtime is alive is ignored.
+    document.dispatchEvent(new CustomEvent(SITE_INSTANCE_REPLACE_EVENT, { detail: 'spoofed' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(events).toEqual(['start']);
+
+    // Once the extension runtime is invalidated (reloaded/unloaded), replacement disposes cleanly.
+    invalidated = true;
+    document.dispatchEvent(new CustomEvent(SITE_INSTANCE_REPLACE_EVENT, { detail: 'new-ext' }));
+    await vi.waitFor(() => expect(events).toEqual(['start', 'stop']));
   });
 });

@@ -175,7 +175,7 @@ class TreeSubscriber implements Subscriber {
     for (const record of childList) {
       if (added && record.addedNodes.length > 0) {
         for (const node of record.addedNodes) {
-          if (this.active && isWatched(node) && !node.hasAttribute(OWN_ATTR)) {
+          if (this.active && isWatched(node) && node.isConnected && !node.hasAttribute(OWN_ATTR)) {
             callSafely(this.#log, added, node);
           }
         }

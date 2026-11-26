@@ -47,8 +47,8 @@ function verifySafariBuild() {
     'Safari host_permissions must cover Reddit',
   );
   assert.ok(
-    !manifest.host_permissions.some((pattern) => pattern.includes('mail.google.com')),
-    'Safari host_permissions must not include Gmail (isolated-world only)',
+    manifest.host_permissions.includes('https://mail.google.com/*'),
+    'Safari host_permissions must cover Gmail for automatic open-tab attachment',
   );
 
   assert.deepEqual(manifest.browser_specific_settings, {
@@ -103,23 +103,37 @@ function verifySafariBuild() {
 function verifyNoSafariBleed(dir, label, expectedManifestVersion) {
   const manifest = readJson(path.join(dir, 'manifest.json'));
   assert.equal(manifest.manifest_version, expectedManifestVersion);
-  assert.deepEqual(
-    manifest.permissions,
-    ['storage'],
-    `${label} permissions must stay strictly ['storage']`,
-  );
-  assert.equal(
-    'host_permissions' in manifest,
-    false,
-    `${label} must not gain Safari host_permissions`,
-  );
   if (label === 'Chrome') {
+    assert.deepEqual(
+      manifest.permissions,
+      ['storage', 'scripting'],
+      'Chrome MV3 permissions must stay strictly [storage, scripting]',
+    );
+    assert.ok(
+      Array.isArray(manifest.host_permissions) &&
+        manifest.host_permissions.includes('https://*.facebook.com/*') &&
+        manifest.host_permissions.includes('https://mail.google.com/*'),
+      'Chrome MV3 host_permissions must cover all 5 supported sites',
+    );
     assert.equal(
       'browser_specific_settings' in manifest,
       false,
       'Chrome manifest must not contain browser_specific_settings',
     );
   } else {
+    assert.ok(
+      Array.isArray(manifest.permissions) &&
+        manifest.permissions.includes('storage') &&
+        manifest.permissions.includes('scripting') &&
+        manifest.permissions.includes('https://*.facebook.com/*') &&
+        manifest.permissions.includes('https://mail.google.com/*'),
+      'Firefox MV2 permissions must include storage, scripting, and the 5 supported sites',
+    );
+    assert.equal(
+      'host_permissions' in manifest,
+      false,
+      'Firefox MV2 must declare host patterns in permissions, not host_permissions',
+    );
     assert.equal(
       'safari' in (manifest.browser_specific_settings ?? {}),
       false,

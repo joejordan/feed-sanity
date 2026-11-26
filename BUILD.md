@@ -36,13 +36,15 @@ pnpm --version   # 10.33.2
    pnpm zip
    ```
 
-5. *(macOS with Xcode only)* Wrap and build the Safari extension app container:
+5. *(macOS with Xcode only)* Wrap, build, and auto-update the Safari extension app container:
 
    ```sh
-   pnpm build:safari-xcode                     # macOS app (auto-signs with Apple Development if present)
+   pnpm build:safari-xcode                     # macOS app (auto-signs with Apple Development if present & registers via pluginkit)
    pnpm build:safari-xcode -- --all-platforms  # universal macOS + iOS/iPadOS project
    pnpm build:safari-xcode -- --no-sign        # unsigned build (CODE_SIGNING_ALLOWED=NO)
    pnpm build:safari-xcode -- --open           # register extension and launch Feed Sanity.app
+   pnpm safari:update                          # ~1s incremental sync, re-sign, and pluginkit refresh
+   pnpm dev:safari:app                         # watch src/ + auto-update Safari extension on save (--test runs WKWebExtension E2E)
    ```
 
 ## Output Artifacts
@@ -64,6 +66,7 @@ pnpm check                # TypeScript typecheck, Biome lint, and Vitest unit su
 pnpm test:e2e             # Chromium Playwright end-to-end suite
 pnpm test:firefox         # Firefox MV2 WebDriver BiDi smoke test
 pnpm test:safari:manifest # Safari MV3 manifest and cross-browser isolation smoke check
+pnpm test:safari          # macOS 15.4+ native WKWebExtension E2E suite (-- --appex also tests signed .appex)
 pnpm dlx addons-linter@10.16.0 .output/feed-sanity-*-firefox.zip
 ```
 

@@ -4,6 +4,7 @@ import { extensionStore } from './extension-store';
 import {
   badgeMessage,
   GET_POPUP_STATE,
+  PING_RUNTIME,
   parseOpenOptionsMessage,
   parseThemePreviewMessage,
   THEME_PREVIEW_PORT,
@@ -24,10 +25,11 @@ export const BADGE_DELAY_MS = 100;
 
 /** The badge last set, which is sent once the wait is over. */
 let latestBadge: Badge | undefined;
-let sendQueued = false;
+let badgeTimer: ReturnType<typeof setTimeout> | undefined;
+let pageShowListener: ((event: PageTransitionEvent) => void) | undefined;
 
 async function sendBadge(): Promise<void> {
-  sendQueued = false;
+  badgeTimer = undefined;
   if (!latestBadge) {
     return;
   }
@@ -45,15 +47,21 @@ export const extensionPlatform: Platform = {
   store: extensionStore,
   build: buildName(import.meta.env.BROWSER),
   onOpenOptions(listener) {
-    browser.runtime.onMessage.addListener((message) => {
+    const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (message) => {
       const parsed = parseOpenOptionsMessage(message);
       if (parsed.matched) {
         listener(parsed.section);
       }
-    });
+    };
+    browser.runtime.onMessage.addListener(onMessage);
+    return () => browser.runtime.onMessage.removeListener(onMessage);
   },
   onPopupStateRequest(handler) {
-    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
+      message,
+      _sender,
+      sendResponse,
+    ) => {
       if (message !== GET_POPUP_STATE) {
         return;
       }
@@ -62,10 +70,12 @@ export const extensionPlatform: Platform = {
         () => sendResponse(undefined),
       );
       return true;
-    });
+    };
+    browser.runtime.onMessage.addListener(onMessage);
+    return () => browser.runtime.onMessage.removeListener(onMessage);
   },
   onThemePreview(listener) {
-    browser.runtime.onConnect.addListener((port) => {
+    const onConnect: Parameters<typeof browser.runtime.onConnect.addListener>[0] = (port) => {
       if (port.name !== THEME_PREVIEW_PORT) {
         return;
       }
@@ -89,24 +99,49 @@ export const extensionPlatform: Platform = {
         }
       });
       port.onDisconnect.addListener(clearPreview);
-    });
+    };
+    browser.runtime.onConnect.addListener(onConnect);
+    return () => browser.runtime.onConnect.removeListener(onConnect);
   },
   setBadge(badge) {
-    if (latestBadge === undefined) {
+    if (!pageShowListener) {
       // A page restored from the browser's back and forward cache has lost its badge.
-      addEventListener('pageshow', (event) => {
+      pageShowListener = (event) => {
         if (event.persisted) {
           void sendBadge();
         }
-      });
+      };
+      globalThis.addEventListener('pageshow', pageShowListener);
     }
     latestBadge = badge;
     // Filtering a page of posts changes the count once for each post, and
     // only the last of those changes is sent.
-    if (!sendQueued) {
-      sendQueued = true;
-      setTimeout(() => void sendBadge(), BADGE_DELAY_MS);
+    if (badgeTimer === undefined) {
+      badgeTimer = setTimeout(() => void sendBadge(), BADGE_DELAY_MS);
     }
+  },
+  stopBadge() {
+    latestBadge = undefined;
+    if (badgeTimer !== undefined) {
+      clearTimeout(badgeTimer);
+      badgeTimer = undefined;
+    }
+    if (pageShowListener) {
+      globalThis.removeEventListener('pageshow', pageShowListener);
+      pageShowListener = undefined;
+    }
+  },
+  isContextInvalidated() {
+    if (!browser.runtime?.id) {
+      return true;
+    }
+    return Promise.resolve()
+      .then(() => browser.runtime.sendMessage(PING_RUNTIME))
+      .then(
+        (reply) =>
+          !(typeof reply === 'object' && reply !== null && (reply as { ok?: unknown }).ok === true),
+        () => true,
+      );
   },
   // Chrome and Firefox register each site's `*-page-world.content.ts` with
   // `world: 'MAIN'` in the manifest. Safari uses dynamic `registerContentScripts`

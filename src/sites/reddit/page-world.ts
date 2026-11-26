@@ -182,11 +182,16 @@ export function startRedditPageWorld(
     emitStats();
   }, host);
 
+  const cleanup = (): void => {
+    stopHydration();
+    stopShadowWatch();
+  };
+  emitter.onDispose(cleanup);
+
   return {
     emitter,
     dispose() {
-      stopHydration();
-      stopShadowWatch();
+      emitter.dispose();
     },
   };
 }

@@ -69,7 +69,10 @@ export function createXPage(
   locators.override(overrides.get());
   env.scope.add(overrides.onChange((value) => locators.override(value)));
 
-  const bridge = new PageBridge(installPageWorld, { log: createLogger('x-bridge') });
+  const bridge = new PageBridge(installPageWorld, {
+    log: createLogger('x-bridge'),
+    reconnectOnReady: true,
+  });
   env.scope.add(() => bridge.dispose());
   let latestNetwork: XNetworkStats = { matchedResponses: 0, strippedPromoted: 0 };
   let listeningStats = false;

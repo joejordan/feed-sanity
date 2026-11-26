@@ -5,6 +5,7 @@ import {
   askEvent,
   CONNECT_EVENT,
   connectedEvent,
+  disconnectEvent,
   isPlainObject,
   messageEvent,
   mountEvent,
@@ -66,6 +67,13 @@ export interface BridgeOptions {
   connectMs?: number;
   answerMs?: number;
   log?: Logger;
+  /**
+   * When true, keeps listening for `READY_EVENT` until `dispose()` so late-arriving
+   * or freshly replaced MAIN-world scripts (such as Safari cold-start races or live
+   * extension reloads) automatically re-establish the bridge channel. Callers using
+   * this option must call `dispose()` when tearing down the runtime.
+   */
+  reconnectOnReady?: boolean;
 }
 
 const NOT_STARTED: BridgeStatus = {
@@ -112,6 +120,7 @@ export class PageBridge {
   readonly #connectMs: number;
   readonly #answerMs: number;
   readonly #log: Logger;
+  readonly #allowReconnectOnReady: boolean;
   readonly #listeners: Listeners<[BridgeStatus]>;
   readonly #topicListeners = new Map<string, Listeners<[unknown]>>();
   readonly #bufferedTopics = new Map<string, unknown[]>();
@@ -122,6 +131,7 @@ export class PageBridge {
   #nextId = 1;
   #disposed = false;
   #connectCleanup: (() => void) | undefined;
+  #readyCleanup: (() => void) | undefined;
   #pushCleanup: (() => void) | undefined;
   /** Settles once the bridge is connected or unavailable. */
   #settled: Promise<void> | undefined;
@@ -132,12 +142,14 @@ export class PageBridge {
       connectMs = CONNECT_MS,
       answerMs = ANSWER_MS,
       log = createLogger('bridge'),
+      reconnectOnReady = false,
     }: BridgeOptions = {},
   ) {
     this.#install = install;
     this.#connectMs = connectMs;
     this.#answerMs = answerMs;
     this.#log = log;
+    this.#allowReconnectOnReady = reconnectOnReady;
     this.#listeners = new Listeners(log);
   }
 
@@ -154,9 +166,12 @@ export class PageBridge {
     if (this.#disposed) {
       return;
     }
+    const connectedChannel = this.#status.state === 'connected' ? this.#channel : undefined;
     this.#disposed = true;
     this.#connectCleanup?.();
     this.#connectCleanup = undefined;
+    this.#readyCleanup?.();
+    this.#readyCleanup = undefined;
     this.#pushCleanup?.();
     this.#pushCleanup = undefined;
     for (const cleanup of [...this.#lateMountCleanups]) {
@@ -175,6 +190,9 @@ export class PageBridge {
     this.#bufferedTopics.clear();
     this.#status = { ...NOT_STARTED, state: 'unavailable', problem: 'the bridge was disposed' };
     this.#settled = Promise.resolve();
+    if (connectedChannel && typeof document !== 'undefined') {
+      document.dispatchEvent(new CustomEvent(disconnectEvent(connectedChannel)));
+    }
   }
 
   /**
@@ -499,6 +517,69 @@ export class PageBridge {
     queue.push(payloadMsg.payload);
   }
 
+  #parseConnected(event: Event): BridgeStatus | undefined {
+    const message = readMessage(event);
+    const readers = message?.readers;
+    const toggles = message?.toggles;
+    const actions = message?.actions;
+    const mounts = message?.mounts;
+    if (
+      isStringList(readers) &&
+      (toggles === undefined || isStringList(toggles)) &&
+      (actions === undefined || isStringList(actions)) &&
+      (mounts === undefined || isStringList(mounts))
+    ) {
+      return {
+        state: 'connected',
+        problem: null,
+        readers,
+        toggles: toggles ?? [],
+        actions: actions ?? [],
+        mounts: mounts ?? [],
+      };
+    }
+    return undefined;
+  }
+
+  #bindPushChannel(channel: string): void {
+    this.#pushCleanup?.();
+    const pushType = pushEvent(channel);
+    const onPush = (pushed: Event): void => this.#handlePush(pushed);
+    document.addEventListener(pushType, onPush, true);
+    this.#pushCleanup = () => document.removeEventListener(pushType, onPush, true);
+  }
+
+  /**
+   * Synchronously recovers from an initial `'unavailable'` state when a late
+   * page-world script announces `READY_EVENT` (e.g. a Safari cold-start race).
+   * Never runs once `'connected'`, so untrusted post-boot page scripts cannot
+   * hijack an established bridge channel.
+   */
+  #reconnectOnReady(): void {
+    if (this.#disposed || this.#status.state !== 'unavailable') {
+      return;
+    }
+    const nextChannel = `feed-sanity-${crypto.randomUUID()}`;
+    const connected = connectedEvent(nextChannel);
+    let nextStatus: BridgeStatus | undefined;
+    const heard = (event: Event): void => {
+      nextStatus ??= this.#parseConnected(event);
+    };
+    document.addEventListener(connected, heard, true);
+    try {
+      document.dispatchEvent(messageEvent(CONNECT_EVENT, { channel: nextChannel }));
+    } finally {
+      document.removeEventListener(connected, heard, true);
+    }
+    if (nextStatus && !this.#disposed) {
+      this.#readyCleanup?.();
+      this.#readyCleanup = undefined;
+      this.#channel = nextChannel;
+      this.#bindPushChannel(nextChannel);
+      this.#update(nextStatus);
+    }
+  }
+
   #connect(): Promise<void> {
     this.#channel = `feed-sanity-${crypto.randomUUID()}`;
     this.#update({ ...NOT_STARTED, state: 'connecting' });
@@ -507,17 +588,25 @@ export class PageBridge {
       document.dispatchEvent(messageEvent(CONNECT_EVENT, { channel: this.#channel }));
     };
     return new Promise((resolve) => {
-      const cleanupHandshake = (): void => {
+      const cleanupHandshake = (keepReadyListener: boolean): void => {
         clearTimeout(timer);
-        document.removeEventListener(READY_EVENT, hello, true);
         document.removeEventListener(connected, heard, true);
+        if (!keepReadyListener) {
+          this.#readyCleanup?.();
+          this.#readyCleanup = undefined;
+        }
       };
       const end = (status: BridgeStatus): void => {
         if (this.#status.state !== 'connecting') {
           return;
         }
         this.#connectCleanup = undefined;
-        cleanupHandshake();
+        // Always stop listening for `READY_EVENT` once connected so post-boot
+        // page scripts cannot hijack an active channel. Only keep it when
+        // `reconnectOnReady` is enabled and the initial attempt went unavailable.
+        cleanupHandshake(
+          this.#allowReconnectOnReady && !this.#disposed && status.state === 'unavailable',
+        );
         if (this.#disposed) {
           resolve();
           return;
@@ -531,29 +620,20 @@ export class PageBridge {
       const unavailable = (problem: string): void =>
         end({ ...NOT_STARTED, state: 'unavailable', problem });
       const heard = (event: Event): void => {
-        const message = readMessage(event);
-        const readers = message?.readers;
-        const toggles = message?.toggles;
-        const actions = message?.actions;
-        const mounts = message?.mounts;
-        if (
-          isStringList(readers) &&
-          (toggles === undefined || isStringList(toggles)) &&
-          (actions === undefined || isStringList(actions)) &&
-          (mounts === undefined || isStringList(mounts))
-        ) {
-          const pushType = pushEvent(this.#channel);
-          const onPush = (pushed: Event): void => this.#handlePush(pushed);
-          document.addEventListener(pushType, onPush, true);
-          this.#pushCleanup = () => document.removeEventListener(pushType, onPush, true);
-          end({
-            state: 'connected',
-            problem: null,
-            readers,
-            toggles: toggles ?? [],
-            actions: actions ?? [],
-            mounts: mounts ?? [],
-          });
+        const status = this.#parseConnected(event);
+        if (status) {
+          this.#bindPushChannel(this.#channel);
+          end(status);
+        }
+      };
+      const onReady = (): void => {
+        if (this.#disposed) {
+          return;
+        }
+        if (this.#status.state === 'connecting') {
+          hello();
+        } else if (this.#status.state === 'unavailable') {
+          this.#reconnectOnReady();
         }
       };
       const timer = setTimeout(
@@ -561,12 +641,14 @@ export class PageBridge {
         this.#connectMs,
       );
       this.#connectCleanup = () => {
-        cleanupHandshake();
+        cleanupHandshake(false);
         resolve();
       };
       document.addEventListener(connected, heard, true);
-      // A page-world side that starts later says so, and is sent this again.
-      document.addEventListener(READY_EVENT, hello, true);
+      // Keep listening for `READY_EVENT` until disposed so late-arriving or
+      // freshly replaced page-world scripts re-establish the channel cleanly.
+      document.addEventListener(READY_EVENT, onReady, true);
+      this.#readyCleanup = () => document.removeEventListener(READY_EVENT, onReady, true);
       hello();
       // If a `document_start` page-world script already answered `hello()`
       // synchronously, skip `#install()` to avoid redundant IPC or injection.

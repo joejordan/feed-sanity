@@ -300,7 +300,7 @@ export interface PageStats {
 export function createPage(
   data: FeatureData,
   installPageWorld: () => Promise<void>,
-  _env?: DomEnvironment,
+  env?: DomEnvironment,
   openOptions?: (initialSection?: string) => void,
 ): PageFactory<FacebookPage> & { readonly stats: PageStats } {
   const atoms = new Atoms();
@@ -308,7 +308,7 @@ export function createPage(
   const overrides = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
   // The value may have been read already, if something else asked for it first.
   locators.override(overrides.get());
-  overrides.onChange((value) => locators.override(value));
+  const stopOverrides = overrides.onChange((value) => locators.override(value));
   let scanning = false;
   const locate: Locate = (spec) => {
     // Many strategies need Facebook's class names, so the first lookup starts the search for them.
@@ -321,7 +321,13 @@ export function createPage(
     return locators.locate(spec);
   };
   const posts = new Posts(atoms, locate);
-  const bridge = new PageBridge(installPageWorld);
+  const bridge = new PageBridge(installPageWorld, { reconnectOnReady: Boolean(env) });
+  env?.scope.add(() => {
+    stopOverrides();
+    atoms.dispose();
+    posts.dispose();
+    bridge.dispose();
+  });
   const page = bindPage({
     atoms,
     locate,

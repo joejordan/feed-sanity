@@ -13,6 +13,14 @@
 export const READY_EVENT = 'feed-sanity-page-world-ready';
 
 /**
+ * Sent on `document` by a newly starting page-world side with its unique
+ * instance ID so any previous page-world instance (e.g. from an extension
+ * reload or live upgrade) tears down its listeners, mounts, toggles, and hooks
+ * synchronously before the new instance installs its own.
+ */
+export const REPLACE_PAGE_WORLD_EVENT = 'feed-sanity-page-world-replace';
+
+/**
  * Sent on `document` by the content side with `{ "channel": "..." }`. The
  * page-world side takes the first one it is given and stops listening for
  * more. Every later message goes by that channel's names.
@@ -42,6 +50,9 @@ export const unmountEvent = (channel: string): string => `${channel}-unmount`;
 
 /** Sent on `document` by the page-world side to push unsolicited events (`{ "topic": "...", "payload": ... }`). */
 export const pushEvent = (channel: string): string => `${channel}-push`;
+
+/** Sent on `document` by a disposing `PageBridge` to cleanly tear down its paired `servePageWorld`. */
+export const disconnectEvent = (channel: string): string => `${channel}-disconnect`;
 
 /**
  * Sent on the same target in reply, with `{ "id": 1, "value": ... }`, or

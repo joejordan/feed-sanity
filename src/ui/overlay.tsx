@@ -132,11 +132,45 @@ const BOX_KEYS = ['left', 'top', 'width', 'height'] as const;
 const overlays = new Set<Overlay>();
 /** The overlays placed by each element whose size is watched. */
 const sizing = new Map<Element, Set<Overlay>>();
+/** Overlays whose containing block is `document.body` or `document.documentElement` (tracked via `window` resize instead of `ResizeObserver` on `body`). */
+const rootAnchored = new Set<Overlay>();
 /** Parents of recently added non-Feed-Sanity nodes, used to avoid re-resolving unaffected overlays. */
 const mutatedParents = new Set<Element>();
 let resizes: ResizeObserver | undefined;
 let stopWatching: (() => void) | undefined;
+let rootResizeRaf = 0;
+let listeningRootResize = false;
 let checkQueued = false;
+
+function isDocumentRoot(element: Element): boolean {
+  return element === document.body || element === document.documentElement;
+}
+
+function onRootResize(): void {
+  if (rootResizeRaf !== 0) {
+    return;
+  }
+  rootResizeRaf = requestAnimationFrame(() => {
+    rootResizeRaf = 0;
+    if (rootAnchored.size > 0) {
+      measure(rootAnchored);
+    }
+  });
+}
+
+function syncRootResizeListener(): void {
+  if (rootAnchored.size > 0 && !listeningRootResize) {
+    listeningRootResize = true;
+    globalThis.addEventListener('resize', onRootResize, { passive: true });
+  } else if (rootAnchored.size === 0 && listeningRootResize) {
+    listeningRootResize = false;
+    globalThis.removeEventListener('resize', onRootResize);
+    if (rootResizeRaf !== 0) {
+      cancelAnimationFrame(rootResizeRaf);
+      rootResizeRaf = 0;
+    }
+  }
+}
 
 /** Reads where each target is, then moves the hosts, so the page is laid out once for all of them. */
 function measure(list: Iterable<Overlay>): void {
@@ -183,14 +217,13 @@ function measure(list: Iterable<Overlay>): void {
     }
     if (anchor !== overlay.anchor) {
       forgetAnchor(overlay);
-      overlay.anchor = anchor;
-      if (anchor && watchedForAnchor(overlay, anchor)) {
-        observe(anchor, overlay);
-      }
+      trackAnchor(overlay, anchor);
     }
   }
   for (const [overlay, wanted] of reparent) {
-    place(overlay, wanted);
+    // Avoid synchronous `unobserve`/`observe` on `target` inside a live
+    // ResizeObserver callback (which triggers WebKit's ResizeObserver loop error).
+    place(overlay, wanted, true);
   }
 }
 
@@ -204,7 +237,9 @@ function resized(entries: ResizeObserverEntry[]): void {
       }
     }
   }
-  measure(affected);
+  if (affected.size > 0) {
+    measure(affected);
+  }
 }
 
 /**
@@ -241,17 +276,38 @@ function unobserve(element: Element, overlay: Overlay): void {
 const watchedForAnchor = (overlay: Overlay, anchor: Element): boolean =>
   anchor !== overlay.parent && anchor !== overlay.target;
 
+/** Tracks `anchor` via `window` resize for document roots and `ResizeObserver` for inner containers. */
+function trackAnchor(overlay: Overlay, anchor: Element | null): void {
+  overlay.anchor = anchor;
+  if (!anchor) {
+    return;
+  }
+  if (isDocumentRoot(anchor)) {
+    rootAnchored.add(overlay);
+    syncRootResizeListener();
+  } else if (watchedForAnchor(overlay, anchor)) {
+    observe(anchor, overlay);
+  }
+}
+
 /** Stops watching the overlay's containing block, unless it is watched for another reason. */
 function forgetAnchor(overlay: Overlay): void {
   const { anchor } = overlay;
-  if (anchor && watchedForAnchor(overlay, anchor)) {
+  if (rootAnchored.delete(overlay)) {
+    syncRootResizeListener();
+  }
+  if (anchor && !isDocumentRoot(anchor) && watchedForAnchor(overlay, anchor)) {
     unobserve(anchor, overlay);
   }
   overlay.anchor = null;
 }
 
 /** Puts the host in its container, unless it is there already. */
-function place(overlay: Overlay, container: Element | null = overlay.container()): void {
+function place(
+  overlay: Overlay,
+  container: Element | null = overlay.container(),
+  fromResize = false,
+): void {
   if (!container || container === overlay.host.parentNode || !overlay.target.isConnected) {
     return;
   }
@@ -264,8 +320,11 @@ function place(overlay: Overlay, container: Element | null = overlay.container()
   overlay.reshaped = true;
   observe(container, overlay);
   observe(overlay.target, overlay);
-  // The target, and the container, may have been observed already.
-  reobserve(overlay.target);
+  if (!fromResize) {
+    trackAnchor(overlay, overlay.host.offsetParent);
+    // The target, and the container, may have been observed already.
+    reobserve(overlay.target);
+  }
 }
 
 function hasNonOwnAfter(host: Element): boolean {
@@ -445,6 +504,8 @@ export function mountOverlay(
       stopWatching?.();
       stopWatching = undefined;
       mutatedParents.clear();
+      rootAnchored.clear();
+      syncRootResizeListener();
       resizes?.disconnect();
       resizes = undefined;
     }

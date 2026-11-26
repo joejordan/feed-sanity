@@ -4,7 +4,7 @@
 // macOS), and optionally registers + opens the built app.
 //
 // Usage:
-//   node scripts/build-safari-xcode.mjs [--all-platforms] [--no-sign] [--open] [--skip-build] [--ios-sim]
+//   node scripts/build-safari-xcode.mjs [--sync] [--all-platforms] [--no-sign] [--open] [--skip-build] [--skip-wxt] [--ios-sim]
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -431,12 +431,85 @@ function customizeContainerApp(sharedAppDir, macAppDir) {
   syncXcodeProjectSettings(marketingVersion);
 }
 
+function registerAppex(builtApp) {
+  const appex = path.join(builtApp, 'Contents', 'PlugIns', `${APP_NAME} Extension.appex`);
+  if (fs.existsSync(appex)) {
+    run('pluginkit', ['-a', appex], { capture: true });
+    return appex;
+  }
+  return null;
+}
+
+function detectCodesignIdentity(teamId) {
+  try {
+    const output = run('security', ['find-identity', '-v', '-p', 'codesigning'], {
+      capture: true,
+    });
+    for (const line of output.split(/\r?\n/)) {
+      if (!line.includes('Apple Development:')) {
+        continue;
+      }
+      const hashMatch = /\b([A-F0-9]{40})\b/.exec(line);
+      if (hashMatch && (!teamId || line.includes(`(${teamId})`) || line.includes(teamId))) {
+        return hashMatch[1];
+      }
+    }
+    const fallbackMatch = /\b([A-F0-9]{40})\b.*"Apple Development:/.exec(output);
+    if (fallbackMatch) {
+      return fallbackMatch[1];
+    }
+  } catch {
+    // Fall back to the generic Apple Development label.
+  }
+  return 'Apple Development';
+}
+
+function syncBuiltAppResources(builtApp, teamId) {
+  const appex = path.join(builtApp, 'Contents', 'PlugIns', `${APP_NAME} Extension.appex`);
+  const resourcesDir = path.join(appex, 'Contents', 'Resources');
+  if (!fs.existsSync(builtApp) || !fs.existsSync(appex) || !fs.existsSync(resourcesDir)) {
+    return false;
+  }
+
+  // Mirror `.output/safari-mv3` cleanly into the `.appex` Resources folder so
+  // stale hashed chunks (e.g. old `chunks/popup-*.js`) never accumulate.
+  fs.rmSync(resourcesDir, { recursive: true, force: true });
+  fs.cpSync(EXT_DIR, resourcesDir, { recursive: true });
+
+  if (teamId) {
+    const signIdentity = detectCodesignIdentity(teamId);
+    // Re-sign the embedded extension first, then the host app, preserving each
+    // binary's existing Xcode-generated entitlements.
+    run('codesign', [
+      '--force',
+      '--sign',
+      signIdentity,
+      '--preserve-metadata=entitlements',
+      '--timestamp=none',
+      appex,
+    ]);
+    run('codesign', [
+      '--force',
+      '--sign',
+      signIdentity,
+      '--preserve-metadata=entitlements',
+      '--timestamp=none',
+      builtApp,
+    ]);
+    run('codesign', ['--verify', '--deep', '--strict', builtApp]);
+  }
+  registerAppex(builtApp);
+  console.log(`Synced and re-signed Safari extension at ${appex}`);
+  return true;
+}
+
 function main() {
   if (process.platform !== 'darwin') {
     throw new Error('scripts/build-safari-xcode.mjs requires macOS with Xcode installed.');
   }
 
   const args = new Set(process.argv.slice(2));
+  const syncOnly = args.has('--sync');
   const allPlatforms = args.has('--all-platforms');
   const noSign = args.has('--no-sign');
   const shouldOpen = args.has('--open');
@@ -446,6 +519,24 @@ function main() {
 
   if (!skipWxt || !fs.existsSync(path.join(EXT_DIR, 'manifest.json'))) {
     run('pnpm', ['build:safari']);
+  }
+
+  const teamId = noSign ? null : detectAppleDevelopmentTeam();
+  const builtApp = path.join(BUILD_DIR, `${APP_NAME}.app`);
+
+  // Fast incremental update path (~1s): update `.appex/Contents/Resources/`,
+  // re-sign preserving entitlements, verify signature, and re-register via pluginkit.
+  if (
+    syncOnly &&
+    !allPlatforms &&
+    !skipBuild &&
+    !iosSim &&
+    syncBuiltAppResources(builtApp, teamId)
+  ) {
+    if (shouldOpen) {
+      run('open', [builtApp]);
+    }
+    return;
   }
 
   fs.rmSync(XCODE_OUT_DIR, { recursive: true, force: true });
@@ -481,7 +572,6 @@ function main() {
     return;
   }
 
-  const teamId = noSign ? null : detectAppleDevelopmentTeam();
   const macScheme = allPlatforms ? `${APP_NAME} (macOS)` : APP_NAME;
   const buildArgs = [
     '-project',
@@ -508,10 +598,14 @@ function main() {
   );
   run('xcodebuild', buildArgs);
 
-  const builtApp = path.join(BUILD_DIR, `${APP_NAME}.app`);
   if (teamId) {
     run('codesign', ['--verify', '--deep', '--strict', builtApp]);
-    console.log(`Verified signature on ${builtApp}`);
+    const registered = registerAppex(builtApp);
+    console.log(
+      registered
+        ? `Verified signature and registered Safari extension at ${registered}`
+        : `Verified signature on ${builtApp}`,
+    );
   }
 
   if (allPlatforms && iosSim) {
@@ -531,10 +625,6 @@ function main() {
   }
 
   if (shouldOpen) {
-    const appex = path.join(builtApp, 'Contents', 'PlugIns', `${APP_NAME} Extension.appex`);
-    if (fs.existsSync(appex)) {
-      run('pluginkit', ['-a', appex]);
-    }
     run('open', [builtApp]);
   }
 }

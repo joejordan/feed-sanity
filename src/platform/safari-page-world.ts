@@ -136,11 +136,19 @@ function toRegistration(spec: SafariPageWorldSpec): SafariRegisteredScript {
 }
 
 let inFlightRegistration: Promise<void> | undefined;
+const syncedScripting: WeakSet<SafariScripting> = new WeakSet();
 
 async function syncRegistrations(scripting: SafariScripting): Promise<void> {
   const ids = SAFARI_PAGE_WORLD_SITES.map((spec) => spec.id);
   const existing = await scripting.getRegisteredContentScripts({ ids });
   const existingIds = new Set(existing.map((entry) => entry.id));
+
+  // Skip redundant `updateContentScripts` calls once this background worker has
+  // already registered/updated all 4 scripts (e.g. `onInstalled` firing right
+  // after top-level startup), avoiding duplicate Safari open-tab injections.
+  if (syncedScripting.has(scripting) && existingIds.size === SAFARI_PAGE_WORLD_SITES.length) {
+    return;
+  }
 
   const toUpdate: SafariRegisteredScript[] = [];
   const toRegister: SafariRegisteredScript[] = [];
@@ -167,6 +175,7 @@ async function syncRegistrations(scripting: SafariScripting): Promise<void> {
     }
     await scripting.registerContentScripts(SAFARI_PAGE_WORLD_SITES.map(toRegistration));
   }
+  syncedScripting.add(scripting);
 }
 
 /**

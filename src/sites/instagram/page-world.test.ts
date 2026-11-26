@@ -185,6 +185,7 @@ describe('instagram page-world engine (React fiber + Network Tap)', () => {
     const handle = startInstagramPageWorld({});
     disposers.push(handle.dispose);
     const bridge = new PageBridge(async () => undefined);
+    disposers.push(() => bridge.dispose());
 
     const attachFiber = (el: Element, fiber: Record<string, unknown>): void => {
       Object.defineProperty(el, '__reactFiber$test', {
@@ -278,6 +279,7 @@ describe('instagram page-world engine (React fiber + Network Tap)', () => {
     const handle = startInstagramPageWorld({ document });
     disposers.push(handle.dispose);
     const bridge = new PageBridge(async () => undefined);
+    disposers.push(() => bridge.dispose());
 
     const article = document.createElement('article');
     const link = document.createElement('a');

@@ -386,7 +386,14 @@ function assertManifest() {
     manifest.browser_specific_settings?.gecko_android?.strict_min_version,
     GECKO_ANDROID_MIN_VERSION,
   );
-  assert.deepEqual(manifest.permissions, ['storage']);
+  assert.ok(
+    Array.isArray(manifest.permissions) &&
+      manifest.permissions.includes('storage') &&
+      manifest.permissions.includes('scripting') &&
+      manifest.permissions.includes('https://*.facebook.com/*') &&
+      manifest.permissions.includes('https://mail.google.com/*'),
+    'Firefox MV2 permissions must include storage, scripting, and supported site host patterns',
+  );
   assert.ok(manifest.icons && Object.keys(manifest.icons).length > 0, 'Manifest icons must be set');
   const defaultIcon = manifest.browser_action?.default_icon;
   assert.equal(

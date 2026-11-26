@@ -366,6 +366,22 @@ export default defineFeature({
 
     /** Marks the top-bar Home link active (blue underline + accent icon) on alternate feeds. */
     const homeLinks = new Set<Element>();
+    const homeLinkSubscribers = new Set<{
+      added: (link: Element) => void;
+      removed: (link: Element) => void;
+    }>();
+    const watchHomeLinks = (
+      subScope: Scope,
+      handlers: { added: (link: Element) => void; removed: (link: Element) => void },
+    ): void => {
+      homeLinkSubscribers.add(handlers);
+      for (const link of homeLinks) {
+        if (link.isConnected) {
+          handlers.added(link);
+        }
+      }
+      subScope.add(() => homeLinkSubscribers.delete(handlers));
+    };
     let activeHomeScope: Scope | undefined;
     const syncHomeActive = (): void => {
       const prev = activeHomeScope;
@@ -402,12 +418,18 @@ export default defineFeature({
           homeAttrObservers.set(link, obs);
         }
         syncHomeActive();
+        for (const sub of homeLinkSubscribers) {
+          sub.added(link);
+        }
       },
       removed: (link) => {
         homeLinks.delete(link);
         homeAttrObservers.get(link)?.disconnect();
         homeAttrObservers.delete(link);
         syncHomeActive();
+        for (const sub of homeLinkSubscribers) {
+          sub.removed(link);
+        }
       },
     });
 
@@ -508,7 +530,7 @@ export default defineFeature({
         fallback.set(homePresent && !homeVisible && actionsVisible);
       };
 
-      page.watch(page.locate(TOP_BAR_HOME), {
+      watchHomeLinks(menuScope, {
         added: (link) => {
           homeOverlays.get(link)?.();
           homeOverlays.set(

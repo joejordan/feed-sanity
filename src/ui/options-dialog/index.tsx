@@ -13,6 +13,11 @@ let closeOpen: (() => void) | undefined;
 /** Switches sections on the already-open dialog when deep-linked from the popup. */
 let jumpOpenSection: ((section: string) => void) | undefined;
 
+/** Closes the currently mounted Options dialog, if any. */
+export function closeOptionsDialog(): void {
+  closeOpen?.();
+}
+
 export interface OpenOptionsDialogConfig {
   readonly site?: SiteIdentity;
   readonly siteEnabled?: boolean;

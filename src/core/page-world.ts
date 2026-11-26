@@ -11,11 +11,13 @@ import {
   CHANNEL,
   CONNECT_EVENT,
   connectedEvent,
+  disconnectEvent,
   isPlainObject,
   messageEvent,
   mountEvent,
   pushEvent,
   READY_EVENT,
+  REPLACE_PAGE_WORLD_EVENT,
   readMessage,
   toggleEvent,
   unmountEvent,
@@ -71,6 +73,10 @@ export interface PageWorldEmitter {
    * bounded ring buffer and delivered in order as soon as the channel connects.
    */
   emit: (topic: string, payload: unknown) => void;
+  /** Registers a cleanup callback invoked when this page-world instance is disposed or replaced. */
+  onDispose: (callback: () => void) => void;
+  /** Tears down all listeners, active mounts, enabled toggles, and registered cleanups. */
+  dispose: () => void;
 }
 
 const MAX_BUFFERED_EVENTS = 64;
@@ -136,10 +142,22 @@ export function servePageWorld(
   actions: PageActions = {},
   mounts: PageMounts = {},
 ): PageWorldEmitter {
+  const instanceId = crypto.randomUUID();
+  // Tear down any previous page-world instance synchronously before binding
+  // our own listeners or installing host hooks (fetch/XHR/attachShadow).
+  document.dispatchEvent(new CustomEvent(REPLACE_PAGE_WORLD_EVENT, { detail: instanceId }));
+
+  let disposed = false;
   let pushType: string | undefined;
   const bufferedEvents: Array<{ topic: string; payload: unknown }> = [];
+  const cleanups: Array<() => void> = [];
+  const disposeCallbacks: Array<() => void> = [];
+  const enabledToggles = new Set<string>();
 
   const dispatchPush = (type: string, topic: string, payload: unknown): void => {
+    if (disposed) {
+      return;
+    }
     try {
       document.dispatchEvent(messageEvent(type, { topic, payload: payload ?? null }));
     } catch {
@@ -147,8 +165,45 @@ export function servePageWorld(
     }
   };
 
+  const dispose = (): void => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    pushType = undefined;
+    bufferedEvents.length = 0;
+    for (const cleanup of cleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        // Ignore teardown errors.
+      }
+    }
+    for (const name of [...enabledToggles]) {
+      enabledToggles.delete(name);
+      const run = lookup(toggles, name);
+      if (run) {
+        try {
+          void run(false);
+        } catch {
+          // Ignore toggle teardown errors.
+        }
+      }
+    }
+    for (const cb of disposeCallbacks.splice(0)) {
+      try {
+        cb();
+      } catch {
+        // Ignore teardown errors.
+      }
+    }
+  };
+
   const emitter: PageWorldEmitter = {
     emit(topic, payload) {
+      if (disposed) {
+        return;
+      }
       if (pushType) {
         dispatchPush(pushType, topic, payload);
         return;
@@ -158,9 +213,32 @@ export function servePageWorld(
       }
       bufferedEvents.push({ topic, payload });
     },
+    onDispose(callback) {
+      if (disposed) {
+        try {
+          callback();
+        } catch {
+          // Ignore teardown errors.
+        }
+        return;
+      }
+      disposeCallbacks.push(callback);
+    },
+    dispose,
   };
 
+  const onReplace = (event: Event): void => {
+    if ((event as CustomEvent<unknown>).detail !== instanceId) {
+      dispose();
+    }
+  };
+  document.addEventListener(REPLACE_PAGE_WORLD_EVENT, onReplace, true);
+  cleanups.push(() => document.removeEventListener(REPLACE_PAGE_WORLD_EVENT, onReplace, true));
+
   const connect = (event: Event): void => {
+    if (disposed) {
+      return;
+    }
     const channel = readMessage(event)?.channel;
     if (typeof channel !== 'string' || !CHANNEL.test(channel)) {
       return;
@@ -230,8 +308,23 @@ export function servePageWorld(
       return true;
     };
 
+    cleanups.push(() => {
+      if (disconnectTimer !== undefined) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = undefined;
+      }
+      for (const mountId of [...activeMounts.keys()]) {
+        releaseMount(mountId);
+      }
+      for (const observer of disconnectObservers.values()) {
+        observer.disconnect();
+      }
+      disconnectObservers.clear();
+      rootRefCounts.clear();
+    });
+
     const scheduleDisconnectCheck = (records: readonly MutationRecord[]): void => {
-      if (!records.some((record) => record.removedNodes.length > 0)) {
+      if (disposed || !records.some((record) => record.removedNodes.length > 0)) {
         return;
       }
       // Defer past microtasks so content-script `mountSlot` re-attachment
@@ -241,6 +334,9 @@ export function servePageWorld(
       }
       disconnectTimer = setTimeout(() => {
         disconnectTimer = undefined;
+        if (disposed) {
+          return;
+        }
         for (const [id, { target }] of activeMounts) {
           if (!target.isConnected) {
             releaseMount(id);
@@ -277,42 +373,44 @@ export function servePageWorld(
       type: string,
       handle: (target: Element, id: number, message: Record<string, unknown>) => void,
     ): void => {
-      document.addEventListener(
-        type,
-        (request) => {
-          let target = request.target;
-          // Only allocate `composedPath()` when the event may have crossed an open Shadow Root.
-          if (!(target instanceof Element) || target.shadowRoot !== null) {
-            const first = request.composedPath()[0];
-            if (first instanceof Element) {
-              target = first;
-            }
+      const listener = (request: Event): void => {
+        if (disposed) {
+          return;
+        }
+        let target = request.target;
+        // Only allocate `composedPath()` when the event may have crossed an open Shadow Root.
+        if (!(target instanceof Element) || target.shadowRoot !== null) {
+          const first = request.composedPath()[0];
+          if (first instanceof Element) {
+            target = first;
           }
-          const message = readMessage(request);
-          if (!(target instanceof Element) || typeof message?.id !== 'number') {
-            return;
-          }
-          handle(target, message.id, message);
-        },
-        true,
-      );
+        }
+        const message = readMessage(request);
+        if (!(target instanceof Element) || typeof message?.id !== 'number') {
+          return;
+        }
+        handle(target, message.id, message);
+      };
+      document.addEventListener(type, listener, true);
+      cleanups.push(() => document.removeEventListener(type, listener, true));
     };
 
     const onDocument = (
       type: string,
       handle: (id: number, message: Record<string, unknown>) => void,
     ): void => {
-      document.addEventListener(
-        type,
-        (request) => {
-          const message = readMessage(request);
-          if (request.target !== document || typeof message?.id !== 'number') {
-            return;
-          }
-          handle(message.id, message);
-        },
-        true,
-      );
+      const listener = (request: Event): void => {
+        if (disposed) {
+          return;
+        }
+        const message = readMessage(request);
+        if (request.target !== document || typeof message?.id !== 'number') {
+          return;
+        }
+        handle(message.id, message);
+      };
+      document.addEventListener(type, listener, true);
+      cleanups.push(() => document.removeEventListener(type, listener, true));
     };
 
     onElement(askEvent(channel), (target, id, message) => {
@@ -325,8 +423,9 @@ export function servePageWorld(
     });
 
     onDocument(toggleEvent(channel), (id, message) => {
-      const run = lookup(toggles, message.toggle);
-      if (!run) {
+      const name = typeof message.toggle === 'string' ? message.toggle : undefined;
+      const run = lookup(toggles, name);
+      if (!run || !name) {
         sendError(document, id, 'there is no such toggle');
         return;
       }
@@ -335,6 +434,11 @@ export function servePageWorld(
         return;
       }
       const enabled = message.enabled;
+      if (enabled) {
+        enabledToggles.add(name);
+      } else {
+        enabledToggles.delete(name);
+      }
       settleResult(document, answer, id, () => run(enabled), 'the toggle failed');
     });
 
@@ -373,7 +477,7 @@ export function servePageWorld(
           if (typeof unmount !== 'function') {
             return JSON.stringify({ id, value: null });
           }
-          if (!target.isConnected) {
+          if (disposed || !target.isConnected) {
             try {
               (unmount as () => void)();
             } catch {
@@ -394,6 +498,13 @@ export function servePageWorld(
       document.dispatchEvent(messageEvent(answer, { id, value: removed }));
     });
 
+    const onDisconnect = (): void => {
+      dispose();
+    };
+    const disconnectType = disconnectEvent(channel);
+    document.addEventListener(disconnectType, onDisconnect, true);
+    cleanups.push(() => document.removeEventListener(disconnectType, onDisconnect, true));
+
     const toggleNames = Object.keys(toggles);
     const actionNames = Object.keys(actions);
     const mountNames = Object.keys(mounts);
@@ -410,6 +521,9 @@ export function servePageWorld(
     // keeping `pushType` unset until drained so strict FIFO order is preserved.
     if (bufferedEvents.length > 0) {
       queueMicrotask(() => {
+        if (disposed) {
+          return;
+        }
         while (bufferedEvents.length > 0) {
           const item = bufferedEvents.shift();
           if (item) {
@@ -423,6 +537,7 @@ export function servePageWorld(
     }
   };
   document.addEventListener(CONNECT_EVENT, connect, true);
+  cleanups.push(() => document.removeEventListener(CONNECT_EVENT, connect, true));
   document.dispatchEvent(new CustomEvent(READY_EVENT));
   return emitter;
 }

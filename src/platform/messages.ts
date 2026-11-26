@@ -3,8 +3,15 @@ import type { ThemeDocumentV1 } from '../core/theming/document';
 import { isRecord } from '../core/storage';
 import { parseThemeDocument } from '../core/theming/document';
 
+export type { AttachTabMessage, AttachTabReply } from './auto-attach';
 export type { BadgeMessage } from './badge-message';
 export type { RequestPageWorldMessage, RequestPageWorldReply } from './safari-page-world';
+export {
+  ATTACH_TAB,
+  attachTabMessage,
+  isAttachTabMessage,
+  isAttachTabReply,
+} from './auto-attach';
 export { badgeMessage, isBadgeMessage } from './badge-message';
 export {
   isRequestPageWorldMessage,
@@ -42,6 +49,9 @@ export function parseOpenOptionsMessage(
 
 /** Sent from the toolbar popup to the active tab to inspect site, account prefix, and hidden count. */
 export const GET_POPUP_STATE = 'feed-sanity/get-popup-state';
+
+/** Sent by a content script to verify its own extension background runtime is still alive. */
+export const PING_RUNTIME = 'feed-sanity/ping';
 
 export function isPopupTabState(value: unknown): value is PopupTabState {
   if (!isRecord(value)) {

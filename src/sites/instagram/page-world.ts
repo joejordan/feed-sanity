@@ -468,13 +468,18 @@ export function startInstagramPageWorld(
     },
   });
 
+  const cleanup = (): void => {
+    stopHydration();
+    removeRule();
+    tap.dispose();
+    cache.clear();
+  };
+  emitter.onDispose(cleanup);
+
   return {
     emitter,
     dispose() {
-      stopHydration();
-      removeRule();
-      tap.dispose();
-      cache.clear();
+      emitter.dispose();
     },
   };
 }

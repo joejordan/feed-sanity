@@ -233,4 +233,48 @@ describe('servePageWorld', () => {
     ]);
     expect(run).toHaveBeenCalledExactlyOnceWith({ mode: 'media' });
   });
+
+  it('tears down a previous page-world instance synchronously when replaced on live reload', () => {
+    const firstChannel = newChannel();
+    const secondChannel = newChannel();
+    const firstReader = vi.fn(() => 'v1');
+    const secondReader = vi.fn(() => 'v2');
+    const toggle = vi.fn((enabled: boolean) => ({ enabled }));
+    const unmount = vi.fn();
+    const onDispose = vi.fn();
+
+    const firstEmitter = servePageWorld(
+      { version: firstReader },
+      { feature: toggle },
+      {},
+      { rail: () => unmount },
+    );
+    firstEmitter.onDispose(onDispose);
+    connect(firstChannel);
+
+    sendToggle({ id: 1, toggle: 'feature', enabled: true }, firstChannel);
+    element.dispatchEvent(
+      messageEvent(`${firstChannel}-mount`, { id: 2, mount: 'rail', payload: {} }),
+    );
+    expect(toggle).toHaveBeenCalledWith(true);
+    expect(unmount).not.toHaveBeenCalled();
+
+    // Starting a fresh `servePageWorld` synchronously replaces and tears down the first one.
+    servePageWorld({ version: secondReader });
+
+    expect(unmount).toHaveBeenCalledTimes(1);
+    expect(toggle).toHaveBeenLastCalledWith(false);
+    expect(onDispose).toHaveBeenCalledTimes(1);
+
+    // The old channel no longer answers; the new instance connects and answers cleanly.
+    const oldAnswers = answersOn(element, firstChannel);
+    ask(element, { id: 3, reader: 'version' }, firstChannel);
+    expect(oldAnswers).toEqual([]);
+    expect(firstReader).not.toHaveBeenCalled();
+
+    connect(secondChannel);
+    const newAnswers = answersOn(element, secondChannel);
+    ask(element, { id: 4, reader: 'version' }, secondChannel);
+    expect(newAnswers).toEqual([{ id: 4, value: 'v2' }]);
+  });
 });

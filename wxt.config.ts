@@ -9,6 +9,7 @@ import {
   OPTIONS_TITLE,
 } from './project';
 import { MATCHES as FACEBOOK_MATCHES } from './src/facebook/urls';
+import { GMAIL_MATCHES } from './src/sites/gmail/urls';
 import { INSTAGRAM_MATCHES } from './src/sites/instagram/urls';
 import { REDDIT_MATCHES } from './src/sites/reddit/urls';
 import { X_MATCHES } from './src/sites/x/urls';
@@ -24,13 +25,15 @@ const FIREFOX_ONLY_ASSETS = new Set<string>(
   FIREFOX_THEME_ICONS.flatMap((entry) => [entry.light, entry.dark]),
 );
 
-// Minimal host permissions for Safari's dynamic `scripting` MAIN-world bridge
-// (excludes Gmail, which runs strictly in the isolated world with no page-world script).
-const SAFARI_HOST_PERMISSIONS = [
+// Scoped strictly to the 5 supported sites so Feed Sanity can automatically attach
+// to and live-upgrade already-open tabs on install, update, or reload (plus register
+// Safari's dynamic MAIN-world scripts) without requiring users to refresh open tabs.
+const SITE_HOST_PERMISSIONS = [
   ...FACEBOOK_MATCHES,
   ...X_MATCHES,
   ...INSTAGRAM_MATCHES,
   ...REDDIT_MATCHES,
+  ...GMAIL_MATCHES,
 ];
 
 export default defineConfig({
@@ -50,11 +53,11 @@ export default defineConfig({
     return {
       name: NAME,
       description: DESCRIPTION,
-      // Safari needs `scripting` + page-world host permissions to register and
-      // inject MAIN-world scripts, because Safari does not support `world: 'MAIN'`
-      // in static manifest `content_scripts`.
-      permissions: safari ? ['storage', 'scripting'] : ['storage'],
-      ...(safari && { host_permissions: SAFARI_HOST_PERMISSIONS }),
+      permissions:
+        manifestVersion === 2
+          ? ['storage', 'scripting', ...SITE_HOST_PERMISSIONS]
+          : ['storage', 'scripting'],
+      ...(manifestVersion === 3 && { host_permissions: SITE_HOST_PERMISSIONS }),
       icons: MANIFEST_ICONS,
       // Fallback toolbar title and icon; clicking opens `src/entrypoints/popup/index.html`.
       // Firefox MV2 reads `browser_action` and scales the small-cut SVG across arbitrary HiDPI factors.

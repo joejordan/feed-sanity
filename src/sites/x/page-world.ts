@@ -269,13 +269,18 @@ export function startXPageWorld(host: XPageWorldHost = globalThis): XPageWorldHa
     emitter.emit('x:shadow-attached', { attached: true });
   }, host);
 
+  const cleanup = (): void => {
+    stopShadowWatch();
+    removeStripRule?.();
+    removeStripRule = undefined;
+    tap.dispose();
+  };
+  emitter.onDispose(cleanup);
+
   return {
     emitter,
     dispose() {
-      stopShadowWatch();
-      removeStripRule?.();
-      removeStripRule = undefined;
-      tap.dispose();
+      emitter.dispose();
     },
   };
 }

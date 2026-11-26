@@ -213,6 +213,7 @@ export function createThemeController(
   let schemeRecheckTimer: ReturnType<typeof setTimeout> | undefined;
   let backdropHealQueued = false;
   let stopBackdropWatch: (() => void) | undefined;
+  let stopAdaptiveStyleWatch: (() => void) | undefined;
   let schemeObserverActive = false;
   const linkLoadAbort = new AbortController();
 
@@ -662,6 +663,58 @@ export function createThemeController(
     signal: linkLoadAbort.signal,
   });
 
+  // Re-compile Layer 1 automatically whenever the host lazy-loads a new `<style>` or
+  // `<link rel="stylesheet">` in light DOM or any discovered open Shadow Root. Subscribed
+  // ONLY while an adaptive theme or font is active so Site Default pays zero watcher cost.
+  const setAdaptiveStyleWatcherActive = (active: boolean): void => {
+    if (!adaptiveConfig) {
+      return;
+    }
+    if (!active) {
+      stopAdaptiveStyleWatch?.();
+      stopAdaptiveStyleWatch = undefined;
+      return;
+    }
+    if (stopAdaptiveStyleWatch || disposed) {
+      return;
+    }
+    let initializing = true;
+    stopAdaptiveStyleWatch = env.watch('style, link[rel="stylesheet"]', {
+      added: (el) => {
+        if (el.id.startsWith('feed_sanity_') || el.hasAttribute(OWN_ATTR)) {
+          return;
+        }
+        const root = el.getRootNode();
+        const isShadow = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in root;
+        if (isShadow && isOwnShadowRoot(root as ShadowRoot)) {
+          return;
+        }
+        const targetRoot =
+          root.nodeType === Node.DOCUMENT_NODE || isShadow
+            ? (root as Document | ShadowRoot)
+            : env.doc;
+        if (el.localName === 'link') {
+          if ((el as HTMLLinkElement).sheet) {
+            if (!initializing) {
+              scheduleAdaptiveRecompile(targetRoot);
+            }
+          } else {
+            el.addEventListener('load', () => scheduleAdaptiveRecompile(targetRoot), {
+              once: true,
+              signal: linkLoadAbort.signal,
+            });
+          }
+          return;
+        }
+        if (!initializing) {
+          scheduleAdaptiveRecompile(targetRoot);
+        }
+      },
+    });
+    initializing = false;
+  };
+  cleanups.push(() => setAdaptiveStyleWatcherActive(false));
+
   const render = (): void => {
     if (disposed) {
       return;
@@ -676,6 +729,7 @@ export function createThemeController(
     }
     setSchemeObserverActive(Boolean(effective));
     setBackdropWatcherActive(backdropActive);
+    setAdaptiveStyleWatcherActive(adaptiveTarget);
     if (backdropActive && !backdropShells.isSyncedForBody()) {
       backdropShells.sync();
     }
@@ -757,41 +811,6 @@ export function createThemeController(
     });
     return stopHead;
   };
-
-  if (adaptiveConfig) {
-    // Re-compile Layer 1 automatically whenever the host lazy-loads a new `<style>` or `<link rel="stylesheet">`
-    // in light DOM or any discovered open Shadow Root.
-    cleanups.push(
-      env.watch('style, link[rel="stylesheet"]', {
-        added: (el) => {
-          if (el.id.startsWith('feed_sanity_') || el.hasAttribute(OWN_ATTR)) {
-            return;
-          }
-          const root = el.getRootNode();
-          const isShadow = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE && 'host' in root;
-          if (isShadow && isOwnShadowRoot(root as ShadowRoot)) {
-            return;
-          }
-          const targetRoot =
-            root.nodeType === Node.DOCUMENT_NODE || isShadow
-              ? (root as Document | ShadowRoot)
-              : env.doc;
-          if (el.localName === 'link') {
-            if ((el as HTMLLinkElement).sheet) {
-              scheduleAdaptiveRecompile(targetRoot);
-            } else {
-              el.addEventListener('load', () => scheduleAdaptiveRecompile(targetRoot), {
-                once: true,
-                signal: linkLoadAbort.signal,
-              });
-            }
-            return;
-          }
-          scheduleAdaptiveRecompile(targetRoot);
-        },
-      }),
-    );
-  }
 
   const cleanupRootStyles = (root: Document | ShadowRoot): void => {
     dirtyRoots.delete(root);

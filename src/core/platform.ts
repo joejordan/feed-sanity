@@ -42,29 +42,39 @@ export interface Platform {
    * Calls `listener` when the user asks for the options dialog: from the
    * toolbar button or popup in the extension, or the userscript manager's menu.
    * When `section` is supplied, the dialog opens directly to that section.
+   * May return a cleanup function invoked if the site runtime is replaced.
    */
-  onOpenOptions: (listener: (section?: string) => void) => void;
+  onOpenOptions: (listener: (section?: string) => void) => (() => void) | void;
   /**
    * Optional quick-control popup registration (used by the userscript build so
    * browser extension content scripts do not bundle the popup UI).
    */
-  registerQuickPopup?: (getRequest: () => Promise<QuickPopupRequest>) => void;
+  registerQuickPopup?: (getRequest: () => Promise<QuickPopupRequest>) => (() => void) | void;
   /**
    * Optional handler answering the extension toolbar popup's state query so the
    * popup can bind to the active tab's site and account-scoped storage prefix
    * without requesting extra host or `tabs` permissions.
    */
-  onPopupStateRequest?: (handler: () => Promise<PopupTabState>) => void;
+  onPopupStateRequest?: (handler: () => Promise<PopupTabState>) => (() => void) | void;
   /**
    * Optional handler receiving live hover-to-preview theme updates from the
    * extension toolbar popup (`null` ends the preview, including on popup close).
    */
-  onThemePreview?: (listener: (doc: ThemeDocumentV1 | null) => void) => void;
+  onThemePreview?: (listener: (doc: ThemeDocumentV1 | null) => void) => (() => void) | void;
   /**
    * Shows `badge` on the toolbar button, for this tab only. The userscript
    * has no toolbar button, and there it does nothing.
    */
   setBadge: (badge: Badge) => void;
+  /** Optional teardown releasing any pending badge timers or `pageshow` listeners. */
+  stopBadge?: () => void;
+  /**
+   * Optional runtime liveness check used to authenticate cross-world instance
+   * replacement events: returns `true` when this extension runtime has been
+   * reloaded/unloaded/invalidated (allowing teardown), or `false` when this
+   * runtime is still live (rejecting spoofed page events).
+   */
+  isContextInvalidated?: () => boolean | Promise<boolean>;
   /**
    * Puts the page-world side of the bridge, `startPageWorld` in
    * `src/page-world.ts`, in the page, where it runs with the page's own

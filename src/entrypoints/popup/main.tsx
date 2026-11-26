@@ -7,7 +7,9 @@ import { compileUiThemeCss } from '../../core/theming/compile-ui';
 import { resolveTheme } from '../../core/theming/config';
 import { extensionStore } from '../../platform/extension-store';
 import {
+  attachTabMessage,
   GET_POPUP_STATE,
+  isAttachTabReply,
   isPopupTabState,
   openOptionsMessage,
   THEME_PREVIEW_PORT,
@@ -99,6 +101,25 @@ interface ActiveTabInfo {
   readonly state: PopupTabState;
 }
 
+/** Upper bound on waiting for the active tab's content script before falling back to the launcher. */
+const POPUP_STATE_TIMEOUT_MS = 1200;
+
+async function queryTabPopupState(tabId: number): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      browser.tabs.sendMessage(tabId, GET_POPUP_STATE),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), POPUP_STATE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 function compilePopupUiTheme(doc: ThemeDocumentV1 | null): string {
   const resolved = doc ? resolveTheme(doc) : null;
   return resolved ? toDocumentCss(compileUiThemeCss(resolved)) : '';
@@ -131,12 +152,24 @@ function PopupApp() {
           return null;
         }
         try {
-          const response: unknown = await browser.tabs.sendMessage(tabId, GET_POPUP_STATE);
+          const response: unknown = await queryTabPopupState(tabId);
           if (isPopupTabState(response)) {
             return { tabId, state: response };
           }
         } catch {
-          // Unsupported tab or content script not running there.
+          // Content script may not be attached yet (e.g. tab predated install/reload
+          // or user just granted per-site permission on Safari); ask background to attach.
+        }
+        try {
+          const attachReply: unknown = await browser.runtime.sendMessage(attachTabMessage(tabId));
+          if (isAttachTabReply(attachReply) && attachReply.attached) {
+            const retried: unknown = await queryTabPopupState(tabId);
+            if (isPopupTabState(retried)) {
+              return { tabId, state: retried };
+            }
+          }
+        } catch {
+          // Unsupported tab or background unavailable.
         }
         return null;
       })
