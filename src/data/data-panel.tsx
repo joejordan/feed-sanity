@@ -3,6 +3,7 @@ import type { OptionsPanel } from '../ui/options-dialog/panel';
 import type { DataStores } from './transfer';
 import { NAME } from '../../project';
 import { definePanel } from '../ui/options-dialog/panel';
+import { SettingCard } from '../ui/primitives';
 import css from './data-panel.css?inline';
 import { applyBackup, exportBackup, parseBackup, resetAllData } from './transfer';
 
@@ -27,7 +28,15 @@ function downloadJson(text: string): void {
  * filters, or reset everything
  * to defaults.
  */
-export function DataPanel({ stores, siteName }: { stores: DataStores; siteName?: string }) {
+export function DataPanel({
+  stores,
+  siteName,
+  notify,
+}: {
+  stores: DataStores;
+  siteName?: string;
+  notify?: (message: string) => void;
+}) {
   const importId = useId();
   const fileInput = useRef<HTMLInputElement>(null);
   const [importText, setImportText] = useState('');
@@ -35,6 +44,14 @@ export function DataPanel({ stores, siteName }: { stores: DataStores; siteName?:
   const [exportedText, setExportedText] = useState<string | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [busy, setBusy] = useState(false);
+  const reportStatus = (text: string, error = false): void => {
+    if (!error && notify) {
+      setStatus(null);
+      notify(text);
+      return;
+    }
+    setStatus(error ? { text, error: true } : { text });
+  };
   const subscribePostdata = useCallback(
     (onChange: () => void) => stores.read_history?.onChange(onChange) ?? (() => undefined),
     [stores.read_history],
@@ -50,9 +67,9 @@ export function DataPanel({ stores, siteName }: { stores: DataStores; siteName?:
     setBusy(true);
     try {
       await stores.read_history.set({});
-      setStatus({ text: 'Read post history cleared.' });
+      reportStatus('Read post history cleared.');
     } catch {
-      setStatus({ text: 'Could not clear read post history.', error: true });
+      reportStatus('Could not clear read post history.', true);
     } finally {
       setBusy(false);
     }
@@ -63,34 +80,31 @@ export function DataPanel({ stores, siteName }: { stores: DataStores; siteName?:
     try {
       await navigator.clipboard.writeText(json);
       setExportedText(null);
-      setStatus({ text: 'Settings JSON copied to the clipboard.' });
+      reportStatus('Settings JSON copied to the clipboard.');
     } catch {
       setExportedText(json);
-      setStatus({
-        text: 'Could not copy automatically. Select and copy the JSON below.',
-        error: true,
-      });
+      reportStatus('Could not copy automatically. Select and copy the JSON below.', true);
     }
   };
 
   const onDownloadExport = () => {
     downloadJson(exportBackup(stores));
-    setStatus({ text: 'Settings backup downloaded.' });
+    reportStatus('Settings backup downloaded.');
   };
 
   const onImport = async (raw = importText) => {
     const parsed = parseBackup(raw, stores.options.list());
     if (!parsed.ok) {
-      setStatus({ text: parsed.error, error: true });
+      reportStatus(parsed.error, true);
       return;
     }
     setBusy(true);
     try {
       const summary = await applyBackup(parsed, stores);
       setImportText('');
-      setStatus({ text: summary });
+      reportStatus(summary);
     } catch {
-      setStatus({ text: 'Could not save the imported settings.', error: true });
+      reportStatus('Could not save the imported settings.', true);
     } finally {
       setBusy(false);
     }
@@ -105,7 +119,7 @@ export function DataPanel({ stores, siteName }: { stores: DataStores; siteName?:
       setImportText(text);
       await onImport(text);
     } catch {
-      setStatus({ text: 'Could not read that file.', error: true });
+      reportStatus('Could not read that file.', true);
     }
   };
 
@@ -114,11 +128,9 @@ export function DataPanel({ stores, siteName }: { stores: DataStores; siteName?:
     try {
       await resetAllData(stores);
       setConfirmingReset(false);
-      setStatus({
-        text: 'All options, filters, theme and custom selectors were reset to defaults.',
-      });
+      reportStatus('All options, filters, theme and custom selectors were reset to defaults.');
     } catch {
-      setStatus({ text: 'Could not reset settings.', error: true });
+      reportStatus('Could not reset settings.', true);
     } finally {
       setBusy(false);
     }
@@ -126,140 +138,147 @@ export function DataPanel({ stores, siteName }: { stores: DataStores; siteName?:
 
   return (
     <section className="data">
-      <h3 className="data-heading">Backup &amp; Restore</h3>
-      <p className="description">
-        Export your {NAME} options, filters, theme and custom selectors as JSON, or import a backup
-        from {NAME}. Changes apply right away with no page reload.
-      </p>
-
       {status && (
         <p role="status" className={status.error ? 'data-status data-error' : 'data-status'}>
           {status.text}
         </p>
       )}
 
-      <h4 className="data-subheading">Export</h4>
-      <div className="data-actions">
-        <button className="button primary" type="button" onClick={onDownloadExport}>
-          Download JSON
-        </button>
-        <button className="button" type="button" onClick={() => void onCopyExport()}>
-          Copy JSON
-        </button>
-      </div>
-      {exportedText !== null && (
-        <textarea
-          className="field data-code"
-          rows={6}
-          readOnly
-          aria-label="Exported settings JSON"
-          value={exportedText}
-        />
-      )}
-
-      <h4 className="data-subheading">Import</h4>
-      <p className="description" id={`${importId}-desc`}>
-        Choose a saved JSON file or paste JSON below. Unrecognised options are
-        skipped automatically.
-      </p>
-      <input
-        ref={fileInput}
-        className="data-file"
-        type="file"
-        accept=".json,application/json"
-        aria-label="Import settings file"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          event.target.value = '';
-          void onFilePicked(file);
-        }}
-      />
-      <textarea
-        className="field data-code"
-        rows={6}
-        aria-label="Settings JSON to import"
-        aria-describedby={`${importId}-desc`}
-        placeholder='{"options": {...}, "filters": [...]}'
-        spellCheck={false}
-        value={importText}
-        onChange={(event) => setImportText(event.target.value)}
-      />
-      <div className="data-actions">
-        <button
-          className="button primary"
-          type="button"
-          disabled={busy || importText.trim() === ''}
-          onClick={() => void onImport()}
-        >
-          Import JSON
-        </button>
-        <button
-          className="button"
-          type="button"
-          disabled={busy}
-          onClick={() => fileInput.current?.click()}
-        >
-          Load from file...
-        </button>
-      </div>
-
-      {stores.read_history && (
-        <>
-          <h4 className="data-subheading">Read post history</h4>
+      <SettingCard title="Export">
+        <div className="data-card-body">
           <p className="description">
-            {readCount === 0
-              ? 'No posts are currently marked as read.'
-              : `${readCount} ${readCount === 1 ? 'post is' : 'posts are'} remembered as read.`}
+            Save this site's {NAME} options, filters, theme, and custom selectors as a JSON file.
           </p>
           <div className="data-actions">
-            <button
-              className="button"
-              type="button"
-              disabled={busy || readCount === 0}
-              onClick={() => void onClearReadHistory()}
-            >
-              Clear read history
+            <button className="button primary" type="button" onClick={onDownloadExport}>
+              Download JSON
+            </button>
+            <button className="button" type="button" onClick={() => void onCopyExport()}>
+              Copy JSON
             </button>
           </div>
-        </>
-      )}
+          {exportedText !== null && (
+            <textarea
+              className="field data-code"
+              rows={6}
+              readOnly
+              aria-label="Exported settings JSON"
+              value={exportedText}
+            />
+          )}
+        </div>
+      </SettingCard>
 
-      <h4 className="data-subheading">Reset</h4>
-      <p className="description">
-        Restore every {siteName ? `${siteName} ` : ''}option to its default and remove all saved
-        filters and custom selectors.
-      </p>
-      <div className="data-actions">
-        {confirmingReset ? (
-          <>
+      <SettingCard title="Import">
+        <div className="data-card-body">
+          <p className="description" id={`${importId}-desc`}>
+            Load a saved {NAME} JSON backup. Changes apply right away with no reload, and unknown
+            keys are skipped.
+          </p>
+          <input
+            ref={fileInput}
+            className="data-file"
+            type="file"
+            accept=".json,application/json"
+            aria-label="Import settings file"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              void onFilePicked(file);
+            }}
+          />
+          <textarea
+            className="field data-code"
+            rows={6}
+            aria-label="Settings JSON to import"
+            aria-describedby={`${importId}-desc`}
+            placeholder='{"options": {...}, "filters": [...]}'
+            spellCheck={false}
+            value={importText}
+            onChange={(event) => setImportText(event.target.value)}
+          />
+          <div className="data-actions">
             <button
-              className="button data-danger"
+              className="button primary"
               type="button"
-              disabled={busy}
-              onClick={() => void onConfirmReset()}
+              disabled={busy || importText.trim() === ''}
+              onClick={() => void onImport()}
             >
-              Confirm reset
+              Import JSON
             </button>
             <button
               className="button"
               type="button"
               disabled={busy}
-              onClick={() => setConfirmingReset(false)}
+              onClick={() => fileInput.current?.click()}
             >
-              Cancel reset
+              Load from file...
             </button>
-          </>
-        ) : (
-          <button
-            className="button"
-            type="button"
-            disabled={busy}
-            onClick={() => setConfirmingReset(true)}
-          >
-            Reset all settings
-          </button>
-        )}
-      </div>
+          </div>
+        </div>
+      </SettingCard>
+
+      {stores.read_history && (
+        <SettingCard title="Read Post History">
+          <div className="data-card-body">
+            <p className="description">
+              {readCount === 0
+                ? 'No posts are currently marked as read.'
+                : `${readCount} ${readCount === 1 ? 'post is' : 'posts are'} remembered as read.`}
+            </p>
+            <div className="data-actions">
+              <button
+                className="button"
+                type="button"
+                disabled={busy || readCount === 0}
+                onClick={() => void onClearReadHistory()}
+              >
+                Clear read history
+              </button>
+            </div>
+          </div>
+        </SettingCard>
+      )}
+
+      <SettingCard title="Reset">
+        <div className="data-card-body">
+          <p className="description">
+            Restore every {siteName ? `${siteName} ` : ''}option to its default and remove all saved
+            filters and custom selectors.
+          </p>
+          <div className="data-actions">
+            {confirmingReset ? (
+              <>
+                <button
+                  className="button data-danger"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void onConfirmReset()}
+                >
+                  Confirm reset
+                </button>
+                <button
+                  className="button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmingReset(false)}
+                >
+                  Cancel reset
+                </button>
+              </>
+            ) : (
+              <button
+                className="button"
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmingReset(true)}
+              >
+                Reset all settings
+              </button>
+            )}
+          </div>
+        </div>
+      </SettingCard>
     </section>
   );
 }
@@ -303,8 +322,12 @@ export function dataPanel(
         keywords: ['reset', 'clear', 'wipe', 'factory'],
       },
     ],
-    Panel: () => (
-      <DataPanel stores={stores} {...(options.siteName ? { siteName: options.siteName } : {})} />
+    Panel: ({ notify }) => (
+      <DataPanel
+        stores={stores}
+        {...(options.siteName ? { siteName: options.siteName } : {})}
+        {...(notify ? { notify } : {})}
+      />
     ),
   });
 }

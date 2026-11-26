@@ -262,24 +262,29 @@ describe('x page-world engine (React fiber + transforming Network Tap)', () => {
     });
   });
 
-  it('emits x:shadow-attached via attachShadow hook for open Shadow Roots and restores on dispose', async () => {
+  it('dispatches SHADOW_ATTACHED_EVENT via attachShadow hook for open Shadow Roots and restores on dispose', () => {
     const origAttach = Element.prototype.attachShadow;
-    const events: unknown[] = [];
+    const attachedTargets: EventTarget[] = [];
+    const onShadow = (event: Event) => {
+      if (event.target) {
+        attachedTargets.push(event.target);
+      }
+    };
+    document.addEventListener('feed-sanity:shadow-attached', onShadow);
 
-    const bridge = new PageBridge(async () => {
+    try {
       const handle = startXPageWorld({ Element });
       disposers.push(handle.dispose);
-    });
-    bridge.on('x:shadow-attached', (payload) => events.push(payload));
-    await bridge.set('x-strip-promoted', false);
 
-    const hostEl = document.createElement('div');
-    document.body.append(hostEl);
-    hostEl.attachShadow({ mode: 'open' });
-    await Promise.resolve();
+      const hostEl = document.createElement('div');
+      document.body.append(hostEl);
+      hostEl.attachShadow({ mode: 'open' });
 
-    expect(events).toEqual([{ attached: true }]);
-    disposers.pop()?.();
-    expect(Element.prototype.attachShadow).toBe(origAttach);
+      expect(attachedTargets).toEqual([hostEl]);
+      disposers.pop()?.();
+      expect(Element.prototype.attachShadow).toBe(origAttach);
+    } finally {
+      document.removeEventListener('feed-sanity:shadow-attached', onShadow);
+    }
   });
 });

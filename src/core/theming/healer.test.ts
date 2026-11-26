@@ -352,4 +352,30 @@ describe('core/theming/healer', () => {
     scope.dispose();
     env.dispose();
   });
+
+  it('attaches zero DOM or Shadow DOM watchers on Site Default and releases them when reset to null', () => {
+    const env = createDomEnvironment({ pierceShadow: true });
+    const watchTreeSpy = vi.spyOn(env.watcher, 'watchTree');
+    const shadowSpy = vi.spyOn(env, 'onShadowRoot');
+    const scope = new Scope();
+    const healer = createThemeHealer(env, scope);
+
+    // Zero observers while palette is null (Site Default).
+    expect(watchTreeSpy).not.toHaveBeenCalled();
+    expect(shadowSpy).not.toHaveBeenCalled();
+
+    healer.setPalette(warmPaper);
+    expect(watchTreeSpy).toHaveBeenCalledTimes(1);
+    // One for shadow healing watcher, one inside addStyleAcrossRoots for HEALER_STYLE_ID.
+    expect(shadowSpy).toHaveBeenCalledTimes(2);
+
+    // Resetting to Site Default releases watchers, and re-applying re-attaches them cleanly.
+    healer.setPalette(null);
+    healer.setPalette(crimsonVelvet);
+    expect(watchTreeSpy).toHaveBeenCalledTimes(2);
+    expect(shadowSpy).toHaveBeenCalledTimes(4);
+
+    scope.dispose();
+    env.dispose();
+  });
 });

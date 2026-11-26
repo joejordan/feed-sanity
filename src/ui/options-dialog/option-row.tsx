@@ -47,6 +47,7 @@ export interface OptionRowProps {
   readonly options: Options;
   readonly edit: Edit | undefined;
   readonly dimmed: boolean;
+  readonly requiresLabel?: string;
   readonly pulse: boolean;
   readonly onInstantSave: (key: string, spec: OptionSpec, next: OptionValue) => void;
   readonly onDraftEdit: (key: string, edit: Edit | undefined) => void;
@@ -59,6 +60,7 @@ export function OptionRow({
   options,
   edit,
   dimmed,
+  requiresLabel,
   pulse,
   onInstantSave,
   onDraftEdit,
@@ -97,6 +99,7 @@ export function OptionRow({
       <select
         id={inputId}
         className="field"
+        disabled={dimmed}
         aria-describedby={descId}
         value={String(saved)}
         onChange={(event) => onInstantSave(optionKey, spec, event.currentTarget.value)}
@@ -113,6 +116,7 @@ export function OptionRow({
       <Switch
         id={inputId}
         checked={saved === true}
+        disabled={dimmed}
         {...(descId ? { ariaDescribedBy: descId } : {})}
         onChange={(checked) => onInstantSave(optionKey, spec, checked)}
       />
@@ -124,13 +128,14 @@ export function OptionRow({
           id={inputId}
           className="field"
           rows={5}
+          disabled={dimmed}
           aria-describedby={descId}
           aria-invalid={isInvalid || undefined}
           value={String(shown)}
           onChange={(event) => onDraftEdit(optionKey, toEdit(spec, event.currentTarget.value))}
           onBlur={handleEditorBlur}
         />
-        {isDirty && (
+        {isDirty && !dimmed && (
           <div className="inline-editor-actions">
             <button
               type="button"
@@ -158,6 +163,7 @@ export function OptionRow({
         <TextInput
           id={inputId}
           type={typeof spec.default === 'number' ? 'number' : 'text'}
+          disabled={dimmed}
           {...(descId ? { ariaDescribedBy: descId } : {})}
           ariaInvalid={isInvalid}
           value={String(shown)}
@@ -170,7 +176,7 @@ export function OptionRow({
             }
           }}
         />
-        {isDirty && (
+        {isDirty && !dimmed && (
           <button
             type="button"
             className="button primary"
@@ -188,10 +194,12 @@ export function OptionRow({
     <SettingRow
       title={spec.title}
       {...(spec.description ? { description: spec.description } : {})}
+      {...(dimmed && requiresLabel ? { hint: `Requires ${requiresLabel}` } : {})}
       htmlFor={inputId}
       {...(descId ? { descriptionId: descId } : {})}
       stacked={Boolean(spec.multiline)}
       dimmed={dimmed}
+      nested={Boolean(spec.dependsOn)}
       pulse={pulse}
     >
       {field}

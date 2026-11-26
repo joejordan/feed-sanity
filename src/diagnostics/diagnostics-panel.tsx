@@ -89,11 +89,15 @@ function bridgeShortLabel(state: Diagnostics['bridge']['state']): {
 function HealthOverview({
   diagnostics,
   itemNoun,
+  livePaused,
+  onToggleLive,
   onRefresh,
   onCopy,
 }: {
   diagnostics: Diagnostics;
   itemNoun: string;
+  livePaused: boolean;
+  onToggleLive: () => void;
   onRefresh: () => void;
   onCopy: () => void;
 }) {
@@ -147,8 +151,9 @@ function HealthOverview({
             </Badge>
           </div>
           <p className="diag-hero-meta">
-            Live snapshot · updates every {REFRESH_MS / 1000}s · last checked{' '}
-            {formatClock(diagnostics.at)}
+            {livePaused
+              ? `Snapshot paused · last checked ${formatClock(diagnostics.at)}`
+              : `Live snapshot · updates every ${REFRESH_MS / 1000}s · last checked ${formatClock(diagnostics.at)}`}
           </p>
           {issues.length > 0 && (
             <div className="diag-issue-list">
@@ -161,6 +166,9 @@ function HealthOverview({
           )}
         </div>
         <div className="diag-hero-actions">
+          <button className="button" type="button" aria-pressed={livePaused} onClick={onToggleLive}>
+            {livePaused ? 'Resume live' : 'Pause'}
+          </button>
           <button className="button" type="button" onClick={onRefresh}>
             <UiIcon name="refresh" size={13} />
             Refresh
@@ -474,7 +482,12 @@ function OverridesEditor({ value, onChange, check }: OverridesEditorProps) {
           ))}
         </ul>
       )}
-      <button className="button" type="button" onClick={() => onChange(overridesText({}))}>
+      <button
+        className="button"
+        type="button"
+        disabled={value.trim() === '' || value.trim() === '{}'}
+        onClick={() => onChange(overridesText({}))}
+      >
         Use the built-in selectors
       </button>
     </>
@@ -490,6 +503,8 @@ interface DiagnosticsPanelProps extends PanelProps<string> {
   itemNoun?: string;
   scrubMessage?: (message: string) => string;
   scrubPageType?: (pageType: string) => string;
+  consumePendingInspector?: () => boolean;
+  registerInspectorOpener?: (fn: (() => void) | undefined) => void;
 }
 
 /**
@@ -500,27 +515,49 @@ interface DiagnosticsPanelProps extends PanelProps<string> {
 export function DiagnosticsPanel({
   value,
   onChange,
+  notify,
   collect,
   check,
   itemNoun = 'Posts',
   scrubMessage,
   scrubPageType,
+  consumePendingInspector,
+  registerInspectorOpener,
 }: DiagnosticsPanelProps) {
   const [diagnostics, setDiagnostics] = useState(collect);
   const [copy, setCopy] = useState<Copied>();
+  const [livePaused, setLivePaused] = useState(false);
   const trimmed = value.trim();
-  const [inspectorOpen, setInspectorOpen] = useState(trimmed !== '' && trimmed !== '{}');
+  const [inspectorOpen, setInspectorOpen] = useState(
+    () => Boolean(consumePendingInspector?.()) || (trimmed !== '' && trimmed !== '{}'),
+  );
 
   useEffect(() => {
+    if (!registerInspectorOpener) {
+      return;
+    }
+    registerInspectorOpener(() => setInspectorOpen(true));
+    return () => registerInspectorOpener(undefined);
+  }, [registerInspectorOpener]);
+
+  useEffect(() => {
+    if (livePaused) {
+      return;
+    }
     const timer = setInterval(() => setDiagnostics(collect()), REFRESH_MS);
     return () => clearInterval(timer);
-  }, [collect]);
+  }, [collect, livePaused]);
 
   const copyReport = async () => {
     const report = diagnosticsReport(diagnostics, scrubMessage, scrubPageType);
     try {
       await navigator.clipboard.writeText(report);
-      setCopy({ copied: true });
+      if (notify) {
+        setCopy(undefined);
+        notify('The report is copied. No names, post text, or page addresses are included.');
+      } else {
+        setCopy({ copied: true });
+      }
     } catch {
       setCopy({ failed: report });
     }
@@ -542,6 +579,8 @@ export function DiagnosticsPanel({
       <HealthOverview
         diagnostics={diagnostics}
         itemNoun={itemNoun}
+        livePaused={livePaused}
+        onToggleLive={() => setLivePaused((paused) => !paused)}
         onRefresh={() => setDiagnostics(collect())}
         onCopy={() => void copyReport()}
       />
@@ -624,6 +663,27 @@ export function diagnosticsPanel({
     }
     return last.checked;
   };
+  let inspectorPending = false;
+  let inspectorOpener: (() => void) | undefined;
+  const requestInspector = (): void => {
+    if (inspectorOpener) {
+      inspectorOpener();
+    } else {
+      inspectorPending = true;
+    }
+  };
+  const consumePendingInspector = (): boolean => {
+    const pending = inspectorPending;
+    inspectorPending = false;
+    return pending;
+  };
+  const registerInspectorOpener = (fn: (() => void) | undefined): void => {
+    inspectorOpener = fn;
+    if (fn && inspectorPending) {
+      inspectorPending = false;
+      fn();
+    }
+  };
   return definePanel<string>({
     section: 'Diagnostics',
     css,
@@ -641,6 +701,7 @@ export function diagnosticsPanel({
         title: 'Custom DOM locator overrides (Your selectors)',
         description: 'Override CSS selectors when a host site updates its markup.',
         keywords: ['selectors', 'locators', 'overrides', 'debug'],
+        onSelect: requestInspector,
       },
     ],
     save: async (text) => {
@@ -660,6 +721,8 @@ export function diagnosticsPanel({
         collect={collect}
         check={check}
         itemNoun={itemNoun}
+        consumePendingInspector={consumePendingInspector}
+        registerInspectorOpener={registerInspectorOpener}
         {...(scrubMessage ? { scrubMessage } : {})}
         {...(scrubPageType ? { scrubPageType } : {})}
       />

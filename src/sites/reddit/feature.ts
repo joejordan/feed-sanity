@@ -6,7 +6,13 @@ import type { OptionSpecs } from '../../core/options';
 import type { PageWatcher } from '../../core/page-watcher';
 import type { SavedData } from '../../core/saved';
 import type { RedditRuntimeStats } from './page-world';
-import { bindFeed, bindLocate, bindVideos, bindWatch } from '../../core/bind';
+import {
+  bindFeed,
+  bindLocate,
+  bindVideos,
+  bindWatch,
+  createBridgeActiveToggle,
+} from '../../core/bind';
 import { PageBridge } from '../../core/bridge';
 import { createDomEnvironment } from '../../core/dom-env';
 import { defineFeature as defineCoreFeature } from '../../core/feature';
@@ -17,6 +23,7 @@ import {
   readLocatorOverrides,
 } from '../../core/locator';
 import { createLogger } from '../../core/log';
+import { readSiteEnabledHint } from '../../core/site-hint';
 import { isObject } from '../../engines/react';
 import { RedditFeed } from './feed';
 import * as selectors from './selectors';
@@ -51,8 +58,9 @@ export interface RedditPage extends CapablePage {
 
 /**
  * Creates Reddit (Shreddit)'s `PageFactory`: owns a shadow-piercing
- * `DomEnvironment`, `Locators`, `PageBridge` wired to `reddit:shadow-attached`
- * for zero-polling nested Shadow Root discovery, `RedditFeed`, and `RedditVideos`.
+ * `DomEnvironment`, `Locators`, `PageBridge` wired to `reddit:runtime-stats`
+ * and `reddit-active` (while `SHADOW_ATTACHED_EVENT` feeds `DomEnvironment`
+ * directly for O(1) Shadow Root discovery), `RedditFeed`, and `RedditVideos`.
  */
 export function createRedditPage(
   data: SavedData,
@@ -79,17 +87,24 @@ export function createRedditPage(
     shadowAttachments: 0,
   };
   let bridgeSubscribed = false;
+  const activeToggle = createBridgeActiveToggle(
+    bridge,
+    'reddit-active',
+    readSiteEnabledHint('reddit', false),
+  );
 
   const subscribeBridgeEvents = (): void => {
     if (bridgeSubscribed) {
       return;
     }
     bridgeSubscribed = true;
-    env.scope.add(
-      bridge.on('reddit:shadow-attached', () => {
+    // Catch up once on any ShadowRoots attached during the passive cold-start window
+    // before `reddit-active` patched `Element.prototype.attachShadow`.
+    void activeToggle.activate().then(() => {
+      if (!env.scope.disposed) {
         env.scanShadowRoots();
-      }),
-    );
+      }
+    });
     env.scope.add(
       bridge.on('reddit:runtime-stats', (payload) => {
         if (
@@ -120,7 +135,12 @@ export function createRedditPage(
   const feed = new RedditFeed(env, locate, bridge, subscribeBridgeEvents);
   const videos = new RedditVideos(env, locate);
 
+  // Activate Reddit's MAIN-world shadow hook as soon as the site runtime boots
+  // (even when only Appearance theming is used without feed filter features).
+  subscribeBridgeEvents();
+
   const factory: PageFactory<RedditPage> = (binder: Binder) => {
+    activeToggle.bind(binder);
     const boundFeed = bindFeed(feed, binder);
     const boundVideos = bindVideos(videos, binder);
     const feedWithBridge: RedditPage['feed'] = {

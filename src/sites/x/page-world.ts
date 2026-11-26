@@ -265,9 +265,8 @@ export function startXPageWorld(host: XPageWorldHost = globalThis): XPageWorldHa
 
   emitter = servePageWorld(readers, toggles);
 
-  const stopShadowWatch = watchOpenShadowAttachments(() => {
-    emitter.emit('x:shadow-attached', { attached: true });
-  }, host);
+  // Dispatches `SHADOW_ATTACHED_EVENT` in O(1) directly to `DomEnvironment` on open shadow mounts.
+  const stopShadowWatch = watchOpenShadowAttachments(() => undefined, host);
 
   const cleanup = (): void => {
     stopShadowWatch();

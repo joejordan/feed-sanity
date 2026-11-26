@@ -33,9 +33,12 @@
 }
 
 .fr-subheading {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
+  margin: 0 0 0 2px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fs-text-secondary);
 }
 
 .fr-count {
@@ -43,7 +46,7 @@
   border-radius: 999px;
   background: var(--fs-surface);
   color: var(--fs-text-secondary);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
 }
 
@@ -61,8 +64,9 @@
 
 .fr-intro {
   margin: 0;
+  max-width: 58ch;
   color: var(--fs-text-secondary);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.45;
 }
 

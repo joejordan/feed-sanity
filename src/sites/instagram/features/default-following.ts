@@ -51,8 +51,7 @@ export default defineInstagramFeature({
       section: 'Feed & Clutter',
       group: 'Feed',
       title: 'Default to Following feed',
-      description:
-        'Open the chronological Following feed (?variant=following) automatically instead of the algorithmic For You home feed.',
+      description: 'Opens your chronological Following feed automatically instead of For You.',
       keywords: ['chronological', 'following', 'feed'],
       default: false,
     },

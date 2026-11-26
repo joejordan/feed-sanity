@@ -86,6 +86,7 @@
 .time {
   left: 8px;
   opacity: 0;
+  transition: opacity 100ms ease;
 }
 
 .bubble {
@@ -101,8 +102,8 @@
 .zone:hover .thumb,
 .zone.dragging .thumb,
 .zone:focus-visible .thumb,
-.zone:hover .time,
-.zone.dragging .time,
+.zone:hover:not(.pointer-left) .time,
+.zone.dragging:not(.pointer-left) .time,
 .zone:focus-visible .time {
   opacity: 1;
 }

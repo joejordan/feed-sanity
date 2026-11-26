@@ -102,13 +102,18 @@ describe('cross-site filter-engine & applyFilterOutcome', () => {
     expect(noteRow?.localName).toBe('tr');
     expect(noteRow?.getAttribute(OWN_ATTR)).toBe('filter-note-row');
     const noteButton = noteRow?.querySelector('button') as HTMLButtonElement | null;
-    expect(noteButton?.textContent).toBe('Hidden thread');
+    expect(noteButton?.textContent).toContain('Hidden thread');
+    expect(noteButton?.textContent).toContain('Show');
+    expect(noteButton?.getAttribute('aria-expanded')).toBe('false');
 
     // Clicking the note toggles reveal/rehide cleanly.
     noteButton?.click();
     expect(row.hasAttribute(HIDDEN_ATTR)).toBe(false);
+    expect(noteButton?.getAttribute('aria-expanded')).toBe('true');
+    expect(noteButton?.textContent).toContain('Hide');
     noteButton?.click();
     expect(row.getAttribute(HIDDEN_ATTR)).toBe('none');
+    expect(noteButton?.getAttribute('aria-expanded')).toBe('false');
 
     // Disposing restores original classes, !important inline style, visibility, and removes the note row.
     state?.dispose();

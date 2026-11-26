@@ -28,7 +28,7 @@ export const SITE_MANIFEST: readonly SiteManifestEntry[] = [
     id: 'facebook',
     displayName: 'Facebook',
     description:
-      'Filter Sponsored/Suggested posts and custom rules, pick Home feeds, stop auto-refresh, responsive rails, video scrubber/click-to-pause/download, and live Theme Studio.',
+      'Filters ads and suggested posts, locks your Home feed, stops surprise refreshes, and adds video controls and themes.',
     matches: FACEBOOK_MATCHES,
     excludeMatches: FACEBOOK_EXCLUDE_MATCHES,
     excludeGlobs: FACEBOOK_EXCLUDE_GLOBS,
@@ -37,7 +37,7 @@ export const SITE_MANIFEST: readonly SiteManifestEntry[] = [
     id: 'instagram',
     displayName: 'Instagram',
     description:
-      'Hide Sponsored/Suggested posts and custom rules, default to Following, hide Reels/Explore/Threads links, video scrubber & download, and live Theme Studio.',
+      'Hides sponsored and suggested posts, defaults to Following, trims sidebar clutter, and adds video saves and themes.',
     experimental: true,
     matches: INSTAGRAM_MATCHES,
     excludeMatches: INSTAGRAM_EXCLUDE_MATCHES,
@@ -47,7 +47,7 @@ export const SITE_MANIFEST: readonly SiteManifestEntry[] = [
     id: 'x',
     displayName: 'X (Twitter)',
     description:
-      'Strip Promoted ads before render, filter Suggested/custom rules, default to Following, hide Grok/Premium/clutter, video scrubber & custom speed, and live Theme Studio.',
+      'Drops promoted posts before render, opens to Following, clears Grok and sidebar clutter, and adds custom video speeds and themes.',
     matches: X_MATCHES,
     excludeMatches: X_EXCLUDE_MATCHES,
     excludeGlobs: [],
@@ -56,7 +56,7 @@ export const SITE_MANIFEST: readonly SiteManifestEntry[] = [
     id: 'gmail',
     displayName: 'Gmail',
     description:
-      'Hide Promotions/Social inbox ads and custom thread filter rules, hide side panel/Chat/Meet/Gemini/category tabs, and live iframe-aware Theme Studio.',
+      'Blocks inbox ad rows, filters noisy threads, hides Gemini and workspace clutter, and themes Gmail including message frames.',
     experimental: true,
     matches: GMAIL_MATCHES,
     excludeMatches: GMAIL_EXCLUDE_MATCHES,
@@ -66,7 +66,7 @@ export const SITE_MANIFEST: readonly SiteManifestEntry[] = [
     id: 'reddit',
     displayName: 'Reddit',
     description:
-      'Hide Promoted/Recommended posts and custom Shadow DOM filter rules, hide sidebar/promo/games clutter, video scrubber & click-to-pause, and live Shadow DOM Theme Studio.',
+      'Filters promoted and recommended posts, clears sidebars and app promos, and adds video controls and full theming.',
     experimental: true,
     matches: REDDIT_MATCHES,
     excludeMatches: REDDIT_EXCLUDE_MATCHES,

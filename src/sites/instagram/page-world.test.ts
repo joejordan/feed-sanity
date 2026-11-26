@@ -298,4 +298,27 @@ describe('instagram page-world engine (React fiber + Network Tap)', () => {
       videoId: 'SSRCODE',
     });
   });
+
+  it('leaves fetch untouched when started passively and activates/deactivates via ig-active toggle', async () => {
+    const baseFetch = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    const host = {
+      fetch: baseFetch as unknown as typeof globalThis.fetch,
+      document,
+    };
+
+    const handle = startInstagramPageWorld(host, { startActive: false });
+    disposers.push(handle.dispose);
+
+    // Passive start must not patch fetch until explicitly activated.
+    expect(host.fetch).toBe(baseFetch);
+
+    const bridge = new PageBridge(async () => undefined);
+    disposers.push(() => bridge.dispose());
+
+    await bridge.set('ig-active', true);
+    expect(host.fetch).not.toBe(baseFetch);
+
+    await bridge.set('ig-active', false);
+    expect(host.fetch).toBe(baseFetch);
+  });
 });

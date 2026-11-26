@@ -17,7 +17,7 @@ import {
 } from '../../platform/messages';
 import { QuickPopup } from '../../ui/popup/quick-popup';
 import quickPopupCss from '../../ui/popup/quick-popup.css?inline';
-import { primitivesCss } from '../../ui/primitives';
+import { BrandMark, BrandWordmark, primitivesCss } from '../../ui/primitives';
 import baseThemeCss from '../../ui/theme.css?inline';
 
 // Default popup palette aligned with Feed Sanity Paper (light) and Night Edition (dark)
@@ -260,7 +260,15 @@ function PopupApp() {
   );
 
   if (!loaded) {
-    return null;
+    return (
+      <div className="qp-loading" role="status">
+        <span className="qp-brand-lockup" aria-hidden="true">
+          <BrandMark size={26} />
+          <BrandWordmark height={19} />
+        </span>
+        <span className="qp-loading-text">Connecting to tab…</span>
+      </div>
+    );
   }
 
   return (

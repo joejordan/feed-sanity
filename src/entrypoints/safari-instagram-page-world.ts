@@ -1,4 +1,5 @@
 import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
+import { readSiteEnabledHint } from '../core/site-hint';
 import { isExcludedUrl } from '../core/urls';
 import { startInstagramPageWorld } from '../sites/instagram/page-world';
 import { INSTAGRAM_EXCLUDE_MATCHES } from '../sites/instagram/urls';
@@ -11,6 +12,6 @@ export default defineUnlistedScript({
     if (isExcludedUrl(location.href, INSTAGRAM_EXCLUDE_MATCHES)) {
       return;
     }
-    startInstagramPageWorld();
+    startInstagramPageWorld(globalThis, { startActive: readSiteEnabledHint('instagram', false) });
   },
 });

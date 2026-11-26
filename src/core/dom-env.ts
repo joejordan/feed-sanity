@@ -153,6 +153,33 @@ export function createDomEnvironment({
     }
   };
 
+  let pruneQueued = false;
+  const schedulePrune = (): void => {
+    if (
+      pruneQueued ||
+      envScope.disposed ||
+      (shadowRoots.size === 0 && iframeLoadRemovers.size === 0)
+    ) {
+      return;
+    }
+    pruneQueued = true;
+    queueMicrotask(() => {
+      pruneQueued = false;
+      if (!envScope.disposed) {
+        pruneDisconnected();
+      }
+    });
+  };
+  const onRemovedForPrune = (el: Element): void => {
+    if (
+      el.childElementCount > 0 ||
+      el.shadowRoot ||
+      (includeIframes && el.localName === 'iframe')
+    ) {
+      schedulePrune();
+    }
+  };
+
   const attachShadow = (root: ShadowRoot): void => {
     if (shadowRoots.has(root) || envScope.disposed) {
       return;
@@ -168,7 +195,7 @@ export function createDomEnvironment({
     rootScope.add(
       shadowWatcher.watchTree({
         added: (el) => scanShadowSubtree(el, true),
-        removed: () => pruneDisconnected(),
+        removed: onRemovedForPrune,
       }),
     );
     shadowListeners.emit(root, rootScope);
@@ -305,16 +332,30 @@ export function createDomEnvironment({
   if (pierceShadow) {
     scanShadowSubtree(doc, true);
     const onDirectShadowAttached = (event: Event): void => {
-      directShadowHookActive = true;
-      urlScanPending = false;
-      pendingShadowCandidates.clear();
-      if (shadowRescanTimer !== undefined) {
-        clearTimeout(shadowRescanTimer);
-        shadowRescanTimer = undefined;
+      if (!directShadowHookActive) {
+        directShadowHookActive = true;
+        urlScanPending = false;
+        if (shadowRescanTimer !== undefined) {
+          clearTimeout(shadowRescanTimer);
+          shadowRescanTimer = undefined;
+        }
+        // Flush any candidates that already attached a ShadowRoot during boot before the hook activated.
+        for (const candidate of pendingShadowCandidates.keys()) {
+          if (candidate.isConnected && candidate.shadowRoot) {
+            attachShadow(candidate.shadowRoot);
+          }
+        }
+        pendingShadowCandidates.clear();
       }
-      const target =
-        (typeof event.composedPath === 'function' ? event.composedPath()[0] : undefined) ??
-        event.target;
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      // Discover any enclosing ShadowRoots along the composed path that attached before the hook was active.
+      for (let i = path.length - 1; i >= 0; i--) {
+        const node = path[i];
+        if (node instanceof ShadowRoot && !isOwnUiElement(node.host)) {
+          attachShadow(node);
+        }
+      }
+      const target = path[0] ?? event.target;
       if (target instanceof Element && target.shadowRoot && !isOwnUiElement(target)) {
         attachShadow(target.shadowRoot);
       }
@@ -354,7 +395,7 @@ export function createDomEnvironment({
             }
           }
         },
-        removed: () => pruneDisconnected(),
+        removed: onRemovedForPrune,
       }),
     );
   }

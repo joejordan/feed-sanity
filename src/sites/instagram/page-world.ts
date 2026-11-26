@@ -3,7 +3,7 @@
 // to surface structured post/ad/suggested metadata and progressive video URLs
 // over the PageBridge without touching personal text or mutating host requests.
 
-import type { PageReaders, PageWorldEmitter } from '../../core/page-world';
+import type { PageReaders, PageToggles, PageWorldEmitter } from '../../core/page-world';
 import type { NetworkTap, NetworkTapHost } from '../../engines/network-tap';
 import type { Loose } from '../../engines/react';
 import { servePageWorld } from '../../core/page-world';
@@ -389,6 +389,11 @@ export interface InstagramPageWorldHost extends NetworkTapHost {
   readonly document?: Document;
 }
 
+export interface InstagramPageWorldOptions {
+  /** When false, stays passive at `document_start` until activated via the `ig-active` toggle. */
+  readonly startActive?: boolean;
+}
+
 /**
  * Starts the Instagram MAIN-world bridge with React fiber readers, SSR
  * hydration script indexing (`engines/hydration`), and a passive Network Tap
@@ -396,16 +401,15 @@ export interface InstagramPageWorldHost extends NetworkTapHost {
  */
 export function startInstagramPageWorld(
   host: InstagramPageWorldHost = globalThis,
+  options: InstagramPageWorldOptions = {},
 ): InstagramPageWorldHandle {
   const cache = new Map<string, CachedMediaMeta>();
   let matchedResponses = 0;
+  let stopHydration: (() => void) | undefined;
+  let removeRule: (() => void) | undefined;
+  let active = false;
 
-  const readers: PageReaders = {
-    'ig-post-meta': (element) => readPostMetaFromFiber(element, cache),
-    'ig-video-sources': (element) => readVideoSourcesFromFiber(element, cache),
-  };
-
-  const emitter = servePageWorld(readers);
+  let emitter!: PageWorldEmitter;
 
   const emitStats = (): void => {
     const totalErrors = tap.stats().totalErrors;
@@ -421,15 +425,6 @@ export function startInstagramPageWorld(
   });
 
   const doc = host.document ?? (typeof document === 'undefined' ? undefined : document);
-  const stopHydration = watchHydrationScripts(doc, { textHint: IG_HYDRATION_HINT }, (payloads) => {
-    let added = 0;
-    for (const payload of payloads) {
-      added += indexInstagramPayload(payload.data, cache);
-    }
-    if (added > 0) {
-      emitStats();
-    }
-  });
 
   const parseAndIndex = (raw: string): number => {
     const cleaned = raw.startsWith('for (;;);') ? raw.slice(9) : raw;
@@ -456,21 +451,57 @@ export function startInstagramPageWorld(
     }
   };
 
-  const removeRule = tap.addRule({
-    id: 'ig-feed-metadata',
-    match: (url) => IG_API_PATTERN.test(url),
-    onResponse: ({ text }) => {
-      matchedResponses++;
-      const updated = parseAndIndex(text);
-      if (updated > 0) {
-        emitStats();
-      }
-    },
-  });
+  const setActive = (enabled: boolean): { enabled: boolean } => {
+    if (enabled === active) {
+      return { enabled };
+    }
+    active = enabled;
+    if (enabled) {
+      stopHydration = watchHydrationScripts(doc, { textHint: IG_HYDRATION_HINT }, (payloads) => {
+        let added = 0;
+        for (const payload of payloads) {
+          added += indexInstagramPayload(payload.data, cache);
+        }
+        if (added > 0) {
+          emitStats();
+        }
+      });
+      removeRule = tap.addRule({
+        id: 'ig-feed-metadata',
+        match: (url) => IG_API_PATTERN.test(url),
+        onResponse: ({ text }) => {
+          matchedResponses++;
+          const updated = parseAndIndex(text);
+          if (updated > 0) {
+            emitStats();
+          }
+        },
+      });
+    } else {
+      stopHydration?.();
+      stopHydration = undefined;
+      removeRule?.();
+      removeRule = undefined;
+    }
+    return { enabled };
+  };
+
+  const readers: PageReaders = {
+    'ig-post-meta': (element) => readPostMetaFromFiber(element, cache),
+    'ig-video-sources': (element) => readVideoSourcesFromFiber(element, cache),
+  };
+  const toggles: PageToggles = {
+    'ig-active': setActive,
+  };
+
+  emitter = servePageWorld(readers, toggles);
+
+  if (options.startActive !== false) {
+    setActive(true);
+  }
 
   const cleanup = (): void => {
-    stopHydration();
-    removeRule();
+    setActive(false);
     tap.dispose();
     cache.clear();
   };

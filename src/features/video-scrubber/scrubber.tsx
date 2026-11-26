@@ -183,6 +183,9 @@ export function Scrubber({ video, place, hide }: ScrubberProps) {
   } else if (!media.paused && seeker.pending === undefined) {
     classes.push('playing');
   }
+  if (pointer !== null && pointer < 120) {
+    classes.push('pointer-left');
+  }
 
   return (
     <div

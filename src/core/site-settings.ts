@@ -33,6 +33,11 @@ export interface SiteSettingsClient {
 const DEFAULT_ENABLED_BY_ID = new Map(SITE_MANIFEST.map((site) => [site.id, !site.experimental]));
 const log = createLogger('sites');
 
+/** Whether a site defaults to enabled before any user toggle is saved in `v2/sites`. */
+export function isSiteEnabledByDefault(siteId: string): boolean {
+  return DEFAULT_ENABLED_BY_ID.get(siteId) ?? true;
+}
+
 /** Validates a raw stored site-enablement map, keeping only known site boolean flags. */
 export function readEnabledSites(raw: unknown): Record<string, boolean> {
   if (!isRecord(raw)) {

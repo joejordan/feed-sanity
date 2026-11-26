@@ -4,7 +4,7 @@
 // promoted/recommended post IDs before first paint, and serves the
 // `reddit-post-meta` reader over `PageBridge`.
 
-import type { PageReaders, PageWorldEmitter } from '../../core/page-world';
+import type { PageReaders, PageToggles, PageWorldEmitter } from '../../core/page-world';
 import type { ShadowHookHost } from '../../engines/shadow';
 import { servePageWorld } from '../../core/page-world';
 import { watchHydrationScripts } from '../../engines/hydration';
@@ -140,6 +140,11 @@ export interface RedditPageWorldHandle {
   readonly dispose: () => void;
 }
 
+export interface RedditPageWorldOptions {
+  /** When false, stays passive at `document_start` until activated via the `reddit-active` toggle. */
+  readonly startActive?: boolean;
+}
+
 /**
  * Starts Reddit's MAIN-world bridge: zero-polling `attachShadow` hook, SSR
  * hydration ad/recommendation scanner, and `reddit-post-meta` custom-element
@@ -148,16 +153,17 @@ export interface RedditPageWorldHandle {
 export function startRedditPageWorld(
   host: ShadowHookHost = globalThis,
   doc: Document = document,
+  options: RedditPageWorldOptions = {},
 ): RedditPageWorldHandle {
   const indexedAds = new Set<string>();
   const indexedSuggested = new Set<string>();
   let scannedScripts = 0;
   let shadowAttachments = 0;
+  let stopHydration: (() => void) | undefined;
+  let stopShadowWatch: (() => void) | undefined;
+  let active = false;
 
-  const readers: PageReaders = {
-    'reddit-post-meta': (element) => readPostMetaFromElement(element, indexedAds, indexedSuggested),
-  };
-  const emitter = servePageWorld(readers);
+  let emitter!: PageWorldEmitter;
 
   const emitStats = (): void => {
     emitter.emit('reddit:runtime-stats', {
@@ -168,23 +174,47 @@ export function startRedditPageWorld(
     } satisfies RedditRuntimeStats);
   };
 
-  const stopHydration = watchHydrationScripts(doc, { textHint: HYDRATION_HINT }, (payloads) => {
-    scannedScripts += payloads.length;
-    for (const payload of payloads) {
-      indexRedditHydrationPayload(payload.data, indexedAds, indexedSuggested);
+  const setActive = (enabled: boolean): { enabled: boolean } => {
+    if (enabled === active) {
+      return { enabled };
     }
-    emitStats();
-  });
+    active = enabled;
+    if (enabled) {
+      stopHydration = watchHydrationScripts(doc, { textHint: HYDRATION_HINT }, (payloads) => {
+        scannedScripts += payloads.length;
+        for (const payload of payloads) {
+          indexRedditHydrationPayload(payload.data, indexedAds, indexedSuggested);
+        }
+        emitStats();
+      });
+      // `watchOpenShadowAttachments` dispatches `SHADOW_ATTACHED_EVENT` in O(1) directly to
+      // `DomEnvironment`; avoid per-batch JSON bridge spam on every Web Component mount.
+      stopShadowWatch = watchOpenShadowAttachments((count) => {
+        shadowAttachments += count;
+      }, host);
+    } else {
+      stopHydration?.();
+      stopHydration = undefined;
+      stopShadowWatch?.();
+      stopShadowWatch = undefined;
+    }
+    return { enabled };
+  };
 
-  const stopShadowWatch = watchOpenShadowAttachments((count) => {
-    shadowAttachments += count;
-    emitter.emit('reddit:shadow-attached', { count: shadowAttachments });
-    emitStats();
-  }, host);
+  const readers: PageReaders = {
+    'reddit-post-meta': (element) => readPostMetaFromElement(element, indexedAds, indexedSuggested),
+  };
+  const toggles: PageToggles = {
+    'reddit-active': setActive,
+  };
+  emitter = servePageWorld(readers, toggles);
+
+  if (options.startActive !== false) {
+    setActive(true);
+  }
 
   const cleanup = (): void => {
-    stopHydration();
-    stopShadowWatch();
+    setActive(false);
   };
   emitter.onDispose(cleanup);
 

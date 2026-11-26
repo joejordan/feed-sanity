@@ -26,6 +26,11 @@ const log = createLogger('options');
 const TOAST_MS = 4000;
 const EMPTY_PANELS: readonly OptionsPanel[] = [];
 
+const IS_APPLE_PLATFORM =
+  typeof navigator !== 'undefined' &&
+  /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
+const SEARCH_SHORTCUT_LABEL = IS_APPLE_PLATFORM ? '⌘K' : 'Ctrl K';
+
 export interface SiteIdentity {
   readonly id: string;
   readonly displayName: string;
@@ -72,26 +77,33 @@ export function OptionsDialog({
   panelsRef.current = panels;
   const drag = useDraggable(dialog);
 
-  const { all, sections, siteSections, manageSections, panelBySection } = useMemo(() => {
-    const list = options.list();
-    const ordered = orderSections([
-      ...list.map(([, spec]) => spec.section),
-      ...panels.map((panel) => panel.section),
-    ]);
-    const bySection = new Map<string, OptionsPanel>();
-    for (const panel of panels) {
-      if (!bySection.has(panel.section)) {
-        bySection.set(panel.section, panel);
+  const { all, specByKey, dependencyKeys, sections, siteSections, manageSections, panelBySection } =
+    useMemo(() => {
+      const list = options.list();
+      const byKey = new Map<string, OptionSpec>(list);
+      const depKeys = [
+        ...new Set(list.flatMap(([, spec]) => (spec.dependsOn ? [spec.dependsOn] : []))),
+      ];
+      const ordered = orderSections([
+        ...list.map(([, spec]) => spec.section),
+        ...panels.map((panel) => panel.section),
+      ]);
+      const bySection = new Map<string, OptionsPanel>();
+      for (const panel of panels) {
+        if (!bySection.has(panel.section)) {
+          bySection.set(panel.section, panel);
+        }
       }
-    }
-    return {
-      all: list,
-      sections: ordered,
-      siteSections: ordered.filter((name) => getSectionMeta(name).group === 'site'),
-      manageSections: ordered.filter((name) => getSectionMeta(name).group === 'manage'),
-      panelBySection: bySection,
-    };
-  }, [options, panels]);
+      return {
+        all: list,
+        specByKey: byKey,
+        dependencyKeys: depKeys,
+        sections: ordered,
+        siteSections: ordered.filter((name) => getSectionMeta(name).group === 'site'),
+        manageSections: ordered.filter((name) => getSectionMeta(name).group === 'manage'),
+        panelBySection: bySection,
+      };
+    }, [options, panels]);
 
   const [section, setSection] = useState(() =>
     initialSection && sections.includes(initialSection) ? initialSection : sections[0],
@@ -107,6 +119,29 @@ export function OptionsDialog({
   const [enabledHere, setEnabledHere] = useState(siteEnabled);
   const [, setTick] = useState(0);
   const { toast, notify } = useToast(TOAST_MS);
+
+  // Re-render dependent option rows immediately when a parent toggle changes externally
+  // (e.g. from the toolbar Quick Popup or another tab).
+  useEffect(() => {
+    if (dependencyKeys.length === 0) {
+      return;
+    }
+    const stops = dependencyKeys.map((depKey) => {
+      let initialized = false;
+      return options.watch(depKey, () => {
+        if (!initialized) {
+          initialized = true;
+          return;
+        }
+        setTick((t) => t + 1);
+      });
+    });
+    return () => {
+      for (const stop of stops) {
+        stop();
+      }
+    };
+  }, [options, dependencyKeys]);
 
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const closedRef = useRef(false);
@@ -430,7 +465,7 @@ export function OptionsDialog({
   );
   const sectionGroups = useMemo(() => groupSectionOptions(sectionOptions), [sectionOptions]);
   const shownPanels = panels.filter((panel) => panel.section === section);
-  const sectionMeta = section ? getSectionMeta(section) : undefined;
+  const sectionMeta = section ? getSectionMeta(section, site?.id) : undefined;
 
   const invalidOptions =
     edits.size === 0
@@ -552,9 +587,25 @@ export function OptionsDialog({
     );
   };
 
+  const findDisabledAncestor = (spec: OptionSpec): string | undefined => {
+    const visited = new Set<string>();
+    let cur = spec.dependsOn;
+    let blockingKey: string | undefined;
+    while (cur && !visited.has(cur)) {
+      visited.add(cur);
+      if (options.get(cur) === false) {
+        blockingKey = cur;
+      }
+      cur = specByKey.get(cur)?.dependsOn;
+    }
+    return blockingKey;
+  };
+
   const renderOptionEntries = (entries: readonly [string, OptionSpec][]) =>
     entries.map(([key, spec]) => {
-      const dimmed = Boolean(spec.dependsOn && options.get(spec.dependsOn) === false);
+      const blockingKey = findDisabledAncestor(spec);
+      const dimmed = blockingKey !== undefined;
+      const requiresLabel = blockingKey ? specByKey.get(blockingKey)?.title : undefined;
       return (
         <OptionRow
           key={key}
@@ -563,6 +614,7 @@ export function OptionsDialog({
           options={options}
           edit={edits.get(key)}
           dimmed={dimmed}
+          {...(requiresLabel ? { requiresLabel } : {})}
           pulse={pulseKey === key}
           onInstantSave={instantSaveOption}
           onDraftEdit={handleDraftEdit}
@@ -643,7 +695,7 @@ export function OptionsDialog({
               <span>Search…</span>
             </span>
             <span className="kbd" aria-hidden="true">
-              ⌘K
+              {SEARCH_SHORTCUT_LABEL}
             </span>
           </button>
 
@@ -690,7 +742,12 @@ export function OptionsDialog({
               <span className="drag-grip" aria-hidden="true">
                 <UiIcon name="grip" size={14} />
               </span>
-              <div>
+              {sectionMeta && (
+                <span className="pane-icon" aria-hidden="true">
+                  <UiIcon name={sectionMeta.icon} size={15} />
+                </span>
+              )}
+              <div className="pane-header-copy">
                 <h3 className="pane-heading">{section ?? OPTIONS_TITLE}</h3>
                 {sectionMeta?.subtitle && <p className="pane-subtitle">{sectionMeta.subtitle}</p>}
               </div>
@@ -702,6 +759,27 @@ export function OptionsDialog({
 
           <div className="list">
             <div key={section ?? '__empty__'} className="pane-content">
+              {site && !enabledHere && sectionMeta?.group === 'site' && (
+                <div className="pane-paused-banner" role="status">
+                  <span>
+                    {NAME} is paused on {site.displayName}. Settings saved here will apply once
+                    resumed.
+                  </span>
+                  {onToggleSite && (
+                    <button
+                      type="button"
+                      className="button primary"
+                      onClick={() => {
+                        setEnabledHere(true);
+                        onToggleSite(true);
+                      }}
+                    >
+                      Resume
+                    </button>
+                  )}
+                </div>
+              )}
+
               {sectionOptions.length === 0 && shownPanels.length === 0 && (
                 <p className="empty">Nothing to set here yet.</p>
               )}

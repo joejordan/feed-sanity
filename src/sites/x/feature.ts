@@ -98,11 +98,6 @@ export function createXPage(
         }
       }),
     );
-    env.scope.add(
-      bridge.on('x:shadow-attached', () => {
-        env.scanShadowRoots();
-      }),
-    );
   };
 
   const locate: Locate = (spec) => locators.locate(spec);

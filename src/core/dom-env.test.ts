@@ -285,4 +285,28 @@ describe('createDomEnvironment', () => {
     expect(env.shadowRoots.has(shadow)).toBe(true);
     env.dispose();
   });
+
+  it('flushes pre-hook pending candidates and enclosing ShadowRoots when first SHADOW_ATTACHED_EVENT fires from a nested host', async () => {
+    const env = createDomEnvironment({ pierceShadow: true });
+    const seen: ShadowRoot[] = [];
+    env.onShadowRoot((root) => seen.push(root));
+
+    // Outer custom element mounts BEFORE attachShadow is hooked, then attaches synchronously without dispatching.
+    const outer = document.createElement('shreddit-feed');
+    document.body.append(outer);
+    await Promise.resolve();
+    const outerShadow = outer.attachShadow({ mode: 'open' });
+    const inner = document.createElement('div');
+    outerShadow.append(inner);
+
+    // Later, once the hook activates, an inner host dispatches SHADOW_ATTACHED_EVENT before the 150ms fallback timer.
+    const innerShadow = inner.attachShadow({ mode: 'open' });
+    inner.dispatchEvent(new Event(SHADOW_ATTACHED_EVENT, { bubbles: true, composed: true }));
+
+    expect(env.shadowRoots.has(outerShadow)).toBe(true);
+    expect(env.shadowRoots.has(innerShadow)).toBe(true);
+    expect(seen).toContain(outerShadow);
+    expect(seen).toContain(innerShadow);
+    env.dispose();
+  });
 });

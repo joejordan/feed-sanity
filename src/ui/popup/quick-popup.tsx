@@ -843,7 +843,7 @@ function ActiveTabView({
         />
       </header>
 
-      <div className="qp-body">
+      <div className="qp-body" data-paused={siteEnabled ? undefined : 'true'}>
         {!siteEnabled && (
           <div className="qp-paused-banner" role="status">
             {NAME} is paused on {activeTab.displayName}. Turn the switch above back on to resume

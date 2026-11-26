@@ -108,6 +108,8 @@ function formatScanTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 }
 
+type AppearanceDisclosureId = 'transfer' | 'health' | 'css';
+
 function AppearancePanelView({
   value,
   onChange,
@@ -115,9 +117,13 @@ function AppearancePanelView({
   options,
   controller,
   library,
+  consumePendingDisclosure,
+  registerDisclosureOpener,
 }: PanelProps<ThemeDocumentV1> & {
   controller: ThemeController;
   library?: ThemeLibraryClient;
+  consumePendingDisclosure: () => AppearanceDisclosureId | null;
+  registerDisclosureOpener: (fn: ((id: AppearanceDisclosureId) => void) | undefined) => void;
 }) {
   const fontId = useId();
   const [draftResetKey, setDraftResetKey] = useState(0);
@@ -179,11 +185,32 @@ function AppearancePanelView({
   }, [hasExternalCssOption, options]);
 
   const isImported = useMemo(() => isCustomImportedDocument(value), [value]);
-  const [transferOpen, setTransferOpen] = useState(isImported);
-  const [cssOpen, setCssOpen] = useState(
-    Boolean((value.customCss ?? '').trim() || savedExternalCssUrl.trim()),
+  const [initialDisclosure] = useState<AppearanceDisclosureId | null>(() =>
+    consumePendingDisclosure(),
   );
-  const [healthOpen, setHealthOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(
+    () => isImported || initialDisclosure === 'transfer',
+  );
+  const [cssOpen, setCssOpen] = useState(
+    () =>
+      Boolean((value.customCss ?? '').trim() || savedExternalCssUrl.trim()) ||
+      initialDisclosure === 'css',
+  );
+  const [healthOpen, setHealthOpen] = useState(() => initialDisclosure === 'health');
+
+  useEffect(() => {
+    const openTarget = (id: AppearanceDisclosureId): void => {
+      if (id === 'transfer') {
+        setTransferOpen(true);
+      } else if (id === 'health') {
+        setHealthOpen(true);
+      } else if (id === 'css') {
+        setCssOpen(true);
+      }
+    };
+    registerDisclosureOpener(openTarget);
+    return () => registerDisclosureOpener(undefined);
+  }, [registerDisclosureOpener]);
 
   const commitExternalCssUrl = (raw: string): void => {
     if (!hasExternalCssOption || !options) {
@@ -590,7 +617,7 @@ function AppearancePanelView({
         <div className="theme-studio-pad">
           <div className="theme-actions">
             <p className="theme-studio-intro">
-              Clean static palettes — picking one turns off live effects.
+              Static palettes without live motion. Picking one clears active background effects.
             </p>
             <SegmentedControl
               options={SCHEME_FILTERS}
@@ -635,6 +662,16 @@ function AppearancePanelView({
             ))}
           </div>
         </div>
+        <SettingRow
+          title="Live hover preview"
+          description="Preview color and live themes when hovering or focusing cards."
+        >
+          <Switch
+            checked={hoverPreviewEnabled}
+            ariaLabel="Live hover preview"
+            onChange={handleToggleHoverPreview}
+          />
+        </SettingRow>
       </SettingCard>
 
       <CreativeStudioCard
@@ -698,17 +735,6 @@ function AppearancePanelView({
               </>
             )}
           </div>
-        </SettingRow>
-
-        <SettingRow
-          title="Live hover preview"
-          description="Preview color and live themes when hovering or focusing cards."
-        >
-          <Switch
-            checked={hoverPreviewEnabled}
-            ariaLabel="Live hover preview"
-            onChange={handleToggleHoverPreview}
-          />
         </SettingRow>
 
         <PaletteCustomizationDisclosure
@@ -780,6 +806,25 @@ export function appearancePanel(
     controller.preview(resolveTheme(next));
     void saveDocument(next);
   };
+  let pendingDisclosure: AppearanceDisclosureId | null = null;
+  let activeDisclosureOpener: ((id: AppearanceDisclosureId) => void) | undefined;
+  const requestDisclosure = (id: AppearanceDisclosureId): void => {
+    if (activeDisclosureOpener) {
+      activeDisclosureOpener(id);
+    } else {
+      pendingDisclosure = id;
+    }
+  };
+  const consumePendingDisclosure = (): AppearanceDisclosureId | null => {
+    const next = pendingDisclosure;
+    pendingDisclosure = null;
+    return next;
+  };
+  const registerDisclosureOpener = (
+    fn: ((id: AppearanceDisclosureId) => void) | undefined,
+  ): void => {
+    activeDisclosureOpener = fn;
+  };
   return definePanel<ThemeDocumentV1>({
     section: 'Appearance',
     css,
@@ -827,18 +872,21 @@ export function appearancePanel(
         title: 'Import / Export theme (.fstheme.json)',
         description: 'Export your active theme to a single file or import a shared .fstheme.json.',
         keywords: ['import', 'export', 'share', 'json', 'fstheme', 'backup', 'file'],
+        onSelect: () => requestDisclosure('transfer'),
       },
       {
         id: 'custom-css',
         title: 'Custom CSS & External stylesheet',
         description: 'Write inline CSS rules or link an external HTTPS stylesheet.',
         keywords: ['style', 'stylesheet', 'css', 'external', 'url', 'link'],
+        onSelect: () => requestDisclosure('css'),
       },
       {
         id: 'theme-health',
         title: 'Theme health & layout audit',
         description: 'Scan contrast, unthemed surfaces, layout shifts, and header overlaps.',
         keywords: ['audit', 'auto-heal', 'contrast', 'wcag'],
+        onSelect: () => requestDisclosure('health'),
       },
       {
         id: 'creative-studio',
@@ -894,9 +942,18 @@ export function appearancePanel(
         onSelect: () => selectDocument(applyThemePreset(saved.get(), preset.id)),
       })),
     ],
-    onClose: () => controller.clearPreview(),
+    onClose: () => {
+      pendingDisclosure = null;
+      controller.clearPreview();
+    },
     Panel: (props) => (
-      <AppearancePanelView {...props} controller={controller} {...(library ? { library } : {})} />
+      <AppearancePanelView
+        {...props}
+        controller={controller}
+        {...(library ? { library } : {})}
+        consumePendingDisclosure={consumePendingDisclosure}
+        registerDisclosureOpener={registerDisclosureOpener}
+      />
     ),
   });
 }

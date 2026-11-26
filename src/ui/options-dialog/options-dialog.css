@@ -484,9 +484,27 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 22px 12px;
+  padding: 15px 22px 13px;
   border-bottom: 1px solid var(--fs-divider);
-  background: var(--fs-dialog-bg);
+  background: color-mix(in srgb, var(--fs-sidebar-bg) 42%, var(--fs-dialog-bg));
+}
+
+.pane-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 1px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--fs-accent) 24%, var(--fs-divider));
+  background: var(--fs-accent-surface);
+  color: var(--fs-accent);
+  flex-shrink: 0;
+}
+
+.pane-header-copy {
+  min-width: 0;
 }
 
 .pane-heading {
@@ -498,9 +516,25 @@
 }
 
 .pane-subtitle {
-  margin: 2px 0 0;
+  margin: 3px 0 0;
+  max-width: 58ch;
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--fs-text) 72%, var(--fs-text-secondary));
+}
+
+.pane-paused-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--fs-warning) 38%, var(--fs-divider));
+  background: color-mix(in srgb, var(--fs-warning) 10%, var(--fs-card-bg));
+  color: var(--fs-text);
   font-size: 12.5px;
-  color: var(--fs-text-secondary);
+  line-height: 1.4;
 }
 
 .close {
@@ -524,6 +558,11 @@
 .close:hover {
   background: var(--fs-hover);
   color: var(--fs-text);
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 1px;
 }
 
 .list {
@@ -659,6 +698,11 @@
   background: var(--fs-hover);
 }
 
+.button:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
 .button.primary {
   background: var(--fs-accent);
   color: var(--fs-accent-text);
@@ -733,6 +777,10 @@
   color: var(--fs-text-secondary);
 }
 
+.cmd-input-row:focus-within {
+  box-shadow: inset 0 -2px 0 var(--fs-accent);
+}
+
 .cmd-input {
   flex: 1;
   height: 42px;
@@ -769,9 +817,21 @@
   cursor: pointer;
 }
 
-.cmd-item:hover,
 .cmd-item[data-active="true"] {
   background: var(--fs-hover);
+}
+
+.cmd-item:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: -2px;
+}
+
+.cmd-footer {
+  padding: 7px 12px;
+  border-top: 1px solid var(--fs-divider-subtle);
+  background: var(--fs-sidebar-bg);
+  color: var(--fs-text-secondary);
+  font-size: 11.5px;
 }
 
 .cmd-item-main {

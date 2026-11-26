@@ -10,8 +10,7 @@ export default createFeedFiltersFeature<InstagramPage>({
   prefix: 'ig',
   itemSelector: 'article',
   sponsoredTitle: 'Hide Sponsored posts',
-  sponsoredDescription:
-    'Hide Sponsored ads in the Instagram feed using React fiber metadata and feed labels.',
+  sponsoredDescription: 'Hides Sponsored posts as they load in your feed.',
   suggestedTitle: 'Hide Suggested posts',
-  suggestedDescription: 'Hide "Suggested for you" posts from accounts you do not follow.',
+  suggestedDescription: 'Hides "Suggested for you" posts from accounts you do not follow.',
 });

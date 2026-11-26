@@ -13,9 +13,9 @@ export default createFeedFiltersFeature<XPage>({
   itemSelector: 'article[data-testid="tweet"]',
   sponsoredTitle: 'Hide Promoted posts',
   sponsoredDescription:
-    'Strip Promoted ads from timeline API responses before render (preventing blank gaps) and hide any remaining promoted tweets.',
+    'Drops Promoted posts before they render so ads vanish without leaving blank gaps.',
   suggestedTitle: 'Hide Suggested topic posts',
-  suggestedDescription: 'Hide algorithmic topic and community recommendations in the timeline.',
+  suggestedDescription: 'Hides algorithmic topic and community recommendations in your timeline.',
   onSponsoredChange: (() => {
     const cleanedScopes = new WeakSet<object>();
     return (page, enabled, scope) => {

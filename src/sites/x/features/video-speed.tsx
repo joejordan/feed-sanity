@@ -178,9 +178,12 @@ function groupSpeedItems(
   return null;
 }
 
-function detectSpeedMenu(container: Element): DetectedSpeedMenu | null {
+function detectSpeedMenu(
+  container: Element,
+  speedItems?: readonly Element[],
+): DetectedSpeedMenu | null {
   const raw: Array<{ el: Element; rate: number }> = [];
-  for (const el of container.querySelectorAll(SPEED_ITEM_SELECTOR)) {
+  for (const el of speedItems ?? container.querySelectorAll(SPEED_ITEM_SELECTOR)) {
     if (el.closest(`[${OWN_ATTR}]`)) {
       continue;
     }
@@ -233,7 +236,7 @@ function collectBoundedMenuNodes(container: Element): Element[] | null {
   return matched;
 }
 
-function detectParentSpeedRows(container: Element): Element[] {
+function detectParentSpeedRows(container: Element, speedItems?: readonly Element[]): Element[] {
   const candidates: Array<{ el: Element }> = [];
   const seen = new Set<Element>();
   const addCandidate = (el: Element): void => {
@@ -242,7 +245,7 @@ function detectParentSpeedRows(container: Element): Element[] {
       candidates.push({ el });
     }
   };
-  for (const el of container.querySelectorAll(SPEED_ITEM_SELECTOR)) {
+  for (const el of speedItems ?? container.querySelectorAll(SPEED_ITEM_SELECTOR)) {
     if (el.closest(`[${OWN_ATTR}]`)) {
       continue;
     }
@@ -383,16 +386,22 @@ function dismissSpeedMenu(menuContainer: Element, host: HTMLElement, doc: Docume
     cancelable: true,
     composed: true,
   };
-  // Dispatch a single bubbling Escape so we never close an enclosing video lightbox/modal.
-  const escTarget = menuContainer.isConnected ? menuContainer : doc;
+  // Dispatch a single bubbling Escape from the mounted speed menu host so inner
+  // menu handlers catch it first without closing an enclosing video lightbox/modal.
+  let escTarget: EventTarget = doc;
+  if (host.parentElement?.isConnected) {
+    escTarget = host.parentElement;
+  } else if (menuContainer.isConnected) {
+    escTarget = menuContainer;
+  }
   escTarget.dispatchEvent(new KeyboardEvent('keydown', escInit));
 
   const isStillOpen = (): boolean => host.isConnected;
   const layer = host.closest('#layers > *') ?? menuContainer.closest('#layers > *');
   const inDialogLayer = Boolean(layer?.querySelector('[role="dialog"]'));
-  const player = menuContainer.closest(
-    '[data-testid="videoPlayer"], [data-testid="videoComponent"]',
-  );
+  const player =
+    host.closest('[data-testid="videoPlayer"], [data-testid="videoComponent"]') ??
+    menuContainer.closest('[data-testid="videoPlayer"], [data-testid="videoComponent"]');
   const findSettingsButton = (): HTMLElement | null => {
     const btn =
       player?.querySelector<HTMLElement>(
@@ -402,6 +411,15 @@ function dismissSpeedMenu(menuContainer: Element, host: HTMLElement, doc: Docume
         'button[aria-label*="Settings" i][aria-expanded="true"], [role="button"][aria-label*="Settings" i][aria-expanded="true"]',
       );
     return btn && !btn.closest(OWN_ATTR_SELECTOR) ? btn : null;
+  };
+
+  const clickSettingsButton = (): boolean => {
+    const btn = findSettingsButton();
+    if (!btn) {
+      return false;
+    }
+    btn.click();
+    return true;
   };
 
   const fallbacks: Array<() => boolean> = [];
@@ -415,14 +433,7 @@ function dismissSpeedMenu(menuContainer: Element, host: HTMLElement, doc: Docume
     }
   }
   if (player) {
-    fallbacks.push(() => {
-      const btn = findSettingsButton();
-      if (!btn) {
-        return false;
-      }
-      btn.click();
-      return true;
-    });
+    fallbacks.push(clickSettingsButton);
   }
   if (!inDialogLayer && doc.body && !menuContainer.contains(doc.body)) {
     fallbacks.push(() => {
@@ -431,14 +442,7 @@ function dismissSpeedMenu(menuContainer: Element, host: HTMLElement, doc: Docume
     });
   }
   if (!player) {
-    fallbacks.push(() => {
-      const btn = findSettingsButton();
-      if (!btn) {
-        return false;
-      }
-      btn.click();
-      return true;
-    });
+    fallbacks.push(clickSettingsButton);
   }
 
   const runFallback = (index: number): void => {
@@ -763,14 +767,17 @@ function isIgnorableMutation(records: readonly MutationRecord[]): boolean {
         return false;
       }
     }
-    for (const node of rec.removedNodes) {
-      if (node.nodeType !== Node.ELEMENT_NODE || !(node as Element).hasAttribute(OWN_ATTR)) {
-        return false;
-      }
+    // Never filter OWN_ATTR from removedNodes: our injected host/badge relies on
+    // removal notifications to self-heal if React reconciles them away.
+    if (rec.removedNodes.length > 0) {
+      return false;
     }
   }
   return true;
 }
+
+const SMALL_POPOVER_SELECTOR =
+  '[role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="sheetDialog"]';
 
 function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMenuActivity {
   interface MountedMenu {
@@ -788,6 +795,89 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
   scope.add(addStyle(PAGE_STYLE_ID, PAGE_SPEED_CSS, page.doc));
 
   const menuCleanups = new Map<Element, () => void>();
+  const containerSchedulers = new Map<
+    Element,
+    {
+      readonly schedule: () => void;
+      readonly hasMounted: () => boolean;
+      readonly childObservers: Set<MutationObserver>;
+    }
+  >();
+  let treeWatchStop: (() => void) | undefined;
+
+  const isVideoOrMenuScope = (el: Element): boolean => {
+    const role = el.getAttribute('role');
+    if (role === 'menu' || role === 'listbox') {
+      return true;
+    }
+    const testId = el.getAttribute('data-testid');
+    return (
+      testId === 'Dropdown' ||
+      testId === 'sheetDialog' ||
+      testId === 'videoPlayer' ||
+      testId === 'videoComponent'
+    );
+  };
+
+  const ensureTreeWatch = (): void => {
+    if (treeWatchStop || scope.disposed) {
+      return;
+    }
+    // Share the single document-level `PageWatcher` for video players and `#layers > *`
+    // instead of attaching a separate `MutationObserver` to every video on the timeline.
+    treeWatchStop = page.env.watcher.watchTree({
+      added: (el) => {
+        if (el.localName === 'video' || el.localName === 'source') {
+          return;
+        }
+        // Single ancestor walk replaces multiple `closest()` scans and finds tracked
+        // outer containers even when an inner `[data-testid="videoPlayer"]` is nested.
+        let inVideoOrMenu = false;
+        for (let cur: Element | null = el; cur; cur = cur.parentElement) {
+          if (cur.hasAttribute(OWN_ATTR)) {
+            return;
+          }
+          if (!inVideoOrMenu && isVideoOrMenuScope(cur)) {
+            inVideoOrMenu = true;
+          }
+          // Ignore unrelated timeline/reply tweet mutations (e.g. Like bursts in a #layers photo modal).
+          if (
+            cur.localName === 'article' &&
+            cur.getAttribute('data-testid') === 'tweet' &&
+            !inVideoOrMenu
+          ) {
+            return;
+          }
+          const entry = containerSchedulers.get(cur);
+          if (entry) {
+            entry.schedule();
+            return;
+          }
+        }
+      },
+      removed: (el) => {
+        if (
+          (mountedByParent.size === 0 && parentRows.size === 0) ||
+          el.localName === 'video' ||
+          el.localName === 'source'
+        ) {
+          return;
+        }
+        for (const [host, entry] of containerSchedulers) {
+          if (entry.hasMounted() && host.isConnected) {
+            entry.schedule();
+          }
+        }
+      },
+    });
+  };
+
+  const releaseTreeWatchIfIdle = (): void => {
+    if (containerSchedulers.size === 0 && treeWatchStop) {
+      treeWatchStop();
+      treeWatchStop = undefined;
+    }
+  };
   const mountedByParent = new Map<Element, MountedMenu>();
   const parentRows = new Map<Element, EnhancedParentRow>();
   const nativeBound = new WeakSet<Element>();
@@ -915,15 +1005,15 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
     }),
   );
 
-  const hasTrackedAncestor = (el: Element): boolean => {
+  const findTrackedAncestor = (el: Element): Element | null => {
     let cur = el.parentElement;
     while (cur) {
       if (menuCleanups.has(cur)) {
-        return true;
+        return cur;
       }
       cur = cur.parentElement;
     }
-    return false;
+    return null;
   };
 
   const bindNativeSpeedOption = (targetEl: Element, labelEl: Element): void => {
@@ -976,7 +1066,33 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
   };
 
   const attachMenuWatcher = (menu: Element): void => {
-    if (menuCleanups.has(menu) || hasTrackedAncestor(menu)) {
+    if (menuCleanups.has(menu)) {
+      return;
+    }
+    const isSmallPopover = menu.matches(SMALL_POPOVER_SELECTOR);
+    const trackedAncestor = findTrackedAncestor(menu);
+    if (trackedAncestor) {
+      // Portaled `#layers > *` and inline `[data-testid="videoPlayer"]` containers
+      // share `PageWatcher` (`childList` only). Attach a lightweight `characterData`
+      // observer directly on nested open popovers so in-place React text updates
+      // still re-sync the speed badge/menu.
+      if (isSmallPopover && !trackedAncestor.matches(SMALL_POPOVER_SELECTOR)) {
+        const ancestorEntry = containerSchedulers.get(trackedAncestor);
+        if (ancestorEntry) {
+          const charObserver = new MutationObserver((records) => {
+            if (!scope.disposed && !isIgnorableMutation(records)) {
+              ancestorEntry.schedule();
+            }
+          });
+          charObserver.observe(menu, { characterData: true, subtree: true });
+          ancestorEntry.childObservers.add(charObserver);
+          menuCleanups.set(menu, () => {
+            charObserver.disconnect();
+            ancestorEntry.childObservers.delete(charObserver);
+            menuCleanups.delete(menu);
+          });
+        }
+      }
       return;
     }
     let ownedParent: Element | null = null;
@@ -1017,9 +1133,14 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
         return;
       }
       const scanRoots = resolveScanRoots();
+      const rootItems = scanRoots.map((root) => [...root.querySelectorAll(SPEED_ITEM_SELECTOR)]);
       let detected: DetectedSpeedMenu | null = null;
-      for (const root of scanRoots) {
-        detected = detectSpeedMenu(root);
+      for (let i = 0; i < scanRoots.length; i++) {
+        const root = scanRoots[i];
+        if (!root) {
+          continue;
+        }
+        detected = detectSpeedMenu(root, rootItems[i]);
         if (detected) {
           break;
         }
@@ -1027,8 +1148,12 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
       if (!detected) {
         teardownOwnedMenu();
         const foundRows = new Set<Element>();
-        for (const root of scanRoots) {
-          for (const row of detectParentSpeedRows(root)) {
+        for (let i = 0; i < scanRoots.length; i++) {
+          const root = scanRoots[i];
+          if (!root) {
+            continue;
+          }
+          for (const row of detectParentSpeedRows(root, rootItems[i])) {
             foundRows.add(row);
           }
         }
@@ -1081,6 +1206,7 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
 
     let syncTimer: ReturnType<typeof setTimeout> | undefined;
     let observer: MutationObserver | undefined;
+    const childObservers = new Set<MutationObserver>();
     let burstCount = 0;
     let burstWindowStart = 0;
 
@@ -1091,6 +1217,9 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
         // Discard any mutations caused by our own badge/attribute/text updates so
         // `syncMenu` can never trigger a self-feeding MutationObserver loop.
         observer?.takeRecords();
+        for (const childObs of childObservers) {
+          childObs.takeRecords();
+        }
       }
     };
 
@@ -1114,27 +1243,36 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
       }, delay);
     };
 
-    observer = new MutationObserver((records) => {
-      if (syncTimer !== undefined || scope.disposed) {
-        return;
+    // Only attach a dedicated `characterData` observer on actual open popover menus
+    // (0 while scrolling, at most 1 when open). Video players and `#layers > *` share
+    // the document-level `PageWatcher` via `containerSchedulers`.
+    if (isSmallPopover) {
+      observer = new MutationObserver((records) => {
+        if (syncTimer !== undefined || scope.disposed) {
+          return;
+        }
+        if (!isIgnorableMutation(records)) {
+          scheduleSync();
+        }
+      });
+      observer.observe(menu, { childList: true, subtree: true, characterData: true });
+      runSync();
+    } else {
+      containerSchedulers.set(menu, {
+        schedule: scheduleSync,
+        hasMounted: () => ownedParent !== null || ownedRows.size > 0,
+        childObservers,
+      });
+      ensureTreeWatch();
+      // Skip initial scan only on bare `<div data-testid="videoPlayer"><video/></div>` mounts while scrolling.
+      const isBareVideoMount =
+        menu.matches('[data-testid="videoPlayer"], [data-testid="videoComponent"]') &&
+        menu.childElementCount <= 1 &&
+        (menu.childElementCount === 0 || menu.firstElementChild?.localName === 'video');
+      if (!isBareVideoMount) {
+        runSync();
       }
-      if (!isIgnorableMutation(records)) {
-        scheduleSync();
-      }
-    });
-    // Only watch `characterData` on real menu/dropdown popovers — NEVER on
-    // `[data-testid="videoPlayer"]` or `#layers > *`, where video timecode ticks
-    // (`0:01 -> 0:02`) and compose-modal keystrokes would fire constantly.
-    const isSmallPopover = menu.matches(
-      '[role="menu"], [role="listbox"], [data-testid="Dropdown"], [data-testid="sheetDialog"]',
-    );
-    observer.observe(
-      menu,
-      isSmallPopover
-        ? { childList: true, subtree: true, characterData: true }
-        : { childList: true, subtree: true },
-    );
-    runSync();
+    }
 
     menuCleanups.set(menu, () => {
       if (syncTimer !== undefined) {
@@ -1142,6 +1280,13 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
         syncTimer = undefined;
       }
       observer?.disconnect();
+      for (const childObs of childObservers) {
+        childObs.disconnect();
+      }
+      childObservers.clear();
+      if (containerSchedulers.delete(menu)) {
+        releaseTreeWatchIfIdle();
+      }
       teardownOwnedMenu();
       teardownOwnedRows();
       menuCleanups.delete(menu);
@@ -1156,6 +1301,9 @@ function watchSpeedMenus(page: XPage, scope: Scope, store: SpeedStore): SpeedMen
   );
 
   scope.add(() => {
+    treeWatchStop?.();
+    treeWatchStop = undefined;
+    containerSchedulers.clear();
     for (const cleanup of [...menuCleanups.values()]) {
       cleanup();
     }
@@ -1188,7 +1336,7 @@ export default defineXFeature({
       group: 'Videos',
       title: 'Custom video playback speed',
       description:
-        'Add a custom speed slider and exact numeric input (e.g. 1.17x, 2.23x, 0.78x) to X’s video Playback speed menu and remember your preferred speed.',
+        "Add a custom speed slider and exact numeric input (e.g. 1.17×, 2.23×, 0.78×) to X's video Playback speed menu and remember your preferred speed.",
       keywords: ['speed', 'rate', 'playback', 'video'],
       default: true,
     },

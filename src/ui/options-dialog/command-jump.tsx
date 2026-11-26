@@ -34,10 +34,29 @@ export function CommandJumpOverlay({
   onClose,
 }: CommandJumpOverlayProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const activeItemRef = useRef<HTMLButtonElement>(null);
+  const keyboardNavRef = useRef(false);
+
+  const visibleHits = hits.slice(0, MAX_SEARCH_HITS);
+  const safeActiveIndex =
+    visibleHits.length > 0 ? Math.min(Math.max(0, activeIndex), visibleHits.length - 1) : 0;
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (keyboardNavRef.current && safeActiveIndex >= 0) {
+      keyboardNavRef.current = false;
+      activeItemRef.current?.scrollIntoView?.({ block: 'nearest' });
+    }
+  }, [safeActiveIndex]);
+
+  const handleQueryChange = (next: string): void => {
+    if (next !== query) {
+      onQueryChange(next);
+    }
+  };
 
   return (
     <div
@@ -59,19 +78,21 @@ export function CommandJumpOverlay({
             aria-label="Jump to setting"
             placeholder="Search settings, themes, rules, sites, or actions…"
             value={query}
-            onInput={(event) => onQueryChange(event.currentTarget.value)}
-            onChange={(event) => onQueryChange(event.currentTarget.value)}
+            onInput={(event) => handleQueryChange(event.currentTarget.value)}
+            onChange={(event) => handleQueryChange(event.currentTarget.value)}
             onKeyDown={(event) => {
-              const max = Math.min(hits.length, MAX_SEARCH_HITS);
+              const max = visibleHits.length;
               if (event.key === 'ArrowDown' && max > 0) {
                 event.preventDefault();
-                onActiveIndexChange((activeIndex + 1) % max);
+                keyboardNavRef.current = true;
+                onActiveIndexChange((safeActiveIndex + 1) % max);
               } else if (event.key === 'ArrowUp' && max > 0) {
                 event.preventDefault();
-                onActiveIndexChange((activeIndex - 1 + max) % max);
-              } else if (event.key === 'Enter' && hits[activeIndex]) {
+                keyboardNavRef.current = true;
+                onActiveIndexChange((safeActiveIndex - 1 + max) % max);
+              } else if (event.key === 'Enter' && visibleHits[safeActiveIndex]) {
                 event.preventDefault();
-                onSelect(hits[activeIndex]);
+                onSelect(visibleHits[safeActiveIndex]);
               } else if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
@@ -81,26 +102,40 @@ export function CommandJumpOverlay({
           />
         </div>
         <div className="cmd-list">
-          {hits.length === 0 ? (
+          {visibleHits.length === 0 ? (
             <div className="cmd-empty">No options match.</div>
           ) : (
-            hits.slice(0, MAX_SEARCH_HITS).map((hit, idx) => (
-              <button
-                key={hit.id}
-                type="button"
-                className="cmd-item"
-                data-active={idx === activeIndex ? 'true' : undefined}
-                onClick={() => onSelect(hit)}
-              >
-                <span className="cmd-item-main">
-                  <span className="cmd-item-title">{hit.title}</span>
-                  {hit.description && <span className="cmd-item-desc">{hit.description}</span>}
-                </span>
-                <Badge>{hit.section}</Badge>
-              </button>
-            ))
+            visibleHits.map((hit, idx) => {
+              const isActive = idx === safeActiveIndex;
+              return (
+                <button
+                  key={hit.id}
+                  ref={isActive ? activeItemRef : undefined}
+                  type="button"
+                  className="cmd-item"
+                  data-active={isActive ? 'true' : undefined}
+                  onMouseEnter={() => {
+                    if (!isActive) {
+                      onActiveIndexChange(idx);
+                    }
+                  }}
+                  onClick={() => onSelect(hit)}
+                >
+                  <span className="cmd-item-main">
+                    <span className="cmd-item-title">{hit.title}</span>
+                    {hit.description && <span className="cmd-item-desc">{hit.description}</span>}
+                  </span>
+                  <Badge>{hit.section}</Badge>
+                </button>
+              );
+            })
           )}
         </div>
+        {hits.length > MAX_SEARCH_HITS && (
+          <div className="cmd-footer">
+            Showing {MAX_SEARCH_HITS} of {hits.length} matches. Type to narrow.
+          </div>
+        )}
       </div>
     </div>
   );

@@ -616,29 +616,51 @@ export function createThemeHealer(
     }
   };
 
-  scope.add(env.watcher.watchTree({ added: enqueueAddedElement }));
+  let watcherScope: Scope | undefined;
 
-  scope.add(
-    env.onShadowRoot((shadow, rootScope) => {
-      if (isOwnUiElement(shadow.host)) {
-        return;
-      }
-      if (activePalette) {
-        enqueueSubtree(shadow, 100);
-      }
-      // Reuse DomEnvironment's existing per-ShadowRoot PageWatcher instead of creating
-      // a duplicate MutationObserver on every open ShadowRoot.
-      const shadowWatcher = env.shadowWatcherOf(shadow);
-      if (!shadowWatcher) {
-        return;
-      }
-      const stopShadowWatch = shadowWatcher.watchTree({ added: enqueueAddedElement });
-      // Chain disposers so disconnecting a ShadowRoot immediately removes its cleanup
-      // from `scope` without retaining the ShadowRoot closure until full healer dispose.
-      const unbindScope = scope.add(stopShadowWatch);
-      rootScope.add(unbindScope);
-    }),
-  );
+  const setWatchersActive = (active: boolean): void => {
+    if (!active) {
+      watcherScope?.dispose();
+      watcherScope = undefined;
+      return;
+    }
+    if (watcherScope || disposed) {
+      return;
+    }
+    const ws = scope.child();
+    watcherScope = ws;
+    ws.add(env.watcher.watchTree({ added: enqueueAddedElement }));
+    let replaying = true;
+    ws.add(
+      env.onShadowRoot((shadow, rootScope) => {
+        if (isOwnUiElement(shadow.host)) {
+          return;
+        }
+        // Existing ShadowRoots are already walked in `enqueueDocumentPrioritized()`;
+        // only queue newly arriving ShadowRoots to avoid duplicate walks and priority inversion.
+        if (activePalette && !replaying) {
+          enqueueSubtree(shadow, 100);
+        }
+        // Reuse DomEnvironment's existing per-ShadowRoot PageWatcher instead of creating
+        // a duplicate MutationObserver on every open ShadowRoot.
+        const shadowWatcher = env.shadowWatcherOf(shadow);
+        if (!shadowWatcher) {
+          return;
+        }
+        const stopShadowWatch = shadowWatcher.watchTree({ added: enqueueAddedElement });
+        // Bi-directionally chain disposers so clearing either the ShadowRoot or the active
+        // theme removes the entry from the opposite scope without retaining closures.
+        let unbindFromRoot: (() => void) | undefined;
+        const unbindWatcher = ws.add(() => {
+          stopShadowWatch();
+          unbindFromRoot?.();
+          unbindFromRoot = undefined;
+        });
+        unbindFromRoot = rootScope.add(unbindWatcher);
+      }),
+    );
+    replaying = false;
+  };
 
   const healNow = (): number => {
     if (!activePalette || disposed) {
@@ -735,8 +757,10 @@ export function createThemeHealer(
       activePalette = palette;
       activeHostScheme = nextHostScheme;
       if (!palette) {
+        setWatchersActive(false);
         return;
       }
+      setWatchersActive(true);
       paletteBgRgba = parseCssColor(palette.background) ?? paletteBgRgba;
       paletteSurfaceRgba = parseCssColor(palette.surface) ?? paletteSurfaceRgba;
       paletteSurfaceAltRgba = parseCssColor(palette.surfaceAlt) ?? paletteSurfaceAltRgba;

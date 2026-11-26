@@ -57,21 +57,34 @@ function createHideNote(
   const note = doc.createElement('button');
   note.type = 'button';
   note.setAttribute(OWN_ATTR, 'filter-note');
-  note.textContent = hiding.reveal;
+  note.setAttribute('aria-expanded', 'false');
+  const label = doc.createElement('span');
+  label.textContent = hiding.reveal;
+  label.style.cssText = 'min-width: 0; overflow: hidden; text-overflow: ellipsis;';
+  const pill = doc.createElement('span');
+  pill.textContent = 'Show';
+  pill.style.cssText =
+    'flex-shrink: 0; padding: 2px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); font-size: 11.5px; font-weight: 600;';
+  note.append(label, pill);
   note.style.cssText = [
-    'display: block',
+    'display: flex',
+    'align-items: center',
+    'justify-content: space-between',
+    'gap: 10px',
     'width: 100%',
+    'box-sizing: border-box',
     'padding: 8px 12px',
     'margin: 4px 0',
-    'border: 1px solid currentColor',
-    'border-radius: 8px',
-    'background: transparent',
+    'border: 1px solid color-mix(in srgb, currentColor 22%, transparent)',
+    'border-radius: 10px',
+    'background: color-mix(in srgb, currentColor 5%, transparent)',
     'color: inherit',
-    'opacity: 0.72',
+    'opacity: 0.84',
     'font: inherit',
     'font-size: 13px',
     'text-align: left',
     'cursor: pointer',
+    'transition: opacity 120ms ease, background 120ms ease',
     hiding.css ?? '',
   ]
     .filter(Boolean)
@@ -80,7 +93,9 @@ function createHideNote(
   let revealed = false;
   note.addEventListener('click', () => {
     revealed = !revealed;
-    note.textContent = revealed ? hiding.rehide : hiding.reveal;
+    note.setAttribute('aria-expanded', String(revealed));
+    label.textContent = revealed ? hiding.rehide : hiding.reveal;
+    pill.textContent = revealed ? 'Hide' : 'Show';
     onToggleReveal(revealed);
   });
   return note;

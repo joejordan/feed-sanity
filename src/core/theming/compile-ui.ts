@@ -57,7 +57,7 @@ export function compileUiSurfaceCss(
     return `.dialog, .qp-root { box-shadow: 0 0 0 1px ${hexWithAlpha(accent, 0.45)}, 0 18px 48px ${hexWithAlpha(accent, 0.22)}; }`;
   }
   if (effects.surface === 'gradient') {
-    return `.dialog-main, .qp-body { background-image: linear-gradient(160deg, ${hexWithAlpha(accent, 0.08)} 0%, transparent 45%, ${hexWithAlpha(secondary, 0.06)} 100%); }`;
+    return `.pane, .qp-body { background-image: linear-gradient(160deg, ${hexWithAlpha(accent, 0.08)} 0%, transparent 45%, ${hexWithAlpha(secondary, 0.06)} 100%); }`;
   }
   if (effects.surface === 'moonlit') {
     const text = palette?.text ?? '#f8fafc';

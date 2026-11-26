@@ -8,11 +8,13 @@ import { setSiteThemeCss } from '../ui/mount';
 import { closeOptionsDialog, openOptionsDialog } from '../ui/options-dialog';
 import { sitesPanel } from '../ui/sites-panel';
 import { FeatureRunner } from './app';
+import { PageBridge } from './bridge';
 import { createDomEnvironment } from './dom-env';
 import { createLogger } from './log';
 import { Options } from './options';
 import { SavedData } from './saved';
-import { createSiteSettings, SITES_STORAGE_KEY } from './site-settings';
+import { readSiteEnabledHint, writeSiteEnabledHint } from './site-hint';
+import { createSiteSettings, isSiteEnabledByDefault, SITES_STORAGE_KEY } from './site-settings';
 import { siteStoragePrefix } from './site-storage';
 import { createPreloadedStore, readStoreMany } from './storage';
 import { OWN_ATTR, OWN_UI_TAG } from './surface';
@@ -20,6 +22,7 @@ import {
   applyEarlyThemeCss,
   clearEarlyThemeStyle,
   createThemeLibrary,
+  HEALER_STYLE_ID,
   resolveTheme,
   THEME_GLOBAL_REV_KEY,
   THEME_LIBRARY_KEY,
@@ -42,6 +45,7 @@ const LEGACY_STYLE_SELECTOR = [
   '#feed_sanity_options',
   '#feed_sanity_user_theme',
   '#feed_sanity_adaptive_theme',
+  `#${HEALER_STYLE_ID}`,
   '#feed_sanity_theme_healer',
   '#feed_sanity_early_theme',
   '#feed_sanity_surface',
@@ -82,6 +86,8 @@ export interface DiagnosticSection {
 export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory<P>> {
   readonly id: string;
   readonly displayName: string;
+  /** Optional MAIN-world PageBridge toggle to deactivate if a stale localStorage hint booted hooks on a disabled site. */
+  readonly pageWorldActiveToggle?: string;
   /** Hostname matcher for runtime dispatch in multi-site builds and tests. */
   readonly matchesHost: (hostname: string) => boolean;
   /** CSS token overrides mapping the host's palette onto `--fs-*` shadow-DOM tokens. */
@@ -213,22 +219,25 @@ export async function startSite<P, F extends PageFactory<P>>(
   emitBadge(EMPTY_BADGE);
 
   // Collapse startup storage reads (`v2/sites`, options, filters, theme) into
-  // one native `getMany` IPC round-trip when the platform supports it. If the
-  // batched read rejects, fall back to `platform.store` directly so individual
-  // consumers observe the real storage failure and refuse to overwrite data.
+  // one native `getMany` IPC round-trip when the platform supports it. When the
+  // lightweight per-origin hint says this site is disabled, preload only
+  // `v2/sites` so disabled experimental sites skip unnecessary IPC/parsing.
   const bootPrefix = siteStoragePrefix(site.id, site.accountId());
-  const bootKeys = [
-    SITES_STORAGE_KEY,
-    `${bootPrefix}/options`,
-    `${bootPrefix}/filters`,
-    ...(site.themeMapping
-      ? [
-          `${bootPrefix}/${THEME_DATA_KEY}`,
-          `${bootPrefix}/${THEME_GLOBAL_REV_KEY}`,
-          THEME_LIBRARY_KEY,
-        ]
-      : []),
-  ];
+  const hintedEnabled = readSiteEnabledHint(site.id, isSiteEnabledByDefault(site.id));
+  const bootKeys = hintedEnabled
+    ? [
+        SITES_STORAGE_KEY,
+        `${bootPrefix}/options`,
+        `${bootPrefix}/filters`,
+        ...(site.themeMapping
+          ? [
+              `${bootPrefix}/${THEME_DATA_KEY}`,
+              `${bootPrefix}/${THEME_GLOBAL_REV_KEY}`,
+              THEME_LIBRARY_KEY,
+            ]
+          : []),
+      ]
+    : [SITES_STORAGE_KEY];
   let preloadedStore: ReturnType<typeof createPreloadedStore> | undefined;
   const bootStoreReady: Promise<typeof platform.store> = platform.store.getMany
     ? readStoreMany(platform.store, bootKeys)
@@ -515,10 +524,23 @@ export async function startSite<P, F extends PageFactory<P>>(
   if (disposed) {
     return [];
   }
-  if (!resolvedSiteSettings.isEnabled(site.id)) {
+  const initialEnabled = resolvedSiteSettings.isEnabled(site.id);
+  if (!initialEnabled) {
     // Discard unconsumed preloaded keys so re-enabling or opening Options later
     // reads fresh values instead of stale T=0 startup snapshots.
     preloadedStore?.clear();
+    if (hintedEnabled && site.pageWorldActiveToggle) {
+      // A stale or spoofed per-origin `localStorage` hint may have booted MAIN-world
+      // hooks at `document_start`; deactivate them without spinning up `DomEnvironment`.
+      const toggleName = site.pageWorldActiveToggle;
+      const disarmBridge = new PageBridge(() => Promise.resolve(), {
+        log: createLogger(`${site.id}-disarm`),
+      });
+      void disarmBridge
+        .set(toggleName, false)
+        .catch(() => undefined)
+        .finally(() => disarmBridge.dispose());
+    }
     if (site.themeMapping) {
       writeEarlyThemeCss(site.id, '');
       clearEarlyThemeStyle();
@@ -539,6 +561,7 @@ export async function startSite<P, F extends PageFactory<P>>(
       return [];
     }
     const want = resolvedSiteSettings.isEnabled(site.id);
+    writeSiteEnabledHint(site.id, want);
     if (want === active) {
       return [];
     }

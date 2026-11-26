@@ -1,4 +1,5 @@
 import { defineContentScript } from 'wxt/utils/define-content-script';
+import { readSiteEnabledHint } from '../core/site-hint';
 import { startRedditPageWorld } from '../sites/reddit/page-world';
 import { REDDIT_EXCLUDE_MATCHES, REDDIT_MATCHES } from '../sites/reddit/urls';
 
@@ -9,6 +10,8 @@ export default defineContentScript({
   runAt: 'document_start',
   world: 'MAIN',
   main() {
-    startRedditPageWorld();
+    startRedditPageWorld(globalThis, document, {
+      startActive: readSiteEnabledHint('reddit', false),
+    });
   },
 });

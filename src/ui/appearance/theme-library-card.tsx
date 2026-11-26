@@ -594,22 +594,24 @@ export function ThemeLibraryCard({
           >
             Save current
           </button>
-          <div className="theme-library-view-toggle" role="group" aria-label="Theme layout">
-            <span className="theme-library-view-thumb" aria-hidden="true" data-mode={viewMode} />
-            {VIEW_MODES.map((option) => (
-              <button
-                key={option.mode}
-                type="button"
-                className="theme-library-view-btn"
-                aria-label={option.label}
-                aria-pressed={viewMode === option.mode}
-                title={option.label}
-                onClick={() => setViewMode(option.mode)}
-              >
-                <UiIcon name={option.icon} size={13} />
-              </button>
-            ))}
-          </div>
+          {items.length > 0 && (
+            <div className="theme-library-view-toggle" role="group" aria-label="Theme layout">
+              <span className="theme-library-view-thumb" aria-hidden="true" data-mode={viewMode} />
+              {VIEW_MODES.map((option) => (
+                <button
+                  key={option.mode}
+                  type="button"
+                  className="theme-library-view-btn"
+                  aria-label={option.label}
+                  aria-pressed={viewMode === option.mode}
+                  title={option.label}
+                  onClick={() => setViewMode(option.mode)}
+                >
+                  <UiIcon name={option.icon} size={13} />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       }
     >

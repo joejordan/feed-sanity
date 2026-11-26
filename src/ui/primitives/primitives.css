@@ -6,18 +6,6 @@
   vertical-align: middle;
 }
 
-/* Visually hidden text that stays in the accessibility tree. */
-.fs-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 .fs-kicker-row {
   display: flex;
   align-items: center;
@@ -55,6 +43,11 @@
   min-height: 48px;
   padding: 11px 14px;
   position: relative;
+  transition: background 120ms ease;
+}
+
+.fs-row:not(.fs-dimmed):hover {
+  background: color-mix(in srgb, var(--fs-hover) 58%, transparent);
 }
 
 .fs-row + .fs-row::before {
@@ -73,8 +66,23 @@
   gap: 8px;
 }
 
+.fs-row.fs-nested {
+  padding-left: 24px;
+}
+
+.fs-row.fs-nested::after {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 14px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--fs-divider);
+}
+
 .fs-row.fs-dimmed {
-  opacity: 0.5;
+  opacity: 0.52;
 }
 
 @keyframes fs-row-pulse {
@@ -95,21 +103,44 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+}
+
+.fs-row-clickable {
+  cursor: pointer;
+}
+
+.fs-row-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .fs-row-title {
   font-size: 13.5px;
   font-weight: 600;
+  letter-spacing: -0.005em;
   color: var(--fs-text);
   line-height: 1.3;
 }
 
+.fs-row-clickable .fs-row-title {
+  cursor: pointer;
+}
+
+.fs-row-hint {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fs-text-secondary);
+}
+
 .fs-row-desc {
   margin: 0;
+  max-width: 58ch;
   font-size: 12px;
   color: var(--fs-text-secondary);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 /* Tactile Pill Switch (native <input type="checkbox"> for full checkbox & keyboard a11y) */
@@ -217,6 +248,11 @@
   color: var(--fs-text);
 }
 
+.fs-segmented-btn:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: -1px;
+}
+
 .fs-segmented-btn[aria-pressed="true"] {
   background: var(--fs-card-bg);
   color: var(--fs-text);
@@ -285,6 +321,11 @@
   background: var(--fs-hover);
 }
 
+.fs-disclosure-trigger:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: -2px;
+}
+
 .fs-disclosure-label {
   display: inline-flex;
   align-items: center;
@@ -349,4 +390,9 @@
 .fs-toast-undo:hover {
   background: var(--fs-accent);
   color: var(--fs-accent-text);
+}
+
+.fs-toast-undo:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
 }

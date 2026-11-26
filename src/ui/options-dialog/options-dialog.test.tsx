@@ -530,4 +530,94 @@ describe('OptionsDialog panels', () => {
       'Diagnostics',
     ]);
   });
+
+  it('shows a paused-site banner with a Resume button on site sections and hides it on global sections', async () => {
+    const user = userEvent.setup();
+    const options = await loadedOptions();
+    const onToggleSite = vi.fn(() => Promise.resolve());
+    const sitesStub = definePanel<null>({
+      section: 'Sites',
+      ready: Promise.resolve(),
+      read: () => null,
+      save: () => Promise.resolve(),
+      Panel: () => <div>Sites panel</div>,
+    });
+    render(
+      <OptionsDialog
+        options={options}
+        panels={[sitesStub]}
+        site={{ id: 'x', displayName: 'X' }}
+        siteEnabled={false}
+        onToggleSite={onToggleSite}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(/Feed Sanity is paused on X/i)).toBeTruthy();
+
+    // Global (manage-group) sections hide the per-site paused banner.
+    await user.click(button('Sites'));
+    expect(screen.queryByText(/Feed Sanity is paused on X/i)).toBeNull();
+
+    // Returning to a site section shows the banner again, and Resume dismisses it.
+    await user.click(button('General'));
+    expect(screen.getByText(/Feed Sanity is paused on X/i)).toBeTruthy();
+    await user.click(button('Resume'));
+    expect(onToggleSite).toHaveBeenCalledWith(true);
+    expect(screen.queryByText(/Feed Sanity is paused on X/i)).toBeNull();
+  });
+
+  it('disables transitive dependent rows with root Requires hints and updates live on external storage changes', async () => {
+    const user = userEvent.setup();
+    const options = new Options(extensionStore, 'u/options');
+    options.register({
+      root_opt: {
+        section: 'General',
+        title: 'Root toggle',
+        description: 'Top-level switch.',
+        default: false,
+      },
+      mid_opt: {
+        section: 'General',
+        title: 'Middle toggle',
+        description: 'Depends on root.',
+        dependsOn: 'root_opt',
+        default: true,
+      },
+      leaf_opt: {
+        section: 'General',
+        title: 'Leaf toggle',
+        description: 'Depends on middle.',
+        dependsOn: 'mid_opt',
+        default: true,
+      },
+    });
+    await options.load();
+    render(<OptionsDialog options={options} onClose={() => undefined} />);
+
+    const root = field('checkbox', 'Root toggle');
+    const mid = field('checkbox', 'Middle toggle');
+    const leaf = field('checkbox', 'Leaf toggle');
+
+    // When root is off, both middle and transitive leaf are disabled with root's Requires hint.
+    expect(mid.disabled).toBe(true);
+    expect(leaf.disabled).toBe(true);
+    expect(screen.getAllByText('Requires Root toggle')).toHaveLength(2);
+
+    // Turning root on via external storage change reactively enables both middle and leaf.
+    await act(async () => {
+      await browser.storage.local.set({
+        'u/options': { root_opt: true, mid_opt: true, leaf_opt: true },
+      });
+    });
+    expect(root.checked).toBe(true);
+    expect(mid.disabled).toBe(false);
+    expect(leaf.disabled).toBe(false);
+    expect(screen.queryByText(/Requires/)).toBeNull();
+
+    // Turning middle off disables only leaf with middle's Requires hint.
+    await user.click(mid);
+    expect(leaf.disabled).toBe(true);
+    expect(screen.getByText('Requires Middle toggle')).toBeTruthy();
+  });
 });

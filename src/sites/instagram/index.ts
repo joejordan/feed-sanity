@@ -38,6 +38,7 @@ export const instagramFeatures: readonly Feature<InstagramPage>[] = [
 export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createInstagramPage>> = {
   id: 'instagram',
   displayName: 'Instagram',
+  pageWorldActiveToggle: 'ig-active',
   matchesHost: isInstagramHost,
   themeCss: instagramTheme,
   themeMapping: instagramThemeMapping,

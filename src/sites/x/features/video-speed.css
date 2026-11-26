@@ -36,6 +36,37 @@
   line-height: 1.2;
 }
 
+.fs-speed-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fs-speed-reset {
+  appearance: none;
+  border: 1px solid var(--fs-divider);
+  border-radius: 999px;
+  padding: 1.5px 7px;
+  background: transparent;
+  color: var(--fs-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.fs-speed-reset:hover {
+  background: var(--fs-hover);
+  color: var(--fs-text);
+}
+
+.fs-speed-reset:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
 .fs-speed-badge {
   display: inline-flex;
   align-items: center;
@@ -96,13 +127,32 @@
   box-shadow: 0 0 0 3px var(--fs-accent-surface);
 }
 
+.fs-speed-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--fs-accent-surface);
+}
+
 .fs-speed-ticks {
-  display: flex;
-  justify-content: space-between;
+  position: relative;
+  height: 12px;
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   color: var(--fs-text-secondary);
   line-height: 1;
+}
+
+.fs-speed-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.fs-speed-tick:first-child {
+  transform: none;
+}
+
+.fs-speed-tick:last-child {
+  transform: translateX(-100%);
 }
 
 .fs-speed-input-row {
@@ -135,6 +185,12 @@
 
 .fs-speed-step:active {
   background: var(--fs-press);
+}
+
+.fs-speed-step:focus-visible,
+.fs-speed-apply:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
 }
 
 .fs-speed-input {

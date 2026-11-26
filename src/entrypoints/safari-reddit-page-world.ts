@@ -1,4 +1,5 @@
 import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
+import { readSiteEnabledHint } from '../core/site-hint';
 import { isExcludedUrl } from '../core/urls';
 import { startRedditPageWorld } from '../sites/reddit/page-world';
 import { REDDIT_EXCLUDE_MATCHES } from '../sites/reddit/urls';
@@ -11,6 +12,8 @@ export default defineUnlistedScript({
     if (isExcludedUrl(location.href, REDDIT_EXCLUDE_MATCHES)) {
       return;
     }
-    startRedditPageWorld();
+    startRedditPageWorld(globalThis, document, {
+      startActive: readSiteEnabledHint('reddit', false),
+    });
   },
 });

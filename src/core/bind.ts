@@ -11,6 +11,7 @@ import type {
   ThreadListCapability,
   ThreadRow,
 } from '../capabilities';
+import type { PageBridge } from './bridge';
 import type { Binder } from './feature';
 import type { Locate, Locator, LocatorSpec } from './locator';
 import type { PageWatcher, WatchHandlers } from './page-watcher';
@@ -163,5 +164,53 @@ export function bindThreads<R extends ThreadRow>(
     ...(threads.onReset
       ? { onReset: (listener) => listen((guarded) => threads.onReset!(guarded), listener) }
       : {}),
+  };
+}
+
+/**
+ * Ref-counts active feature bindings against a MAIN-world `PageBridge` toggle
+ * so passive-start page-world scripts activate on first consumer use and
+ * deactivate cleanly when all features stop (e.g. site paused).
+ */
+export function createBridgeActiveToggle(
+  bridge: Pick<PageBridge, 'set'>,
+  toggleName: string,
+  initiallyActive = false,
+): {
+  readonly activate: () => Promise<void>;
+  readonly bind: (binder: Binder) => void;
+} {
+  let activated = false;
+  let remoteActive = initiallyActive;
+  let activeBindings = 0;
+
+  const setRemote = (enabled: boolean): Promise<void> => {
+    remoteActive = enabled;
+    return bridge
+      .set(toggleName, enabled)
+      .then(() => undefined)
+      .catch(() => undefined);
+  };
+
+  return {
+    activate() {
+      if (activated && remoteActive) {
+        return Promise.resolve();
+      }
+      activated = true;
+      return setRemote(true);
+    },
+    bind(binder) {
+      if (activeBindings === 0 && activated && !remoteActive) {
+        void setRemote(true);
+      }
+      activeBindings++;
+      binder.scope.add(() => {
+        activeBindings = Math.max(0, activeBindings - 1);
+        if (activeBindings === 0 && (activated || remoteActive)) {
+          void setRemote(false);
+        }
+      });
+    },
   };
 }

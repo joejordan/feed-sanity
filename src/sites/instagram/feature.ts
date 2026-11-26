@@ -8,7 +8,13 @@ import type { PageWatcher } from '../../core/page-watcher';
 import type { SavedData } from '../../core/saved';
 import type { VideoDownloadBridge } from '../../features/shared/video-download';
 import type { InstagramNetworkStats } from './page-world';
-import { bindFeed, bindLocate, bindVideos, bindWatch } from '../../core/bind';
+import {
+  bindFeed,
+  bindLocate,
+  bindVideos,
+  bindWatch,
+  createBridgeActiveToggle,
+} from '../../core/bind';
 import { PageBridge } from '../../core/bridge';
 import { createDomEnvironment } from '../../core/dom-env';
 import { defineFeature as defineCoreFeature } from '../../core/feature';
@@ -19,6 +25,7 @@ import {
   readLocatorOverrides,
 } from '../../core/locator';
 import { createLogger } from '../../core/log';
+import { readSiteEnabledHint } from '../../core/site-hint';
 import { isObject } from '../../engines/react';
 import { InstagramFeed } from './feed';
 import * as selectors from './selectors';
@@ -78,6 +85,11 @@ export function createInstagramPage(
   env.scope.add(() => bridge.dispose());
   let latestNetwork: InstagramNetworkStats = { matchedResponses: 0, cachedItems: 0 };
   let listeningStats = false;
+  const activeToggle = createBridgeActiveToggle(
+    bridge,
+    'ig-active',
+    readSiteEnabledHint('instagram', false),
+  );
 
   const locate: Locate = (spec) => locators.locate(spec);
   let feed!: InstagramFeed;
@@ -87,6 +99,7 @@ export function createInstagramPage(
       return;
     }
     listeningStats = true;
+    activeToggle.activate();
     env.scope.add(
       bridge.on('ig:network-stats', (payload) => {
         if (
@@ -131,6 +144,7 @@ export function createInstagramPage(
   };
 
   const factory: PageFactory<InstagramPage> = (binder: Binder) => {
+    activeToggle.bind(binder);
     const boundFeed = bindFeed(feed, binder);
     const boundVideos = bindVideos(videos, binder);
     return {

@@ -19,145 +19,159 @@ const KNOWN_SECTIONS: Readonly<Record<string, SectionMeta>> = {
     group: 'site',
     order: 10,
     icon: 'shield',
-    subtitle: 'Ad shields, custom filter rules, and keyword blocklists.',
+    subtitle: 'Decide what gets dropped from your feed, from ads to custom rules.',
   },
   'Inbox Filtering': {
     group: 'site',
     order: 10,
     icon: 'shield',
-    subtitle: 'Inbox ad blocking, thread rules, and muted keywords.',
+    subtitle: 'Keep promo rows and noisy threads out of your inbox.',
   },
   'Filters': {
     group: 'site',
     order: 12,
     icon: 'shield',
-    subtitle: 'Custom filter rules and post hiding controls.',
+    subtitle: 'Build custom rules to hide, highlight, or route posts.',
   },
   'Hide Posts': {
     group: 'site',
     order: 14,
     icon: 'shield',
-    subtitle: 'Hide ads, suggested posts, and keyword matches.',
+    subtitle: 'Filter out ads, suggested posts, and muted keywords.',
   },
   'Feed & Reading': {
     group: 'site',
     order: 20,
     icon: 'sliders',
-    subtitle: 'Default feed, scroll stability, and marking posts as read.',
+    subtitle: 'Pick your default Home feed, stop surprise refreshes, and mark posts read.',
   },
   'Timeline & Clutter': {
     group: 'site',
     order: 20,
     icon: 'sliders',
-    subtitle: 'Default timeline tab and distraction-free page clutter controls.',
+    subtitle: 'Start on Following and clear out Grok, Premium, and sidebar distractions.',
   },
   'Feed & Clutter': {
     group: 'site',
     order: 20,
     icon: 'sliders',
-    subtitle: 'Default feed and distraction-free navigation controls.',
+    subtitle: 'Open straight to Following and trim unused tabs from the left rail.',
   },
   'Layout & Clutter': {
     group: 'site',
     order: 20,
     icon: 'sliders',
-    subtitle: 'Hide sidebars, promo banners, and distracting widgets.',
+    subtitle: 'Strip away side rails, app promos, and sidebar widgets.',
   },
   'Workspace': {
     group: 'site',
     order: 20,
     icon: 'sliders',
-    subtitle: 'Hide Gemini, sidebars, Chat & Meet, and inbox clutter.',
+    subtitle: 'Clear out Gemini, Chat, Meet, and side panels for a calmer inbox.',
   },
   'Home Feed': {
     group: 'site',
     order: 22,
     icon: 'sliders',
-    subtitle: 'Choose your default feed and layout controls.',
+    subtitle: 'Choose which feed opens first and how the Home layout behaves.',
   },
   'Feed': {
     group: 'site',
     order: 22,
     icon: 'sliders',
-    subtitle: 'Feed preferences and built-in filters.',
+    subtitle: 'Tune feed order and built-in post shields.',
   },
   'Navigation': {
     group: 'site',
     order: 24,
     icon: 'sliders',
-    subtitle: 'Hide optional navigation items and sidebar rails.',
+    subtitle: 'Trim optional links and sidebar rails from the page.',
   },
   'Mark Read': {
     group: 'site',
     order: 26,
     icon: 'sliders',
-    subtitle: 'Mark seen posts as read to keep them out of your way.',
+    subtitle: 'Hide posts you have already seen so your feed stays fresh.',
   },
   'Media': {
     group: 'site',
     order: 30,
     icon: 'play',
-    subtitle: 'Video playback controls, speed, and story behavior.',
+    subtitle: 'Seekable video scrubbers and click-to-pause on feed videos.',
   },
   'Videos': {
     group: 'site',
     order: 32,
     icon: 'play',
-    subtitle: 'Scrubber, click-to-pause, download, and playback speed.',
+    subtitle: 'Better playback controls for every feed video.',
   },
   'Stories': {
     group: 'site',
     order: 34,
     icon: 'play',
-    subtitle: 'Control how story playback behaves.',
+    subtitle: 'Keep Stories playing smoothly while you browse.',
   },
   'Appearance': {
     group: 'site',
     order: 15,
     icon: 'palette',
-    subtitle: 'Theme presets, site-wide typography, custom CSS, and live health checks.',
+    subtitle: 'Color themes, live scenes, typography, and custom CSS for this site.',
   },
   'Advanced': {
     group: 'site',
     order: 80,
     icon: 'sliders',
-    subtitle: 'Power-user options and external stylesheets.',
+    subtitle: 'Power-user toggles and external stylesheets.',
   },
   'Sites': {
     group: 'manage',
     order: 100,
     icon: 'globe',
-    subtitle: 'Enable or pause Feed Sanity across all supported sites.',
+    subtitle: 'Turn Feed Sanity on or off per site. Changes apply right away.',
   },
   'Backup & Reset': {
     group: 'manage',
     order: 110,
     icon: 'database',
-    subtitle: 'Export, import, and reset settings for this site.',
+    subtitle: 'Save a backup, restore a file, or reset this site to defaults.',
   },
   'Data': {
     group: 'manage',
     order: 110,
     icon: 'database',
-    subtitle: 'Export, import, and reset settings for this site.',
+    subtitle: 'Save a backup, restore a file, or reset this site to defaults.',
   },
   'Diagnostics': {
     group: 'manage',
     order: 120,
     icon: 'activity',
-    subtitle: 'Runtime health, bug reports, and custom DOM locator overrides.',
+    subtitle: 'Check what is running, copy a scrubbed bug report, or patch broken selectors.',
   },
 };
 
-export function getSectionMeta(section: string): SectionMeta {
-  return (
-    KNOWN_SECTIONS[section] ?? {
-      group: 'site',
-      order: 50,
-      icon: 'sliders',
-      subtitle: '',
-    }
-  );
+const SITE_MEDIA_SUBTITLES: Readonly<Record<string, string>> = {
+  facebook: 'Video scrubbers, click-to-pause, one-click saves, and Story playback.',
+  x: 'Video scrubbers, click-to-pause, and custom playback speeds.',
+  instagram: 'Video scrubbers, click-to-pause, and one-click video saves.',
+};
+
+export function getSectionMeta(section: string, siteId?: string): SectionMeta {
+  const base = KNOWN_SECTIONS[section] ?? {
+    group: 'site',
+    order: 50,
+    icon: 'sliders',
+    subtitle: '',
+  };
+  if (section === 'Media' && siteId && SITE_MEDIA_SUBTITLES[siteId]) {
+    return { ...base, subtitle: SITE_MEDIA_SUBTITLES[siteId] };
+  }
+  if ((section === 'Data' || section === 'Backup & Reset') && siteId === 'facebook') {
+    return {
+      ...base,
+      subtitle: 'Save a backup, restore one, or reset this site to defaults.',
+    };
+  }
+  return base;
 }
 
 /** Sorts unique section names into intentional mental-model order (`THIS SITE` then `FEED SANITY`). */

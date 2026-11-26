@@ -3,7 +3,7 @@ import type { SiteSettingsClient, SiteStatus } from '../core/site-settings';
 import type { OptionsPanel } from './options-dialog/panel';
 import { isSiteVisible } from '../core/site-settings';
 import { definePanel } from './options-dialog/panel';
-import { Badge, Switch } from './primitives';
+import { Badge, getSiteMark, SettingCard, Switch } from './primitives';
 import css from './sites-panel.css?inline';
 
 function SiteCard({
@@ -25,20 +25,23 @@ function SiteCard({
     actionLabel = site.enabled ? 'Disable' : 'Enable';
   }
   return (
-    <li className="sites-card">
+    <li className="sites-row">
+      <span className="sites-mark" aria-hidden="true">
+        {getSiteMark(site.id, site.displayName)}
+      </span>
       <div className="sites-meta">
         <div className="sites-name-row">
           <span className="sites-name">{site.displayName}</span>
           {site.id === currentSiteId && <Badge tone="accent">Current tab</Badge>}
           {site.experimental && <Badge tone="warning">Experimental</Badge>}
-          <Badge tone={site.enabled ? 'accent' : 'neutral'}>
+          <Badge tone={site.enabled ? 'success' : 'neutral'}>
             {site.enabled ? 'Enabled' : 'Disabled'}
           </Badge>
         </div>
-        <p className="description">{site.description}</p>
+        <p className="sites-desc">{site.description}</p>
       </div>
       <button
-        className="button"
+        className={site.enabled ? 'button' : 'button primary'}
         type="button"
         aria-label={`${site.enabled ? 'Disable' : 'Enable'} ${site.displayName}`}
         disabled={busyId !== null}
@@ -127,7 +130,7 @@ function SitesPanelView({
 
   return (
     <section className="sites-panel">
-      {renderSiteList(productionSites)}
+      <SettingCard title="Supported Sites">{renderSiteList(productionSites)}</SettingCard>
 
       {experimentalSites.length > 0 && (
         <div className="sites-experimental">
@@ -140,9 +143,9 @@ function SitesPanelView({
                   <Badge tone="neutral">{enabledExperimentalCount} active</Badge>
                 )}
               </div>
-              <p className="description">
-                Show early support for sites that are not fully baked yet. Features, filters, and
-                theming on these sites will be broken or incomplete.
+              <p className="sites-desc">
+                Early support for sites that are still rough around the edges. Expect broken filters
+                or unfinished styling.
               </p>
             </div>
             <Switch
@@ -158,7 +161,7 @@ function SitesPanelView({
                 Warning: these sites are work-in-progress and things will be broken. Each site stays
                 disabled by default until you turn it on below.
               </p>
-              {renderSiteList(experimentalSites)}
+              <SettingCard>{renderSiteList(experimentalSites)}</SettingCard>
             </>
           )}
         </div>

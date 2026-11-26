@@ -54,6 +54,7 @@ export interface TextInputProps {
   readonly inputMode?: 'text' | 'url' | 'numeric' | 'decimal' | 'search';
   readonly value: string;
   readonly placeholder?: string;
+  readonly disabled?: boolean;
   readonly spellCheck?: boolean;
   readonly ariaLabel?: string;
   readonly ariaDescribedBy?: string;
@@ -84,6 +85,7 @@ export function TextInput({
   inputMode,
   value,
   placeholder,
+  disabled,
   spellCheck,
   ariaLabel,
   ariaDescribedBy,
@@ -111,6 +113,7 @@ export function TextInput({
       inputMode={effectiveMode}
       value={value}
       placeholder={placeholder}
+      disabled={disabled}
       spellCheck={spellCheck}
       aria-label={ariaLabel}
       aria-describedby={ariaDescribedBy}
@@ -172,10 +175,12 @@ export function SettingCard({ title, action, children }: SettingCardProps) {
 export interface SettingRowProps {
   readonly title: string;
   readonly description?: string;
+  readonly hint?: string;
   readonly htmlFor?: string;
   readonly descriptionId?: string;
   readonly stacked?: boolean;
   readonly dimmed?: boolean;
+  readonly nested?: boolean;
   readonly pulse?: boolean;
   readonly children: ReactNode;
 }
@@ -183,13 +188,26 @@ export interface SettingRowProps {
 export function SettingRow({
   title,
   description,
+  hint,
   htmlFor,
   descriptionId,
   stacked = false,
   dimmed = false,
+  nested = false,
   pulse = false,
   children,
 }: SettingRowProps) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (pulse) {
+      const reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      rowRef.current?.scrollIntoView?.({
+        block: 'center',
+        behavior: reducedMotion ? 'auto' : 'smooth',
+      });
+    }
+  }, [pulse]);
+
   const classes = ['fs-row'];
   if (stacked) {
     classes.push('fs-stacked');
@@ -197,19 +215,59 @@ export function SettingRow({
   if (dimmed) {
     classes.push('fs-dimmed');
   }
+  if (nested) {
+    classes.push('fs-nested');
+  }
   if (pulse) {
     classes.push('fs-pulse');
   }
+
+  const clickable = Boolean(htmlFor && !dimmed && !stacked);
+
+  const handleTextClick = (event: { target: EventTarget | null; currentTarget: HTMLElement }) => {
+    if (!htmlFor) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    // Skip if the user already clicked the native <label> (which toggles/focuses automatically)
+    // or drag-selected text inside the description.
+    if (target?.closest('label, a, button, input, select, textarea')) {
+      return;
+    }
+    const root = event.currentTarget.getRootNode();
+    const sel =
+      (root && 'getSelection' in root
+        ? (root as ShadowRoot & { getSelection?: () => Selection | null }).getSelection?.()
+        : null) ?? globalThis.getSelection?.();
+    if (sel && !sel.isCollapsed && sel.toString().length > 0) {
+      return;
+    }
+    const control = Array.from(rowRef.current?.querySelectorAll('[id]') ?? []).find(
+      (el) => el.id === htmlFor,
+    );
+    if (control instanceof HTMLInputElement && control.type === 'checkbox') {
+      control.click();
+    } else if (control instanceof HTMLElement) {
+      control.focus();
+    }
+  };
+
   return (
-    <div className={classes.join(' ')}>
-      <div className="fs-row-text">
-        {htmlFor ? (
-          <label className="fs-row-title" htmlFor={htmlFor}>
-            {title}
-          </label>
-        ) : (
-          <span className="fs-row-title">{title}</span>
-        )}
+    <div ref={rowRef} className={classes.join(' ')}>
+      <div
+        className={clickable ? 'fs-row-text fs-row-clickable' : 'fs-row-text'}
+        onClick={clickable ? handleTextClick : undefined}
+      >
+        <div className="fs-row-title-line">
+          {htmlFor ? (
+            <label className="fs-row-title" htmlFor={htmlFor}>
+              {title}
+            </label>
+          ) : (
+            <span className="fs-row-title">{title}</span>
+          )}
+          {hint && <span className="fs-row-hint">{hint}</span>}
+        </div>
         {description && (
           <p className="fs-row-desc" id={descriptionId}>
             {description}

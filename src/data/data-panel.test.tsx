@@ -8,7 +8,8 @@ import { Options } from '../core/options';
 import { SavedData } from '../core/saved';
 import { LOCATOR_OVERRIDES } from '../facebook/feature';
 import { extensionStore } from '../platform/extension-store';
-import { DataPanel } from './data-panel';
+import { OptionsDialog } from '../ui/options-dialog/options-dialog';
+import { DataPanel, dataPanel } from './data-panel';
 
 afterEach(cleanup);
 
@@ -79,5 +80,29 @@ describe('DataPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Confirm reset' }));
     await vi.waitFor(() => expect(stores.options.get('hidden_keywords')).toBe(''));
     expect(screen.getByRole('status').textContent).toContain('reset to defaults');
+  });
+
+  it('emits a single status live region inside OptionsDialog when notify is provided', async () => {
+    const stores = makeStores();
+    render(
+      <OptionsDialog
+        options={stores.options}
+        panels={[dataPanel(stores)]}
+        initialSection="Backup & Reset"
+        onClose={() => undefined}
+      />,
+    );
+
+    const box = screen.getByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Settings JSON to import',
+    });
+    await userEvent.click(box);
+    await userEvent.paste('{"options":{"hidden_keywords":"promo"}}');
+    await userEvent.click(screen.getByRole('button', { name: 'Import JSON' }));
+
+    await vi.waitFor(() => expect(stores.options.get('hidden_keywords')).toBe('promo'));
+    const statuses = screen.getAllByRole('status');
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0]?.textContent).toContain('Imported 1 option.');
   });
 });

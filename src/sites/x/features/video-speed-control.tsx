@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import type { SavedVideoSpeed } from './video-speed-model';
 import {
   clampVideoSpeed,
@@ -11,6 +11,15 @@ const SLIDER_MIN = 0.25;
 const SLIDER_MAX = 4;
 const SLIDER_STEP = 0.01;
 const BUTTON_STEP = 0.05;
+const SPEED_EPSILON = 0.005;
+const SLIDER_TICKS: readonly { readonly rate: number; readonly label: string }[] = [
+  { rate: 0.25, label: '0.25×' },
+  { rate: 1, label: '1×' },
+  { rate: 2, label: '2×' },
+  { rate: 4, label: '4×' },
+];
+const tickPercent = (rate: number): string =>
+  `${(((rate - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100).toFixed(2)}%`;
 
 export interface SpeedStore {
   get: () => SavedVideoSpeed;
@@ -28,6 +37,7 @@ export interface CustomSpeedControlProps {
 export function CustomSpeedControl({ store, onConfirm }: CustomSpeedControlProps) {
   const speed = useSyncExternalStore(store.subscribe, store.get);
   const [draft, setDraft] = useState<string | null>(null);
+  const sliderRef = useRef<HTMLInputElement>(null);
 
   const displayText = draft ?? formatSpeedNumber(speed.rate);
   const parsedDraft = draft === null ? speed.rate : parseSpeedInput(draft);
@@ -87,11 +97,29 @@ export function CustomSpeedControl({ store, onConfirm }: CustomSpeedControlProps
       <div className="fs-speed-section" role="group" aria-label="Custom playback speed">
         <div className="fs-speed-header">
           <span className="fs-speed-title">Custom speed</span>
-          <span className="fs-speed-badge">{formatSpeedNumber(activeRate)}×</span>
+          <div className="fs-speed-header-right">
+            {Math.abs(speed.rate - 1) > SPEED_EPSILON && (
+              <button
+                type="button"
+                className="fs-speed-reset"
+                aria-label="Reset playback speed to 1×"
+                title="Reset to 1×"
+                onClick={() => {
+                  setDraft(null);
+                  applyRate(1, true);
+                  sliderRef.current?.focus();
+                }}
+              >
+                Reset 1×
+              </button>
+            )}
+            <span className="fs-speed-badge">{formatSpeedNumber(activeRate)}×</span>
+          </div>
         </div>
 
         <div className="fs-speed-slider-wrap">
           <input
+            ref={sliderRef}
             type="range"
             className="fs-speed-slider"
             aria-label="Playback speed slider"
@@ -106,10 +134,15 @@ export function CustomSpeedControl({ store, onConfirm }: CustomSpeedControlProps
             onBlur={() => store.flush()}
           />
           <div className="fs-speed-ticks" aria-hidden="true">
-            <span>0.25×</span>
-            <span>1×</span>
-            <span>2×</span>
-            <span>4×</span>
+            {SLIDER_TICKS.map((tick) => (
+              <span
+                key={tick.rate}
+                className="fs-speed-tick"
+                style={{ left: tickPercent(tick.rate) }}
+              >
+                {tick.label}
+              </span>
+            ))}
           </div>
         </div>
 

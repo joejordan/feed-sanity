@@ -6,33 +6,31 @@ import { X_NAV_EXPLORE, X_NAV_GROK, X_NAV_PREMIUM, X_SIDEBAR } from '../selector
 export default createHideClutterFeature<XPage>({
   id: 'x_hide_clutter',
   section: 'Timeline & Clutter',
-  group: 'Hide Page Clutter',
+  group: 'Hide from X',
   rules: [
     {
       key: 'x_hide_grok',
       spec: X_NAV_GROK,
-      title: 'Hide Grok',
-      description:
-        'Hide the Grok navigation link, floating drawer, and Grok buttons on posts and replies.',
+      title: 'Grok',
+      description: 'Nav link, floating drawer, and Grok buttons on posts and replies.',
     },
     {
       key: 'x_hide_premium',
       spec: X_NAV_PREMIUM,
-      title: 'Hide Premium link',
-      description: 'Hide the X Premium subscription link from navigation.',
+      title: 'X Premium',
+      description: 'Subscription upsell link in the left rail.',
     },
     {
       key: 'x_hide_sidebar',
       spec: X_SIDEBAR,
-      title: 'Hide right sidebar',
-      description:
-        'Hide the right sidebar column ("What\'s happening", "Who to follow", and scores).',
+      title: 'Right sidebar',
+      description: '"What\'s happening", "Who to follow", and live score cards.',
     },
     {
       key: 'x_hide_explore',
       spec: X_NAV_EXPLORE,
-      title: 'Hide Explore link',
-      description: 'Hide the Explore tab from navigation.',
+      title: 'Explore tab',
+      description: 'Explore search link in the left rail.',
     },
   ],
 });

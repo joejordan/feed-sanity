@@ -37,6 +37,7 @@ export const redditFeatures: readonly Feature<RedditPage>[] = [
 export const redditSite: SiteAdapter<RedditPage, ReturnType<typeof createRedditPage>> = {
   id: 'reddit',
   displayName: 'Reddit',
+  pageWorldActiveToggle: 'reddit-active',
   matchesHost: isRedditHost,
   themeCss: redditTheme,
   themeMapping: redditThemeMapping,
