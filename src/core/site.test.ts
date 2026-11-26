@@ -194,8 +194,9 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     await vi.waitFor(() => expect(badges.at(-1)).toEqual({ count: 0, failed: false }));
   });
 
-  it('batches startup reads via getMany, shares one DomEnvironment, and clears stale early-theme cache when disabled', async () => {
-    writeEarlyThemeCss('facebook', 'body { background: #111; }');
+  it('batches startup reads via getMany, shares one DomEnvironment, and clears stale account-scoped early-theme cache when disabled', async () => {
+    writeEarlyThemeCss('v2/facebook/u1', 'body { background: #111; }');
+    writeEarlyThemeCss('v2/facebook/u2', 'body { background: #222; }');
     const backing = inMemoryStore({ [SITES_STORAGE_KEY]: { facebook: false } });
     const getSpy = vi.spyOn(backing, 'get');
     const getManySpy = vi.fn(async (keys: readonly string[]) =>
@@ -233,9 +234,10 @@ describe('SiteRegistry, capabilities, and startSite', () => {
       installPageWorld: () => Promise.resolve(),
     });
 
-    // Batched preload ran once; disabled site cleared early-theme cache and style immediately.
+    // Batched preload ran once; disabled site cleared only this account's early-theme cache and style.
     expect(getManySpy).toHaveBeenCalledTimes(1);
-    expect(readEarlyThemeCss('facebook')).toBe('');
+    expect(readEarlyThemeCss('v2/facebook/u1')).toBe('');
+    expect(readEarlyThemeCss('v2/facebook/u2')).toBe('body { background: #222; }');
     expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
 
     // Updating options while disabled and then enabling reads live storage (not stale T=0 preload)

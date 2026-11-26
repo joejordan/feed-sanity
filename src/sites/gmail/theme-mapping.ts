@@ -98,7 +98,9 @@ div[role="menu"] :is([role="menuitem"], span, a, svg) {
 `.trim(),
   surfaces: {
     transparentShell: ['header[role="banner"]', 'div[role="navigation"]'],
-    softSurfaces: ['div.nH:has(> div[role="main"])', 'div[role="main"]'],
+    softSurfaces: ['div[role="main"]'],
+    feedCards: ['div[role="main"] tr[role="row"]'],
+    searchContainers: ['form[role="search"]'],
     primaryCtas: ['div[role="button"][gh="cm"]'],
     popups: ['div[role="dialog"]', 'div[role="menu"]', 'div[role="listbox"]'],
   },

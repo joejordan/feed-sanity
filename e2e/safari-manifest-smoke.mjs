@@ -161,13 +161,15 @@ function verifyNoSafariBleed(dir, label, expectedManifestVersion) {
     `${label} background.js must not include Safari registerContentScripts`,
   );
   assert.equal(
-    bgCode.includes('feed-sanity-facebook-page-world'),
+    bgCode.includes('feed-sanity-facebook-page-world') ||
+      bgCode.includes('/safari-') ||
+      /feed-sanity-.*-page-world/.test(bgCode),
     false,
     `${label} background.js must tree-shake Safari page-world specs completely`,
   );
   const fbContent = fs.readFileSync(path.join(dir, 'content-scripts', 'facebook.js'), 'utf8');
   assert.equal(
-    fbContent.includes('feed-sanity/request-page-world'),
+    fbContent.includes('feed-sanity/request-page-world') || fbContent.includes('/safari-'),
     false,
     `${label} content scripts must dead-code eliminate Safari cold-start messaging`,
   );

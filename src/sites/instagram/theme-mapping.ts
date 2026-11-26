@@ -49,7 +49,8 @@ export const instagramThemeMapping: SiteThemeMapping = {
   surfaces: {
     columns: ['main[role="main"] > div'],
     columnAlphaScale: 0.75,
-    softSurfaces: ['article', 'nav'],
+    softSurfaces: ['nav', 'article'],
+    feedCards: ['article'],
     popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
     revealCssVars: () => ({
       '--web-wash': 'transparent',

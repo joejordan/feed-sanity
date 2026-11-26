@@ -2,12 +2,10 @@ import type { Feature } from '../../core/feature';
 import type { SiteAdapter } from '../../core/site';
 import type { InstagramPage } from './feature';
 import { version } from '../../../package.json';
-import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
-import { dataPanel } from '../../data/data-panel';
+import { siteDataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
-import { readThemeDocument, THEME_DATA_KEY } from '../../ui/appearance';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createInstagramPage, IG_LOCATOR_OVERRIDES } from './feature';
 import igDefaultFollowing from './features/default-following';
@@ -51,15 +49,13 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
     const overrides = data.value(IG_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       createFiltersPanel(data, INSTAGRAM_FILTER_SCHEMA),
-      dataPanel(
-        {
-          options,
-          filters: savedFilters(data),
-          locators: overrides,
-          theme: data.value(THEME_DATA_KEY, readThemeDocument),
-        },
-        { siteName: 'Instagram' },
-      ),
+      siteDataPanel({
+        siteId: 'instagram',
+        siteName: 'Instagram',
+        options,
+        data,
+        locators: overrides,
+      }),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();

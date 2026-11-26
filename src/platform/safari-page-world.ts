@@ -1,13 +1,8 @@
 import { browser } from 'wxt/browser';
+import type { PageWorldSiteId } from '../sites/manifest';
 import { messageOf } from '../core/log';
 import { isRecord } from '../core/storage';
-import {
-  EXCLUDE_MATCHES as FACEBOOK_EXCLUDE_MATCHES,
-  MATCHES as FACEBOOK_MATCHES,
-} from '../facebook/urls';
-import { INSTAGRAM_EXCLUDE_MATCHES, INSTAGRAM_MATCHES } from '../sites/instagram/urls';
-import { REDDIT_EXCLUDE_MATCHES, REDDIT_MATCHES } from '../sites/reddit/urls';
-import { X_EXCLUDE_MATCHES, X_MATCHES } from '../sites/x/urls';
+import { SITE_MANIFEST } from '../sites/manifest';
 
 /** Sent from a Safari tab to the background service worker for cold-start MAIN-world injection. */
 export const REQUEST_PAGE_WORLD = 'feed-sanity/request-page-world';
@@ -42,13 +37,9 @@ export function isRequestPageWorldReply(value: unknown): value is RequestPageWor
   return value.ok === true || (value.ok === false && typeof value.error === 'string');
 }
 
-export type SafariPageWorldSiteId = 'facebook' | 'instagram' | 'reddit' | 'x';
+export type SafariPageWorldSiteId = PageWorldSiteId;
 
-export type SafariPageWorldScript =
-  | '/safari-facebook-page-world.js'
-  | '/safari-instagram-page-world.js'
-  | '/safari-reddit-page-world.js'
-  | '/safari-x-page-world.js';
+export type SafariPageWorldScript = `/safari-${PageWorldSiteId}-page-world.js`;
 
 export interface SafariPageWorldSpec {
   readonly id: string;
@@ -59,42 +50,26 @@ export interface SafariPageWorldSpec {
 }
 
 /**
- * Safari dynamic MAIN-world content script registrations for the four sites
- * that use `PageBridge`. Safari does not support `world: 'MAIN'` in static
- * manifest `content_scripts`, so we register these via `browser.scripting`
+ * Safari dynamic MAIN-world content script registrations derived from `SITE_MANIFEST`
+ * for every site that uses `PageBridge`. Safari does not support `world: 'MAIN'` in
+ * static manifest `content_scripts`, so we register these via `browser.scripting`
  * at `document_start` and fall back to on-demand `executeScript` for cold-start
  * or already-open tabs.
  */
-export const SAFARI_PAGE_WORLD_SITES: readonly SafariPageWorldSpec[] = [
-  {
-    id: 'feed-sanity-facebook-page-world',
-    siteId: 'facebook',
-    script: '/safari-facebook-page-world.js',
-    matches: FACEBOOK_MATCHES,
-    excludeMatches: FACEBOOK_EXCLUDE_MATCHES,
-  },
-  {
-    id: 'feed-sanity-x-page-world',
-    siteId: 'x',
-    script: '/safari-x-page-world.js',
-    matches: X_MATCHES,
-    excludeMatches: X_EXCLUDE_MATCHES,
-  },
-  {
-    id: 'feed-sanity-instagram-page-world',
-    siteId: 'instagram',
-    script: '/safari-instagram-page-world.js',
-    matches: INSTAGRAM_MATCHES,
-    excludeMatches: INSTAGRAM_EXCLUDE_MATCHES,
-  },
-  {
-    id: 'feed-sanity-reddit-page-world',
-    siteId: 'reddit',
-    script: '/safari-reddit-page-world.js',
-    matches: REDDIT_MATCHES,
-    excludeMatches: REDDIT_EXCLUDE_MATCHES,
-  },
-];
+export const SAFARI_PAGE_WORLD_SITES: readonly SafariPageWorldSpec[] = /* @__PURE__ */ (() =>
+  SITE_MANIFEST.flatMap((site) =>
+    site.hasPageWorld
+      ? [
+          {
+            id: `feed-sanity-${site.id}-page-world`,
+            siteId: site.id,
+            script: `/safari-${site.id}-page-world.js` as SafariPageWorldScript,
+            matches: site.matches,
+            excludeMatches: site.excludeMatches,
+          },
+        ]
+      : [],
+  ))();
 
 function findSafariSpec(siteId: string): SafariPageWorldSpec | undefined {
   return SAFARI_PAGE_WORLD_SITES.find((spec) => spec.siteId === siteId);
@@ -144,7 +119,7 @@ async function syncRegistrations(scripting: SafariScripting): Promise<void> {
   const existingIds = new Set(existing.map((entry) => entry.id));
 
   // Skip redundant `updateContentScripts` calls once this background worker has
-  // already registered/updated all 4 scripts (e.g. `onInstalled` firing right
+  // already registered/updated every manifest script (e.g. `onInstalled` firing right
   // after top-level startup), avoiding duplicate Safari open-tab injections.
   if (syncedScripting.has(scripting) && existingIds.size === SAFARI_PAGE_WORLD_SITES.length) {
     return;
@@ -179,9 +154,9 @@ async function syncRegistrations(scripting: SafariScripting): Promise<void> {
 }
 
 /**
- * Idempotently registers all four Safari MAIN-world `document_start` scripts,
- * coalescing concurrent calls from startup, `onInstalled`, `onStartup`, and
- * cold-start fallback messages.
+ * Idempotently registers all Safari MAIN-world `document_start` scripts from
+ * `SAFARI_PAGE_WORLD_SITES`, coalescing concurrent calls from startup,
+ * `onInstalled`, `onStartup`, and cold-start fallback messages.
  */
 export function ensureSafariPageWorldScripts(scripting: SafariScripting): Promise<void> {
   inFlightRegistration ??= syncRegistrations(scripting).finally(() => {

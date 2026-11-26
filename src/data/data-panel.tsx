@@ -1,7 +1,14 @@
 import { useCallback, useId, useRef, useState, useSyncExternalStore } from 'react';
+import type { LocatorOverrides } from '../core/locator';
+import type { Options } from '../core/options';
+import type { SavedData, SavedValue } from '../core/saved';
+import type { PostReadData } from '../facebook/post-read';
+import type { SavedVideoSpeed } from '../sites/x/features/video-speed-model';
 import type { OptionsPanel } from '../ui/options-dialog/panel';
 import type { DataStores } from './transfer';
 import { NAME } from '../../project';
+import { savedFilters } from '../core/filter-types';
+import { readThemeDocument, THEME_DATA_KEY } from '../ui/appearance';
 import { definePanel } from '../ui/options-dialog/panel';
 import { SettingCard } from '../ui/primitives';
 import css from './data-panel.css?inline';
@@ -12,13 +19,16 @@ interface Status {
   readonly error?: boolean;
 }
 
-function downloadJson(text: string): void {
+function downloadJson(text: string, siteId?: string): void {
   const date = new Date().toISOString().slice(0, 10);
+  const safeSite = siteId ? siteId.replaceAll(/[^a-z0-9_-]/gi, '') : '';
   const blob = new Blob([text], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `feed-sanity-settings-${date}.json`;
+  link.download = safeSite
+    ? `feed-sanity-${safeSite}-settings-${date}.json`
+    : `feed-sanity-settings-${date}.json`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -88,11 +98,14 @@ export function DataPanel({
   };
 
   const onDownloadExport = () => {
-    downloadJson(exportBackup(stores));
+    downloadJson(exportBackup(stores), stores.siteId);
     reportStatus('Settings backup downloaded.');
   };
 
   const onImport = async (raw = importText) => {
+    if (busy) {
+      return;
+    }
     const parsed = parseBackup(raw, stores.options.list());
     if (!parsed.ok) {
       reportStatus(parsed.error, true);
@@ -111,15 +124,25 @@ export function DataPanel({
   };
 
   const onFilePicked = async (file: File | undefined) => {
-    if (!file) {
+    if (!file || busy) {
       return;
     }
+    setBusy(true);
     try {
       const text = await file.text();
       setImportText(text);
-      await onImport(text);
+      const parsed = parseBackup(text, stores.options.list());
+      if (!parsed.ok) {
+        reportStatus(parsed.error, true);
+        return;
+      }
+      const summary = await applyBackup(parsed, stores);
+      setImportText('');
+      reportStatus(summary);
     } catch {
-      reportStatus('Could not read that file.', true);
+      reportStatus('Could not read or save that file.', true);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -150,10 +173,20 @@ export function DataPanel({
             Save this site's {NAME} options, filters, theme, and custom selectors as a JSON file.
           </p>
           <div className="data-actions">
-            <button className="button primary" type="button" onClick={onDownloadExport}>
+            <button
+              className="button primary"
+              type="button"
+              disabled={busy}
+              onClick={onDownloadExport}
+            >
               Download JSON
             </button>
-            <button className="button" type="button" onClick={() => void onCopyExport()}>
+            <button
+              className="button"
+              type="button"
+              disabled={busy}
+              onClick={() => void onCopyExport()}
+            >
               Copy JSON
             </button>
           </div>
@@ -244,7 +277,7 @@ export function DataPanel({
         <div className="data-card-body">
           <p className="description">
             Restore every {siteName ? `${siteName} ` : ''}option to its default and remove all saved
-            filters and custom selectors.
+            filters, theme, and custom selectors.
           </p>
           <div className="data-actions">
             {confirmingReset ? (
@@ -299,6 +332,7 @@ export function dataPanel(
       stores.locators.ready,
       stores.theme?.ready ?? Promise.resolve(),
       stores.read_history?.ready ?? Promise.resolve(),
+      stores.videoSpeed?.ready ?? Promise.resolve(),
     ]).then(() => undefined),
     read: () => null,
     save: () => Promise.resolve(),
@@ -330,4 +364,36 @@ export function dataPanel(
       />
     ),
   });
+}
+
+/** Standard site-adapter wiring for `dataPanel` (filters, theme, locators, plus optional extras). */
+export function siteDataPanel({
+  siteId,
+  siteName,
+  options,
+  data,
+  locators,
+  read_history,
+  videoSpeed,
+}: {
+  readonly siteId: string;
+  readonly siteName: string;
+  readonly options: Options;
+  readonly data: SavedData;
+  readonly locators: SavedValue<LocatorOverrides>;
+  readonly read_history?: SavedValue<PostReadData> | undefined;
+  readonly videoSpeed?: SavedValue<SavedVideoSpeed> | undefined;
+}): OptionsPanel {
+  return dataPanel(
+    {
+      siteId,
+      options,
+      filters: savedFilters(data),
+      locators,
+      theme: data.value(THEME_DATA_KEY, readThemeDocument),
+      ...(read_history ? { read_history } : {}),
+      ...(videoSpeed ? { videoSpeed } : {}),
+    },
+    { siteName },
+  );
 }

@@ -92,6 +92,9 @@ ${LOADER_SCOPE} stop {
 `.trim(),
   surfaces: {
     transparentShell: ['[role="feed"]'],
+    leafCards: ['[role="complementary"] [role="region"]'],
+    feedCards: ['[data-pagelet^="FeedUnit_"]'],
+    searchContainers: ['[role="banner"] label:has(> input[type="search"])', 'form[role="search"]'],
     popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
     revealCssVars: (p, { cardAlpha, popupAlpha, surfaceBg }) => {
       const surface = p?.surface ?? surfaceBg;

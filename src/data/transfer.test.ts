@@ -12,6 +12,11 @@ import {
 } from '../core/theming';
 import { LOCATOR_OVERRIDES } from '../facebook/feature';
 import { extensionStore } from '../platform/extension-store';
+import {
+  DEFAULT_VIDEO_SPEED,
+  readSavedVideoSpeed,
+  X_VIDEO_SPEED_KEY,
+} from '../sites/x/features/video-speed-model';
 import { readThemeDocument, THEME_DATA_KEY } from '../ui/appearance';
 import { applyBackup, exportBackup, parseBackup, resetAllData } from './transfer';
 
@@ -187,5 +192,39 @@ describe('data transfer', () => {
     if (!parsedInvalid.ok) {
       expect(parsedInvalid.error).toMatch(/format/i);
     }
+  });
+
+  it('tags backups with siteId, warns on cross-site import, and round-trips X custom video speed', async () => {
+    const stores = makeStores();
+    const videoSpeed = data.value(X_VIDEO_SPEED_KEY, readSavedVideoSpeed);
+    await Promise.all([stores.filters.ready, stores.locators.ready, videoSpeed.ready]);
+    await videoSpeed.set({ rate: 1.37, custom: true });
+
+    const xStores = { ...stores, siteId: 'x', videoSpeed };
+    const exported = exportBackup(xStores);
+    const snapshot = JSON.parse(exported);
+    expect(snapshot.site).toBe('x');
+    expect(snapshot.videoSpeed).toEqual({ rate: 1.37, custom: true });
+
+    await resetAllData(xStores);
+    expect(videoSpeed.get()).toEqual(DEFAULT_VIDEO_SPEED);
+
+    const parsed = parseBackup(exported, options.list());
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+    const summary = await applyBackup(parsed, xStores);
+    expect(summary).toContain('video speed');
+    expect(summary).not.toContain('exported from');
+    expect(videoSpeed.get()).toEqual({ rate: 1.37, custom: true });
+
+    // Importing an X backup on Facebook still works cleanly and notes the site mismatch.
+    const fbSummary = await applyBackup(parsed, { ...stores, siteId: 'facebook' });
+    expect(fbSummary).toContain('Note: this backup was exported from x.');
+
+    // Out-of-range video speed payloads are rejected cleanly.
+    const badSpeed = parseBackup(JSON.stringify({ videoSpeed: { rate: 99, custom: true } }), []);
+    expect(badSpeed.ok).toBe(false);
   });
 });

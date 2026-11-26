@@ -161,7 +161,7 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
     let pageWorldHandle: ReturnType<typeof startRedditPageWorld> | undefined;
     const { platform, store } = fakePlatform(
       {
-        'v2/reddit/t2_reddit123/options': {
+        'v2/reddit/anonymous/options': {
           reddit_hide_sponsored: true,
           reddit_hide_suggested: true,
           reddit_keywords: 'airdrop\n',
@@ -169,8 +169,8 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
           reddit_video_scrubber: true,
           reddit_video_click_pauses: false,
         },
-        'v2/reddit/t2_reddit123/filters': [redactFilter],
-        [`v2/reddit/t2_reddit123/${THEME_DATA_KEY}`]: applyThemePreset(
+        'v2/reddit/anonymous/filters': [redactFilter],
+        [`v2/reddit/anonymous/${THEME_DATA_KEY}`]: applyThemePreset(
           DEFAULT_THEME_DOCUMENT,
           'catppuccin-mocha',
         ),
@@ -183,7 +183,7 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
       },
     );
     cleanups.push(() => {
-      void store.set('v2/reddit/t2_reddit123/options', {
+      void store.set('v2/reddit/anonymous/options', {
         reddit_hide_sponsored: false,
         reddit_hide_suggested: false,
         reddit_keywords: '',
@@ -191,7 +191,7 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
         reddit_video_scrubber: false,
         reddit_video_click_pauses: false,
       });
-      void store.set('v2/reddit/t2_reddit123/filters', []);
+      void store.set('v2/reddit/anonymous/filters', []);
     });
 
     await startSite(redditSite, platform);
@@ -242,7 +242,7 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
     });
 
     // 10. Verify removing the redact filter cleanly restores the original Shadow DOM text!
-    await store.set('v2/reddit/t2_reddit123/filters', []);
+    await store.set('v2/reddit/anonymous/filters', []);
     await vi.waitFor(() => {
       expect(bodyEl?.textContent).toBe('Benchmarks show spoiler-free zero-polling performance.');
     });

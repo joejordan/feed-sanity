@@ -31,7 +31,8 @@ export const DEFAULT_SHELL_LANDMARKS: readonly string[] = ['main', '[role="main"
 /**
  * Computes safe surface alpha values from `glassStrength` (`0..0.65`) so text
  * on cards and reading columns ALWAYS maintains high contrast over live backdrops.
- * Blur radius is capped at `10px` to keep 30fps compositing lightweight.
+ * Blur radius is capped at `8px` (within the `<= 10px` compositing budget) to keep
+ * 30fps compositing lightweight.
  */
 export function resolveGlassMetrics(glassStrength: number): {
   readonly columnAlpha: number;
@@ -46,6 +47,22 @@ export function resolveGlassMetrics(glassStrength: number): {
   const cardAlpha = Number((0.95 - clamped * 0.28).toFixed(2));
   const blurPx = Math.min(8, Math.round(4 + clamped * 6));
   return { columnAlpha, cardAlpha, blurPx };
+}
+
+function resolvePopups(surfaces?: SurfaceSelectors): readonly string[] {
+  return surfaces?.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS;
+}
+
+function pushRevealSurface(
+  blocks: string[],
+  selectors: readonly string[] | undefined,
+  bg: string,
+): void {
+  if (selectors && selectors.length > 0) {
+    blocks.push(
+      `${selectors.join(',\n')} {\n  --fs-reveal-canvas: transparent;\n  background-color: ${bg} !important;\n}`,
+    );
+  }
 }
 
 function compileTransparentShellCss(extraShell?: readonly string[]): string {
@@ -103,30 +120,17 @@ function compileDeclarativeReveal(
   if (surfaces.columns && surfaces.columns.length > 0) {
     const scale = surfaces.columnAlphaScale ?? 1;
     const colAlpha = Number(Math.max(0.5, Math.min(1, metrics.columnAlpha * scale)).toFixed(2));
-    const colBg = hexWithAlpha(baseBg, colAlpha);
-    revealBlocks.push(
-      `${surfaces.columns.join(',\n')} {\n  --fs-reveal-canvas: transparent;\n  background-color: ${colBg} !important;\n}`,
-    );
+    pushRevealSurface(revealBlocks, surfaces.columns, hexWithAlpha(baseBg, colAlpha));
   }
 
-  if (surfaces.softSurfaces && surfaces.softSurfaces.length > 0) {
-    const softBg = hexWithAlpha(surfaceBg, metrics.cardAlpha);
-    revealBlocks.push(
-      `${surfaces.softSurfaces.join(',\n')} {\n  --fs-reveal-canvas: transparent;\n  background-color: ${softBg} !important;\n}`,
-    );
-  }
+  const cardBg = hexWithAlpha(surfaceBg, metrics.cardAlpha);
+  pushRevealSurface(revealBlocks, surfaces.softSurfaces, cardBg);
+  // Re-bind `--fs-reveal-canvas: transparent` inside leafCards so nested rows
+  // (e.g. "What's happening" trends) never paint opaque boxes over frosted cards.
+  // Glass `backdrop-filter: blur()` is owned solely by `compileSurfaceFinishCss` in `@layer fs-finish`.
+  pushRevealSurface(revealBlocks, surfaces.leafCards, cardBg);
 
-  if (surfaces.leafCards && surfaces.leafCards.length > 0) {
-    const cardBg = hexWithAlpha(surfaceBg, metrics.cardAlpha);
-    // Re-bind `--fs-reveal-canvas: transparent` inside leafCards so nested rows
-    // (e.g. "What's happening" trends) never paint opaque boxes over frosted cards.
-    // Glass `backdrop-filter: blur()` is owned solely by `compileSurfaceFinishCss` in `@layer fs-finish`.
-    revealBlocks.push(
-      `${surfaces.leafCards.join(',\n')} {\n  --fs-reveal-canvas: transparent;\n  background-color: ${cardBg} !important;\n}`,
-    );
-  }
-
-  const popups = surfaces.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS;
+  const popups = resolvePopups(surfaces);
   const popBg = hexWithAlpha(surfaceBg, popupAlpha);
   revealBlocks.push(
     `${popups.join(',\n')} {\n  --fs-reveal-canvas: ${popBg};\n  background-color: ${popBg} !important;\n}`,
@@ -260,9 +264,8 @@ export function compileSurfaceFinishCss(
   const secondary = palette?.accentSecondary ?? palette?.danger ?? '#ec4899';
 
   const leafTargets = surfaces?.leafCards?.join(',\n') ?? '';
-  const popupTargets = (
-    surfaces?.popups && surfaces.popups.length > 0 ? surfaces.popups : DEFAULT_POPUPS
-  ).join(',\n');
+  const softTargets = surfaces?.softSurfaces?.join(',\n') ?? '';
+  const popupTargets = resolvePopups(surfaces).join(',\n');
 
   const sp = resolveEffectParams(getSurfaceParamSpecs(effects.surface), effects.surfaceParams);
 
@@ -274,6 +277,13 @@ export function compileSurfaceFinishCss(
     if (leafTargets) {
       blocks.push(
         `${leafTargets} {\n  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;\n  backdrop-filter: blur(${blurPx}px) saturate(${satPct}%) !important;\n  -webkit-backdrop-filter: blur(${blurPx}px) saturate(${satPct}%) !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 8px 24px rgb(0 0 0 / 18%) !important;\n}`,
+      );
+    }
+    if (softTargets) {
+      // Soft surfaces (landmarks, feed articles) get the translucent highlight without
+      // `backdrop-filter`, avoiding scroll-container compositing & stacking-context traps.
+      blocks.push(
+        `${softTargets} {\n  background-color: ${hexWithAlpha(surface, cardAlpha)} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight} !important;\n}`,
       );
     }
     blocks.push(
@@ -308,6 +318,35 @@ export function compileSurfaceFinishCss(
   const columnTargets = surfaces?.columns?.join(',\n') ?? '';
   const searchTargets = surfaces?.searchContainers?.join(',\n') ?? '';
 
+  const compileSlottedFinish = (slots: {
+    readonly cardDecls: string;
+    readonly focusShadow: string;
+    readonly feedHoverDecls: string;
+    readonly ctaDecls: string;
+    readonly columnDecls: string;
+    readonly searchBorder: string;
+  }): string => {
+    const blocks: string[] = [
+      `${cardTargets} {\n${slots.cardDecls}\n}`,
+      ...compileInputFocusRules(surfaces?.searchContainers, slots.focusShadow),
+    ];
+    if (feedCardHoverTargets) {
+      blocks.push(`${feedCardHoverTargets} {\n${slots.feedHoverDecls}\n}`);
+    }
+    if (ctaTargets) {
+      blocks.push(`${ctaTargets} {\n${slots.ctaDecls}\n}`);
+    }
+    if (columnTargets) {
+      blocks.push(`${columnTargets} {\n${slots.columnDecls}\n}`);
+    }
+    if (searchTargets) {
+      blocks.push(
+        `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${slots.searchBorder} !important;\n}`,
+      );
+    }
+    return blocks.join('\n\n');
+  };
+
   if (effects.surface === 'prism') {
     const strength = (sp.strength as number | undefined) ?? 1;
     const glow = (sp.glow as number | undefined) ?? 1;
@@ -318,34 +357,14 @@ export function compileSurfaceFinishCss(
     const rim = scaledHex(accent, (isLight ? 0.28 : 0.34) * glow);
     const outerGlow = scaledHex(secondary, (isLight ? 0.1 : 0.14) * glow);
     const angleExpr = `var(${PRISM_ANGLE_VAR}, ${baseAngle}deg)`;
-    const blocks: string[] = [
-      `${cardTargets} {\n  background-image: linear-gradient(${angleExpr}, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 42%, ${sheenB} 100%) !important;\n  border-color: ${rim} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 0 0 1px ${scaledHex(accent, 0.18 * glow)}, 0 6px 16px ${outerGlow} !important;\n}`,
-      ...compileInputFocusRules(
-        surfaces?.searchContainers,
-        `0 0 0 2px ${scaledHex(accent, 0.55 * glow)}, 0 0 14px ${scaledHex(secondary, 0.32 * glow)}`,
-      ),
-    ];
-    if (feedCardHoverTargets) {
-      blocks.push(
-        `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 1px 0 0 ${highlight}, inset 0 0 12px ${scaledHex(accent, 0.14 * glow)} !important;\n}`,
-      );
-    }
-    if (ctaTargets) {
-      blocks.push(
-        `${ctaTargets} {\n  background-image: linear-gradient(${angleExpr}, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 0 12px ${scaledHex(accent, 0.4 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.28)} !important;\n}`,
-      );
-    }
-    if (columnTargets) {
-      blocks.push(
-        `${columnTargets} {\n  border-color: ${scaledHex(accent, 0.24 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(secondary, 0.2 * glow)} !important;\n}`,
-      );
-    }
-    if (searchTargets) {
-      blocks.push(
-        `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${scaledHex(accent, 0.36 * glow)} !important;\n}`,
-      );
-    }
-    return blocks.join('\n\n');
+    return compileSlottedFinish({
+      cardDecls: `  background-image: linear-gradient(${angleExpr}, ${sheenA} 0%, ${hexWithAlpha(surface, 0.02)} 42%, ${sheenB} 100%) !important;\n  border-color: ${rim} !important;\n  box-shadow: inset 0 1px 0 0 ${highlight}, 0 0 0 1px ${scaledHex(accent, 0.18 * glow)}, 0 6px 16px ${outerGlow} !important;`,
+      focusShadow: `0 0 0 2px ${scaledHex(accent, 0.55 * glow)}, 0 0 14px ${scaledHex(secondary, 0.32 * glow)}`,
+      feedHoverDecls: `  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 1px 0 0 ${highlight}, inset 0 0 12px ${scaledHex(accent, 0.14 * glow)} !important;`,
+      ctaDecls: `  background-image: linear-gradient(${angleExpr}, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 0 12px ${scaledHex(accent, 0.4 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.28)} !important;`,
+      columnDecls: `  border-color: ${scaledHex(accent, 0.24 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(secondary, 0.2 * glow)} !important;`,
+      searchBorder: scaledHex(accent, 0.36 * glow),
+    });
   }
 
   if (effects.surface === 'moonlit') {
@@ -359,65 +378,25 @@ export function compileSurfaceFinishCss(
     const bounce = scaledHex(accent, (isLight ? 0.05 : 0.08) * glow);
     const waterline = scaledHex(accent, (isLight ? 0.3 : 0.26) * glow);
     const underglow = scaledHex(accent, (isLight ? 0.22 : 0.3) * glow);
-    const blocks: string[] = [
-      `${cardTargets} {\n  background-image: linear-gradient(180deg, ${topLight} 0%, transparent 38%, transparent 66%, ${bounce} 100%) !important;\n  box-shadow: inset 0 1px 0 0 ${topEdge}, inset 0 -1px 0 0 ${waterline}, 0 14px 26px -16px ${underglow} !important;\n}`,
-      ...compileInputFocusRules(
-        surfaces?.searchContainers,
-        `0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 10px 20px -10px ${scaledHex(accent, 0.45 * glow)}`,
-      ),
-    ];
-    if (feedCardHoverTargets) {
+    return compileSlottedFinish({
+      cardDecls: `  background-image: linear-gradient(180deg, ${topLight} 0%, transparent 38%, transparent 66%, ${bounce} 100%) !important;\n  box-shadow: inset 0 1px 0 0 ${topEdge}, inset 0 -1px 0 0 ${waterline}, 0 14px 26px -16px ${underglow} !important;`,
+      focusShadow: `0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 10px 20px -10px ${scaledHex(accent, 0.45 * glow)}`,
       // Hovering a post stirs the water under it (inset-only avoids outer blur repaints).
-      blocks.push(
-        `${feedCardHoverTargets} {\n  box-shadow: inset 0 1px 0 0 ${topEdge}, inset 0 -2px 0 0 ${scaledHex(accent, 0.6 * glow)}, inset 0 -14px 16px -12px ${scaledHex(accent, 0.45 * glow)} !important;\n}`,
-      );
-    }
-    if (ctaTargets) {
-      blocks.push(
-        `${ctaTargets} {\n  background-image: linear-gradient(180deg, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 8px 18px -8px ${scaledHex(accent, 0.6 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.3)} !important;\n}`,
-      );
-    }
-    if (columnTargets) {
-      blocks.push(
-        `${columnTargets} {\n  border-color: ${scaledHex(text, 0.1 * sheen)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.2 * glow)} !important;\n}`,
-      );
-    }
-    if (searchTargets) {
-      blocks.push(
-        `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${scaledHex(accent, 0.3 * glow)} !important;\n}`,
-      );
-    }
-    return blocks.join('\n\n');
+      feedHoverDecls: `  box-shadow: inset 0 1px 0 0 ${topEdge}, inset 0 -2px 0 0 ${scaledHex(accent, 0.6 * glow)}, inset 0 -14px 16px -12px ${scaledHex(accent, 0.45 * glow)} !important;`,
+      ctaDecls: `  background-image: linear-gradient(180deg, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 8px 18px -8px ${scaledHex(accent, 0.6 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.3)} !important;`,
+      columnDecls: `  border-color: ${scaledHex(text, 0.1 * sheen)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.2 * glow)} !important;`,
+      searchBorder: scaledHex(accent, 0.3 * glow),
+    });
   }
 
   // 'neon'
   const glow = (sp.glow as number | undefined) ?? 1;
-  const blocks: string[] = [
-    `${cardTargets} {\n  border-color: ${scaledHex(accent, 0.45 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.25 * glow)}, 0 0 16px ${scaledHex(accent, 0.16 * glow)} !important;\n}`,
-    ...compileInputFocusRules(
-      surfaces?.searchContainers,
-      `0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 0 12px ${scaledHex(accent, 0.28 * glow)}`,
-    ),
-  ];
-  if (feedCardHoverTargets) {
-    blocks.push(
-      `${feedCardHoverTargets} {\n  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 0 12px ${scaledHex(accent, 0.14 * glow)} !important;\n}`,
-    );
-  }
-  if (ctaTargets) {
-    blocks.push(
-      `${ctaTargets} {\n  box-shadow: 0 0 12px ${scaledHex(accent, 0.46 * glow)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;\n}`,
-    );
-  }
-  if (columnTargets) {
-    blocks.push(
-      `${columnTargets} {\n  border-color: ${scaledHex(accent, 0.3 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(border, 0.28 * glow)} !important;\n}`,
-    );
-  }
-  if (searchTargets) {
-    blocks.push(
-      `${searchTargets} {\n  background-color: ${hexWithAlpha(alt, 0.9)} !important;\n  border-color: ${scaledHex(accent, 0.4 * glow)} !important;\n}`,
-    );
-  }
-  return blocks.join('\n\n');
+  return compileSlottedFinish({
+    cardDecls: `  border-color: ${scaledHex(accent, 0.45 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.25 * glow)}, 0 0 16px ${scaledHex(accent, 0.16 * glow)} !important;`,
+    focusShadow: `0 0 0 2px ${scaledHex(accent, 0.5 * glow)}, 0 0 12px ${scaledHex(accent, 0.28 * glow)}`,
+    feedHoverDecls: `  box-shadow: inset 2px 0 0 0 ${accent}, inset 0 0 12px ${scaledHex(accent, 0.14 * glow)} !important;`,
+    ctaDecls: `  box-shadow: 0 0 12px ${scaledHex(accent, 0.46 * glow)}, inset 0 0 0 1px ${hexWithAlpha(text, 0.2)} !important;`,
+    columnDecls: `  border-color: ${scaledHex(accent, 0.3 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(border, 0.28 * glow)} !important;`,
+    searchBorder: scaledHex(accent, 0.4 * glow),
+  });
 }

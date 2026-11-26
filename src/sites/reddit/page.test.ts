@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { PageBridge } from '../../core/bridge';
 import { READY_EVENT } from '../../core/bridge-protocol';
+import { SHADOW_ATTACHED_EVENT } from '../../engines/shadow';
 import { redditAccountId, redditPageType, scrubRedditPii } from './page';
 import { indexRedditHydrationPayload, startRedditPageWorld } from './page-world';
 import { isRedditHost } from './urls';
@@ -19,17 +21,15 @@ describe('reddit page helpers & page-world', () => {
     expect(isRedditHost('old.reddit.com')).toBe(false);
   });
 
-  it('reads opaque account IDs without leaking raw cookies or usernames', () => {
+  it('reads deterministic cookie-only account IDs without splitting document_start and auto-attach buckets', () => {
     const app = document.createElement('shreddit-app');
     app.setAttribute('user-id', 't2_AbC123');
     document.body.append(app);
-    expect(redditAccountId('', document)).toBe('t2_abc123');
-
-    app.remove();
-    expect(redditAccountId('loid=000000001234abcd.2.1700000000', document)).toBe(
-      'loid-000000001234',
-    );
-    expect(redditAccountId('session=secret', document)).toBe('anonymous');
+    // Ignores DOM-only `shreddit-app[user-id]` so cold-start and late auto-attach use the same bucket.
+    expect(redditAccountId('')).toBe('anonymous');
+    expect(redditAccountId('loid=000000001234abcd.2.1700000000')).toBe('loid-000000001234abcd');
+    expect(redditAccountId('loid=000000001234wxyz.2.1700000000')).toBe('loid-000000001234wxyz');
+    expect(redditAccountId('session=secret')).toBe('anonymous');
   });
 
   it('classifies Reddit page types without leaking slugs or post IDs', () => {
@@ -84,19 +84,40 @@ describe('reddit page helpers & page-world', () => {
     });
     document.head.append(script);
 
-    const readyListener = () => undefined;
+    const readyListener = vi.fn();
+    const shadowTargets: EventTarget[] = [];
+    const shadowListener = (event: Event) => {
+      if (event.target) {
+        shadowTargets.push(event.target);
+      }
+    };
     document.addEventListener(READY_EVENT, readyListener);
+    document.addEventListener(SHADOW_ATTACHED_EVENT, shadowListener);
     const originalAttach = Element.prototype.attachShadow;
     const handle = startRedditPageWorld(globalThis, document);
+    const bridge = new PageBridge(async () => undefined);
     try {
+      expect(readyListener).toHaveBeenCalledTimes(1);
       expect(Element.prototype.attachShadow).not.toBe(originalAttach);
+
       const host = document.createElement('div');
       document.body.append(host);
       host.attachShadow({ mode: 'open' });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(shadowTargets).toEqual([host]);
+
+      const post = document.createElement('shreddit-post');
+      post.setAttribute('id', 't3_ssr99');
+      document.body.append(post);
+      expect(await bridge.ask(post, 'reddit-post-meta')).toEqual({
+        id: 't3_ssr99',
+        isAd: true,
+        isSuggested: false,
+      });
     } finally {
+      bridge.dispose();
       handle.dispose();
       document.removeEventListener(READY_EVENT, readyListener);
+      document.removeEventListener(SHADOW_ATTACHED_EVENT, shadowListener);
     }
     expect(Element.prototype.attachShadow).toBe(originalAttach);
   });

@@ -932,6 +932,52 @@ describe('Creative Theme & Effects Studio engine', () => {
 
     for (const [siteName, mapping] of allSites) {
       expect(mapping.surfaces, `${siteName} should declare centralized surfaces`).toBeDefined();
+      expect(
+        mapping.surfaces?.feedCards?.length ?? 0,
+        `${siteName} should declare feedCards for Studio hover finishes`,
+      ).toBeGreaterThan(0);
+
+      for (const surface of SURFACE_FINISH_IDS) {
+        if (surface === 'default') {
+          continue;
+        }
+        const finishCss = compileSurfaceFinishCss(
+          BUILTIN_THEMES[0]!.palette,
+          'dark',
+          { ...DEFAULT_THEME_EFFECTS, surface },
+          mapping.surfaces,
+        );
+        const firstLeaf = mapping.surfaces?.leafCards?.[0];
+        const firstSoft = mapping.surfaces?.softSurfaces?.[0];
+        const firstFeed = mapping.surfaces?.feedCards?.[0];
+        if (surface === 'glass') {
+          if (firstLeaf) {
+            expect(finishCss, `${siteName}/glass should style leafCards with blur`).toContain(
+              firstLeaf,
+            );
+            expect(finishCss, `${siteName}/glass should emit backdrop-filter`).toContain(
+              'backdrop-filter: blur(',
+            );
+          } else {
+            expect(finishCss, `${siteName}/glass without leafCards must avoid blur`).not.toContain(
+              'backdrop-filter:',
+            );
+          }
+          if (firstSoft) {
+            expect(finishCss, `${siteName}/glass should style softSurfaces`).toContain(firstSoft);
+          }
+        } else {
+          expect(finishCss, `${siteName}/${surface} must not emit backdrop-filter`).not.toContain(
+            'backdrop-filter:',
+          );
+          if (surface !== 'gradient' && firstFeed) {
+            expect(finishCss, `${siteName}/${surface} should style feedCard hover`).toContain(
+              `${firstFeed}:hover`,
+            );
+          }
+        }
+      }
+
       for (const vibe of STUDIO_VIBES) {
         const resolved = resolveTheme(applyStudioVibe(DEFAULT_THEME_DOCUMENT, vibe))!;
         const css = compileHostThemeCss(resolved, mapping, 'dark');

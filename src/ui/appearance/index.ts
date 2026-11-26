@@ -28,7 +28,7 @@ export interface SiteThemeRuntime {
 export interface SiteThemeOptions {
   readonly active?: boolean;
   /** When set, keeps the per-origin `sessionStorage` early-theme CSS cache synced for zero-FOUC boot. */
-  readonly earlyCacheSiteId?: string;
+  readonly earlyCacheKey?: string;
   /** Shared cross-site "My Themes" library & "Apply to all sites" broadcast client. */
   readonly library?: ThemeLibraryClient;
 }
@@ -44,7 +44,7 @@ export function initSiteTheme(
   env: DomEnvironment,
   data: SavedData,
   mapping: SiteThemeMapping,
-  { active: initialActive = true, earlyCacheSiteId, library }: SiteThemeOptions = {},
+  { active: initialActive = true, earlyCacheKey, library }: SiteThemeOptions = {},
 ): SiteThemeRuntime {
   const saved = data.value(THEME_DATA_KEY, readThemeDocument);
   const globalRev = library ? data.value(THEME_GLOBAL_REV_KEY, readGlobalThemeRevision) : undefined;
@@ -56,10 +56,10 @@ export function initSiteTheme(
   let stopLibrary: (() => void) | undefined;
 
   const syncCache = (effective: ReturnType<typeof resolveTheme>): void => {
-    if (!earlyCacheSiteId) {
+    if (!earlyCacheKey) {
       return;
     }
-    writeEarlyThemeCss(earlyCacheSiteId, effective ? (controller.compiledHostCss?.() ?? '') : '');
+    writeEarlyThemeCss(earlyCacheKey, effective ? (controller.compiledHostCss?.() ?? '') : '');
   };
 
   const sync = (clearPreview = false): void => {

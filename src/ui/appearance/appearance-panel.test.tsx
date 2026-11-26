@@ -546,7 +546,7 @@ describe('appearancePanel & initSiteTheme', () => {
     const saved = data.value(THEME_DATA_KEY, readThemeDocument);
     await saved.ready;
 
-    const runtime = initSiteTheme(env, data, facebookThemeMapping, { earlyCacheSiteId: siteId });
+    const runtime = initSiteTheme(env, data, facebookThemeMapping, { earlyCacheKey: siteId });
     try {
       // Save Catppuccin Mocha while previewing Site Default (`null`): sessionStorage must
       // cache Catppuccin Mocha (`#1e1e2e`), NOT the null preview (`""`).

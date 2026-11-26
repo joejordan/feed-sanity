@@ -98,7 +98,14 @@ header, nav, #left-sidebar-container, #right-sidebar-container, shreddit-post {
       '#right-sidebar-container',
       'shreddit-post',
     ],
+    leafCards: ['recent-posts', 'shreddit-subreddit-header'],
     feedCards: ['shreddit-post'],
+    primaryCtas: [
+      'reddit-header-large a[href$="/submit"]',
+      'header a[href$="/submit"]',
+      '#create-post',
+      'button[slot="create-post"]',
+    ],
     popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
   },
 };

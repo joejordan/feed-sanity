@@ -26,6 +26,7 @@ import {
   resolveTheme,
   THEME_GLOBAL_REV_KEY,
   THEME_LIBRARY_KEY,
+  THEME_STYLE_ID,
   writeEarlyThemeCss,
 } from './theming';
 
@@ -43,7 +44,7 @@ const localReplaceEvents = new WeakSet<Event>();
 
 const LEGACY_STYLE_SELECTOR = [
   '#feed_sanity_options',
-  '#feed_sanity_user_theme',
+  `#${THEME_STYLE_ID}`,
   '#feed_sanity_adaptive_theme',
   `#${HEALER_STYLE_ID}`,
   '#feed_sanity_theme_healer',
@@ -80,8 +81,9 @@ export interface DiagnosticSection {
 
 /**
  * Contract every target site implements (`src/sites/facebook/`,
- * `src/sites/instagram/`, `src/sites/x/`, `src/sites/gmail/`). Keeps
- * `src/core/`, `src/ui/`, and `src/platform/` free of site-specific assumptions.
+ * `src/sites/x/`, `src/sites/instagram/`, `src/sites/reddit/`,
+ * `src/sites/gmail/`). Keeps `src/core/`, `src/ui/`, and `src/platform/`
+ * free of site-specific assumptions.
  */
 export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory<P>> {
   readonly id: string;
@@ -192,9 +194,12 @@ export async function startSite<P, F extends PageFactory<P>>(
     }
   };
 
+  const bootPrefix = siteStoragePrefix(site.id, site.accountId());
+  const hintedEnabled = readSiteEnabledHint(site.id, isSiteEnabledByDefault(site.id));
+
   setSiteThemeCss(site.themeCss);
-  if (site.themeMapping) {
-    applyEarlyThemeCss(site.id);
+  if (site.themeMapping && hintedEnabled) {
+    applyEarlyThemeCss(bootPrefix);
   }
 
   let lastBadge: Badge | undefined;
@@ -222,8 +227,6 @@ export async function startSite<P, F extends PageFactory<P>>(
   // one native `getMany` IPC round-trip when the platform supports it. When the
   // lightweight per-origin hint says this site is disabled, preload only
   // `v2/sites` so disabled experimental sites skip unnecessary IPC/parsing.
-  const bootPrefix = siteStoragePrefix(site.id, site.accountId());
-  const hintedEnabled = readSiteEnabledHint(site.id, isSiteEnabledByDefault(site.id));
   const bootKeys = hintedEnabled
     ? [
         SITES_STORAGE_KEY,
@@ -378,7 +381,7 @@ export async function startSite<P, F extends PageFactory<P>>(
     const theme = site.themeMapping
       ? initSiteTheme(env, data, site.themeMapping, {
           active: false,
-          earlyCacheSiteId: site.id,
+          earlyCacheKey: bootPrefix,
           ...(library ? { library } : {}),
         })
       : undefined;
@@ -542,7 +545,7 @@ export async function startSite<P, F extends PageFactory<P>>(
         .finally(() => disarmBridge.dispose());
     }
     if (site.themeMapping) {
-      writeEarlyThemeCss(site.id, '');
+      writeEarlyThemeCss(bootPrefix, '');
       clearEarlyThemeStyle();
     }
     emitBadge(PAUSED_BADGE);

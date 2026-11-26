@@ -1,14 +1,7 @@
+import type { PageWorldSiteId, SiteId } from '../sites/manifest';
 import { isRecord } from '../core/storage';
 import { isExcludedUrl, matchesMatchPattern } from '../core/urls';
-import {
-  EXCLUDE_GLOBS as FACEBOOK_EXCLUDE_GLOBS,
-  EXCLUDE_MATCHES as FACEBOOK_EXCLUDE_MATCHES,
-  MATCHES as FACEBOOK_MATCHES,
-} from '../facebook/urls';
-import { GMAIL_EXCLUDE_MATCHES, GMAIL_MATCHES } from '../sites/gmail/urls';
-import { INSTAGRAM_EXCLUDE_MATCHES, INSTAGRAM_MATCHES } from '../sites/instagram/urls';
-import { REDDIT_EXCLUDE_MATCHES, REDDIT_MATCHES } from '../sites/reddit/urls';
-import { X_EXCLUDE_MATCHES, X_MATCHES } from '../sites/x/urls';
+import { SITE_MANIFEST } from '../sites/manifest';
 import { GET_POPUP_STATE, isPopupTabState } from './messages';
 
 /** Sent by the toolbar popup to attach Feed Sanity to the active supported tab on demand. */
@@ -42,24 +35,13 @@ export function isAttachTabReply(value: unknown): value is AttachTabReply {
   return isRecord(value) && typeof value.attached === 'boolean';
 }
 
-export type AttachableSiteId = 'facebook' | 'gmail' | 'instagram' | 'reddit' | 'x';
+export type AttachableSiteId = SiteId;
 
-export type AttachableContentScript =
-  | '/content-scripts/facebook.js'
-  | '/content-scripts/gmail.js'
-  | '/content-scripts/instagram.js'
-  | '/content-scripts/reddit.js'
-  | '/content-scripts/x.js';
+export type AttachableContentScript = `/content-scripts/${SiteId}.js`;
 
 export type AttachablePageWorldScript =
-  | '/content-scripts/facebook-page-world.js'
-  | '/content-scripts/instagram-page-world.js'
-  | '/content-scripts/reddit-page-world.js'
-  | '/content-scripts/x-page-world.js'
-  | '/safari-facebook-page-world.js'
-  | '/safari-instagram-page-world.js'
-  | '/safari-reddit-page-world.js'
-  | '/safari-x-page-world.js';
+  | `/content-scripts/${PageWorldSiteId}-page-world.js`
+  | `/safari-${PageWorldSiteId}-page-world.js`;
 
 export type AttachableScriptFile = AttachableContentScript | AttachablePageWorldScript;
 
@@ -72,9 +54,7 @@ export interface AttachableSiteSpec {
   readonly pageWorldScript?: AttachablePageWorldScript;
 }
 
-function pageWorldFile(
-  siteId: 'facebook' | 'instagram' | 'reddit' | 'x',
-): AttachablePageWorldScript {
+function pageWorldFile(siteId: PageWorldSiteId): AttachablePageWorldScript {
   // Guard `import.meta.env` for plain Node runtimes (e.g. Playwright E2E importing shared
   // message modules) while preserving Vite's literal `import.meta.env.BROWSER` constant folding.
   return typeof import.meta.env !== 'undefined' && import.meta.env.BROWSER === 'safari'
@@ -83,51 +63,19 @@ function pageWorldFile(
 }
 
 /**
- * All five supported sites and their isolated-world + optional MAIN-world script paths.
- * Used to automatically attach or live-upgrade already-open tabs after extension install,
- * update, reload, or permission grant without requiring a manual tab refresh.
+ * All supported sites and their isolated-world + optional MAIN-world script paths,
+ * derived directly from `SITE_MANIFEST`. Used to automatically attach or live-upgrade
+ * already-open tabs after extension install, update, reload, or permission grant
+ * without requiring a manual tab refresh.
  */
-export const ATTACHABLE_SITES: readonly AttachableSiteSpec[] = [
-  {
-    siteId: 'facebook',
-    matches: FACEBOOK_MATCHES,
-    excludeMatches: FACEBOOK_EXCLUDE_MATCHES,
-    excludeGlobs: FACEBOOK_EXCLUDE_GLOBS,
-    contentScript: '/content-scripts/facebook.js',
-    pageWorldScript: pageWorldFile('facebook'),
-  },
-  {
-    siteId: 'x',
-    matches: X_MATCHES,
-    excludeMatches: X_EXCLUDE_MATCHES,
-    excludeGlobs: [],
-    contentScript: '/content-scripts/x.js',
-    pageWorldScript: pageWorldFile('x'),
-  },
-  {
-    siteId: 'instagram',
-    matches: INSTAGRAM_MATCHES,
-    excludeMatches: INSTAGRAM_EXCLUDE_MATCHES,
-    excludeGlobs: [],
-    contentScript: '/content-scripts/instagram.js',
-    pageWorldScript: pageWorldFile('instagram'),
-  },
-  {
-    siteId: 'reddit',
-    matches: REDDIT_MATCHES,
-    excludeMatches: REDDIT_EXCLUDE_MATCHES,
-    excludeGlobs: [],
-    contentScript: '/content-scripts/reddit.js',
-    pageWorldScript: pageWorldFile('reddit'),
-  },
-  {
-    siteId: 'gmail',
-    matches: GMAIL_MATCHES,
-    excludeMatches: GMAIL_EXCLUDE_MATCHES,
-    excludeGlobs: [],
-    contentScript: '/content-scripts/gmail.js',
-  },
-];
+export const ATTACHABLE_SITES: readonly AttachableSiteSpec[] = SITE_MANIFEST.map((site) => ({
+  siteId: site.id,
+  matches: site.matches,
+  excludeMatches: site.excludeMatches,
+  excludeGlobs: site.excludeGlobs,
+  contentScript: `/content-scripts/${site.id}.js`,
+  ...(site.hasPageWorld ? { pageWorldScript: pageWorldFile(site.id) } : {}),
+}));
 
 /** Returns the attachable site spec for `url`, or `undefined` if unsupported or excluded. */
 export function matchAttachableSite(

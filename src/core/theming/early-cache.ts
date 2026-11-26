@@ -1,29 +1,32 @@
 export const THEME_STYLE_ID = 'feed_sanity_user_theme';
 
 const EARLY_THEME_CACHE_PREFIX = '__fs_early_theme__:';
+const MAX_EARLY_CACHE_CHARS = 128_000;
 
-const earlyThemeKey = (siteId: string): string => `${EARLY_THEME_CACHE_PREFIX}${siteId}`;
+const earlyThemeKey = (cacheKey: string): string => `${EARLY_THEME_CACHE_PREFIX}${cacheKey}`;
 
-/** Reads the cached host theme CSS for `siteId` from `sessionStorage` (empty string if unavailable). */
-export function readEarlyThemeCss(siteId: string): string {
+/** Reads the cached host theme CSS for `cacheKey` from `sessionStorage` (empty string if unavailable). */
+export function readEarlyThemeCss(cacheKey: string): string {
   try {
-    return globalThis.sessionStorage?.getItem(earlyThemeKey(siteId)) ?? '';
+    return globalThis.sessionStorage?.getItem(earlyThemeKey(cacheKey)) ?? '';
   } catch {
     return '';
   }
 }
 
-/** Persists or clears the synchronous per-origin early theme CSS cache for `siteId`. */
-export function writeEarlyThemeCss(siteId: string, css: string): void {
+/** Persists or clears the synchronous per-origin early theme CSS cache for `cacheKey`. */
+export function writeEarlyThemeCss(cacheKey: string, css: string): void {
   try {
     const storage = globalThis.sessionStorage;
     if (!storage) {
       return;
     }
-    const key = earlyThemeKey(siteId);
-    if (css) {
-      storage.setItem(key, css);
-    } else {
+    const key = earlyThemeKey(cacheKey);
+    if (css && css.length <= MAX_EARLY_CACHE_CHARS) {
+      if (storage.getItem(key) !== css) {
+        storage.setItem(key, css);
+      }
+    } else if (storage.getItem(key) !== null) {
       storage.removeItem(key);
     }
   } catch {
@@ -37,10 +40,10 @@ export function writeEarlyThemeCss(siteId: string, css: string): void {
  * or removes `#feed_sanity_user_theme` once persisted settings load.
  */
 export function applyEarlyThemeCss(
-  siteId: string,
+  cacheKey: string,
   doc: Document = document,
 ): HTMLStyleElement | null {
-  const css = readEarlyThemeCss(siteId);
+  const css = readEarlyThemeCss(cacheKey);
   if (!css) {
     return null;
   }

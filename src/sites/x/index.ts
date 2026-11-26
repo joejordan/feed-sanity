@@ -2,12 +2,10 @@ import type { Feature } from '../../core/feature';
 import type { SiteAdapter } from '../../core/site';
 import type { XPage } from './feature';
 import { version } from '../../../package.json';
-import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
-import { dataPanel } from '../../data/data-panel';
+import { siteDataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
-import { readThemeDocument, THEME_DATA_KEY } from '../../ui/appearance';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createXPage, X_LOCATOR_OVERRIDES } from './feature';
 import xDefaultFollowing from './features/default-following';
@@ -15,7 +13,7 @@ import xDisplayNotice from './features/display-notice';
 import xFeedFilters from './features/feed-filters';
 import xHideClutter from './features/hide-clutter';
 import xVideoScrubber from './features/video-controls';
-import xVideoSpeed from './features/video-speed';
+import xVideoSpeed, { readSavedVideoSpeed, X_VIDEO_SPEED_KEY } from './features/video-speed';
 import { X_FILTER_SCHEMA } from './filter-schema';
 import { scrubXPii, xAccountId, xPageType } from './page';
 import xTheme from './theme.css?inline';
@@ -53,15 +51,14 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
     const overrides = data.value(X_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       createFiltersPanel(data, X_FILTER_SCHEMA),
-      dataPanel(
-        {
-          options,
-          filters: savedFilters(data),
-          locators: overrides,
-          theme: data.value(THEME_DATA_KEY, readThemeDocument),
-        },
-        { siteName: 'X (Twitter)' },
-      ),
+      siteDataPanel({
+        siteId: 'x',
+        siteName: 'X (Twitter)',
+        options,
+        data,
+        locators: overrides,
+        videoSpeed: data.value(X_VIDEO_SPEED_KEY, readSavedVideoSpeed),
+      }),
       diagnosticsPanel({
         collect: () => {
           const net = stats.networkStats();

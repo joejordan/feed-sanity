@@ -30,7 +30,9 @@ export interface SiteSettingsClient {
   readonly dispose?: () => void;
 }
 
-const DEFAULT_ENABLED_BY_ID = new Map(SITE_MANIFEST.map((site) => [site.id, !site.experimental]));
+const DEFAULT_ENABLED_BY_ID: ReadonlyMap<string, boolean> = new Map(
+  SITE_MANIFEST.map((site) => [site.id, !site.experimental]),
+);
 const log = createLogger('sites');
 
 /** Whether a site defaults to enabled before any user toggle is saved in `v2/sites`. */
@@ -61,7 +63,7 @@ export const isSiteEnabled = (map: Readonly<Record<string, boolean>>, siteId: st
   if (typeof explicit === 'boolean') {
     return explicit;
   }
-  return DEFAULT_ENABLED_BY_ID.get(siteId) ?? true;
+  return isSiteEnabledByDefault(siteId);
 };
 
 /** True for production sites and any experimental site the user actively enabled. */

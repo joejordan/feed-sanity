@@ -636,7 +636,7 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
             },
           ],
         },
-        'loid=e2ereddit1234.1.1700000000',
+        'loid=e2ereddit123.1.1700000000',
       );
 
       await page.goto(`${REDDIT_ORIGIN}/`);

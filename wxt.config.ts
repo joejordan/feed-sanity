@@ -8,11 +8,7 @@ import {
   NAME,
   OPTIONS_TITLE,
 } from './project';
-import { MATCHES as FACEBOOK_MATCHES } from './src/facebook/urls';
-import { GMAIL_MATCHES } from './src/sites/gmail/urls';
-import { INSTAGRAM_MATCHES } from './src/sites/instagram/urls';
-import { REDDIT_MATCHES } from './src/sites/reddit/urls';
-import { X_MATCHES } from './src/sites/x/urls';
+import { ALL_SITE_HOST_PERMISSIONS as SITE_HOST_PERMISSIONS } from './src/sites/manifest';
 
 const MANIFEST_ICONS = {
   ...ACTIVE_ICON_PATHS,
@@ -24,17 +20,6 @@ const MANIFEST_ICONS = {
 const FIREFOX_ONLY_ASSETS = new Set<string>(
   FIREFOX_THEME_ICONS.flatMap((entry) => [entry.light, entry.dark]),
 );
-
-// Scoped strictly to the 5 supported sites so Feed Sanity can automatically attach
-// to and live-upgrade already-open tabs on install, update, or reload (plus register
-// Safari's dynamic MAIN-world scripts) without requiring users to refresh open tabs.
-const SITE_HOST_PERMISSIONS = [
-  ...FACEBOOK_MATCHES,
-  ...X_MATCHES,
-  ...INSTAGRAM_MATCHES,
-  ...REDDIT_MATCHES,
-  ...GMAIL_MATCHES,
-];
 
 export default defineConfig({
   srcDir: 'src',

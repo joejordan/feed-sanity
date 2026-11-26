@@ -4,37 +4,50 @@ import type { OptionSpec, Options, OptionValue } from '../core/options';
 import type { SavedValue } from '../core/saved';
 import type { ThemeDocumentV1 } from '../core/theming';
 import type { PostReadData } from '../facebook/post-read';
+import type { SavedVideoSpeed } from '../sites/x/features/video-speed-model';
 import { readFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { isRecord } from '../core/storage';
 import { DEFAULT_THEME_DOCUMENT, isSiteDefaultDocument, parseThemeDocument } from '../core/theming';
+import {
+  DEFAULT_VIDEO_SPEED,
+  MAX_VIDEO_SPEED,
+  MIN_VIDEO_SPEED,
+  readSavedVideoSpeed,
+} from '../sites/x/features/video-speed-model';
 
 /** The saved stores that Backup / Restore and Reset operate on. */
 export interface DataStores {
-  options: Options;
-  filters: SavedValue<Filter[]>;
-  locators: SavedValue<LocatorOverrides>;
-  theme?: SavedValue<ThemeDocumentV1> | undefined;
-  read_history?: SavedValue<PostReadData> | undefined;
+  readonly siteId?: string | undefined;
+  readonly options: Options;
+  readonly filters: SavedValue<Filter[]>;
+  readonly locators: SavedValue<LocatorOverrides>;
+  readonly theme?: SavedValue<ThemeDocumentV1> | undefined;
+  readonly read_history?: SavedValue<PostReadData> | undefined;
+  readonly videoSpeed?: SavedValue<SavedVideoSpeed> | undefined;
 }
 
 /** Portable JSON snapshot of Feed Sanity's settings. */
 export interface SettingsBackup {
+  site?: string;
   options: Record<string, OptionValue>;
   filters: Filter[];
   locators?: LocatorOverrides;
   theme?: ThemeDocumentV1;
+  videoSpeed?: SavedVideoSpeed;
 }
 
 /** A validated import ready to apply, or a human-readable error message. */
 export type ParsedBackup =
   | {
       readonly ok: true;
+      readonly site: string | undefined;
       readonly options: Record<string, OptionValue>;
       readonly skippedOptions: number;
       readonly filters: Filter[] | undefined;
       readonly locators: LocatorOverrides | undefined;
       readonly theme: ThemeDocumentV1 | undefined;
+      readonly videoSpeed: SavedVideoSpeed | undefined;
     }
   | {
       readonly ok: false;
@@ -44,19 +57,32 @@ export type ParsedBackup =
 const isValidChoice = (spec: OptionSpec, value: OptionValue): boolean =>
   !spec.choices || spec.choices.some((choice) => choice.value === value);
 
-/** Serializes all current options, filters, theme, and custom locator overrides as pretty-printed JSON. */
-export function exportBackup({ options, filters, locators, theme }: DataStores): string {
+/** Serializes all current options, filters, theme, custom locator overrides, and site extras as pretty-printed JSON. */
+export function exportBackup({
+  siteId,
+  options,
+  filters,
+  locators,
+  theme,
+  videoSpeed,
+}: DataStores): string {
   const exportedOptions: Record<string, OptionValue> = {};
   for (const [key] of options.list()) {
     exportedOptions[key] = options.get(key);
   }
   const overrides = locators.get();
   const currentTheme = theme?.get();
+  const currentSpeed = videoSpeed?.get();
+  const hasCustomSpeed =
+    currentSpeed !== undefined &&
+    (currentSpeed.rate !== DEFAULT_VIDEO_SPEED.rate || currentSpeed.custom);
   const snapshot: SettingsBackup = {
+    ...(siteId ? { site: siteId } : {}),
     options: exportedOptions,
     filters: filters.get(),
     ...(Object.keys(overrides).length > 0 ? { locators: overrides } : {}),
     ...(currentTheme && !isSiteDefaultDocument(currentTheme) ? { theme: currentTheme } : {}),
+    ...(hasCustomSpeed ? { videoSpeed: currentSpeed } : {}),
   };
   return JSON.stringify(snapshot, null, 2);
 }
@@ -80,13 +106,16 @@ export function parseBackup(text: string, specs: readonly [string, OptionSpec][]
   const hasFilters = 'filters' in raw;
   const hasLocators = 'locators' in raw;
   const hasTheme = 'theme' in raw;
-  if (!hasOptions && !hasFilters && !hasLocators && !hasTheme) {
+  const hasVideoSpeed = 'videoSpeed' in raw;
+  if (!hasOptions && !hasFilters && !hasLocators && !hasTheme && !hasVideoSpeed) {
     return {
       ok: false,
       error: 'No options, filters, theme or locator overrides were found in that JSON.',
     };
   }
 
+  const rawSite = typeof raw.site === 'string' ? raw.site.trim().toLowerCase() : '';
+  const site = /^[a-z0-9_-]{1,32}$/.test(rawSite) ? rawSite : undefined;
   const specByKey = new Map(specs);
   const parsedOptions: Record<string, OptionValue> = {};
   let skippedOptions = 0;
@@ -142,13 +171,32 @@ export function parseBackup(text: string, specs: readonly [string, OptionSpec][]
     parsedTheme = parsedThemeDoc.document;
   }
 
+  let parsedVideoSpeed: SavedVideoSpeed | undefined;
+  if (hasVideoSpeed) {
+    if (
+      !isRecord(raw.videoSpeed) ||
+      typeof raw.videoSpeed.rate !== 'number' ||
+      !Number.isFinite(raw.videoSpeed.rate) ||
+      raw.videoSpeed.rate < MIN_VIDEO_SPEED ||
+      raw.videoSpeed.rate > MAX_VIDEO_SPEED
+    ) {
+      return {
+        ok: false,
+        error: `"videoSpeed" must include a numeric rate between ${MIN_VIDEO_SPEED} and ${MAX_VIDEO_SPEED}.`,
+      };
+    }
+    parsedVideoSpeed = readSavedVideoSpeed(raw.videoSpeed);
+  }
+
   return {
     ok: true,
+    site,
     options: parsedOptions,
     skippedOptions,
     filters: parsedFilters,
     locators: parsedLocators,
     theme: parsedTheme,
+    videoSpeed: parsedVideoSpeed,
   };
 }
 
@@ -158,7 +206,7 @@ const plural = (count: number, one: string, many: string): string =>
 /** Applies a parsed backup live without requiring a page reload, and returns a status summary. */
 export async function applyBackup(
   parsed: Extract<ParsedBackup, { ok: true }>,
-  { options, filters, locators, theme }: DataStores,
+  { siteId, options, filters, locators, theme, videoSpeed }: DataStores,
 ): Promise<string> {
   const optionEntries = Object.entries(parsed.options);
   for (const [key, value] of optionEntries) {
@@ -172,6 +220,9 @@ export async function applyBackup(
   }
   if (parsed.theme !== undefined && theme) {
     await theme.set(parsed.theme);
+  }
+  if (parsed.videoSpeed !== undefined && videoSpeed) {
+    await videoSpeed.set(parsed.videoSpeed);
   }
 
   const parts: string[] = [];
@@ -189,22 +240,32 @@ export async function applyBackup(
   if (parsed.theme !== undefined && theme) {
     parts.push('theme');
   }
+  if (parsed.videoSpeed !== undefined && videoSpeed) {
+    parts.push('video speed');
+  }
   const skipped =
     parsed.skippedOptions > 0
       ? ` (${plural(parsed.skippedOptions, 'unrecognised option', 'unrecognised options')} skipped)`
       : '';
-  return parts.length > 0
-    ? `Imported ${parts.join(', ')}${skipped}.`
-    : `Nothing matched to import${skipped}.`;
+  const mismatch =
+    parsed.site && siteId && parsed.site !== siteId
+      ? ` Note: this backup was exported from ${parsed.site}.`
+      : '';
+  const base =
+    parts.length > 0
+      ? `Imported ${parts.join(', ')}${skipped}.`
+      : `Nothing matched to import${skipped}.`;
+  return `${base}${mismatch}`;
 }
 
-/** Resets every registered option to its default and clears saved filters, theme, locator overrides and read history. */
+/** Resets every registered option to its default and clears saved filters, theme, locator overrides, read history, and custom video speed. */
 export async function resetAllData({
   options,
   filters,
   locators,
   theme,
   read_history,
+  videoSpeed,
 }: DataStores): Promise<void> {
   for (const [key, spec] of options.list()) {
     await options.set(key, spec.default);
@@ -216,5 +277,8 @@ export async function resetAllData({
   }
   if (read_history) {
     await read_history.set({});
+  }
+  if (videoSpeed) {
+    await videoSpeed.set({ ...DEFAULT_VIDEO_SPEED });
   }
 }

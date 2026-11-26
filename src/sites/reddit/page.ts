@@ -2,23 +2,17 @@ import { scrubCommonPii } from '../../core/pii';
 
 /**
  * Reads an opaque Reddit account bucket ID from the `loid=` cookie (available
- * synchronously at `document_start`) or falls back to `t2_<id>` on
- * `shreddit-app[user-id]` / `meta[name="user-id"]`, defaulting to `'anonymous'`.
- * Never stores raw session tokens or usernames.
+ * synchronously at `document_start` and identically during late auto-attach),
+ * defaulting to `'anonymous'`. Avoids DOM-dependent IDs (`shreddit-app[user-id]`)
+ * so settings never split across `anonymous` and `t2_*` buckets between boot
+ * and auto-attach. Never stores raw session tokens or usernames.
  */
-export function redditAccountId(
-  cookies: string = document.cookie,
-  doc: Document = document,
-): string {
+export function redditAccountId(cookies: string = document.cookie): string {
   const cookieMatch = /(?:^|;\s*)loid=([a-z0-9]{12,32})(?:[.;]|$)/i.exec(cookies);
   if (cookieMatch?.[1]) {
-    return `loid-${cookieMatch[1].slice(0, 12).toLowerCase()}`;
-  }
-  const attrId =
-    doc.querySelector('shreddit-app[user-id]')?.getAttribute('user-id')?.trim() ??
-    doc.querySelector('meta[name="user-id"]')?.getAttribute('content')?.trim();
-  if (attrId && /^t2_[a-z0-9_-]+$/i.test(attrId)) {
-    return attrId.toLowerCase();
+    // Keep the full first segment (12..32 chars): Reddit left-zero-pads `loid`,
+    // so truncating from the left would discard the varying low-order digits.
+    return `loid-${cookieMatch[1].toLowerCase()}`;
   }
   return 'anonymous';
 }

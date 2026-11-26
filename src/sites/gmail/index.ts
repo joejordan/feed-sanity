@@ -2,12 +2,10 @@ import type { Feature } from '../../core/feature';
 import type { SiteAdapter } from '../../core/site';
 import type { GmailPage } from './feature';
 import { version } from '../../../package.json';
-import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
-import { dataPanel } from '../../data/data-panel';
+import { siteDataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import externalCss from '../../features/external-css';
-import { readThemeDocument, THEME_DATA_KEY } from '../../ui/appearance';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createGmailPage, GMAIL_LOCATOR_OVERRIDES } from './feature';
 import gmailHideClutter from './features/hide-clutter';
@@ -45,15 +43,13 @@ export const gmailSite: SiteAdapter<GmailPage, ReturnType<typeof createGmailPage
     const overrides = data.value(GMAIL_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       createFiltersPanel(data, GMAIL_FILTER_SCHEMA, { section: 'Inbox Filtering' }),
-      dataPanel(
-        {
-          options,
-          filters: savedFilters(data),
-          locators: overrides,
-          theme: data.value(THEME_DATA_KEY, readThemeDocument),
-        },
-        { siteName: 'Gmail' },
-      ),
+      siteDataPanel({
+        siteId: 'gmail',
+        siteName: 'Gmail',
+        options,
+        data,
+        locators: overrides,
+      }),
       diagnosticsPanel({
         collect: () => ({
           version,

@@ -1,9 +1,8 @@
 import type { SiteAdapter } from '../../core/site';
 import type { FacebookPage } from '../../facebook/feature';
 import { version } from '../../../package.json';
-import { savedFilters } from '../../core/filter-types';
 import { readLocatorOverrides } from '../../core/locator';
-import { dataPanel } from '../../data/data-panel';
+import { siteDataPanel } from '../../data/data-panel';
 import { collectDiagnostics, reportedPageType } from '../../diagnostics/collect';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import { scrub } from '../../diagnostics/report';
@@ -13,7 +12,6 @@ import facebookTheme from '../../facebook/theme.css?inline';
 import { isFacebookHost } from '../../facebook/urls';
 import { currentUserId } from '../../facebook/user';
 import { features, optionsPanels } from '../../features';
-import { readThemeDocument, THEME_DATA_KEY } from '../../ui/appearance';
 import { facebookThemeMapping } from './theme-mapping';
 
 /**
@@ -36,16 +34,14 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
     const overrides = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
       ...optionsPanels(data),
-      dataPanel(
-        {
-          options,
-          filters: savedFilters(data),
-          locators: overrides,
-          theme: data.value(THEME_DATA_KEY, readThemeDocument),
-          read_history: savedPostData(data),
-        },
-        { siteName: 'Facebook' },
-      ),
+      siteDataPanel({
+        siteId: 'facebook',
+        siteName: 'Facebook',
+        options,
+        data,
+        locators: overrides,
+        read_history: savedPostData(data),
+      }),
       diagnosticsPanel({
         collect: () => collectDiagnostics({ version, build: platform.build, page: stats, runner }),
         overrides,
