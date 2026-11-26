@@ -65,7 +65,7 @@ describe('OptionsDialog', () => {
 
   const show = () => render(<OptionsDialog options={options} onClose={onClose} />);
 
-  it('renders the Feed Sanity brand lockup at the floor of the sidebar when opened on a host site', () => {
+  it('renders a clickable Feed Sanity brand lockup and feed-sanity.com link at the floor of the sidebar when opened on a host site', () => {
     const { container } = render(
       <OptionsDialog
         options={options}
@@ -75,11 +75,13 @@ describe('OptionsDialog', () => {
       />,
     );
 
-    const floorBrand = container.querySelector('.sidebar > .sidebar-brand');
+    const floorBrand = container.querySelector<HTMLAnchorElement>('.sidebar > a.sidebar-brand');
+    expect(floorBrand?.getAttribute('href')).toBe('https://feed-sanity.com');
+    expect(floorBrand?.getAttribute('target')).toBe('_blank');
+    expect(floorBrand?.getAttribute('rel')).toBe('noopener noreferrer');
     expect(floorBrand?.querySelector('svg.fs-brand-mark')).not.toBeNull();
-    const wordmark = floorBrand?.querySelector('svg.fs-brand-wordmark');
-    expect(wordmark?.getAttribute('role')).toBe('img');
-    expect(wordmark?.getAttribute('aria-label')).toBe('Feed Sanity');
+    expect(floorBrand?.querySelector('svg.fs-brand-wordmark')).not.toBeNull();
+    expect(floorBrand?.querySelector('.sidebar-brand-url')?.textContent).toBe('feed-sanity.com');
   });
 
   it('lists the first section with saved values, and another section when chosen', async () => {

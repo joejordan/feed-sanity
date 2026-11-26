@@ -3,7 +3,7 @@ import type { OptionSpec, Options, OptionValue } from '../../core/options';
 import type { IndexedSearchHit } from './command-jump';
 import type { Edit } from './option-row';
 import type { OptionsPanel } from './panel';
-import { NAME, OPTIONS_TITLE } from '../../../project';
+import { NAME, OPTIONS_TITLE, WEBSITE_URL } from '../../../project';
 import { createLogger } from '../../core/log';
 import {
   Badge,
@@ -664,10 +664,19 @@ export function OptionsDialog({
           </nav>
 
           {site && (
-            <div className="sidebar-brand">
-              <BrandMark size={28} />
-              <BrandWordmark height={21} label={NAME} />
-            </div>
+            <a
+              className="sidebar-brand"
+              href={WEBSITE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`${NAME} — feed-sanity.com`}
+            >
+              <span className="sidebar-brand-lockup" aria-hidden="true">
+                <BrandMark size={28} />
+                <BrandWordmark height={21} />
+              </span>
+              <span className="sidebar-brand-url">feed-sanity.com</span>
+            </a>
           )}
         </aside>
 
