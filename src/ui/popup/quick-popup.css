@@ -75,68 +75,59 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px 5px 8px;
-  border: 1px solid color-mix(in srgb, var(--fs-brand-tittle) 46%, var(--fs-divider));
+  padding: 6px 11px;
+  border: 0;
   border-radius: 999px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--fs-brand-tittle) 18%, transparent),
-    color-mix(in srgb, var(--fs-accent) 12%, transparent)
-  );
+  background: color-mix(in srgb, var(--fs-brand-tittle) 22%, var(--fs-divider));
   color: var(--fs-text);
   font: 600 11px / 1 var(--fs-font);
   white-space: nowrap;
   cursor: pointer;
-  box-shadow:
-    0 0 12px -4px color-mix(in srgb, var(--fs-brand-tittle) 55%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 12%);
+  box-shadow: 0 0 12px -4px color-mix(in srgb, var(--fs-brand-tittle) 36%, transparent);
   transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    box-shadow 140ms ease,
+    box-shadow 160ms ease,
     transform 120ms ease;
 }
 
 .qp-support-btn::before {
   content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: var(--fs-brand-tittle);
-  box-shadow: 0 0 6px var(--fs-brand-tittle);
-  flex: none;
-  animation: qp-support-pulse 3.2s ease-in-out infinite;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 220px;
+  height: 220px;
+  margin: -110px 0 0 -110px;
+  z-index: -2;
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 245deg,
+    color-mix(in srgb, var(--fs-accent) 50%, transparent) 290deg,
+    var(--fs-brand-tittle) 336deg,
+    color-mix(in srgb, var(--fs-brand-tittle) 72%, white) 352deg,
+    transparent 360deg
+  );
+  animation: qp-support-orbit 5.6s linear infinite;
 }
 
 .qp-support-btn::after {
   content: "";
   position: absolute;
-  inset: -1px auto -1px 0;
-  width: 44%;
+  inset: 1.25px;
+  border-radius: inherit;
+  z-index: -1;
   pointer-events: none;
-  background: linear-gradient(
-    105deg,
-    transparent 0%,
-    color-mix(in srgb, var(--fs-brand-tittle) 42%, white) 48%,
-    color-mix(in srgb, var(--fs-accent) 30%, transparent) 66%,
-    transparent 100%
-  );
-  opacity: 0;
-  transform: translateX(-140%) skewX(-20deg);
-  animation: qp-support-sheen 5.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) -3.2s infinite;
+  background: color-mix(in srgb, var(--fs-brand-tittle) 7%, var(--fs-card-bg));
+  transition: background 140ms ease;
 }
 
 .qp-support-btn:hover {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--fs-brand-tittle) 28%, transparent),
-    color-mix(in srgb, var(--fs-accent) 18%, transparent)
-  );
-  border-color: color-mix(in srgb, var(--fs-brand-tittle) 72%, var(--fs-divider));
-  box-shadow:
-    0 0 16px -3px color-mix(in srgb, var(--fs-brand-tittle) 75%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 18%);
+  box-shadow: 0 0 16px -3px color-mix(in srgb, var(--fs-brand-tittle) 62%, transparent);
+}
+
+.qp-support-btn:hover::after {
+  background: color-mix(in srgb, var(--fs-brand-tittle) 15%, var(--fs-card-bg));
 }
 
 .qp-support-btn:active {
@@ -145,47 +136,22 @@
 
 .qp-support-btn:focus-visible {
   outline: 2px solid var(--fs-accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
-@keyframes qp-support-pulse {
-  0%,
-  100% {
-    opacity: 0.65;
-    transform: scale(0.9);
+@keyframes qp-support-orbit {
+  from {
+    transform: rotate(0deg);
   }
-  50% {
-    opacity: 1;
-    transform: scale(1.22);
-  }
-}
-
-@keyframes qp-support-sheen {
-  0%,
-  72% {
-    opacity: 0;
-    transform: translateX(-140%) skewX(-20deg);
-  }
-  76% {
-    opacity: 0.95;
-  }
-  96% {
-    opacity: 0.95;
-    transform: translateX(320%) skewX(-20deg);
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(320%) skewX(-20deg);
+  to {
+    transform: rotate(360deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .qp-support-btn::before,
-  .qp-support-btn::after {
+  .qp-support-btn::before {
     animation: none;
-  }
-  .qp-support-btn::after {
-    display: none;
+    transform: rotate(-35deg);
   }
 }
 
