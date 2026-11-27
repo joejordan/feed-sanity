@@ -21,6 +21,7 @@ import {
 import { createRandom } from './digital-rain/math';
 import { mountDigitalRain } from './digital-rain/mount';
 import { RainLayer } from './digital-rain/rain-layer';
+import { RAIN_INTROS } from './digital-rain/settings';
 import {
   BACKDROP_EFFECT_IDS,
   BACKDROP_OPTIONS,
@@ -39,9 +40,16 @@ import {
   hasActiveEffects,
   mergeEffectsPatch,
   mountClickEffects,
+  parseCustomShader,
+  RAIN_CHARSET_NAMES,
+  RAIN_CHARSETS,
+  RAIN_INTRO_NAMES,
+  RAIN_LOOK_NAMES,
+  RAIN_PRESETS,
   readThemeEffectsConfig,
   resolveEffectParams,
   resolveGlassMetrics,
+  STUDIO_VIBE_METAS,
   STUDIO_VIBES,
   SURFACE_FINISH_IDS,
   sameEffectParams,
@@ -344,9 +352,23 @@ describe('Creative Theme & Effects Studio engine', () => {
     for (const id of CLICK_EFFECT_IDS) {
       expect(getClickEffectLabel(id)?.length).toBeGreaterThan(0);
     }
+    expect(RAIN_CHARSET_NAMES).toEqual(Object.keys(RAIN_CHARSETS));
+    expect(RAIN_INTRO_NAMES).toEqual(RAIN_INTROS);
+    expect(RAIN_LOOK_NAMES).toEqual(['theme', ...Object.keys(RAIN_PRESETS)]);
+
+    expect(STUDIO_VIBES.map((vibe) => vibe.id)).toEqual(STUDIO_VIBE_METAS.map((meta) => meta.id));
+    for (const meta of STUDIO_VIBE_METAS) {
+      expect('customShader' in meta.effects).toBe(false);
+    }
     for (const vibe of STUDIO_VIBES) {
       expect(BUILTIN_THEMES.some((theme) => theme.id === vibe.preset)).toBe(true);
       expect(BACKDROP_EFFECT_IDS).toContain(vibe.effects.backdrop ?? 'none');
+      if (vibe.effects.backdrop === 'custom-shader') {
+        expect(vibe.effects.customShader).toBeDefined();
+        expect(parseCustomShader(vibe.effects.customShader).errors).toEqual([]);
+      } else {
+        expect(vibe.effects.customShader).toBeUndefined();
+      }
       // Calibrated so reading columns always stay comfortably opaque.
       const metrics = resolveGlassMetrics(vibe.effects.glassStrength ?? 0);
       expect(metrics.columnAlpha).toBeGreaterThanOrEqual(0.8);

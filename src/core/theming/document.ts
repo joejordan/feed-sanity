@@ -275,12 +275,20 @@ function parseChrome(raw: unknown): ThemeChromeConfig | undefined {
   };
 }
 
+const DOCUMENT_EFFECTS_CONFIG_CACHE = new WeakMap<
+  ThemeDocumentEffects,
+  ThemeEffectsConfig | undefined
+>();
+
 /** Converts a structured `ThemeDocumentEffects` block into runtime `ThemeEffectsConfig`. */
 export function documentEffectsToConfig(
   effects: ThemeDocumentEffects | undefined,
 ): ThemeEffectsConfig | undefined {
   if (!effects) {
     return undefined;
+  }
+  if (DOCUMENT_EFFECTS_CONFIG_CACHE.has(effects)) {
+    return DOCUMENT_EFFECTS_CONFIG_CACHE.get(effects);
   }
   const resolved = readThemeEffectsConfig({
     backdrop: effects.backdrop?.id ?? DEFAULT_THEME_EFFECTS.backdrop,
@@ -297,7 +305,9 @@ export function documentEffectsToConfig(
     click: effects.click?.id ?? DEFAULT_THEME_EFFECTS.click,
     ...(effects.click?.params ? { clickParams: effects.click.params } : {}),
   });
-  return hasActiveEffects(resolved) ? resolved : undefined;
+  const active = hasActiveEffects(resolved) ? resolved : undefined;
+  DOCUMENT_EFFECTS_CONFIG_CACHE.set(effects, active);
+  return active;
 }
 
 /** Converts runtime `ThemeEffectsConfig` into the namespaced `ThemeDocumentEffects` representation. */

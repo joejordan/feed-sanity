@@ -5,7 +5,7 @@
 // Imported by both the popup/background pure theme codec and the content-script
 // renderers without pulling in any DOM or WebGL code.
 
-import type { EffectParamSpec } from './model';
+import type { EffectParamSpec } from './param-specs';
 import { isRecord } from '../storage';
 import { normalizeHex } from '../theming/color';
 

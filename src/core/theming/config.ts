@@ -1,7 +1,7 @@
 // Canonical ThemeDocumentV1 state model, built-in catalog materializers,
 // and immutable document editors.
 
-import type { StudioVibe, ThemeEffectsConfig } from '../theme-effects/model';
+import type { StudioVibe, StudioVibeMeta, ThemeEffectsConfig } from '../theme-effects/model';
 import type { PaletteMood } from './color';
 import type { ThemeDocumentV1 } from './document';
 import type {
@@ -17,7 +17,7 @@ import {
   DEFAULT_THEME_EFFECTS,
   mergeEffectsPatch,
   readThemeEffectsConfig,
-  STUDIO_VIBES,
+  STUDIO_VIBE_METAS,
 } from '../theme-effects/model';
 import { readClampedNumber } from '../theme-effects/scene-schema';
 import {
@@ -50,8 +50,8 @@ export const DEFAULT_THEME_DOCUMENT: ThemeDocumentV1 = {
   palette: null,
 };
 
-const STUDIO_VIBE_BY_ID: ReadonlyMap<string, StudioVibe> = new Map(
-  STUDIO_VIBES.map((vibe) => [vibe.id, vibe]),
+const STUDIO_VIBE_BY_ID: ReadonlyMap<string, StudioVibeMeta> = new Map(
+  STUDIO_VIBE_METAS.map((vibe) => [vibe.id, vibe]),
 );
 
 function optionalSwatches(
@@ -63,8 +63,11 @@ function optionalSwatches(
   return swatches.length >= 2 ? { swatches } : {};
 }
 
-function matchStudioVibe(presetId: string, effects: ThemeEffectsConfig): StudioVibe | undefined {
-  return STUDIO_VIBES.find(
+function matchStudioVibe(
+  presetId: string,
+  effects: ThemeEffectsConfig,
+): StudioVibeMeta | undefined {
+  return STUDIO_VIBE_METAS.find(
     (vibe) =>
       presetId === vibe.preset &&
       effects.backdrop === (vibe.effects.backdrop ?? 'none') &&
@@ -168,8 +171,8 @@ export function findActiveThemePreset(doc: ThemeDocumentV1): ThemePreset | undef
   return vibe ? findThemePreset(vibe.preset) : undefined;
 }
 
-/** Returns the matching curated `StudioVibe` when `doc`'s active effects and base preset match it. */
-export function findActiveStudioVibe(doc: ThemeDocumentV1): StudioVibe | undefined {
+/** Returns the matching curated Studio Vibe metadata when `doc`'s active effects and base preset match it. */
+export function findActiveStudioVibe(doc: ThemeDocumentV1): StudioVibeMeta | undefined {
   const effects = documentEffectsToConfig(doc.effects);
   if (!effects) {
     return undefined;

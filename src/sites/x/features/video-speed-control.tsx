@@ -5,13 +5,13 @@ import {
   formatSpeedNumber,
   isNativeXSpeed,
   parseSpeedInput,
+  SPEED_EPSILON,
 } from './video-speed-model';
 
 const SLIDER_MIN = 0.25;
 const SLIDER_MAX = 4;
 const SLIDER_STEP = 0.01;
 const BUTTON_STEP = 0.05;
-const SPEED_EPSILON = 0.005;
 const SLIDER_TICKS: readonly { readonly rate: number; readonly label: string }[] = [
   { rate: 0.25, label: '0.25×' },
   { rate: 1, label: '1×' },

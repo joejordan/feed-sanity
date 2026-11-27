@@ -10,7 +10,7 @@ import { THEME_LAYER_ORDER } from '../theming/types';
 import { createEffectsLayerController } from './controller';
 import { EVENT_HORIZON_SHADER } from './event-horizon-shader';
 import { LUMINOUS_TIDE_SHADER } from './luminous-tide-shader';
-import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from './model';
+import { DEFAULT_THEME_EFFECTS } from './model';
 import { buildCustomFragmentSource } from './renderers/custom-shader';
 import { BACKGROUND_WEBGL_RELEASE_MS } from './renderers/scene-host';
 import {
@@ -20,6 +20,7 @@ import {
   validateCustomShaderSource,
 } from './scene-schema';
 import { compileSurfaceFinishCss } from './surfaces';
+import { STUDIO_VIBES } from './vibes';
 
 const DARK_PALETTE: ThemePalette = {
   colorScheme: 'dark',

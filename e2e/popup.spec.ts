@@ -1,5 +1,5 @@
 import { OPTIONS_TITLE } from '../project';
-import { STUDIO_VIBES } from '../src/core/theme-effects/model';
+import { STUDIO_VIBES } from '../src/core/theme-effects/vibes';
 import { applyStudioVibe, DEFAULT_THEME_DOCUMENT } from '../src/core/theming/config';
 import { readThemeLibraryState, THEME_LIBRARY_KEY } from '../src/core/theming/library';
 import { expect, ORIGIN, test } from './extension';

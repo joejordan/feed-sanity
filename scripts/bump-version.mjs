@@ -1,6 +1,7 @@
 // Bumps `package.json`'s `version` field (single source of truth for Chrome MV3,
-// Firefox MV2, and the userscript `@version` header) after validating store-safe x.y.z SemVer.
-// Usage: node scripts/bump-version.mjs 0.1.0
+// Firefox MV2, Safari MV3 / Xcode `MARKETING_VERSION`, and userscript `@version`)
+// after validating store-safe x.y.z SemVer.
+// Usage: node scripts/bump-version.mjs 1.0.0
 
 import fs from 'node:fs';
 import path from 'node:path';

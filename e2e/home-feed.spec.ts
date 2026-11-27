@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { STUDIO_VIBES } from '../src/core/theme-effects/model';
+import { STUDIO_VIBES } from '../src/core/theme-effects/vibes';
 import { vibeToThemeDocument } from '../src/core/theming/config';
 import { expect, OPTIONS_KEY, ORIGIN, THEME_KEY, test } from './extension';
 

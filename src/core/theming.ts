@@ -6,7 +6,7 @@
 // Shadow Roots (`:host`), same-origin iframes, and Feed Sanity's own Shadow DOM
 // UI. Strictly Trusted Types safe (`style.textContent`) and 100% reversible.
 
-export type { StudioVibe, ThemeEffectsConfig } from './theme-effects/model';
+export type { StudioVibe, StudioVibeMeta, ThemeEffectsConfig } from './theme-effects/model';
 export type {
   CustomSceneSpec,
   CustomShaderParamSpec,

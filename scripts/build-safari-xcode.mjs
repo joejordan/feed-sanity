@@ -4,7 +4,7 @@
 // macOS), and optionally registers + opens the built app.
 //
 // Usage:
-//   node scripts/build-safari-xcode.mjs [--sync] [--all-platforms] [--no-sign] [--open] [--skip-build] [--skip-wxt] [--ios-sim]
+//   node scripts/build-safari-xcode.mjs [--sync] [--all-platforms] [--release] [--archive] [--no-sign] [--open] [--skip-build] [--skip-wxt] [--ios-sim]
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -302,8 +302,9 @@ function resizePng(src, dest, size) {
 }
 
 function detectAppleDevelopmentTeam() {
-  if (process.env.SAFARI_TEAM_ID) {
-    return process.env.SAFARI_TEAM_ID.trim();
+  const envTeam = process.env.SAFARI_TEAM_ID?.trim();
+  if (envTeam) {
+    return envTeam;
   }
   try {
     const pem = run('security', ['find-certificate', '-c', 'Apple Development', '-p'], {
@@ -503,36 +504,137 @@ function syncBuiltAppResources(builtApp, teamId) {
   return true;
 }
 
+const KNOWN_FLAGS = new Set([
+  '--sync',
+  '--all-platforms',
+  '--release',
+  '--archive',
+  '--no-sign',
+  '--open',
+  '--skip-build',
+  '--skip-wxt',
+  '--ios-sim',
+  '--help',
+  '-h',
+]);
+
+function printUsage() {
+  console.log(
+    [
+      'Usage: node scripts/build-safari-xcode.mjs [flags]',
+      '',
+      'Flags:',
+      '  --sync           Fast incremental update of .appex resources (Debug macOS only)',
+      '  --all-platforms  Generate universal macOS + iOS Xcode targets',
+      '  --release        Build in Release configuration (Automatic signing by default)',
+      '  --archive        Build a Release .xcarchive at .output/safari-xcode/Feed Sanity.xcarchive',
+      '  --no-sign        Build unsigned (CODE_SIGNING_ALLOWED=NO)',
+      '  --open           Open the built macOS container app after building',
+      '  --skip-build     Generate the Xcode project without running xcodebuild',
+      '  --skip-wxt       Reuse existing .output/safari-mv3 instead of running pnpm build:safari',
+      '  --ios-sim        Also build the iOS Simulator target (with --all-platforms)',
+      '  --help, -h       Show this help message',
+      '',
+      'Environment:',
+      '  SAFARI_TEAM_ID        Override Apple Development Team ID (otherwise auto-detected)',
+      '  SAFARI_SIGN_IDENTITY  Override CODE_SIGN_IDENTITY (e.g. "Developer ID Application")',
+    ].join('\n'),
+  );
+}
+
+function resolveSigningArgs({ teamId, release, signIdentity, noSign }) {
+  if (signIdentity && noSign) {
+    throw new Error('SAFARI_SIGN_IDENTITY cannot be combined with --no-sign.');
+  }
+  if (signIdentity && !teamId) {
+    throw new Error(
+      'SAFARI_SIGN_IDENTITY is set, but no Apple Development Team ID was found. Set SAFARI_TEAM_ID explicitly.',
+    );
+  }
+  if (release && !noSign && !teamId) {
+    throw new Error(
+      'Release/archive builds require an Apple Development Team ID (set SAFARI_TEAM_ID, or pass --no-sign to build unsigned).',
+    );
+  }
+  if (!teamId) {
+    return { args: ['CODE_SIGNING_ALLOWED=NO'], label: 'unsigned (CODE_SIGNING_ALLOWED=NO)' };
+  }
+  if (release && !signIdentity) {
+    return {
+      args: [`DEVELOPMENT_TEAM=${teamId}`, 'CODE_SIGN_STYLE=Automatic'],
+      label: `Team ${teamId}, Automatic signing`,
+    };
+  }
+  const identity = signIdentity || 'Apple Development';
+  return {
+    args: [
+      `DEVELOPMENT_TEAM=${teamId}`,
+      'CODE_SIGN_STYLE=Manual',
+      `CODE_SIGN_IDENTITY=${identity}`,
+    ],
+    label: `Team ${teamId}, Manual (${identity})`,
+  };
+}
+
 function main() {
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+    printUsage();
+    return;
+  }
+  const unknownFlags = rawArgs.filter((arg) => !KNOWN_FLAGS.has(arg));
+  if (unknownFlags.length > 0) {
+    throw new Error(
+      `Unknown flag(s): ${unknownFlags.join(', ')}. Run with --help for supported flags.`,
+    );
+  }
+
   if (process.platform !== 'darwin') {
     throw new Error('scripts/build-safari-xcode.mjs requires macOS with Xcode installed.');
   }
 
-  const args = new Set(process.argv.slice(2));
+  const args = new Set(rawArgs);
   const syncOnly = args.has('--sync');
   const allPlatforms = args.has('--all-platforms');
+  const archive = args.has('--archive');
+  const release = args.has('--release') || archive;
+  const configuration = release ? 'Release' : 'Debug';
   const noSign = args.has('--no-sign');
   const shouldOpen = args.has('--open');
   const skipBuild = args.has('--skip-build');
   const iosSim = args.has('--ios-sim');
   const skipWxt = args.has('--skip-wxt');
+  const signIdentity = process.env.SAFARI_SIGN_IDENTITY?.trim() || '';
+
+  if (syncOnly && (allPlatforms || release || skipBuild || iosSim)) {
+    throw new Error(
+      '--sync is only supported for incremental Debug macOS builds (cannot combine with --release, --archive, --all-platforms, --skip-build, or --ios-sim).',
+    );
+  }
+  if (syncOnly && signIdentity) {
+    throw new Error(
+      '--sync re-signs with the local Apple Development certificate and cannot be combined with SAFARI_SIGN_IDENTITY.',
+    );
+  }
+  if (archive && (skipBuild || shouldOpen || iosSim)) {
+    throw new Error('--archive cannot be combined with --skip-build, --open, or --ios-sim.');
+  }
+  if (signIdentity && noSign) {
+    throw new Error('SAFARI_SIGN_IDENTITY cannot be combined with --no-sign.');
+  }
+
+  const teamId = noSign ? null : detectAppleDevelopmentTeam();
+  const signing = skipBuild ? null : resolveSigningArgs({ teamId, release, signIdentity, noSign });
 
   if (!skipWxt || !fs.existsSync(path.join(EXT_DIR, 'manifest.json'))) {
     run('pnpm', ['build:safari']);
   }
 
-  const teamId = noSign ? null : detectAppleDevelopmentTeam();
   const builtApp = path.join(BUILD_DIR, `${APP_NAME}.app`);
 
   // Fast incremental update path (~1s): update `.appex/Contents/Resources/`,
   // re-sign preserving entitlements, verify signature, and re-register via pluginkit.
-  if (
-    syncOnly &&
-    !allPlatforms &&
-    !skipBuild &&
-    !iosSim &&
-    syncBuiltAppResources(builtApp, teamId)
-  ) {
+  if (syncOnly && syncBuiltAppResources(builtApp, teamId)) {
     if (shouldOpen) {
       run('open', [builtApp]);
     }
@@ -567,36 +669,32 @@ function main() {
   generateIcons(sharedAppDir, allPlatforms);
   customizeContainerApp(sharedAppDir, macAppDir);
 
-  if (skipBuild) {
+  if (skipBuild || !signing) {
     console.log(`Generated Xcode project at ${XCODEPROJ}`);
     return;
   }
 
   const macScheme = allPlatforms ? `${APP_NAME} (macOS)` : APP_NAME;
-  const buildArgs = [
+  const macXcodeBaseArgs = [
     '-project',
     XCODEPROJ,
     '-scheme',
     macScheme,
     '-configuration',
-    'Debug',
-    `CONFIGURATION_BUILD_DIR=${BUILD_DIR}`,
-    ...(teamId
-      ? [
-          `DEVELOPMENT_TEAM=${teamId}`,
-          'CODE_SIGN_STYLE=Manual',
-          'CODE_SIGN_IDENTITY=Apple Development',
-        ]
-      : ['CODE_SIGNING_ALLOWED=NO']),
-    'build',
+    configuration,
+    ...signing.args,
   ];
 
-  console.log(
-    teamId
-      ? `Building macOS app (${macScheme}) signed with Apple Development (Team ${teamId})...`
-      : `Building macOS app (${macScheme}) unsigned (CODE_SIGNING_ALLOWED=NO)...`,
-  );
-  run('xcodebuild', buildArgs);
+  if (archive) {
+    const archivePath = path.join(XCODE_OUT_DIR, `${APP_NAME}.xcarchive`);
+    console.log(`Archiving macOS app (${macScheme}, ${configuration}, ${signing.label})...`);
+    run('xcodebuild', [...macXcodeBaseArgs, '-archivePath', archivePath, 'archive']);
+    console.log(`Created Safari archive at ${archivePath}`);
+    return;
+  }
+
+  console.log(`Building macOS app (${macScheme}, ${configuration}, ${signing.label})...`);
+  run('xcodebuild', [...macXcodeBaseArgs, `CONFIGURATION_BUILD_DIR=${BUILD_DIR}`, 'build']);
 
   if (teamId) {
     run('codesign', ['--verify', '--deep', '--strict', builtApp]);
@@ -609,14 +707,14 @@ function main() {
   }
 
   if (allPlatforms && iosSim) {
-    console.log(`Building iOS Simulator target (${APP_NAME} (iOS))...`);
+    console.log(`Building iOS Simulator target (${APP_NAME} (iOS), ${configuration})...`);
     run('xcodebuild', [
       '-project',
       XCODEPROJ,
       '-scheme',
       `${APP_NAME} (iOS)`,
       '-configuration',
-      'Debug',
+      configuration,
       '-sdk',
       'iphonesimulator',
       'CODE_SIGNING_ALLOWED=NO',

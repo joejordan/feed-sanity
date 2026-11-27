@@ -14,7 +14,8 @@ import type {
 } from '../../core/theming';
 import type { OptionsPanel, PanelProps, PanelSearchItem } from '../options-dialog/panel';
 import type { AuditState } from './health-disclosure';
-import { DEFAULT_THEME_EFFECTS, STUDIO_VIBES } from '../../core/theme-effects/model';
+import { DEFAULT_THEME_EFFECTS } from '../../core/theme-effects/model';
+import { STUDIO_VIBES } from '../../core/theme-effects/vibes';
 import {
   analyzeThemeDocument,
   applyStudioVibe,

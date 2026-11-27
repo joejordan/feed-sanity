@@ -5,17 +5,20 @@ export type { RainCharsetName } from './digital-rain/charsets';
 export type { DigitalRainInstance, MountDigitalRainOptions } from './digital-rain/mount';
 export type { DigitalRainOptions, RainIntro, RainLookName } from './digital-rain/settings';
 export type {
-  BackdropEffectId,
   BackdropOptionMeta,
+  StudioVibe,
+  StudioVibeMeta,
+  ThemeEffectsConfig,
+} from './model';
+export type {
+  BackdropEffectId,
   ClickEffectId,
   EffectParamSpec,
   EffectParamUnit,
   EffectParamValue,
   EffectParamValues,
-  StudioVibe,
   SurfaceFinishId,
-  ThemeEffectsConfig,
-} from './model';
+} from './param-specs';
 export type {
   CustomSceneSpec,
   CustomShaderParamSpec,
@@ -43,38 +46,40 @@ export { RAIN_CHARSETS } from './digital-rain/charsets';
 export { mountDigitalRain } from './digital-rain/mount';
 export { RAIN_PRESETS } from './digital-rain/settings';
 export {
-  BACKDROP_EFFECT_IDS,
   BACKDROP_OPTIONS,
-  BACKDROP_PARAM_SPECS,
-  CLICK_EFFECT_IDS,
   CLICK_EFFECT_OPTIONS,
-  CLICK_PARAM_SPECS,
   DEFAULT_THEME_EFFECTS,
-  DIGITAL_RAIN_PARAM_SPECS,
-  deriveEffectParams,
   findBackdropOption,
-  getActiveBackdropParamSpecs,
   getBackdropDisplayName,
-  getBackdropParamSpecs,
   getClickEffectLabel,
-  getClickParamSpecs,
   getSurfaceFinishLabel,
-  getSurfaceParamSpecs,
   hasActiveEffects,
   mergeEffectsPatch,
+  readThemeEffectsConfig,
+  STUDIO_VIBE_METAS,
+  SURFACE_FINISH_OPTIONS,
+} from './model';
+export {
+  BACKDROP_EFFECT_IDS,
+  BACKDROP_PARAM_SPECS,
+  CLICK_EFFECT_IDS,
+  CLICK_PARAM_SPECS,
+  DIGITAL_RAIN_PARAM_SPECS,
+  deriveEffectParams,
+  getActiveBackdropParamSpecs,
+  getBackdropParamSpecs,
+  getClickParamSpecs,
+  getSurfaceParamSpecs,
   RAIN_CHARSET_NAMES,
   RAIN_INTRO_NAMES,
   RAIN_LOOK_NAMES,
-  readThemeEffectsConfig,
   resolveEffectParams,
-  STUDIO_VIBES,
   SURFACE_FINISH_IDS,
-  SURFACE_FINISH_OPTIONS,
   SURFACE_PARAM_SPECS,
   sameEffectParams,
   THEME_EFFECT_BOUNDS,
   validateEffectParams,
-} from './model';
+} from './param-specs';
 export {
   MAX_CUSTOM_SHADER_BYTES,
   MAX_CUSTOM_SHADER_PARAMS,
@@ -100,3 +105,4 @@ export {
   PRISM_ANGLE_VAR,
   resolveGlassMetrics,
 } from './surfaces';
+export { STUDIO_VIBES } from './vibes';

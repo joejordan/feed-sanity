@@ -8,6 +8,7 @@ export const X_VIDEO_SPEED_KEY = 'x_video_speed';
 
 export const MIN_VIDEO_SPEED = 0.1;
 export const MAX_VIDEO_SPEED = 16;
+export const SPEED_EPSILON = 0.005;
 
 /** Native playback speed presets offered by X's built-in video player menu. */
 export const NATIVE_X_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
@@ -15,7 +16,7 @@ export const NATIVE_X_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const
 /** True when `rate` matches one of X's native playback speed radio presets. */
 export function isNativeXSpeed(rate: number): boolean {
   const clamped = clampVideoSpeed(rate);
-  return NATIVE_X_SPEEDS.some((preset) => Math.abs(preset - clamped) < 0.005);
+  return NATIVE_X_SPEEDS.some((preset) => Math.abs(preset - clamped) < SPEED_EPSILON);
 }
 
 export interface SavedVideoSpeed {

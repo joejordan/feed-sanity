@@ -5,6 +5,7 @@ import type {
   EffectParamValue,
   EffectParamValues,
   StudioVibe,
+  StudioVibeMeta,
   ThemeEffectsConfig,
 } from '../../core/theme-effects';
 import {
@@ -419,7 +420,7 @@ function useEffectSliderDraft(
 }
 
 export interface StudioVibesCardProps {
-  readonly activeVibe: StudioVibe | undefined;
+  readonly activeVibe: StudioVibeMeta | undefined;
   readonly hoverPreviewEnabled?: boolean;
   readonly onApplyVibe: (vibe: StudioVibe) => void;
   readonly onPreviewVibe?: (vibe: StudioVibe | null) => void;
@@ -484,7 +485,7 @@ export function StudioVibesCard({
 export interface CreativeStudioCardProps {
   readonly effects: ThemeEffectsConfig;
   readonly effectsActive: boolean;
-  readonly activeVibe?: StudioVibe | undefined;
+  readonly activeVibe?: StudioVibeMeta | undefined;
   readonly onPreviewEffects?: (patch: Partial<ThemeEffectsConfig>) => void;
   readonly onUpdateEffects: (patch: Partial<ThemeEffectsConfig>, toastLabel?: string) => void;
   readonly onResetEffects: () => void;
