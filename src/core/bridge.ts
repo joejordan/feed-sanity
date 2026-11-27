@@ -160,9 +160,10 @@ export class PageBridge {
   /**
    * Tears down document event listeners, pending connect/late-mount timers, and
    * buffered topics. Safe to call repeatedly; any subsequent call fails with
-   * `unavailable`.
+   * `unavailable`. Pass `{ keepRemoteAlive: true }` to detach without disposing
+   * the page-world server (e.g. one-shot stale-hint disarming).
    */
-  dispose(): void {
+  dispose(options?: { readonly keepRemoteAlive?: boolean }): void {
     if (this.#disposed) {
       return;
     }
@@ -191,7 +192,11 @@ export class PageBridge {
     this.#status = { ...NOT_STARTED, state: 'unavailable', problem: 'the bridge was disposed' };
     this.#settled = Promise.resolve();
     if (connectedChannel && typeof document !== 'undefined') {
-      document.dispatchEvent(new CustomEvent(disconnectEvent(connectedChannel)));
+      document.dispatchEvent(
+        options?.keepRemoteAlive
+          ? messageEvent(disconnectEvent(connectedChannel), { keepAlive: true })
+          : new CustomEvent(disconnectEvent(connectedChannel)),
+      );
     }
   }
 

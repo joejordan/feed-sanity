@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   EffectParamSpec,
   EffectParamUnit,
@@ -117,6 +117,7 @@ function PluginParamsBox({
   readonly onDragStart: () => void;
   readonly onCommit: () => void;
 }) {
+  const paramIdPrefix = useId();
   const values = useMemo(() => resolveEffectParams(specs, rawValues), [specs, rawValues]);
   const defaults = useMemo(() => resolveEffectParams(specs, defaultValues), [specs, defaultValues]);
   const hasCustomParams = useMemo(
@@ -246,16 +247,20 @@ function PluginParamsBox({
 
       {grouped.booleans.length > 0 && (
         <div className="theme-tuner-switches">
-          {grouped.booleans.map((spec) => (
-            <span key={spec.key} className="theme-inline-toggle">
-              <span>{spec.label}</span>
-              <Switch
-                checked={Boolean(values[spec.key] ?? spec.defaultValue)}
-                ariaLabel={spec.ariaLabel ?? spec.label}
-                onChange={(next) => onUpdateParam(spec.key, next)}
-              />
-            </span>
-          ))}
+          {grouped.booleans.map((spec) => {
+            const switchId = `${paramIdPrefix}-${spec.key}`;
+            return (
+              <span key={spec.key} className="theme-inline-toggle">
+                <label htmlFor={switchId}>{spec.label}</label>
+                <Switch
+                  id={switchId}
+                  checked={Boolean(values[spec.key] ?? spec.defaultValue)}
+                  ariaLabel={spec.ariaLabel ?? spec.label}
+                  onChange={(next) => onUpdateParam(spec.key, next)}
+                />
+              </span>
+            );
+          })}
         </div>
       )}
     </div>
@@ -493,6 +498,8 @@ export function CreativeStudioCard({
   onUpdateEffects,
   onResetEffects,
 }: CreativeStudioCardProps) {
+  const reactiveId = useId();
+  const pauseMotionId = useId();
   const { displayEffects, handleInput, onDragStart, commitDraft } = useEffectSliderDraft(
     effects,
     onPreviewEffects,
@@ -637,16 +644,18 @@ export function CreativeStudioCard({
             </div>
             <div className="theme-tuner-switches">
               <span className="theme-inline-toggle">
-                <span>Pointer reactive</span>
+                <label htmlFor={reactiveId}>Pointer reactive</label>
                 <Switch
+                  id={reactiveId}
                   checked={effects.interactive}
                   ariaLabel="Pointer reactive background"
                   onChange={(next) => onUpdateEffects({ interactive: next })}
                 />
               </span>
               <span className="theme-inline-toggle">
-                <span>Pause motion</span>
+                <label htmlFor={pauseMotionId}>Pause motion</label>
                 <Switch
+                  id={pauseMotionId}
                   checked={effects.paused}
                   ariaLabel="Pause background motion"
                   onChange={(next) => onUpdateEffects({ paused: next })}

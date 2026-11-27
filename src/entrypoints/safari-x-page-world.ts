@@ -1,4 +1,5 @@
 import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
+import { readSiteEnabledHint } from '../core/site-hint';
 import { isExcludedUrl } from '../core/urls';
 import { startXPageWorld } from '../sites/x/page-world';
 import { X_EXCLUDE_MATCHES } from '../sites/x/urls';
@@ -11,6 +12,6 @@ export default defineUnlistedScript({
     if (isExcludedUrl(location.href, X_EXCLUDE_MATCHES)) {
       return;
     }
-    startXPageWorld();
+    startXPageWorld(globalThis, { startActive: readSiteEnabledHint('x', true) });
   },
 });

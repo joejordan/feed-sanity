@@ -191,5 +191,14 @@ describe('createSetHomeFeedAction', () => {
       feedStyle: 17,
       sk: 'h_chr',
     });
+
+    // Disposing restores the original method cleanly.
+    const original = varsExports.getCometFeedVariablesForSk;
+    action.dispose();
+    expect(varsExports.getCometFeedVariablesForSk).not.toBe(original);
+    expect(varsExports.getCometFeedVariablesForSk(5, 'h_nor')).toEqual({
+      feedStyle: 5,
+      sk: 'h_nor',
+    });
   });
 });

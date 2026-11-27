@@ -671,7 +671,9 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await expect(dialog).toBeVisible();
 
       await dialog.getByRole('button', { name: /^Filtering/ }).click();
-      await expect(dialog.getByText('Redact secret phrase')).toBeVisible();
+      await expect(
+        dialog.getByRole('button', { name: 'Redact secret phrase', exact: true }),
+      ).toBeVisible();
       await expect(dialog.getByText('1 matched')).toBeVisible();
 
       await dialog.getByRole('button', { name: 'Backup & Reset' }).click();

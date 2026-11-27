@@ -611,4 +611,123 @@ describe('QuickPopup', () => {
     });
     await vi.waitFor(() => expect(grokToggle.checked).toBe(false));
   });
+
+  it('appends Quick Mute filters after allowlists, normalizes Instagram @account, and hides X Video Speed when disabled', async () => {
+    const allowlist = {
+      title: 'Keep friend',
+      enabled: true,
+      stop_on_match: true,
+      match: 'ANY',
+      rules: [
+        { target: 'author', operator: 'contains', matcher: 'str', condition: { text: 'alice' } },
+      ],
+      actions: [{ action: 'unhide' }],
+    };
+    const igStore = inMemoryStore({
+      'instagram/1/filters': [allowlist],
+    });
+    render(
+      <QuickPopup
+        store={igStore}
+        activeTab={{
+          siteId: 'instagram',
+          displayName: 'Instagram',
+          storagePrefix: 'instagram/1',
+          enabled: true,
+          hiddenCount: 0,
+        }}
+        onOpenSettings={vi.fn()}
+        onOpenSiteUrl={vi.fn()}
+      />,
+    );
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Quick mute keyword' }), '@spammer');
+    await userEvent.click(screen.getByRole('button', { name: 'Hide' }));
+    await vi.waitFor(async () => {
+      const filters = readFilters(await igStore.get('instagram/1/filters'));
+      expect(filters).toHaveLength(2);
+      expect(filters[0]?.title).toBe('Keep friend');
+      expect(filters[1]?.rules?.[0]?.target).toBe('author');
+      expect(filters[1]?.rules?.[0]?.condition?.text).toBe('spammer');
+    });
+
+    cleanup();
+
+    // X Video Speed stepper stays hidden when `x_video_speed` is disabled.
+    const xStore = inMemoryStore({
+      'x/123/options': { x_video_speed: false },
+    });
+    renderXPopup(xStore);
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('group', { name: 'Video playback speed' })).toBeNull(),
+    );
+
+    cleanup();
+
+    // Reddit Quick Mute extracts bare hostname for full URLs routed to `domain`.
+    const redditStore = inMemoryStore();
+    render(
+      <QuickPopup
+        store={redditStore}
+        activeTab={{
+          siteId: 'reddit',
+          displayName: 'Reddit',
+          storagePrefix: 'reddit/1',
+          enabled: true,
+          hiddenCount: 0,
+        }}
+        onOpenSettings={vi.fn()}
+        onOpenSiteUrl={vi.fn()}
+      />,
+    );
+    await userEvent.type(
+      screen.getByRole('textbox', { name: 'Quick mute keyword' }),
+      'https://www.youtube.com/watch?v=123',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Hide' }));
+    await vi.waitFor(async () => {
+      const filters = readFilters(await redditStore.get('reddit/1/filters'));
+      expect(filters[0]?.rules?.[0]?.target).toBe('domain');
+      expect(filters[0]?.rules?.[0]?.condition?.text).toBe('youtube.com');
+    });
+  });
+
+  it('shows permission recovery card for unattached supported tabs and lets users reveal beta sites', async () => {
+    const store = inMemoryStore();
+    const onRequestAccess = vi.fn(() => Promise.resolve(true));
+    const onRetryConnect = vi.fn();
+    const onReloadTab = vi.fn();
+
+    render(
+      <QuickPopup
+        store={store}
+        activeTab={null}
+        unattachedTab={{
+          siteId: 'facebook',
+          displayName: 'Facebook',
+          origins: ['*://*.facebook.com/*'],
+        }}
+        onRequestAccess={onRequestAccess}
+        onRetryConnect={onRetryConnect}
+        onReloadTab={onReloadTab}
+        onOpenSettings={vi.fn()}
+        onOpenSiteUrl={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Permission needed on Facebook')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Grant access' }));
+    expect(onRequestAccess).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetryConnect).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Reload tab' }));
+    expect(onReloadTab).toHaveBeenCalledTimes(1);
+
+    // Experimental sites are hidden until the user clicks "Show beta".
+    expect(screen.queryByText('Instagram')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Show beta' }));
+    expect(screen.getByText('Instagram')).toBeTruthy();
+    expect(screen.getByText('Reddit')).toBeTruthy();
+    expect(screen.getByText('Gmail')).toBeTruthy();
+  });
 });

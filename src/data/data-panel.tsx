@@ -2,10 +2,12 @@ import { useCallback, useId, useRef, useState, useSyncExternalStore } from 'reac
 import type { LocatorOverrides } from '../core/locator';
 import type { Options } from '../core/options';
 import type { SavedData, SavedValue } from '../core/saved';
+import type { SiteSettingsClient } from '../core/site-settings';
+import type { ThemeLibraryClient } from '../core/theming';
 import type { PostReadData } from '../facebook/post-read';
 import type { SavedVideoSpeed } from '../sites/x/features/video-speed-model';
 import type { OptionsPanel } from '../ui/options-dialog/panel';
-import type { DataStores } from './transfer';
+import type { DataStores, ParsedBackup } from './transfer';
 import { NAME } from '../../project';
 import { savedFilters } from '../core/filter-types';
 import { readThemeDocument, THEME_DATA_KEY } from '../ui/appearance';
@@ -52,8 +54,18 @@ export function DataPanel({
   const [importText, setImportText] = useState('');
   const [status, setStatus] = useState<Status | null>(null);
   const [exportedText, setExportedText] = useState<string | null>(null);
+  const [pendingCrossSite, setPendingCrossSite] = useState<{
+    readonly parsed: Extract<ParsedBackup, { ok: true }>;
+    readonly fromSite: string;
+  } | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [busy, setBusy] = useState(false);
+  const isFacebook = stores.siteId === 'facebook';
+  const hasGlobalStores = Boolean(stores.themeLibrary || stores.siteSettings);
+  const sitePossessive = siteName ? `${siteName}'s` : "this site's";
+  const exportDescription = hasGlobalStores
+    ? `Save ${sitePossessive} ${NAME} options, filters, theme, custom selectors, My Themes library, and site toggles as a JSON file.`
+    : `Save ${sitePossessive} ${NAME} options, filters, theme, and custom selectors as a JSON file.`;
   const reportStatus = (text: string, error = false): void => {
     if (!error && notify) {
       setStatus(null);
@@ -102,18 +114,11 @@ export function DataPanel({
     reportStatus('Settings backup downloaded.');
   };
 
-  const onImport = async (raw = importText) => {
-    if (busy) {
-      return;
-    }
-    const parsed = parseBackup(raw, stores.options.list());
-    if (!parsed.ok) {
-      reportStatus(parsed.error, true);
-      return;
-    }
+  const applyParsedImport = async (parsed: Extract<ParsedBackup, { ok: true }>) => {
     setBusy(true);
     try {
       const summary = await applyBackup(parsed, stores);
+      setPendingCrossSite(null);
       setImportText('');
       reportStatus(summary);
     } catch {
@@ -123,27 +128,43 @@ export function DataPanel({
     }
   };
 
+  const handleParsedBackup = async (parsed: ParsedBackup) => {
+    if (!parsed.ok) {
+      setPendingCrossSite(null);
+      reportStatus(parsed.error, true);
+      return;
+    }
+    if (parsed.site && stores.siteId && parsed.site !== stores.siteId) {
+      setPendingCrossSite({ parsed, fromSite: parsed.site });
+      setStatus(null);
+      return;
+    }
+    await applyParsedImport(parsed);
+  };
+
+  const onImport = async (raw = importText) => {
+    if (busy) {
+      return;
+    }
+    await handleParsedBackup(parseBackup(raw, stores.options.list()));
+  };
+
   const onFilePicked = async (file: File | undefined) => {
     if (!file || busy) {
       return;
     }
     setBusy(true);
+    let text: string;
     try {
-      const text = await file.text();
-      setImportText(text);
-      const parsed = parseBackup(text, stores.options.list());
-      if (!parsed.ok) {
-        reportStatus(parsed.error, true);
-        return;
-      }
-      const summary = await applyBackup(parsed, stores);
-      setImportText('');
-      reportStatus(summary);
+      text = await file.text();
     } catch {
-      reportStatus('Could not read or save that file.', true);
-    } finally {
       setBusy(false);
+      reportStatus('Could not read or save that file.', true);
+      return;
     }
+    setBusy(false);
+    setImportText(text);
+    await handleParsedBackup(parseBackup(text, stores.options.list()));
   };
 
   const onConfirmReset = async () => {
@@ -169,9 +190,7 @@ export function DataPanel({
 
       <SettingCard title="Export">
         <div className="data-card-body">
-          <p className="description">
-            Save this site's {NAME} options, filters, theme, and custom selectors as a JSON file.
-          </p>
+          <p className="description">{exportDescription}</p>
           <div className="data-actions">
             <button
               className="button primary"
@@ -205,8 +224,9 @@ export function DataPanel({
       <SettingCard title="Import">
         <div className="data-card-body">
           <p className="description" id={`${importId}-desc`}>
-            Load a saved {NAME} JSON backup. Changes apply right away with no reload, and unknown
-            keys are skipped.
+            {isFacebook
+              ? `Load a saved ${NAME} JSON backup. Changes apply right away with no reload, and unknown keys are skipped.`
+              : `Load a saved ${NAME} JSON backup. Changes apply right away with no reload, and unrecognised keys are skipped.`}
           </p>
           <input
             ref={fileInput}
@@ -228,8 +248,40 @@ export function DataPanel({
             placeholder='{"options": {...}, "filters": [...]}'
             spellCheck={false}
             value={importText}
-            onChange={(event) => setImportText(event.target.value)}
+            onChange={(event) => {
+              setImportText(event.target.value);
+              if (pendingCrossSite) {
+                setPendingCrossSite(null);
+              }
+            }}
           />
+          {pendingCrossSite && (
+            <div className="data-confirm-banner" role="alert">
+              <p>
+                This backup was exported from <strong>{pendingCrossSite.fromSite}</strong>, not{' '}
+                <strong>{siteName ?? stores.siteId}</strong>. Importing will overwrite current
+                filters and matching settings.
+              </p>
+              <div className="data-actions">
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void applyParsedImport(pendingCrossSite.parsed)}
+                >
+                  Import anyway
+                </button>
+                <button
+                  className="button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setPendingCrossSite(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           <div className="data-actions">
             <button
               className="button primary"
@@ -306,7 +358,7 @@ export function DataPanel({
                 disabled={busy}
                 onClick={() => setConfirmingReset(true)}
               >
-                Reset all settings
+                {siteName ? `Reset ${siteName} settings` : 'Reset all settings'}
               </button>
             )}
           </div>
@@ -322,6 +374,7 @@ export function dataPanel(
   options: { readonly siteName?: string } = {},
 ): OptionsPanel {
   const scopeLabel = options.siteName ? `${options.siteName} ` : '';
+  const isFacebook = stores.siteId === 'facebook';
   return definePanel<null>({
     section: 'Backup & Reset',
     css,
@@ -331,6 +384,8 @@ export function dataPanel(
       stores.filters.ready,
       stores.locators.ready,
       stores.theme?.ready ?? Promise.resolve(),
+      stores.themeLibrary?.ready ?? Promise.resolve(),
+      stores.siteSettings?.ready ?? Promise.resolve(),
       stores.read_history?.ready ?? Promise.resolve(),
       stores.videoSpeed?.ready ?? Promise.resolve(),
     ]).then(() => undefined),
@@ -345,9 +400,15 @@ export function dataPanel(
       },
       {
         id: 'import-json',
-        title: `Import ${scopeLabel}settings backup`,
-        description: 'Restore a Feed Sanity JSON backup.',
-        keywords: ['import', 'restore', 'json', 'data'],
+        title: isFacebook
+          ? `Import ${scopeLabel}settings backup`
+          : `Import ${scopeLabel}settings backup`,
+        description: isFacebook
+          ? 'Restore a Feed Sanity JSON backup.'
+          : 'Restore a Feed Sanity JSON backup.',
+        keywords: isFacebook
+          ? ['import', 'restore', 'json', 'data']
+          : ['import', 'restore', 'json', 'data'],
       },
       {
         id: 'reset-site',
@@ -373,6 +434,8 @@ export function siteDataPanel({
   options,
   data,
   locators,
+  themeLibrary,
+  siteSettings,
   read_history,
   videoSpeed,
 }: {
@@ -381,6 +444,8 @@ export function siteDataPanel({
   readonly options: Options;
   readonly data: SavedData;
   readonly locators: SavedValue<LocatorOverrides>;
+  readonly themeLibrary?: ThemeLibraryClient | undefined;
+  readonly siteSettings?: SiteSettingsClient | undefined;
   readonly read_history?: SavedValue<PostReadData> | undefined;
   readonly videoSpeed?: SavedValue<SavedVideoSpeed> | undefined;
 }): OptionsPanel {
@@ -391,6 +456,8 @@ export function siteDataPanel({
       filters: savedFilters(data),
       locators,
       theme: data.value(THEME_DATA_KEY, readThemeDocument),
+      ...(themeLibrary ? { themeLibrary } : {}),
+      ...(siteSettings ? { siteSettings } : {}),
       ...(read_history ? { read_history } : {}),
       ...(videoSpeed ? { videoSpeed } : {}),
     },

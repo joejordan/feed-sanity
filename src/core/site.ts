@@ -2,6 +2,7 @@ import type { OptionsPanel } from '../ui/options-dialog/panel';
 import type { DomEnvironment } from './dom-env';
 import type { Feature, PageFactory } from './feature';
 import type { Badge, Platform } from './platform';
+import type { SiteSettingsClient } from './site-settings';
 import type { SiteThemeMapping, ThemeDocumentV1, ThemeLibraryClient } from './theming';
 import { initSiteTheme, THEME_DATA_KEY } from '../ui/appearance';
 import { setSiteThemeCss } from '../ui/mount';
@@ -118,6 +119,8 @@ export interface SiteAdapter<P = unknown, F extends PageFactory<P> = PageFactory
     page: F;
     runner: FeatureRunner<P>;
     platform: Platform;
+    siteSettings?: SiteSettingsClient;
+    themeLibrary?: ThemeLibraryClient;
   }) => OptionsPanel[];
 }
 
@@ -253,6 +256,7 @@ export async function startSite<P, F extends PageFactory<P>>(
 
   interface SiteRuntime {
     readonly env: DomEnvironment;
+    readonly page: F;
     readonly options: Options;
     readonly data: SavedData;
     readonly runner: FeatureRunner<P>;
@@ -375,6 +379,7 @@ export async function startSite<P, F extends PageFactory<P>>(
     const data = new SavedData(bootStore, bootPrefix);
     const env = createDomEnvironment({
       log: createLogger(`${site.id}-dom`),
+      active,
       ...site.envOptions,
     });
     const library = ensureThemeLibrary();
@@ -397,13 +402,22 @@ export async function startSite<P, F extends PageFactory<P>>(
       if (cachedPanels) {
         return cachedPanels;
       }
-      const sitePanels = site.createPanels({ options, data, page, runner, platform });
+      const settings = ensureSiteSettings();
+      const sitePanels = site.createPanels({
+        options,
+        data,
+        page,
+        runner,
+        platform,
+        siteSettings: settings,
+        ...(library ? { themeLibrary: library } : {}),
+      });
       const diagIndex = sitePanels.findIndex((panel) => panel.section === 'Diagnostics');
       const insertAt = diagIndex === -1 ? sitePanels.length : diagIndex;
       cachedPanels = [
         ...(theme ? [theme.panel] : []),
         ...sitePanels.slice(0, insertAt),
-        sitesPanel(ensureSiteSettings(), site.id),
+        sitesPanel(settings, site.id),
         ...sitePanels.slice(insertAt),
       ];
       return cachedPanels;
@@ -414,7 +428,7 @@ export async function startSite<P, F extends PageFactory<P>>(
         emitBadge(badge);
       }
     });
-    runtime = { env, options, data, runner, theme, ensurePanels };
+    runtime = { env, page, options, data, runner, theme, ensurePanels };
     return runtime;
   };
 
@@ -528,7 +542,18 @@ export async function startSite<P, F extends PageFactory<P>>(
     return [];
   }
   const initialEnabled = resolvedSiteSettings.isEnabled(site.id);
+  let disarmBridge: PageBridge | undefined;
+  const cancelDisarm = (): void => {
+    if (disarmBridge) {
+      const activeDisarm = disarmBridge;
+      disarmBridge = undefined;
+      activeDisarm.dispose({ keepRemoteAlive: true });
+    }
+  };
+  registerCleanup(cancelDisarm);
+
   if (!initialEnabled) {
+    writeSiteEnabledHint(site.id, false);
     // Discard unconsumed preloaded keys so re-enabling or opening Options later
     // reads fresh values instead of stale T=0 startup snapshots.
     preloadedStore?.clear();
@@ -536,13 +561,19 @@ export async function startSite<P, F extends PageFactory<P>>(
       // A stale or spoofed per-origin `localStorage` hint may have booted MAIN-world
       // hooks at `document_start`; deactivate them without spinning up `DomEnvironment`.
       const toggleName = site.pageWorldActiveToggle;
-      const disarmBridge = new PageBridge(() => Promise.resolve(), {
+      const pendingDisarm = new PageBridge(() => Promise.resolve(), {
         log: createLogger(`${site.id}-disarm`),
       });
-      void disarmBridge
+      disarmBridge = pendingDisarm;
+      void pendingDisarm
         .set(toggleName, false)
         .catch(() => undefined)
-        .finally(() => disarmBridge.dispose());
+        .finally(() => {
+          if (disarmBridge === pendingDisarm) {
+            disarmBridge = undefined;
+          }
+          pendingDisarm.dispose({ keepRemoteAlive: true });
+        });
     }
     if (site.themeMapping) {
       writeEarlyThemeCss(bootPrefix, '');
@@ -555,6 +586,8 @@ export async function startSite<P, F extends PageFactory<P>>(
     if (runtime) {
       runtime.runner.stop();
       runtime.theme?.setActive(false);
+      runtime.page.setActive?.(false);
+      runtime.env.setActive(false);
     }
     emitBadge(PAUSED_BADGE);
   };
@@ -564,17 +597,22 @@ export async function startSite<P, F extends PageFactory<P>>(
       return [];
     }
     const want = resolvedSiteSettings.isEnabled(site.id);
-    writeSiteEnabledHint(site.id, want);
     if (want === active) {
+      writeSiteEnabledHint(site.id, want);
       return [];
     }
     const token = ++generation;
     active = want;
     if (!want) {
+      writeSiteEnabledHint(site.id, false);
       deactivate();
       return [];
     }
+    cancelDisarm();
     const current = ensureRuntime();
+    writeSiteEnabledHint(site.id, true);
+    current.env.setActive(true);
+    current.page.setActive?.(true);
     current.theme?.setActive(true);
     const failed = await current.runner.start();
     if (disposed) {

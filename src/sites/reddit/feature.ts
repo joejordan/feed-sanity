@@ -94,17 +94,17 @@ export function createRedditPage(
   );
 
   const subscribeBridgeEvents = (): void => {
+    // Catch up once on any ShadowRoots attached during the passive cold-start window
+    // whenever `reddit-active` transitions from inactive to active.
+    void activeToggle.activate().then((transitioned) => {
+      if (transitioned && !env.scope.disposed) {
+        env.scanShadowRoots();
+      }
+    });
     if (bridgeSubscribed) {
       return;
     }
     bridgeSubscribed = true;
-    // Catch up once on any ShadowRoots attached during the passive cold-start window
-    // before `reddit-active` patched `Element.prototype.attachShadow`.
-    void activeToggle.activate().then(() => {
-      if (!env.scope.disposed) {
-        env.scanShadowRoots();
-      }
-    });
     env.scope.add(
       bridge.on('reddit:runtime-stats', (payload) => {
         if (
@@ -134,10 +134,6 @@ export function createRedditPage(
   const locate: Locate = (spec) => locators.locate(spec);
   const feed = new RedditFeed(env, locate, bridge, subscribeBridgeEvents);
   const videos = new RedditVideos(env, locate);
-
-  // Activate Reddit's MAIN-world shadow hook as soon as the site runtime boots
-  // (even when only Appearance theming is used without feed filter features).
-  subscribeBridgeEvents();
 
   const factory: PageFactory<RedditPage> = (binder: Binder) => {
     activeToggle.bind(binder);
@@ -170,6 +166,14 @@ export function createRedditPage(
   };
 
   return Object.assign(factory, {
+    setActive(active: boolean) {
+      activeToggle.setPinned(active);
+      if (active) {
+        subscribeBridgeEvents();
+      } else {
+        void activeToggle.deactivate();
+      }
+    },
     stats: {
       locators,
       feed,

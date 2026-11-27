@@ -151,8 +151,20 @@ export function servePageWorld(
   let pushType: string | undefined;
   const bufferedEvents: Array<{ topic: string; payload: unknown }> = [];
   const cleanups: Array<() => void> = [];
+  const channelCleanups: Array<() => void> = [];
   const disposeCallbacks: Array<() => void> = [];
   const enabledToggles = new Set<string>();
+
+  const detachChannel = (): void => {
+    pushType = undefined;
+    for (const cleanup of channelCleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        // Ignore teardown errors.
+      }
+    }
+  };
 
   const dispatchPush = (type: string, topic: string, payload: unknown): void => {
     if (disposed) {
@@ -170,7 +182,7 @@ export function servePageWorld(
       return;
     }
     disposed = true;
-    pushType = undefined;
+    detachChannel();
     bufferedEvents.length = 0;
     for (const cleanup of cleanups.splice(0)) {
       try {
@@ -247,6 +259,10 @@ export function servePageWorld(
 
     const answer = answerEvent(channel);
     const resolvedPushType = pushEvent(channel);
+    let channelActive = true;
+    channelCleanups.push(() => {
+      channelActive = false;
+    });
     let nextMountId = 1;
     const activeMounts = new Map<
       number,
@@ -308,7 +324,7 @@ export function servePageWorld(
       return true;
     };
 
-    cleanups.push(() => {
+    channelCleanups.push(() => {
       if (disconnectTimer !== undefined) {
         clearTimeout(disconnectTimer);
         disconnectTimer = undefined;
@@ -324,7 +340,7 @@ export function servePageWorld(
     });
 
     const scheduleDisconnectCheck = (records: readonly MutationRecord[]): void => {
-      if (disposed || !records.some((record) => record.removedNodes.length > 0)) {
+      if (!channelActive || !records.some((record) => record.removedNodes.length > 0)) {
         return;
       }
       // Defer past microtasks so content-script `mountSlot` re-attachment
@@ -334,7 +350,7 @@ export function servePageWorld(
       }
       disconnectTimer = setTimeout(() => {
         disconnectTimer = undefined;
-        if (disposed) {
+        if (!channelActive) {
           return;
         }
         for (const [id, { target }] of activeMounts) {
@@ -374,7 +390,7 @@ export function servePageWorld(
       handle: (target: Element, id: number, message: Record<string, unknown>) => void,
     ): void => {
       const listener = (request: Event): void => {
-        if (disposed) {
+        if (!channelActive) {
           return;
         }
         let target = request.target;
@@ -392,7 +408,7 @@ export function servePageWorld(
         handle(target, message.id, message);
       };
       document.addEventListener(type, listener, true);
-      cleanups.push(() => document.removeEventListener(type, listener, true));
+      channelCleanups.push(() => document.removeEventListener(type, listener, true));
     };
 
     const onDocument = (
@@ -400,7 +416,7 @@ export function servePageWorld(
       handle: (id: number, message: Record<string, unknown>) => void,
     ): void => {
       const listener = (request: Event): void => {
-        if (disposed) {
+        if (!channelActive) {
           return;
         }
         const message = readMessage(request);
@@ -410,7 +426,7 @@ export function servePageWorld(
         handle(message.id, message);
       };
       document.addEventListener(type, listener, true);
-      cleanups.push(() => document.removeEventListener(type, listener, true));
+      channelCleanups.push(() => document.removeEventListener(type, listener, true));
     };
 
     onElement(askEvent(channel), (target, id, message) => {
@@ -477,7 +493,7 @@ export function servePageWorld(
           if (typeof unmount !== 'function') {
             return JSON.stringify({ id, value: null });
           }
-          if (disposed || !target.isConnected) {
+          if (!channelActive || !target.isConnected) {
             try {
               (unmount as () => void)();
             } catch {
@@ -498,12 +514,20 @@ export function servePageWorld(
       document.dispatchEvent(messageEvent(answer, { id, value: removed }));
     });
 
-    const onDisconnect = (): void => {
+    const onDisconnect = (disconnectEvt: Event): void => {
+      if (readMessage(disconnectEvt)?.keepAlive === true) {
+        detachChannel();
+        if (!disposed) {
+          document.addEventListener(CONNECT_EVENT, connect, true);
+          document.dispatchEvent(new CustomEvent(READY_EVENT));
+        }
+        return;
+      }
       dispose();
     };
     const disconnectType = disconnectEvent(channel);
     document.addEventListener(disconnectType, onDisconnect, true);
-    cleanups.push(() => document.removeEventListener(disconnectType, onDisconnect, true));
+    channelCleanups.push(() => document.removeEventListener(disconnectType, onDisconnect, true));
 
     const toggleNames = Object.keys(toggles);
     const actionNames = Object.keys(actions);
@@ -521,7 +545,7 @@ export function servePageWorld(
     // keeping `pushType` unset until drained so strict FIFO order is preserved.
     if (bufferedEvents.length > 0) {
       queueMicrotask(() => {
-        if (disposed) {
+        if (!channelActive) {
           return;
         }
         while (bufferedEvents.length > 0) {

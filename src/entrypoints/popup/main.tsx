@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { browser } from 'wxt/browser';
 import type { PopupTabState } from '../../core/platform';
 import type { ThemeDocumentV1 } from '../../core/theming/document';
+import type { UnattachedSupportedTab } from '../../ui/popup/quick-popup';
 import { compileUiThemeCss } from '../../core/theming/compile-ui';
 import { resolveTheme } from '../../core/theming/config';
+import { matchAttachableSite } from '../../platform/auto-attach';
 import { extensionStore } from '../../platform/extension-store';
 import {
   attachTabMessage,
@@ -15,6 +17,7 @@ import {
   THEME_PREVIEW_PORT,
   themePreviewMessage,
 } from '../../platform/messages';
+import { SITE_MANIFEST } from '../../sites/manifest';
 import { QuickPopup } from '../../ui/popup/quick-popup';
 import quickPopupCss from '../../ui/popup/quick-popup.css?inline';
 import { BrandMark, BrandWordmark, primitivesCss } from '../../ui/primitives';
@@ -101,6 +104,15 @@ interface ActiveTabInfo {
   readonly state: PopupTabState;
 }
 
+interface UnattachedTabInfo extends UnattachedSupportedTab {
+  readonly tabId: number;
+}
+
+type TabConnectionResult =
+  | { readonly kind: 'active'; readonly active: ActiveTabInfo }
+  | { readonly kind: 'unattached'; readonly unattached: UnattachedTabInfo }
+  | { readonly kind: 'unsupported' };
+
 /** Upper bound on waiting for the active tab's content script before falling back to the launcher. */
 const POPUP_STATE_TIMEOUT_MS = 1200;
 
@@ -128,15 +140,17 @@ function compilePopupUiTheme(doc: ThemeDocumentV1 | null): string {
 function PopupApp() {
   const [loaded, setLoaded] = useState(false);
   const [active, setActive] = useState<ActiveTabInfo | null>(null);
+  const [unattached, setUnattached] = useState<UnattachedTabInfo | null>(null);
+  const connectSeqRef = useRef(0);
   const savedThemeCssRef = useRef('');
   const previewingRef = useRef(false);
   const previewPortRef = useRef<ReturnType<typeof browser.tabs.connect> | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    void browser.tabs
+  const connectActiveTab = useCallback((): Promise<boolean> => {
+    const seq = ++connectSeqRef.current;
+    return browser.tabs
       .query({ active: true, currentWindow: true })
-      .then(async (activeTabs) => {
+      .then(async (activeTabs): Promise<TabConnectionResult> => {
         const ownOrigin = browser.runtime.getURL('');
         let targetTab = activeTabs[0];
         // When `popup.html` is opened directly in a tab (e.g., dev inspection or E2E),
@@ -149,12 +163,12 @@ function PopupApp() {
         }
         const tabId = targetTab?.id;
         if (tabId === undefined) {
-          return null;
+          return { kind: 'unsupported' };
         }
         try {
           const response: unknown = await queryTabPopupState(tabId);
           if (isPopupTabState(response)) {
-            return { tabId, state: response };
+            return { kind: 'active', active: { tabId, state: response } };
           }
         } catch {
           // Content script may not be attached yet (e.g. tab predated install/reload
@@ -165,32 +179,54 @@ function PopupApp() {
           if (isAttachTabReply(attachReply) && attachReply.attached) {
             const retried: unknown = await queryTabPopupState(tabId);
             if (isPopupTabState(retried)) {
-              return { tabId, state: retried };
+              return { kind: 'active', active: { tabId, state: retried } };
             }
           }
         } catch {
           // Unsupported tab or background unavailable.
         }
-        return null;
+        const matched = matchAttachableSite(targetTab?.url);
+        if (matched) {
+          const entry = SITE_MANIFEST.find((site) => site.id === matched.siteId);
+          return {
+            kind: 'unattached',
+            unattached: {
+              tabId,
+              siteId: matched.siteId,
+              displayName: entry?.displayName ?? matched.siteId,
+              origins: matched.matches,
+            },
+          };
+        }
+        return { kind: 'unsupported' };
       })
-      .catch(() => null)
+      .catch((): TabConnectionResult => ({ kind: 'unsupported' }))
       .then((result) => {
-        if (!alive) {
-          return;
+        if (seq !== connectSeqRef.current) {
+          return false;
         }
-        setActive(result);
-        if (!result) {
-          savedThemeCssRef.current = '';
-          previewingRef.current = false;
-          injectStyle('fs-popup-user-theme', '');
+        if (result.kind === 'active') {
+          setActive(result.active);
+          setUnattached(null);
+          setLoaded(true);
+          return true;
         }
+        setActive(null);
+        setUnattached(result.kind === 'unattached' ? result.unattached : null);
+        savedThemeCssRef.current = '';
+        previewingRef.current = false;
+        injectStyle('fs-popup-user-theme', '');
         setLoaded(true);
+        return false;
       });
-
-    return () => {
-      alive = false;
-    };
   }, []);
+
+  useEffect(() => {
+    void connectActiveTab();
+    return () => {
+      connectSeqRef.current++;
+    };
+  }, [connectActiveTab]);
 
   useEffect(() => {
     const disconnectPreview = (): void => {
@@ -271,10 +307,40 @@ function PopupApp() {
     );
   }
 
+  const canRequestPermissions = typeof browser.permissions?.request === 'function';
+
   return (
     <QuickPopup
       store={extensionStore}
       activeTab={active?.state ?? null}
+      unattachedTab={unattached}
+      {...(unattached && canRequestPermissions
+        ? {
+            onRequestAccess: async () => {
+              try {
+                const granted = await browser.permissions.request({
+                  origins: [...unattached.origins],
+                });
+                if (!granted) {
+                  return false;
+                }
+                return await connectActiveTab();
+              } catch {
+                return false;
+              }
+            },
+          }
+        : {})}
+      {...(unattached
+        ? {
+            onRetryConnect: () => {
+              void connectActiveTab();
+            },
+            onReloadTab: () => {
+              void browser.tabs.reload(unattached.tabId).finally(() => window.close());
+            },
+          }
+        : {})}
       onThemeChange={handleThemeChange}
       {...(active ? { onPreviewTheme: handlePreviewTheme } : {})}
       onOpenSettings={(section) => {

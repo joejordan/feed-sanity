@@ -177,10 +177,14 @@ export function createBridgeActiveToggle(
   toggleName: string,
   initiallyActive = false,
 ): {
-  readonly activate: () => Promise<void>;
+  /** Activates the remote toggle if inactive. Resolves `true` when it transitioned from inactive to active. */
+  readonly activate: () => Promise<boolean>;
+  readonly deactivate: () => Promise<void>;
+  readonly setPinned: (pinned: boolean) => void;
   readonly bind: (binder: Binder) => void;
 } {
   let activated = false;
+  let pinned = false;
   let remoteActive = initiallyActive;
   let activeBindings = 0;
 
@@ -195,10 +199,20 @@ export function createBridgeActiveToggle(
   return {
     activate() {
       if (activated && remoteActive) {
-        return Promise.resolve();
+        return Promise.resolve(false);
       }
       activated = true;
-      return setRemote(true);
+      return setRemote(true).then(() => true);
+    },
+    deactivate() {
+      activated = false;
+      if (!remoteActive) {
+        return Promise.resolve();
+      }
+      return setRemote(false);
+    },
+    setPinned(nextPinned) {
+      pinned = nextPinned;
     },
     bind(binder) {
       if (activeBindings === 0 && activated && !remoteActive) {
@@ -207,7 +221,7 @@ export function createBridgeActiveToggle(
       activeBindings++;
       binder.scope.add(() => {
         activeBindings = Math.max(0, activeBindings - 1);
-        if (activeBindings === 0 && (activated || remoteActive)) {
+        if (activeBindings === 0 && !pinned && (activated || remoteActive)) {
           void setRemote(false);
         }
       });

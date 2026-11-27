@@ -29,7 +29,7 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
   scrubPii: scrub,
   createPage,
   features,
-  createPanels({ options, data, page, runner, platform }) {
+  createPanels({ options, data, page, runner, platform, siteSettings, themeLibrary }) {
     const { stats } = page;
     const overrides = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
@@ -40,6 +40,8 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
         options,
         data,
         locators: overrides,
+        siteSettings,
+        themeLibrary,
         read_history: savedPostData(data),
       }),
       diagnosticsPanel({

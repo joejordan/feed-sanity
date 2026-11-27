@@ -606,4 +606,24 @@ describe('PageBridge', () => {
     expect(received).toEqual([{ n: 1 }]);
     await expect(bridge.ask(video, 'ping')).rejects.toMatchObject({ failure: 'unavailable' });
   });
+
+  it('detaches cleanly with keepRemoteAlive without disposing servePageWorld so a new bridge can reconnect', async () => {
+    const toggleCalls: boolean[] = [];
+    const server = servePageWorld(
+      { ping: () => 'still-alive' },
+      { active: (enabled) => toggleCalls.push(enabled) },
+    );
+    try {
+      const disarmBridge = new PageBridge(() => Promise.resolve(), { log });
+      await disarmBridge.set('active', false);
+      disarmBridge.dispose({ keepRemoteAlive: true });
+
+      const mainBridge = make(() => Promise.resolve(), { log });
+      expect(await mainBridge.ask(video, 'ping')).toBe('still-alive');
+      await mainBridge.set('active', true);
+      expect(toggleCalls).toEqual([false, true]);
+    } finally {
+      server.dispose();
+    }
+  });
 });

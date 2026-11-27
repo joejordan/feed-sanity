@@ -105,4 +105,26 @@ describe('DataPanel', () => {
     expect(statuses).toHaveLength(1);
     expect(statuses[0]?.textContent).toContain('Imported 1 option.');
   });
+
+  it('requires confirmation before importing a backup exported from a different site and scopes the copy to the site', async () => {
+    const stores = { ...makeStores(), siteId: 'x' };
+    render(<DataPanel stores={stores} siteName="X (Twitter)" />);
+
+    // Non-Facebook sites label Reset with the site name.
+    expect(screen.getByRole('button', { name: 'Reset X (Twitter) settings' })).toBeTruthy();
+
+    const box = screen.getByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Settings JSON to import',
+    });
+    await userEvent.click(box);
+    await userEvent.paste('{"site":"facebook","options":{"hidden_keywords":"cross-site"}}');
+    await userEvent.click(screen.getByRole('button', { name: 'Import JSON' }));
+
+    // Does not overwrite before confirmation.
+    expect(stores.options.get('hidden_keywords')).toBe('');
+    expect(screen.getByRole('alert').textContent).toContain('exported from facebook');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Import anyway' }));
+    await vi.waitFor(() => expect(stores.options.get('hidden_keywords')).toBe('cross-site'));
+  });
 });

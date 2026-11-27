@@ -87,10 +87,24 @@ export function OptionRow({
     relatedTarget: EventTarget | null;
   }): void => {
     const related = event.relatedTarget as Node | null;
-    if (related && event.currentTarget.closest('.inline-editor')?.contains(related)) {
+    if (related && event.currentTarget.contains(related)) {
       return;
     }
     commitIfValid();
+  };
+
+  const handleDraftEscape = (event: {
+    key: string;
+    preventDefault: () => void;
+    stopPropagation: () => void;
+  }): boolean => {
+    if (event.key === 'Escape' && edit !== undefined) {
+      event.preventDefault();
+      event.stopPropagation();
+      onDraftEdit(optionKey, undefined);
+      return true;
+    }
+    return false;
   };
 
   let field: ReactNode;
@@ -123,7 +137,7 @@ export function OptionRow({
     );
   } else if (spec.multiline) {
     field = (
-      <div className="inline-editor stacked">
+      <div className="inline-editor stacked" onBlur={handleEditorBlur}>
         <textarea
           id={inputId}
           className="field"
@@ -133,7 +147,9 @@ export function OptionRow({
           aria-invalid={isInvalid || undefined}
           value={String(shown)}
           onChange={(event) => onDraftEdit(optionKey, toEdit(spec, event.currentTarget.value))}
-          onBlur={handleEditorBlur}
+          onKeyDown={(event) => {
+            handleDraftEscape(event);
+          }}
         />
         {isDirty && !dimmed && (
           <div className="inline-editor-actions">
@@ -159,7 +175,7 @@ export function OptionRow({
     );
   } else {
     field = (
-      <div className="inline-editor">
+      <div className="inline-editor" onBlur={handleEditorBlur}>
         <TextInput
           id={inputId}
           type={typeof spec.default === 'number' ? 'number' : 'text'}
@@ -168,8 +184,10 @@ export function OptionRow({
           ariaInvalid={isInvalid}
           value={String(shown)}
           onValueChange={(nextVal) => onDraftEdit(optionKey, toEdit(spec, nextVal))}
-          onBlur={handleEditorBlur}
           onKeyDown={(event) => {
+            if (handleDraftEscape(event)) {
+              return;
+            }
             if (event.key === 'Enter') {
               event.preventDefault();
               commitIfValid();

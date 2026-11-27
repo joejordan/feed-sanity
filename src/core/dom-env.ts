@@ -16,6 +16,8 @@ export interface DomEnvironmentOptions {
   readonly pierceShadow?: boolean;
   /** When true, discovers same-origin `<iframe>` documents and notifies `onIframe` listeners. */
   readonly includeIframes?: boolean;
+  /** Whether background shadow/iframe scanning starts active (default `true`). */
+  readonly active?: boolean;
   readonly log?: Logger;
 }
 
@@ -61,6 +63,8 @@ export interface DomEnvironment {
   /** Subscribes to same-origin `<iframe>` child environments (when `includeIframes` is enabled). */
   onIframe: (listener: (childEnv: DomEnvironment, frame: HTMLIFrameElement) => void) => () => void;
   onUrlChange: (listener: () => void) => () => void;
+  /** Pauses or resumes background shadow/iframe discovery without disposing listeners. */
+  setActive: (active: boolean) => void;
   dispose: () => void;
 }
 
@@ -92,10 +96,12 @@ export function createDomEnvironment({
   doc = document,
   pierceShadow = false,
   includeIframes = false,
+  active: initialActive = true,
   log = createLogger('dom-env'),
 }: DomEnvironmentOptions = {}): DomEnvironment {
   const envScope = new Scope(log);
   const watcher = doc === document ? pageWatcher : new PageWatcher(log, doc);
+  let active = initialActive;
 
   const shadowRoots = new Set<ShadowRoot>();
   const shadowScopes = new Map<ShadowRoot, Scope>();
@@ -114,7 +120,7 @@ export function createDomEnvironment({
   const iframeListeners = new Listeners<[DomEnvironment, HTMLIFrameElement]>(log);
 
   const armShadowRescan = (): void => {
-    if (!pierceShadow || envScope.disposed || shadowRescanTimer !== undefined) {
+    if (!pierceShadow || !active || envScope.disposed || shadowRescanTimer !== undefined) {
       return;
     }
     shadowRescanTimer = setTimeout(() => {
@@ -124,7 +130,7 @@ export function createDomEnvironment({
   };
 
   const flushShadowCandidates = (): void => {
-    if (!pierceShadow || envScope.disposed) {
+    if (!pierceShadow || !active || envScope.disposed) {
       return;
     }
     const now = Date.now();
@@ -153,10 +159,20 @@ export function createDomEnvironment({
     }
   };
 
+  const resetPendingShadowScan = (): void => {
+    if (shadowRescanTimer !== undefined) {
+      clearTimeout(shadowRescanTimer);
+      shadowRescanTimer = undefined;
+    }
+    urlScanPending = false;
+    pendingShadowCandidates.clear();
+  };
+
   let pruneQueued = false;
   const schedulePrune = (): void => {
     if (
       pruneQueued ||
+      !active ||
       envScope.disposed ||
       (shadowRoots.size === 0 && iframeLoadRemovers.size === 0)
     ) {
@@ -165,12 +181,15 @@ export function createDomEnvironment({
     pruneQueued = true;
     queueMicrotask(() => {
       pruneQueued = false;
-      if (!envScope.disposed) {
+      if (active && !envScope.disposed) {
         pruneDisconnected();
       }
     });
   };
   const onRemovedForPrune = (el: Element): void => {
+    if (!active) {
+      return;
+    }
     if (
       el.childElementCount > 0 ||
       el.shadowRoot ||
@@ -181,7 +200,7 @@ export function createDomEnvironment({
   };
 
   const attachShadow = (root: ShadowRoot): void => {
-    if (shadowRoots.has(root) || envScope.disposed) {
+    if (!active || shadowRoots.has(root) || envScope.disposed) {
       return;
     }
     const rootScope = envScope.child();
@@ -205,7 +224,7 @@ export function createDomEnvironment({
   };
 
   const scanShadowSubtree = (root: ParentNode, collectCandidates = false): void => {
-    if (!pierceShadow || envScope.disposed) {
+    if (!pierceShadow || !active || envScope.disposed) {
       return;
     }
     if (root.nodeType === Node.ELEMENT_NODE && isOwnUiElement(root as Element)) {
@@ -282,6 +301,7 @@ export function createDomEnvironment({
       doc: childDoc,
       pierceShadow,
       includeIframes: false,
+      active,
       log,
     });
     iframeEnvs.set(frame, childEnv);
@@ -289,12 +309,12 @@ export function createDomEnvironment({
   };
 
   const attachIframe = (frame: HTMLIFrameElement): void => {
-    if (!includeIframes || envScope.disposed) {
+    if (!includeIframes || !active || envScope.disposed) {
       return;
     }
     if (!iframeLoadRemovers.has(frame)) {
       const onLoad = (): void => {
-        if (frame.isConnected && !envScope.disposed) {
+        if (active && frame.isConnected && !envScope.disposed) {
           mountIframeEnv(frame, true);
         }
       };
@@ -330,22 +350,22 @@ export function createDomEnvironment({
   };
 
   if (pierceShadow) {
-    scanShadowSubtree(doc, true);
+    if (active) {
+      scanShadowSubtree(doc, true);
+    }
     const onDirectShadowAttached = (event: Event): void => {
+      if (!active || envScope.disposed) {
+        return;
+      }
       if (!directShadowHookActive) {
         directShadowHookActive = true;
-        urlScanPending = false;
-        if (shadowRescanTimer !== undefined) {
-          clearTimeout(shadowRescanTimer);
-          shadowRescanTimer = undefined;
-        }
         // Flush any candidates that already attached a ShadowRoot during boot before the hook activated.
         for (const candidate of pendingShadowCandidates.keys()) {
           if (candidate.isConnected && candidate.shadowRoot) {
             attachShadow(candidate.shadowRoot);
           }
         }
-        pendingShadowCandidates.clear();
+        resetPendingShadowScan();
       }
       const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
       // Discover any enclosing ShadowRoots along the composed path that attached before the hook was active.
@@ -366,14 +386,14 @@ export function createDomEnvironment({
     );
     envScope.add(
       watcher.onUrlChange(() => {
-        if (!directShadowHookActive) {
+        if (active && !directShadowHookActive) {
           urlScanPending = true;
           armShadowRescan();
         }
       }),
     );
   }
-  if (includeIframes) {
+  if (includeIframes && active) {
     for (const frame of doc.querySelectorAll('iframe')) {
       attachIframe(frame);
     }
@@ -382,6 +402,9 @@ export function createDomEnvironment({
     envScope.add(
       watcher.watchTree({
         added: (el) => {
+          if (!active) {
+            return;
+          }
           if (pierceShadow) {
             scanShadowSubtree(el, true);
           }
@@ -401,12 +424,7 @@ export function createDomEnvironment({
   }
 
   envScope.add(() => {
-    if (shadowRescanTimer !== undefined) {
-      clearTimeout(shadowRescanTimer);
-      shadowRescanTimer = undefined;
-    }
-    urlScanPending = false;
-    pendingShadowCandidates.clear();
+    resetPendingShadowScan();
     for (const removeLoad of iframeLoadRemovers.values()) {
       removeLoad();
     }
@@ -534,6 +552,21 @@ export function createDomEnvironment({
     );
   };
 
+  const scanAllShadowRoots = (collectCandidates: boolean): void => {
+    if (!pierceShadow || !active || envScope.disposed) {
+      return;
+    }
+    // Snapshot existing roots first so newly attached roots discovered during
+    // `scanShadowSubtree(doc, ...)` are not scanned a second time.
+    const existingRoots = [...shadowRoots];
+    scanShadowSubtree(doc, collectCandidates);
+    for (const root of existingRoots) {
+      if (root.host.isConnected) {
+        scanShadowSubtree(root, collectCandidates);
+      }
+    }
+  };
+
   return {
     doc,
     scope: envScope,
@@ -558,20 +591,7 @@ export function createDomEnvironment({
     watch,
     onShadowRoot,
     shadowWatcherOf: (root) => shadowWatchers.get(root),
-    scanShadowRoots() {
-      if (!pierceShadow || envScope.disposed) {
-        return;
-      }
-      // Snapshot existing roots first so newly attached roots discovered during
-      // `scanShadowSubtree(doc, false)` are not scanned a second time.
-      const existingRoots = [...shadowRoots];
-      scanShadowSubtree(doc, false);
-      for (const root of existingRoots) {
-        if (root.host.isConnected) {
-          scanShadowSubtree(root, false);
-        }
-      }
-    },
+    scanShadowRoots: () => scanAllShadowRoots(false),
     onIframe(listener) {
       const remove = iframeListeners.add(listener);
       for (const [frame, childEnv] of iframeEnvs) {
@@ -580,6 +600,29 @@ export function createDomEnvironment({
       return envScope.add(remove);
     },
     onUrlChange: (listener) => envScope.add(watcher.onUrlChange(listener)),
+    setActive(next: boolean) {
+      if (next === active || envScope.disposed) {
+        return;
+      }
+      active = next;
+      if (!active) {
+        resetPendingShadowScan();
+        for (const childEnv of iframeEnvs.values()) {
+          childEnv.setActive(false);
+        }
+        return;
+      }
+      pruneDisconnected();
+      for (const childEnv of iframeEnvs.values()) {
+        childEnv.setActive(true);
+      }
+      scanAllShadowRoots(true);
+      if (includeIframes) {
+        for (const frame of doc.querySelectorAll('iframe')) {
+          attachIframe(frame);
+        }
+      }
+    },
     dispose() {
       envScope.dispose();
     },

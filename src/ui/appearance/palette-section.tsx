@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { PaletteMood } from '../../core/theming/color';
 import type { ThemeDocumentV1 } from '../../core/theming/document';
 import type { ThemePreset } from '../../core/theming/types';
@@ -84,6 +84,8 @@ export function PaletteCustomizationDisclosure({
   onPreviewEdit,
   onApplyEdit,
 }: PaletteCustomizationDisclosureProps) {
+  const ribbonId = useId();
+  const ambientGlowId = useId();
   const effective = value.palette;
   const hasCustomColors = useMemo(() => hasPaletteOverrides(value), [value]);
   const minContrast = useMemo(
@@ -309,8 +311,9 @@ export function PaletteCustomizationDisclosure({
 
         <div className="theme-chrome-row" role="group" aria-label="Chrome accents">
           <span className="theme-inline-toggle">
-            <span>Accent ribbon</span>
+            <label htmlFor={ribbonId}>Accent ribbon</label>
             <Switch
+              id={ribbonId}
               checked={Boolean(value.chrome?.ribbon?.enabled)}
               ariaLabel="Top accent ribbon"
               onChange={(enabled) =>
@@ -322,8 +325,9 @@ export function PaletteCustomizationDisclosure({
             />
           </span>
           <span className="theme-inline-toggle">
-            <span>Ambient corner glow</span>
+            <label htmlFor={ambientGlowId}>Ambient corner glow</label>
             <Switch
+              id={ambientGlowId}
               checked={Boolean(value.chrome?.ambientGlow?.enabled)}
               ariaLabel="Ambient corner glow"
               onChange={(enabled) =>

@@ -1,5 +1,7 @@
-import { useId } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Badge, Disclosure, TextInput } from '../primitives';
+
+const CUSTOM_CSS_DEBOUNCE_MS = 250;
 
 export interface CustomCssDisclosureProps {
   readonly open: boolean;
@@ -25,7 +27,53 @@ export function CustomCssDisclosure({
   onCommitExternalCssUrl,
 }: CustomCssDisclosureProps) {
   const externalCssId = useId();
-  const isActive = Boolean(customCss.trim() || savedExternalCssUrl.trim());
+  const [cssDraft, setCssDraft] = useState(customCss);
+  const pendingCssRef = useRef<string | null>(null);
+  const lastCommittedRef = useRef(customCss);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const onChangeRef = useRef(onCustomCssChange);
+  onChangeRef.current = onCustomCssChange;
+
+  const flushCssDraft = useCallback((): void => {
+    if (debounceTimerRef.current !== undefined) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = undefined;
+    }
+    const pending = pendingCssRef.current;
+    if (pending !== null) {
+      pendingCssRef.current = null;
+      lastCommittedRef.current = pending;
+      onChangeRef.current(pending);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Ignore echoes of our own last commit while the user is typing a newer draft;
+    // any other `customCss` change (Undo, Reset, Import, external tab) wins immediately.
+    if (pendingCssRef.current !== null && customCss === lastCommittedRef.current) {
+      return;
+    }
+    if (debounceTimerRef.current !== undefined) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = undefined;
+    }
+    pendingCssRef.current = null;
+    lastCommittedRef.current = customCss;
+    setCssDraft(customCss);
+  }, [customCss]);
+
+  useEffect(() => flushCssDraft, [flushCssDraft]);
+
+  const handleCssInput = (next: string): void => {
+    setCssDraft(next);
+    pendingCssRef.current = next;
+    if (debounceTimerRef.current !== undefined) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(flushCssDraft, CUSTOM_CSS_DEBOUNCE_MS);
+  };
+
+  const isActive = Boolean(cssDraft.trim() || savedExternalCssUrl.trim());
 
   return (
     <Disclosure
@@ -43,8 +91,9 @@ export function CustomCssDisclosure({
             aria-label="Custom CSS"
             placeholder="Write custom CSS rules layered on top of this site's theme"
             spellCheck={false}
-            value={customCss}
-            onChange={(event) => onCustomCssChange(event.currentTarget.value)}
+            value={cssDraft}
+            onChange={(event) => handleCssInput(event.currentTarget.value)}
+            onBlur={flushCssDraft}
           />
         </label>
         {hasExternalCssOption && (

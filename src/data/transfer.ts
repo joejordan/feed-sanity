@@ -2,13 +2,20 @@ import type { Filter } from '../core/filter-types';
 import type { LocatorOverrides } from '../core/locator';
 import type { OptionSpec, Options, OptionValue } from '../core/options';
 import type { SavedValue } from '../core/saved';
-import type { ThemeDocumentV1 } from '../core/theming';
+import type { SiteSettingsClient } from '../core/site-settings';
+import type { ThemeDocumentV1, ThemeLibraryClient } from '../core/theming';
 import type { PostReadData } from '../facebook/post-read';
 import type { SavedVideoSpeed } from '../sites/x/features/video-speed-model';
 import { readFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { isRecord } from '../core/storage';
-import { DEFAULT_THEME_DOCUMENT, isSiteDefaultDocument, parseThemeDocument } from '../core/theming';
+import {
+  analyzeThemeDocument,
+  DEFAULT_THEME_DOCUMENT,
+  isSiteDefaultDocument,
+  MAX_LIBRARY_THEMES,
+  parseThemeDocument,
+} from '../core/theming';
 import {
   DEFAULT_VIDEO_SPEED,
   MAX_VIDEO_SPEED,
@@ -23,6 +30,8 @@ export interface DataStores {
   readonly filters: SavedValue<Filter[]>;
   readonly locators: SavedValue<LocatorOverrides>;
   readonly theme?: SavedValue<ThemeDocumentV1> | undefined;
+  readonly themeLibrary?: ThemeLibraryClient | undefined;
+  readonly siteSettings?: SiteSettingsClient | undefined;
   readonly read_history?: SavedValue<PostReadData> | undefined;
   readonly videoSpeed?: SavedValue<SavedVideoSpeed> | undefined;
 }
@@ -34,6 +43,8 @@ export interface SettingsBackup {
   filters: Filter[];
   locators?: LocatorOverrides;
   theme?: ThemeDocumentV1;
+  myThemes?: ThemeDocumentV1[];
+  sites?: Record<string, boolean>;
   videoSpeed?: SavedVideoSpeed;
 }
 
@@ -47,6 +58,8 @@ export type ParsedBackup =
       readonly filters: Filter[] | undefined;
       readonly locators: LocatorOverrides | undefined;
       readonly theme: ThemeDocumentV1 | undefined;
+      readonly myThemes: ThemeDocumentV1[] | undefined;
+      readonly sites: Record<string, boolean> | undefined;
       readonly videoSpeed: SavedVideoSpeed | undefined;
     }
   | {
@@ -57,13 +70,15 @@ export type ParsedBackup =
 const isValidChoice = (spec: OptionSpec, value: OptionValue): boolean =>
   !spec.choices || spec.choices.some((choice) => choice.value === value);
 
-/** Serializes all current options, filters, theme, custom locator overrides, and site extras as pretty-printed JSON. */
+/** Serializes all current options, filters, theme, custom locator overrides, and optional global data as pretty-printed JSON. */
 export function exportBackup({
   siteId,
   options,
   filters,
   locators,
   theme,
+  themeLibrary,
+  siteSettings,
   videoSpeed,
 }: DataStores): string {
   const exportedOptions: Record<string, OptionValue> = {};
@@ -72,6 +87,10 @@ export function exportBackup({
   }
   const overrides = locators.get();
   const currentTheme = theme?.get();
+  const savedThemes = themeLibrary?.list().map((entry) => entry.document) ?? [];
+  const siteToggles = siteSettings
+    ? Object.fromEntries(siteSettings.list().map((site) => [site.id, site.enabled]))
+    : undefined;
   const currentSpeed = videoSpeed?.get();
   const hasCustomSpeed =
     currentSpeed !== undefined &&
@@ -82,6 +101,8 @@ export function exportBackup({
     filters: filters.get(),
     ...(Object.keys(overrides).length > 0 ? { locators: overrides } : {}),
     ...(currentTheme && !isSiteDefaultDocument(currentTheme) ? { theme: currentTheme } : {}),
+    ...(savedThemes.length > 0 ? { myThemes: savedThemes } : {}),
+    ...(siteToggles && Object.keys(siteToggles).length > 0 ? { sites: siteToggles } : {}),
     ...(hasCustomSpeed ? { videoSpeed: currentSpeed } : {}),
   };
   return JSON.stringify(snapshot, null, 2);
@@ -106,11 +127,21 @@ export function parseBackup(text: string, specs: readonly [string, OptionSpec][]
   const hasFilters = 'filters' in raw;
   const hasLocators = 'locators' in raw;
   const hasTheme = 'theme' in raw;
+  const hasMyThemes = 'myThemes' in raw;
+  const hasSites = 'sites' in raw;
   const hasVideoSpeed = 'videoSpeed' in raw;
-  if (!hasOptions && !hasFilters && !hasLocators && !hasTheme && !hasVideoSpeed) {
+  if (
+    !hasOptions &&
+    !hasFilters &&
+    !hasLocators &&
+    !hasTheme &&
+    !hasMyThemes &&
+    !hasSites &&
+    !hasVideoSpeed
+  ) {
     return {
       ok: false,
-      error: 'No options, filters, theme or locator overrides were found in that JSON.',
+      error: 'No options, filters, themes or locator overrides were found in that JSON.',
     };
   }
 
@@ -171,6 +202,35 @@ export function parseBackup(text: string, specs: readonly [string, OptionSpec][]
     parsedTheme = parsedThemeDoc.document;
   }
 
+  let parsedMyThemes: ThemeDocumentV1[] | undefined;
+  if (hasMyThemes) {
+    if (!Array.isArray(raw.myThemes)) {
+      return { ok: false, error: '"myThemes" must be a JSON array.' };
+    }
+    const validThemes: ThemeDocumentV1[] = [];
+    for (const entry of raw.myThemes.slice(0, MAX_LIBRARY_THEMES)) {
+      const doc = parseThemeDocument(entry);
+      if (doc.ok && doc.document) {
+        validThemes.push(doc.document);
+      }
+    }
+    parsedMyThemes = validThemes;
+  }
+
+  let parsedSites: Record<string, boolean> | undefined;
+  if (hasSites) {
+    if (!isRecord(raw.sites)) {
+      return { ok: false, error: '"sites" must be a JSON object.' };
+    }
+    const cleanSites: Record<string, boolean> = {};
+    for (const [id, enabled] of Object.entries(raw.sites)) {
+      if (typeof enabled === 'boolean') {
+        cleanSites[id] = enabled;
+      }
+    }
+    parsedSites = cleanSites;
+  }
+
   let parsedVideoSpeed: SavedVideoSpeed | undefined;
   if (hasVideoSpeed) {
     if (
@@ -196,6 +256,8 @@ export function parseBackup(text: string, specs: readonly [string, OptionSpec][]
     filters: parsedFilters,
     locators: parsedLocators,
     theme: parsedTheme,
+    myThemes: parsedMyThemes,
+    sites: parsedSites,
     videoSpeed: parsedVideoSpeed,
   };
 }
@@ -206,24 +268,71 @@ const plural = (count: number, one: string, many: string): string =>
 /** Applies a parsed backup live without requiring a page reload, and returns a status summary. */
 export async function applyBackup(
   parsed: Extract<ParsedBackup, { ok: true }>,
-  { siteId, options, filters, locators, theme, videoSpeed }: DataStores,
+  { siteId, options, filters, locators, theme, themeLibrary, siteSettings, videoSpeed }: DataStores,
 ): Promise<string> {
   const optionEntries = Object.entries(parsed.options);
-  for (const [key, value] of optionEntries) {
-    await options.set(key, value);
+  let addedThemes = 0;
+  let updatedSites = 0;
+
+  const tasks: Promise<unknown>[] = [];
+  if (optionEntries.length > 0) {
+    tasks.push(
+      (async () => {
+        for (const [key, value] of optionEntries) {
+          await options.set(key, value);
+        }
+      })(),
+    );
   }
   if (parsed.filters !== undefined) {
-    await filters.set(parsed.filters);
+    tasks.push(filters.set(parsed.filters));
   }
   if (parsed.locators !== undefined) {
-    await locators.set(parsed.locators);
+    tasks.push(locators.set(parsed.locators));
   }
   if (parsed.theme !== undefined && theme) {
-    await theme.set(parsed.theme);
+    tasks.push(theme.set(parsed.theme));
+  }
+  if (parsed.myThemes && parsed.myThemes.length > 0 && themeLibrary) {
+    const incomingThemes = parsed.myThemes;
+    tasks.push(
+      (async () => {
+        const existingFingerprints = new Set(
+          themeLibrary.list().map((entry) => analyzeThemeDocument(entry.document).fingerprint),
+        );
+        for (const doc of incomingThemes) {
+          if (themeLibrary.list().length >= MAX_LIBRARY_THEMES) {
+            break;
+          }
+          const fp = analyzeThemeDocument(doc).fingerprint;
+          if (existingFingerprints.has(fp)) {
+            continue;
+          }
+          await themeLibrary.saveTheme(doc);
+          existingFingerprints.add(fp);
+          addedThemes++;
+        }
+      })(),
+    );
+  }
+  if (parsed.sites && siteSettings) {
+    const incomingSites = parsed.sites;
+    tasks.push(
+      (async () => {
+        const knownIds = new Set(siteSettings.list().map((s) => s.id));
+        for (const [id, enabled] of Object.entries(incomingSites)) {
+          if (knownIds.has(id)) {
+            await siteSettings.setEnabled(id, enabled);
+            updatedSites++;
+          }
+        }
+      })(),
+    );
   }
   if (parsed.videoSpeed !== undefined && videoSpeed) {
-    await videoSpeed.set(parsed.videoSpeed);
+    tasks.push(videoSpeed.set(parsed.videoSpeed));
   }
+  await Promise.all(tasks);
 
   const parts: string[] = [];
   if (optionEntries.length > 0) {
@@ -239,6 +348,12 @@ export async function applyBackup(
   }
   if (parsed.theme !== undefined && theme) {
     parts.push('theme');
+  }
+  if (addedThemes > 0) {
+    parts.push(plural(addedThemes, 'saved theme', 'saved themes'));
+  }
+  if (updatedSites > 0) {
+    parts.push(plural(updatedSites, 'site toggle', 'site toggles'));
   }
   if (parsed.videoSpeed !== undefined && videoSpeed) {
     parts.push('video speed');

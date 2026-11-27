@@ -52,7 +52,7 @@ import { CustomCssDisclosure } from './custom-css-disclosure';
 import { ThemeHealthDisclosure } from './health-disclosure';
 import { PaletteCustomizationDisclosure } from './palette-section';
 import { CreativeStudioCard, StudioVibesCard } from './studio-section';
-import { ThemeLibraryCard } from './theme-library-card';
+import { handleInlineFormKeyDown, ThemeLibraryCard } from './theme-library-card';
 import {
   downloadThemeDocumentFile,
   ThemeSwatches,
@@ -126,6 +126,7 @@ function AppearancePanelView({
   registerDisclosureOpener: (fn: ((id: AppearanceDisclosureId) => void) | undefined) => void;
 }) {
   const fontId = useId();
+  const hoverPreviewId = useId();
   const [draftResetKey, setDraftResetKey] = useState(0);
   const [libraryEntries, setLibraryEntries] = useState<readonly SavedThemeEntry[]>(() =>
     library ? library.list() : [],
@@ -665,8 +666,10 @@ function AppearancePanelView({
         <SettingRow
           title="Live hover preview"
           description="Preview color and live themes when hovering or focusing cards."
+          htmlFor={hoverPreviewId}
         >
           <Switch
+            id={hoverPreviewId}
             checked={hoverPreviewEnabled}
             ariaLabel="Live hover preview"
             onChange={handleToggleHoverPreview}
@@ -718,6 +721,19 @@ function AppearancePanelView({
                       setCustomFontError(null);
                     }}
                     onBlur={() => commitCustomFontStack(customFontDraft)}
+                    onKeyDown={(event) =>
+                      handleInlineFormKeyDown(
+                        event,
+                        () => commitCustomFontStack(customFontDraft),
+                        () => {
+                          setCustomFontDraft(savedCustomStack);
+                          setCustomFontError(null);
+                          if (!savedCustomStack) {
+                            setCustomFontMode(false);
+                          }
+                        },
+                      )
+                    }
                   />
                   <button
                     type="button"

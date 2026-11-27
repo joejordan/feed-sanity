@@ -213,24 +213,28 @@ describe('OptionsDialog', () => {
     render(<OptionsDialog options={options} panels={[panel]} onClose={onClose} />);
 
     await userEvent.click(button('Search options'));
-    const search = screen.getByRole('searchbox');
+    const search = screen.getByRole('combobox', { name: 'Jump to setting' });
+    expect(search.getAttribute('aria-controls')).toBeTruthy();
     await userEvent.type(search, 'style sheet');
 
     expect(screen.getByText('External CSS url')).toBeTruthy();
-    await userEvent.click(button(/External CSS url/));
+    await userEvent.click(screen.getByRole('option', { name: /External CSS url/ }));
 
     expect(field('textbox', 'External CSS url').isConnected).toBe(true);
     expect(screen.queryByRole('checkbox', { name: 'Hide ads' })).toBeNull();
 
     // Also searches custom panel items and jumps straight to that section.
     await userEvent.click(button('Search options'));
-    await userEvent.type(screen.getByRole('searchbox'), 'backup');
-    await userEvent.click(button(/Export settings backup/));
+    await userEvent.type(screen.getByRole('combobox', { name: 'Jump to setting' }), 'backup');
+    await userEvent.click(screen.getByRole('option', { name: /Export settings backup/ }));
     expect(screen.getByText('Backup body')).toBeTruthy();
 
     // Empty state for unmatched queries.
     await userEvent.click(button('Search options'));
-    await userEvent.type(screen.getByRole('searchbox'), 'nothing matches this');
+    await userEvent.type(
+      screen.getByRole('combobox', { name: 'Jump to setting' }),
+      'nothing matches this',
+    );
     expect(screen.getByText('No options match.')).toBeTruthy();
   });
 
@@ -619,5 +623,29 @@ describe('OptionsDialog panels', () => {
     await user.click(mid);
     expect(leaf.disabled).toBe(true);
     expect(screen.getByText('Requires Middle toggle')).toBeTruthy();
+  });
+
+  it('reverts dirty inline text edits on Escape without closing the Options dialog', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const opts = new Options(extensionStore, 'u/options');
+    opts.register({
+      custom_stylesheet_url: {
+        section: 'Appearance',
+        title: 'External CSS url',
+        description: 'Optional stylesheet URL.',
+        default: '',
+      },
+    });
+    await opts.load();
+    render(<OptionsDialog options={opts} onClose={onClose} />);
+
+    const input = field('textbox', 'External CSS url');
+    await user.type(input, 'https://example.com/draft.css');
+    expect(input.value).toBe('https://example.com/draft.css');
+
+    await user.keyboard('{Escape}');
+    expect(input.value).toBe('');
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

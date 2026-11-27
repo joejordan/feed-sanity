@@ -46,11 +46,16 @@ export async function openOptionsDialog(
     // Host page detached our dialog container: clean up the stale root and remount.
     closeOpen();
   }
+  const previousFocus =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const close = () => {
     if (closeOpen === close) {
       closeOpen = undefined;
       jumpOpenSection = undefined;
       unmount();
+      if (previousFocus?.isConnected) {
+        previousFocus.focus();
+      }
     }
   };
   const unmount = mount(

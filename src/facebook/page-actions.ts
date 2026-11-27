@@ -136,9 +136,15 @@ function isPlainHomeLocation(): boolean {
  * live `CometHomeRefreshContext.refreshHandler('MANUAL')` to switch feeds
  * immediately.
  */
-export function createSetHomeFeedAction(loader: PageLoader = globalThis as PageLoader): PageAction {
+export type DisposablePageAction = PageAction & { readonly dispose: () => void };
+
+export function createSetHomeFeedAction(
+  loader: PageLoader = globalThis as PageLoader,
+): DisposablePageAction {
   let activeFeedStyle: number | null = null;
   let varsMod: Loose | undefined;
+  let originalGetVars: AnyFunction | undefined;
+  let wrappedGetVarsFn: AnyFunction | undefined;
   let stopObserving: (() => void) | undefined;
 
   const stopObserver = (): void => {
@@ -158,7 +164,7 @@ export function createSetHomeFeedAction(loader: PageLoader = globalThis as PageL
       return false;
     }
     const base = mod.getCometFeedVariablesForSk as AnyFunction;
-    mod.getCometFeedVariablesForSk = function wrappedGetVars(
+    const wrapped: AnyFunction = function wrappedGetVars(
       this: unknown,
       feedStyle: unknown,
       sk: unknown,
@@ -170,7 +176,10 @@ export function createSetHomeFeedAction(loader: PageLoader = globalThis as PageL
       }
       return base.call(this, feedStyle, sk, refreshMode, vpvs);
     };
+    mod.getCometFeedVariablesForSk = wrapped;
     varsMod = mod;
+    originalGetVars = base;
+    wrappedGetVarsFn = wrapped;
     stopObserver();
     return true;
   };
@@ -223,7 +232,7 @@ export function createSetHomeFeedAction(loader: PageLoader = globalThis as PageL
     return false;
   };
 
-  return (payload): SetHomeFeedAnswer => {
+  const run: PageAction = (payload): SetHomeFeedAnswer => {
     const rawStyle = payload.feedStyle;
     activeFeedStyle =
       typeof rawStyle === 'number' && Number.isInteger(rawStyle) && rawStyle > 0 ? rawStyle : null;
@@ -236,6 +245,19 @@ export function createSetHomeFeedAction(loader: PageLoader = globalThis as PageL
     const refreshed = payload.refresh === true && applied ? triggerRefresh() : false;
     return { applied, refreshed };
   };
+
+  const dispose = (): void => {
+    activeFeedStyle = null;
+    stopObserver();
+    if (varsMod && originalGetVars && varsMod.getCometFeedVariablesForSk === wrappedGetVarsFn) {
+      varsMod.getCometFeedVariablesForSk = originalGetVars;
+    }
+    varsMod = undefined;
+    originalGetVars = undefined;
+    wrappedGetVarsFn = undefined;
+  };
+
+  return Object.assign(run, { dispose });
 }
 
 /** Every action the page-world side offers. */

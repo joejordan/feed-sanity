@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { OptionValue } from '../../core/options';
 import type { PopupTabState } from '../../core/platform';
@@ -15,7 +15,7 @@ import type { DragHandleProps } from '../primitives';
 import type { AnalyzedSavedTheme } from './popup-theme-card';
 import type { SiteQuickConfig, StarterModeId } from './starter-modes';
 import { NAME, SUPPORT_URL } from '../../../project';
-import { newFilter, newRule, readFilters } from '../../core/filter-types';
+import { readFilters } from '../../core/filter-types';
 import { createLogger } from '../../core/log';
 import { createSiteSettings, isSiteVisible } from '../../core/site-settings';
 import { isRecord, readStoreMany, watchStoreKey } from '../../core/storage';
@@ -55,6 +55,7 @@ import {
 import { useThemePreview } from '../use-theme-preview';
 import { PopupThemeCard, SavedThemesStrip, useAnalyzedSavedThemes } from './popup-theme-card';
 import {
+  createQuickMuteFilter,
   detectActiveMode,
   diffStarterMode,
   getSiteQuickConfig,
@@ -65,11 +66,26 @@ import {
 const log = createLogger('quick-popup');
 const TOAST_MS = 4500;
 const SPEED_STEP = 0.05;
+const FINE_SPEED_STEP = 0.01;
+
+export interface UnattachedSupportedTab {
+  readonly siteId: string;
+  readonly displayName: string;
+  readonly origins: readonly string[];
+}
 
 export interface QuickPopupProps {
   readonly store: Store;
   /** Active supported tab state, or `null` when opened on an unsupported page. */
   readonly activeTab: PopupTabState | null;
+  /** Present when the active tab matches a supported site but could not connect (e.g. missing Safari/Chrome host permission). */
+  readonly unattachedTab?: UnattachedSupportedTab | null;
+  /** Requests host permission for `unattachedTab` and reconnects when granted. */
+  readonly onRequestAccess?: () => Promise<boolean>;
+  /** Retries connecting to `unattachedTab` without reloading. */
+  readonly onRetryConnect?: () => void;
+  /** Reloads `unattachedTab` so content scripts inject fresh. */
+  readonly onReloadTab?: () => void;
   /** Optional caller-owned site settings client (reused by userscript runtime). */
   readonly siteSettings?: SiteSettingsClient;
   /** Optional caller-owned cross-site theme library client (reused by userscript runtime). */
@@ -246,6 +262,10 @@ function PopupBrandBar({
 
 interface UnsupportedTabViewProps {
   readonly sites: readonly SiteStatus[];
+  readonly unattachedTab?: UnattachedSupportedTab | null;
+  readonly onRequestAccess?: () => Promise<boolean>;
+  readonly onRetryConnect?: () => void;
+  readonly onReloadTab?: () => void;
   readonly savedThemes: readonly AnalyzedSavedTheme[];
   readonly globalTheme: GlobalThemeOverride | undefined;
   readonly closeButton: ReactNode;
@@ -257,6 +277,10 @@ interface UnsupportedTabViewProps {
 
 function UnsupportedTabView({
   sites,
+  unattachedTab,
+  onRequestAccess,
+  onRetryConnect,
+  onReloadTab,
   savedThemes,
   globalTheme,
   closeButton,
@@ -265,6 +289,10 @@ function UnsupportedTabView({
   onApplyAllSites,
   onOpenSiteUrl,
 }: UnsupportedTabViewProps) {
+  const siteIdPrefix = useId();
+  const [showExperimental, setShowExperimental] = useState(false);
+  const [requestingAccess, setRequestingAccess] = useState(false);
+
   // Keep experimental rows visible for the rest of the current popup session if
   // they were enabled when opened so toggling one off doesn't drop focus or trap undo.
   const seenEnabledRef = useRef<Set<string>>(new Set());
@@ -273,8 +301,11 @@ function UnsupportedTabView({
       seenEnabledRef.current.add(site.id);
     }
   }
+  const hasHiddenExperimental = sites.some(
+    (site) => site.experimental && !isSiteVisible(site) && !seenEnabledRef.current.has(site.id),
+  );
   const visibleSites = sites.filter(
-    (site) => isSiteVisible(site) || seenEnabledRef.current.has(site.id),
+    (site) => showExperimental || isSiteVisible(site) || seenEnabledRef.current.has(site.id),
   );
 
   const globalThemeFingerprint = useMemo(
@@ -285,6 +316,14 @@ function UnsupportedTabView({
     [savedThemes.length, globalTheme],
   );
 
+  const handleRequestAccess = (): void => {
+    if (!onRequestAccess || requestingAccess) {
+      return;
+    }
+    setRequestingAccess(true);
+    void onRequestAccess().finally(() => setRequestingAccess(false));
+  };
+
   return (
     <div className="qp-root" role="region" aria-label={`${NAME} quick controls`}>
       <header className="qp-unsupported-header">
@@ -294,24 +333,80 @@ function UnsupportedTabView({
           onSupport={() => onOpenSiteUrl(SUPPORT_URL)}
         />
         <div className="qp-unsupported-bar">
-          <span className="qp-status">Not active on this page</span>
+          <span className="qp-status">
+            {unattachedTab
+              ? `Permission needed on ${unattachedTab.displayName}`
+              : 'Not active on this page'}
+          </span>
         </div>
       </header>
 
       <div className="qp-body">
-        <SettingCard title="Supported sites">
+        {unattachedTab && (
+          <SettingCard title={`Connect ${unattachedTab.displayName}`}>
+            <div className="qp-permission-card" role="status">
+              <p className="qp-permission-copy">
+                {NAME} doesn&apos;t have access to {unattachedTab.displayName} on this tab yet.
+                Grant site access or reload the tab to connect.
+              </p>
+              <div className="qp-permission-actions">
+                {onRequestAccess && (
+                  <button
+                    type="button"
+                    className="qp-btn primary"
+                    disabled={requestingAccess}
+                    onClick={handleRequestAccess}
+                  >
+                    {requestingAccess ? 'Requesting…' : 'Grant access'}
+                  </button>
+                )}
+                {onRetryConnect && (
+                  <button type="button" className="qp-btn" onClick={onRetryConnect}>
+                    Retry
+                  </button>
+                )}
+                {onReloadTab && (
+                  <button type="button" className="qp-btn" onClick={onReloadTab}>
+                    Reload tab
+                  </button>
+                )}
+              </div>
+            </div>
+          </SettingCard>
+        )}
+
+        <SettingCard
+          title="Supported sites"
+          action={
+            hasHiddenExperimental ? (
+              <button
+                type="button"
+                className="qp-presets-btn"
+                aria-expanded={showExperimental}
+                onClick={() => setShowExperimental((open) => !open)}
+              >
+                {showExperimental ? 'Hide beta' : 'Show beta'}
+              </button>
+            ) : undefined
+          }
+        >
           {visibleSites.map((site) => {
             const cfg = SITE_QUICK_CONFIGS[site.id];
+            const switchId = `${siteIdPrefix}-${site.id}`;
             return (
               <div key={site.id} className="qp-site-row">
                 <div className="qp-site-left">
                   <span className="qp-site-badge" aria-hidden="true">
                     {getSiteMark(site.id, site.displayName)}
                   </span>
-                  <span className="qp-site-name">{site.displayName}</span>
+                  <label className="qp-site-name" htmlFor={switchId}>
+                    {site.displayName}
+                  </label>
+                  {site.experimental && <Badge tone="warning">Beta</Badge>}
                 </div>
                 <div className="qp-site-controls">
                   <Switch
+                    id={switchId}
                     checked={site.enabled}
                     ariaLabel={`Enable ${NAME} on ${site.displayName}`}
                     onChange={(next) => onSetSiteEnabled(site.id, next)}
@@ -350,7 +445,9 @@ function UnsupportedTabView({
 
       <footer className="qp-footer">
         <p className="qp-footer-tip">
-          Open any supported site above to access filters, themes, and quick modes.
+          {unattachedTab
+            ? 'In Safari, you can also enable access in Safari → Settings → Extensions.'
+            : 'Open any supported site above to access filters, themes, and quick modes.'}
         </p>
       </footer>
     </div>
@@ -394,6 +491,7 @@ function ActiveTabView({
   onOpenSiteUrl,
   headerDragProps,
 }: ActiveTabViewProps) {
+  const toggleIdPrefix = useId();
   const [optionsMap, setOptionsMap] = useState<Record<string, OptionValue>>({});
   const [theme, setTheme] = useState<ThemeDocumentV1>(() => readThemeDocument(undefined));
   const [videoSpeed, setVideoSpeed] = useState<SavedVideoSpeed>(() => ({ ...DEFAULT_VIDEO_SPEED }));
@@ -723,17 +821,14 @@ function ActiveTabView({
   };
 
   const handleQuickMute = (term: string): void => {
-    const created = newFilter({
-      title: `Hide "${term}"`,
-      match: 'ANY',
-      enabled: true,
-      rules: [{ ...newRule('any'), condition: { text: term, modifier: 'i' } }],
-      actions: [{ action: 'hide', show_note: true }],
-    });
+    const created = createQuickMuteFilter(term, activeTab.siteId);
+    if (!created) {
+      return;
+    }
     const createdJson = JSON.stringify(created);
     enqueueWrite(filtersKey, async () => {
       const existing = readFilters(await store.get(filtersKey));
-      await store.set(filtersKey, [created, ...existing]);
+      await store.set(filtersKey, [...existing, created]);
     });
     notify(`Muted "${term}"`, () => {
       enqueueWrite(filtersKey, async () => {
@@ -877,9 +972,11 @@ function ActiveTabView({
               typeof optionsMap[toggle.key] === 'boolean'
                 ? (optionsMap[toggle.key] as boolean)
                 : toggle.defaultValue;
+            const switchId = `${toggleIdPrefix}-${toggle.key}`;
             return (
-              <SettingRow key={toggle.key} title={toggle.label}>
+              <SettingRow key={toggle.key} title={toggle.label} htmlFor={switchId}>
                 <Switch
+                  id={switchId}
                   checked={checked}
                   ariaLabel={toggle.label}
                   onChange={(next) => {
@@ -890,20 +987,24 @@ function ActiveTabView({
               </SettingRow>
             );
           })}
-          {siteConfig.supportsVideoSpeed && (
+          {siteConfig.supportsVideoSpeed && optionsMap.x_video_speed !== false && (
             <SettingRow title="Video speed">
               <div className="qp-stepper" role="group" aria-label="Video playback speed">
                 <button
                   type="button"
                   className="qp-stepper-btn"
                   aria-label="Decrease video speed"
-                  onClick={() => stepVideoSpeed(-SPEED_STEP)}
+                  title="Decrease speed (Shift for 0.01×)"
+                  onClick={(event) =>
+                    stepVideoSpeed(-(event.shiftKey ? FINE_SPEED_STEP : SPEED_STEP))
+                  }
                 >
                   −
                 </button>
                 <button
                   type="button"
                   className="qp-stepper-val"
+                  aria-label="Reset playback speed to 1×"
                   title="Click to reset to 1×"
                   onClick={resetVideoSpeed}
                 >
@@ -913,7 +1014,8 @@ function ActiveTabView({
                   type="button"
                   className="qp-stepper-btn"
                   aria-label="Increase video speed"
-                  onClick={() => stepVideoSpeed(SPEED_STEP)}
+                  title="Increase speed (Shift for 0.01×)"
+                  onClick={(event) => stepVideoSpeed(event.shiftKey ? FINE_SPEED_STEP : SPEED_STEP)}
                 >
                   +
                 </button>
@@ -983,6 +1085,10 @@ function ActiveTabView({
 export function QuickPopup({
   store,
   activeTab,
+  unattachedTab,
+  onRequestAccess,
+  onRetryConnect,
+  onReloadTab,
   siteSettings: providedSiteSettings,
   themeLibrary: providedThemeLibrary,
   onThemeChange,
@@ -1069,6 +1175,10 @@ export function QuickPopup({
     return (
       <UnsupportedTabView
         sites={sites}
+        {...(unattachedTab ? { unattachedTab } : {})}
+        {...(onRequestAccess ? { onRequestAccess } : {})}
+        {...(onRetryConnect ? { onRetryConnect } : {})}
+        {...(onReloadTab ? { onReloadTab } : {})}
         savedThemes={analyzedSavedThemes}
         globalTheme={globalTheme}
         closeButton={closeButton}

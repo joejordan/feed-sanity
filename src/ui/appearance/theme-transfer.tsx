@@ -6,6 +6,11 @@ import type {
   ThemeParseResult,
 } from '../../core/theming';
 import {
+  getBackdropDisplayName,
+  getClickEffectLabel,
+  getSurfaceFinishLabel,
+} from '../../core/theme-effects';
+import {
   analyzeThemeDocument,
   autoFixDocumentContrast,
   getPaletteSwatches,
@@ -93,13 +98,13 @@ function describeCapabilities(doc: ThemeDocumentV1, caps: ThemeCapabilities): re
   } else if (caps.hasCustomShader) {
     items.push('Custom GPU shader');
   } else if (caps.backdropEngine) {
-    items.push(`Backdrop: ${caps.backdropEngine}`);
+    items.push(`Backdrop: ${getBackdropDisplayName(caps.backdropEngine) ?? caps.backdropEngine}`);
   }
   if (caps.surfaceFinish) {
-    items.push(`Surface: ${caps.surfaceFinish}`);
+    items.push(`Surface: ${getSurfaceFinishLabel(caps.surfaceFinish) ?? caps.surfaceFinish}`);
   }
   if (caps.clickEffect) {
-    items.push(`Click FX: ${caps.clickEffect}`);
+    items.push(`Click FX: ${getClickEffectLabel(caps.clickEffect) ?? caps.clickEffect}`);
   }
   if (caps.hasChrome) {
     items.push('Chrome accents');

@@ -4,8 +4,10 @@ import { savedFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { Options } from '../core/options';
 import { SavedData } from '../core/saved';
+import { createSiteSettings } from '../core/site-settings';
 import {
   applyThemePreset,
+  createThemeLibrary,
   DEFAULT_THEME_DOCUMENT,
   updateThemePalette,
   updateThemeTypography,
@@ -145,7 +147,7 @@ describe('data transfer', () => {
     });
     expect(parseBackup('{"other": 1}', specs)).toEqual({
       ok: false,
-      error: 'No options, filters, theme or locator overrides were found in that JSON.',
+      error: 'No options, filters, themes or locator overrides were found in that JSON.',
     });
   });
 
@@ -226,5 +228,67 @@ describe('data transfer', () => {
     // Out-of-range video speed payloads are rejected cleanly.
     const badSpeed = parseBackup(JSON.stringify({ videoSpeed: { rate: 99, custom: true } }), []);
     expect(badSpeed.ok).toBe(false);
+  });
+
+  it('exports and merges global My Themes library and site toggles without clobbering existing saved themes', async () => {
+    const stores = makeStores();
+    const themeLibrary = createThemeLibrary(extensionStore);
+    const siteSettings = createSiteSettings(extensionStore);
+    await Promise.all([
+      stores.filters.ready,
+      stores.locators.ready,
+      themeLibrary.ready,
+      siteSettings.ready,
+    ]);
+
+    const nord = applyThemePreset(DEFAULT_THEME_DOCUMENT, 'nord');
+    const paper = applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper');
+    await themeLibrary.saveTheme(nord, { name: 'Nord Saved' });
+    await siteSettings.setEnabled('reddit', true);
+
+    const exported = exportBackup({ ...stores, siteId: 'facebook', themeLibrary, siteSettings });
+    const snapshot = JSON.parse(exported);
+    expect(snapshot.myThemes).toHaveLength(1);
+    expect(snapshot.sites.reddit).toBe(true);
+
+    // Mutate state locally (keep an extra theme, disable reddit), then re-import.
+    await themeLibrary.saveTheme(paper, { name: 'Local Paper' });
+    await siteSettings.setEnabled('reddit', false);
+
+    const parsed = parseBackup(exported, options.list());
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+    // Nord is already present by fingerprint, so re-importing merges without duplicates.
+    const summary = await applyBackup(parsed, {
+      ...stores,
+      siteId: 'facebook',
+      themeLibrary,
+      siteSettings,
+    });
+    expect(summary).toContain('site toggle');
+    expect(themeLibrary.list().map((e) => e.document.meta.name)).toEqual([
+      'Local Paper',
+      'Nord Saved',
+    ]);
+    expect(siteSettings.isEnabled('reddit')).toBe(true);
+
+    // Removing Nord then re-importing restores Nord while preserving Local Paper.
+    const nordEntry = themeLibrary.list().find((e) => e.document.meta.name === 'Nord Saved');
+    if (nordEntry) {
+      await themeLibrary.removeTheme(nordEntry.id);
+    }
+    expect(themeLibrary.list()).toHaveLength(1);
+    const mergedSummary = await applyBackup(parsed, {
+      ...stores,
+      siteId: 'facebook',
+      themeLibrary,
+      siteSettings,
+    });
+    expect(mergedSummary).toContain('1 saved theme');
+    expect(themeLibrary.list()).toHaveLength(2);
+    themeLibrary.dispose();
+    siteSettings.dispose?.();
   });
 });

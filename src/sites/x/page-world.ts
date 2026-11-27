@@ -208,14 +208,29 @@ export interface XPageWorldHandle {
 
 export type XPageWorldHost = NetworkTapHost & ShadowHookHost;
 
+export interface XPageWorldOptions {
+  /**
+   * When true (default), installs `Element.prototype.attachShadow` observation
+   * immediately at boot. Pass `false` when the per-origin enabled hint says X
+   * is paused so disabled tabs remain passive until activated via `x-active`.
+   */
+  readonly startActive?: boolean;
+}
+
 /**
  * Starts X.com's MAIN-world bridge with React fiber tweet inspection,
  * zero-polling Shadow Root attachment notifications (`engines/shadow`), and a
  * toggleable Network Tap that strips promoted timeline entries before React
  * Native Web lays them out.
  */
-export function startXPageWorld(host: XPageWorldHost = globalThis): XPageWorldHandle {
+export function startXPageWorld(
+  host: XPageWorldHost = globalThis,
+  options: XPageWorldOptions = {},
+): XPageWorldHandle {
+  const { startActive = true } = options;
   let removeStripRule: (() => void) | undefined;
+  let stopShadowWatch: (() => void) | undefined;
+  let active = false;
   let matchedResponses = 0;
   let strippedPromoted = 0;
 
@@ -256,22 +271,39 @@ export function startXPageWorld(host: XPageWorldHost = globalThis): XPageWorldHa
     return { enabled };
   };
 
+  const setActive = (enabled: boolean): { active: boolean } => {
+    if (enabled === active) {
+      return { active };
+    }
+    active = enabled;
+    if (enabled) {
+      // Dispatches `SHADOW_ATTACHED_EVENT` in O(1) directly to `DomEnvironment` on open shadow mounts.
+      stopShadowWatch ??= watchOpenShadowAttachments(() => undefined, host);
+    } else {
+      stopShadowWatch?.();
+      stopShadowWatch = undefined;
+      setStripPromoted(false);
+    }
+    return { active };
+  };
+
   const readers: PageReaders = {
     'x-tweet-meta': (element) => readTweetMetaFromFiber(element),
   };
   const toggles: PageToggles = {
+    'x-active': setActive,
     'x-strip-promoted': setStripPromoted,
   };
 
   emitter = servePageWorld(readers, toggles);
 
-  // Dispatches `SHADOW_ATTACHED_EVENT` in O(1) directly to `DomEnvironment` on open shadow mounts.
-  const stopShadowWatch = watchOpenShadowAttachments(() => undefined, host);
+  if (startActive) {
+    setActive(true);
+  }
 
   const cleanup = (): void => {
-    stopShadowWatch();
-    removeStripRule?.();
-    removeStripRule = undefined;
+    setActive(false);
+    setStripPromoted(false);
     tap.dispose();
   };
   emitter.onDispose(cleanup);

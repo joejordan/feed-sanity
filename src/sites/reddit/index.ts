@@ -44,7 +44,7 @@ export const redditSite: SiteAdapter<RedditPage, ReturnType<typeof createRedditP
   scrubPii: scrubRedditPii,
   createPage: createRedditPage,
   features: redditFeatures,
-  createPanels({ options, data, page, runner, platform }) {
+  createPanels({ options, data, page, runner, platform, siteSettings, themeLibrary }) {
     const { stats } = page;
     const overrides = data.value(REDDIT_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
@@ -55,6 +55,8 @@ export const redditSite: SiteAdapter<RedditPage, ReturnType<typeof createRedditP
         options,
         data,
         locators: overrides,
+        siteSettings,
+        themeLibrary,
       }),
       diagnosticsPanel({
         collect: () => {

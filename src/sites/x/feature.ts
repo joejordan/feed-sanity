@@ -6,7 +6,13 @@ import type { OptionSpecs } from '../../core/options';
 import type { PageWatcher } from '../../core/page-watcher';
 import type { SavedData } from '../../core/saved';
 import type { XNetworkStats } from './page-world';
-import { bindFeed, bindLocate, bindVideos, bindWatch } from '../../core/bind';
+import {
+  bindFeed,
+  bindLocate,
+  bindVideos,
+  bindWatch,
+  createBridgeActiveToggle,
+} from '../../core/bind';
 import { PageBridge } from '../../core/bridge';
 import { createDomEnvironment } from '../../core/dom-env';
 import { defineFeature as defineCoreFeature } from '../../core/feature';
@@ -17,6 +23,7 @@ import {
   readLocatorOverrides,
 } from '../../core/locator';
 import { createLogger } from '../../core/log';
+import { readSiteEnabledHint } from '../../core/site-hint';
 import { isObject } from '../../engines/react';
 import { XFeed } from './feed';
 import * as selectors from './selectors';
@@ -77,6 +84,7 @@ export function createXPage(
   let latestNetwork: XNetworkStats = { matchedResponses: 0, strippedPromoted: 0 };
   let listeningStats = false;
   let stripPromoted = false;
+  const activeToggle = createBridgeActiveToggle(bridge, 'x-active', readSiteEnabledHint('x', true));
 
   const subscribeNetworkStats = (): void => {
     if (listeningStats) {
@@ -132,6 +140,18 @@ export function createXPage(
   };
 
   return Object.assign(factory, {
+    setActive(active: boolean) {
+      if (active) {
+        void activeToggle.activate().then((transitioned) => {
+          if (transitioned && !env.scope.disposed) {
+            env.scanShadowRoots();
+          }
+        });
+      } else {
+        stripPromoted = false;
+        void activeToggle.deactivate();
+      }
+    },
     stats: {
       locators,
       feed,

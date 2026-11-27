@@ -145,6 +145,7 @@ export function OptionsDialog({
 
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const closedRef = useRef(false);
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const pillRef = useRef<HTMLSpanElement>(null);
   const sectionButtonsRef = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -269,8 +270,19 @@ export function OptionsDialog({
     });
   }, [onSiteEnabledChange]);
 
+  const closeCommandJump = useCallback((): void => {
+    setCmdOpen(false);
+    queueMicrotask(() => {
+      searchTriggerRef.current?.focus();
+    });
+  }, []);
+
   const openCommandJump = (toggle = false): void => {
-    setCmdOpen((open) => (toggle ? !open : true));
+    if (toggle && cmdOpen) {
+      closeCommandJump();
+      return;
+    }
+    setCmdOpen(true);
     setCmdQuery('');
     setCmdIndex(0);
   };
@@ -297,7 +309,7 @@ export function OptionsDialog({
       }
     } else if (event.key === 'Escape' && cmdOpen) {
       event.preventDefault();
-      setCmdOpen(false);
+      closeCommandJump();
     }
   };
 
@@ -635,7 +647,7 @@ export function OptionsDialog({
       onCancel={(event) => {
         event.preventDefault();
         if (cmdOpen) {
-          setCmdOpen(false);
+          closeCommandJump();
           return;
         }
         closeDialog();
@@ -685,6 +697,7 @@ export function OptionsDialog({
           </div>
 
           <button
+            ref={searchTriggerRef}
             type="button"
             className="search-trigger"
             aria-label="Search options"
@@ -869,7 +882,7 @@ export function OptionsDialog({
           }}
           onActiveIndexChange={setCmdIndex}
           onSelect={jumpToHit}
-          onClose={() => setCmdOpen(false)}
+          onClose={closeCommandJump}
         />
       )}
     </dialog>

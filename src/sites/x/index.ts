@@ -38,6 +38,7 @@ export const xFeatures: readonly Feature<XPage>[] = [
 export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
   id: 'x',
   displayName: 'X (Twitter)',
+  pageWorldActiveToggle: 'x-active',
   matchesHost: isXHost,
   themeCss: xTheme,
   themeMapping: xThemeMapping,
@@ -46,7 +47,7 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
   scrubPii: scrubXPii,
   createPage: createXPage,
   features: xFeatures,
-  createPanels({ options, data, page, runner, platform }) {
+  createPanels({ options, data, page, runner, platform, siteSettings, themeLibrary }) {
     const { stats } = page;
     const overrides = data.value(X_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
@@ -57,6 +58,8 @@ export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
         options,
         data,
         locators: overrides,
+        siteSettings,
+        themeLibrary,
         videoSpeed: data.value(X_VIDEO_SPEED_KEY, readSavedVideoSpeed),
       }),
       diagnosticsPanel({

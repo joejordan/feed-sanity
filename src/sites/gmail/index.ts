@@ -38,7 +38,7 @@ export const gmailSite: SiteAdapter<GmailPage, ReturnType<typeof createGmailPage
   scrubPii: scrubGmailPii,
   createPage: createGmailPage,
   features: gmailFeatures,
-  createPanels({ options, data, page, runner, platform }) {
+  createPanels({ options, data, page, runner, platform, siteSettings, themeLibrary }) {
     const { stats } = page;
     const overrides = data.value(GMAIL_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
@@ -49,6 +49,8 @@ export const gmailSite: SiteAdapter<GmailPage, ReturnType<typeof createGmailPage
         options,
         data,
         locators: overrides,
+        siteSettings,
+        themeLibrary,
       }),
       diagnosticsPanel({
         collect: () => ({

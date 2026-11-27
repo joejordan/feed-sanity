@@ -776,6 +776,27 @@
 .qp-site-name {
   font-size: 13px;
   font-weight: 550;
+  cursor: pointer;
+}
+
+.qp-permission-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px 12px;
+}
+
+.qp-permission-copy {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fs-text-secondary);
+}
+
+.qp-permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .qp-site-controls {

@@ -309,4 +309,33 @@ describe('createDomEnvironment', () => {
     expect(seen).toContain(innerShadow);
     env.dispose();
   });
+
+  it('pauses shadow discovery while inactive and catches up when reactivated via setActive()', () => {
+    const env = createDomEnvironment({ pierceShadow: true, active: false });
+    const seen: ShadowRoot[] = [];
+    env.onShadowRoot((root) => seen.push(root));
+
+    const host = document.createElement('div');
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    host.dispatchEvent(new Event(SHADOW_ATTACHED_EVENT, { bubbles: true, composed: true }));
+
+    expect(seen).toEqual([]);
+    expect(env.shadowRoots.size).toBe(0);
+
+    env.setActive(true);
+    expect(seen).toEqual([shadow]);
+    expect(env.shadowRoots.has(shadow)).toBe(true);
+
+    env.setActive(false);
+    const host2 = document.createElement('div');
+    document.body.append(host2);
+    const shadow2 = host2.attachShadow({ mode: 'open' });
+    host2.dispatchEvent(new Event(SHADOW_ATTACHED_EVENT, { bubbles: true, composed: true }));
+    expect(env.shadowRoots.has(shadow2)).toBe(false);
+
+    env.setActive(true);
+    expect(env.shadowRoots.has(shadow2)).toBe(true);
+    env.dispose();
+  });
 });

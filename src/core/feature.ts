@@ -91,8 +91,13 @@ export interface Binder {
 /**
  * Builds a feature's view of the site's page services, with each
  * subscription tied to the binder's scope and each callback guarded.
+ * Sites with page-level background services (such as MAIN-world toggles or
+ * stylesheet scanners) may attach an optional `setActive` hook invoked by
+ * `startSite` when the site is enabled or paused.
  */
-export type PageFactory<P> = (binder: Binder) => P;
+export type PageFactory<P> = ((binder: Binder) => P) & {
+  readonly setActive?: (active: boolean) => void;
+};
 
 /**
  * Declares a feature. Inside `setup`, `ctx.options` only accepts the keys

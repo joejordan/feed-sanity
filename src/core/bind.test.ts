@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MediaItem } from '../capabilities';
 import type { Binder } from './feature';
-import { bindFeed, bindLocator, bindVideos, bindWatch } from './bind';
+import { bindFeed, bindLocator, bindVideos, bindWatch, createBridgeActiveToggle } from './bind';
 import { createDomEnvironment } from './dom-env';
 import { IDENTITY_RESOLVER, Locators } from './locator';
 import { Scope } from './scope';
@@ -131,5 +131,42 @@ describe('core bind helpers', () => {
     expect(feedUnsub).toHaveBeenCalledTimes(1);
     expect(controlListeners.size).toBe(0);
     env.dispose();
+  });
+
+  it('reconciles initial activate, deduplicates repeat calls, and honors setPinned on binder disposal', async () => {
+    const calls: Array<[string, boolean]> = [];
+    const bridge = {
+      set: vi.fn(async (name: string, enabled: boolean) => {
+        calls.push([name, enabled]);
+        return { enabled };
+      }),
+    };
+    const toggle = createBridgeActiveToggle(bridge, 'test-active', false);
+
+    // First activate transitions false -> true; second call is a no-op returning false.
+    expect(await toggle.activate()).toBe(true);
+    expect(await toggle.activate()).toBe(false);
+    expect(calls).toEqual([['test-active', true]]);
+
+    // While pinned, disposing the last feature binder does not deactivate the remote toggle.
+    toggle.setPinned(true);
+    const { binder: b1, scope: s1 } = makeBinder();
+    toggle.bind(b1);
+    s1.dispose();
+    expect(calls).toEqual([['test-active', true]]);
+
+    // Once unpinned, disposing the last feature binder deactivates cleanly.
+    toggle.setPinned(false);
+    const { binder: b2, scope: s2 } = makeBinder();
+    toggle.bind(b2);
+    s2.dispose();
+    expect(calls).toEqual([
+      ['test-active', true],
+      ['test-active', false],
+    ]);
+
+    // Explicit deactivate is idempotent when already off.
+    await toggle.deactivate();
+    expect(calls).toHaveLength(2);
   });
 });

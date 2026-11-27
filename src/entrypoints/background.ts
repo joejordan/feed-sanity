@@ -11,6 +11,28 @@ import {
 
 const BOOT_ATTACH_SESSION_KEY = 'feed-sanity/boot-attached';
 
+/**
+ * Runs `task` at most once per browser session (falling back to immediate execution
+ * when `browser.storage.session` is unavailable), preventing MV3 service-worker
+ * idle wake-ups from repeating cold-start work.
+ */
+function runOncePerSession(key: string, task: () => void): void {
+  const session = browser.storage?.session;
+  if (!session) {
+    task();
+    return;
+  }
+  void session
+    .get(key)
+    .then((stored) => {
+      if (stored[key]) {
+        return;
+      }
+      return session.set({ [key]: true }).then(() => task());
+    })
+    .catch(() => task());
+}
+
 export default defineBackground(() => {
   // Manifest V2, which the Firefox build uses, calls the toolbar button browserAction.
   // Toolbar clicks open `popup.html` directly via `default_popup`, so the background
@@ -47,20 +69,7 @@ export default defineBackground(() => {
     // Run at most once per browser session on cold background startup (covers Safari
     // contexts that activate without firing `onInstalled`) without re-sweeping on
     // every MV3 idle service-worker wake-up.
-    const session = browser.storage?.session;
-    if (session) {
-      void session
-        .get(BOOT_ATTACH_SESSION_KEY)
-        .then((stored) => {
-          if (stored[BOOT_ATTACH_SESSION_KEY]) {
-            return;
-          }
-          return session.set({ [BOOT_ATTACH_SESSION_KEY]: true }).then(() => syncOpenTabs());
-        })
-        .catch(() => syncOpenTabs());
-    } else {
-      syncOpenTabs();
-    }
+    runOncePerSession(BOOT_ATTACH_SESSION_KEY, syncOpenTabs);
   }
 
   // Safari does not support `world: 'MAIN'` in manifest `content_scripts`. Register
@@ -70,7 +79,7 @@ export default defineBackground(() => {
     const syncScripts = (): void => {
       void ensureSafariPageWorldScripts(browser.scripting).catch(() => undefined);
     };
-    syncScripts();
+    runOncePerSession('feed-sanity/safari-scripts-synced', syncScripts);
     browser.runtime.onInstalled.addListener(syncScripts);
     browser.runtime.onStartup.addListener(syncScripts);
     browser.runtime.onMessage.addListener(safariPageWorldListener(browser.scripting));

@@ -5,8 +5,12 @@ import type { Badge, PopupTabState, QuickPopupRequest } from './platform';
 import type { SiteAdapter } from './site';
 import type { Store } from './storage';
 import { defineCapabilityFeature } from '../capabilities';
+import { createBridgeActiveToggle } from './bind';
+import { PageBridge } from './bridge';
 import { defineFeature } from './feature';
+import { servePageWorld } from './page-world';
 import { SITE_INSTANCE_REPLACE_EVENT, SiteRegistry, scrubCommonPii, startSite } from './site';
+import { readSiteEnabledHint, writeSiteEnabledHint } from './site-hint';
 import { SITES_STORAGE_KEY } from './site-settings';
 import { inMemoryStore } from './testing';
 import {
@@ -494,5 +498,69 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     invalidated = true;
     document.dispatchEvent(new CustomEvent(SITE_INSTANCE_REPLACE_EVENT, { detail: 'new-ext' }));
     await vi.waitFor(() => expect(events).toEqual(['start', 'stop']));
+  });
+
+  it('disarms a stale MAIN-world hint with keepRemoteAlive and still activates live when re-enabled without reload', async () => {
+    const toggleCalls: boolean[] = [];
+    const server = servePageWorld({}, { 'reddit-active': (enabled) => toggleCalls.push(enabled) });
+    writeSiteEnabledHint('reddit', true);
+
+    try {
+      const store = inMemoryStore({ [SITES_STORAGE_KEY]: { reddit: false } });
+      const site: SiteAdapter<Record<string, never>> = {
+        id: 'reddit',
+        displayName: 'Reddit',
+        pageWorldActiveToggle: 'reddit-active',
+        matchesHost: () => true,
+        themeCss: '',
+        accountId: () => 'u1',
+        scrubPii: scrubCommonPii,
+        createPage: (_data, installPageWorld, env) => {
+          const bridge = new PageBridge(installPageWorld, { reconnectOnReady: true });
+          env?.scope.add(() => bridge.dispose());
+          const activeToggle = createBridgeActiveToggle(
+            bridge,
+            'reddit-active',
+            readSiteEnabledHint('reddit', false),
+          );
+          const factory = () => ({});
+          return Object.assign(factory, {
+            setActive(active: boolean) {
+              activeToggle.setPinned(active);
+              if (active) {
+                void activeToggle.activate();
+              } else {
+                void activeToggle.deactivate();
+              }
+            },
+          });
+        },
+        features: [],
+        createPanels: () => [],
+      };
+
+      await startSite(site, {
+        build: 'test',
+        store,
+        setBadge: () => undefined,
+        onOpenOptions: () => () => undefined,
+        installPageWorld: () => Promise.resolve(),
+      });
+
+      // Stale hint was disarmed without killing servePageWorld.
+      await vi.waitFor(() => expect(toggleCalls).toEqual([false]));
+
+      // Re-enabling live connects to the still-alive MAIN-world server and activates the toggle.
+      await store.set(SITES_STORAGE_KEY, { reddit: true });
+      await vi.waitFor(() => expect(toggleCalls).toEqual([false, true]));
+
+      // Pausing live deactivates again; re-enabling activates once more.
+      await store.set(SITES_STORAGE_KEY, { reddit: false });
+      await vi.waitFor(() => expect(toggleCalls).toEqual([false, true, false]));
+      await store.set(SITES_STORAGE_KEY, { reddit: true });
+      await vi.waitFor(() => expect(toggleCalls).toEqual([false, true, false, true]));
+    } finally {
+      server.dispose();
+    }
   });
 });

@@ -337,7 +337,12 @@ export function createPage(
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
     ...(openOptions ? { openOptions } : {}),
   });
-  return Object.assign(page, { stats: { atoms, locators, posts, bridge } });
+  return Object.assign(page, {
+    setActive(active: boolean) {
+      atoms.setActive(active);
+    },
+    stats: { atoms, locators, posts, bridge },
+  });
 }
 
 /**

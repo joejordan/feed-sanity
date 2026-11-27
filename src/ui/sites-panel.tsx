@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { SiteSettingsClient, SiteStatus } from '../core/site-settings';
 import type { OptionsPanel } from './options-dialog/panel';
 import { isSiteVisible } from '../core/site-settings';
@@ -66,6 +66,7 @@ function SitesPanelView({
   consumeRevealPending: () => boolean;
   registerReveal: (fn: (() => void) | undefined) => void;
 }) {
+  const experimentalToggleId = useId();
   const [sites, setSites] = useState<SiteStatus[]>(() => client.list());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showExperimental, setShowExperimental] = useState<boolean>(
@@ -137,7 +138,9 @@ function SitesPanelView({
           <div className="sites-experimental-header">
             <div className="sites-meta">
               <div className="sites-name-row">
-                <span className="sites-name">Experimental sites</span>
+                <label className="sites-name" htmlFor={experimentalToggleId}>
+                  Experimental sites
+                </label>
                 <Badge tone="warning">Unfinished</Badge>
                 {enabledExperimentalCount > 0 && (
                   <Badge tone="neutral">{enabledExperimentalCount} active</Badge>
@@ -149,6 +152,7 @@ function SitesPanelView({
               </p>
             </div>
             <Switch
+              id={experimentalToggleId}
               checked={showExperimental}
               ariaLabel="Show experimental sites"
               onChange={setShowExperimental}

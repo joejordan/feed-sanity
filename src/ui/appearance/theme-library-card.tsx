@@ -53,8 +53,8 @@ function suggestSaveName(doc: ThemeDocumentV1, items: readonly AnalyzedLibraryEn
   }
 }
 
-function handleInlineFormKeyDown(
-  event: { key: string; preventDefault: () => void },
+export function handleInlineFormKeyDown(
+  event: { key: string; preventDefault: () => void; stopPropagation?: () => void },
   onCommit: () => void,
   onCancel: () => void,
 ): void {
@@ -63,6 +63,7 @@ function handleInlineFormKeyDown(
     onCommit();
   } else if (event.key === 'Escape') {
     event.preventDefault();
+    event.stopPropagation?.();
     onCancel();
   }
 }

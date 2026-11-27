@@ -1,4 +1,6 @@
+import type { Filter } from '../../core/filter-types';
 import type { OptionValue } from '../../core/options';
+import { newFilter, newRule } from '../../core/filter-types';
 
 export type StarterModeId = 'clean' | 'focus' | 'minimal';
 
@@ -402,4 +404,101 @@ export function diffStarterMode(
     }
   }
   return { totalChanges, hiddenChanges };
+}
+
+const QUICK_MUTE_DOMAIN_OR_URL =
+  /^(?:https?:\/\/|www\.)|[a-z0-9-]+\.(?:com|org|net|io|co|gov|edu|app|dev|tv|news)(?:\/|$)/i;
+
+function detectQuickMuteTarget(term: string, siteId: string): string {
+  if (term.startsWith('@')) {
+    if (siteId === 'gmail') {
+      return 'sender';
+    }
+    if (siteId === 'facebook' || siteId === 'x' || siteId === 'instagram') {
+      return 'author';
+    }
+  }
+  if (term.startsWith('#') && (siteId === 'facebook' || siteId === 'x' || siteId === 'instagram')) {
+    return 'hashtag';
+  }
+  if (siteId === 'reddit') {
+    if (/^r\/[a-z0-9_]+$/i.test(term)) {
+      return 'subreddit';
+    }
+    if (/^u\/[a-z0-9_-]+$/i.test(term)) {
+      return 'author';
+    }
+  }
+  if (QUICK_MUTE_DOMAIN_OR_URL.test(term)) {
+    if (siteId === 'facebook' || siteId === 'x') {
+      return 'link_url';
+    }
+    if (siteId === 'reddit') {
+      return 'domain';
+    }
+  }
+  return 'any';
+}
+
+/**
+ * Builds a safe, reversible (`show_note: true`) filter for the Quick Popup's
+ * 1-line Quick Mute bar, mirroring `createQuickHideFilter` without pulling full
+ * site adapters into `popup.html`. Supports comma-separated phrases plus smart
+ * `@account`, `#hashtag`, `r/subreddit`, and URL normalization per site.
+ */
+export function createQuickMuteFilter(rawTerm: string, siteId: string): Filter | null {
+  const rawParts = rawTerm
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  const first = rawParts[0];
+  if (!first) {
+    return null;
+  }
+
+  const target = rawParts.length === 1 ? detectQuickMuteTarget(first, siteId) : 'any';
+
+  const normalize = (part: string): string => {
+    if (
+      target === 'author' &&
+      (siteId === 'instagram' || siteId === 'facebook') &&
+      part.startsWith('@')
+    ) {
+      return part.slice(1).trim();
+    }
+    if (target === 'hashtag' && siteId === 'facebook' && part.startsWith('#')) {
+      return part.slice(1).trim();
+    }
+    if (target === 'domain' && (part.includes('://') || part.includes('/'))) {
+      try {
+        const parsed = new URL(part.includes('://') ? part : `https://${part}`);
+        return parsed.hostname.replace(/^www\./i, '');
+      } catch {
+        return part;
+      }
+    }
+    return part;
+  };
+
+  const terms: string[] = [];
+  for (const part of rawParts) {
+    const cleaned = normalize(part);
+    if (cleaned && !terms.some((existing) => existing.toLowerCase() === cleaned.toLowerCase())) {
+      terms.push(cleaned);
+    }
+  }
+  if (terms.length === 0) {
+    return null;
+  }
+
+  return newFilter({
+    title: `Hide "${terms.join(', ')}"`,
+    match: 'ANY',
+    enabled: true,
+    rules: terms.map((text) => {
+      const base = newRule(target);
+      return { ...base, condition: { ...base.condition, text } };
+    }),
+    actions: [{ action: 'hide', show_note: true }],
+  });
 }

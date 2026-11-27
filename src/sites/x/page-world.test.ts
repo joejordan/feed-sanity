@@ -287,4 +287,42 @@ describe('x page-world engine (React fiber + transforming Network Tap)', () => {
       document.removeEventListener('feed-sanity:shadow-attached', onShadow);
     }
   });
+
+  it('stays passive when startActive is false and toggles attachShadow via x-active', async () => {
+    const origAttach = Element.prototype.attachShadow;
+    const attachedTargets: EventTarget[] = [];
+    const onShadow = (event: Event) => {
+      if (event.target) {
+        attachedTargets.push(event.target);
+      }
+    };
+    document.addEventListener('feed-sanity:shadow-attached', onShadow);
+
+    try {
+      const handle = startXPageWorld({ Element }, { startActive: false });
+      disposers.push(handle.dispose);
+
+      // Passive boot leaves native attachShadow untouched.
+      expect(Element.prototype.attachShadow).toBe(origAttach);
+      const passiveHost = document.createElement('div');
+      document.body.append(passiveHost);
+      passiveHost.attachShadow({ mode: 'open' });
+      expect(attachedTargets).toEqual([]);
+
+      // Activating x-active hooks attachShadow; deactivating restores it cleanly.
+      const bridge = new PageBridge(() => Promise.resolve());
+      disposers.push(() => bridge.dispose());
+      await bridge.set('x-active', true);
+      expect(Element.prototype.attachShadow).not.toBe(origAttach);
+      const activeHost = document.createElement('div');
+      document.body.append(activeHost);
+      activeHost.attachShadow({ mode: 'open' });
+      expect(attachedTargets).toEqual([activeHost]);
+
+      await bridge.set('x-active', false);
+      expect(Element.prototype.attachShadow).toBe(origAttach);
+    } finally {
+      document.removeEventListener('feed-sanity:shadow-attached', onShadow);
+    }
+  });
 });

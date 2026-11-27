@@ -169,6 +169,15 @@ export function createInstagramPage(
   };
 
   return Object.assign(factory, {
+    setActive(active: boolean) {
+      if (active) {
+        if (listeningStats) {
+          void activeToggle.activate();
+        }
+      } else {
+        void activeToggle.deactivate();
+      }
+    },
     stats: {
       locators,
       feed,

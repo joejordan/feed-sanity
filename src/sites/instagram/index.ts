@@ -44,7 +44,7 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
   scrubPii: scrubInstagramPii,
   createPage: createInstagramPage,
   features: instagramFeatures,
-  createPanels({ options, data, page, runner, platform }) {
+  createPanels({ options, data, page, runner, platform, siteSettings, themeLibrary }) {
     const { stats } = page;
     const overrides = data.value(IG_LOCATOR_OVERRIDES, readLocatorOverrides);
     return [
@@ -55,6 +55,8 @@ export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createI
         options,
         data,
         locators: overrides,
+        siteSettings,
+        themeLibrary,
       }),
       diagnosticsPanel({
         collect: () => {
