@@ -1,6 +1,6 @@
 {
   "name": "feed-sanity",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Filter, tidy, and theme Facebook, X, Instagram, Reddit, and Gmail.",
   "license": "GPL-3.0-or-later",
