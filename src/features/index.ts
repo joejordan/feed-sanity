@@ -4,6 +4,7 @@ import type { FacebookPage } from '../facebook/feature';
 import type { OptionsPanel } from '../ui/options-dialog/panel';
 import externalCss from './external-css';
 import facebookDisplayNotice from './facebook-display-notice';
+import hideFeedShelves from './hide-feed-shelves';
 import homeFeed from './home-feed';
 import markRead from './mark-read';
 import postFilters from './post-filters';
@@ -19,6 +20,7 @@ export const features: readonly Feature<FacebookPage>[] = [
   homeFeed,
   facebookDisplayNotice,
   stopFeedRefresh,
+  hideFeedShelves,
   postFilters,
   markRead,
   storiesKeepPlaying,
