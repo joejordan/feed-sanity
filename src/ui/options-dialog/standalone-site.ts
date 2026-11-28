@@ -8,7 +8,7 @@ import type {
   ThemeLibraryClient,
   ThemeUrlFetcher,
 } from '../../core/theming';
-import type { PostReadData } from '../../facebook/post-read';
+import type { ReadHistory } from '../../facebook/read-history';
 import type { SiteId } from '../../sites/manifest';
 import type { SavedVideoSpeed } from '../../sites/x/features/video-speed-model';
 import type { OptionsPanel } from './panel';
@@ -19,7 +19,7 @@ import { SavedData } from '../../core/saved';
 import { compileUiThemeCss, resolveTheme } from '../../core/theming';
 import { siteDataPanel } from '../../data/data-panel';
 import { LOCATOR_OVERRIDES as FB_LOCATOR_OVERRIDES } from '../../facebook/feature';
-import { savedPostData } from '../../facebook/post-read';
+import { savedReadHistory } from '../../facebook/read-history';
 import {
   features as facebookFeatures,
   optionsPanels as facebookOptionsPanels,
@@ -58,7 +58,7 @@ interface StandaloneSiteSpec {
   readonly locatorKey: string;
   readonly createFilterPanels: (data: SavedData) => OptionsPanel[];
   readonly extraDataStores?: (data: SavedData) => {
-    readonly read_history?: SavedValue<PostReadData>;
+    readonly readHistory?: SavedValue<ReadHistory>;
     readonly videoSpeed?: SavedValue<SavedVideoSpeed>;
   };
 }
@@ -68,7 +68,7 @@ const STANDALONE_SITES: Readonly<Record<SiteId, StandaloneSiteSpec>> = {
     features: facebookFeatures,
     locatorKey: FB_LOCATOR_OVERRIDES,
     createFilterPanels: (data) => facebookOptionsPanels(data),
-    extraDataStores: (data) => ({ read_history: savedPostData(data) }),
+    extraDataStores: (data) => ({ readHistory: savedReadHistory(data) }),
   },
   x: {
     features: xFeatures,
@@ -253,7 +253,7 @@ export function createStandaloneSiteSession({
       locators: data.value(spec.locatorKey, readLocatorOverrides),
       siteSettings,
       themeLibrary,
-      ...(extra?.read_history ? { read_history: extra.read_history } : {}),
+      ...(extra?.readHistory ? { readHistory: extra.readHistory } : {}),
       ...(extra?.videoSpeed ? { videoSpeed: extra.videoSpeed } : {}),
     }),
     sitesPanel(siteSettings, siteId),

@@ -541,7 +541,7 @@ describe('post_filters', () => {
       await start();
       const history = savedReadHistory(data);
       await history.ready;
-      await history.set({ '200': 1 });
+      await history.set({ '2000002': 1 });
       await setFilters([
         keepFilter({
           conditions: [{ kind: 'text', part: 'text', test: 'contains', values: ['seen'] }],
@@ -553,11 +553,11 @@ describe('post_filters', () => {
         }),
       ]);
       const seen = posts.track(makePost('<p>seen it</p>'));
-      posts.announce(seen, '100');
-      posts.add(makePost('<p>show again</p>'), '200');
+      posts.announce(seen, '1000001');
+      posts.add(makePost('<p>show again</p>'), '2000002');
       posts.add(makePost('<p>seen, no id</p>'), null);
       posts.add(makePost('<p>seen, bad id</p>'), 'none');
-      await vi.waitFor(() => expect(Object.keys(history.get())).toEqual(['100']));
+      await vi.waitFor(() => expect(Object.keys(history.get())).toEqual(['1000001']));
     });
   });
 

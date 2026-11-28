@@ -7,7 +7,7 @@ import { collectDiagnostics, reportedPageType } from '../../diagnostics/collect'
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
 import { scrub } from '../../diagnostics/report';
 import { createPage, LOCATOR_OVERRIDES } from '../../facebook/feature';
-import { savedPostData } from '../../facebook/post-read';
+import { savedReadHistory } from '../../facebook/read-history';
 import facebookTheme from '../../facebook/theme.css?inline';
 import { isFacebookHost } from '../../facebook/urls';
 import { currentUserId } from '../../facebook/user';
@@ -42,7 +42,7 @@ export const facebookSite: SiteAdapter<FacebookPage, ReturnType<typeof createPag
         locators: overrides,
         siteSettings,
         themeLibrary,
-        read_history: savedPostData(data),
+        readHistory: savedReadHistory(data),
       }),
       diagnosticsPanel({
         collect: () => collectDiagnostics({ version, build: platform.build, page: stats, runner }),

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import type { Filter } from '../core/filter-types';
 import { savedFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { Options } from '../core/options';
@@ -13,6 +14,7 @@ import {
   updateThemeTypography,
 } from '../core/theming';
 import { LOCATOR_OVERRIDES } from '../facebook/feature';
+import { savedReadHistory } from '../facebook/read-history';
 import { extensionStore } from '../platform/extension-store';
 import {
   DEFAULT_VIDEO_SPEED,
@@ -34,17 +36,37 @@ const SPECS = {
     ],
   },
   hidden_keywords: {
-    section: 'Hide Posts',
+    section: 'Filtering',
     title: 'Keywords',
     description: '',
     default: '',
   },
   hide_sponsored_posts: {
-    section: 'Hide Posts',
+    section: 'Filtering',
     title: 'Hide ads',
     description: '',
     default: false,
   },
+  read_posts_keep_days: {
+    section: 'Feed & Reading',
+    title: 'Keep days',
+    description: '',
+    default: 30,
+  },
+};
+
+const NO_ADS: Filter = {
+  id: 'fnoads',
+  name: 'No ads',
+  description: 'Hides sale posts',
+  enabled: true,
+  join: 'all',
+  stopAfter: true,
+  conditions: [
+    { kind: 'text', part: 'text', test: 'contains', values: ['sale'], wholeWords: true },
+    { kind: 'weekday', days: [1, 2] },
+  ],
+  actions: [{ kind: 'hide' }, { kind: 'style', css: 'opacity: 0.5' }],
 };
 
 describe('data transfer', () => {
@@ -71,14 +93,8 @@ describe('data transfer', () => {
     const stores = makeStores();
     await stores.options.set('home_feed', 'friends');
     await stores.options.set('hidden_keywords', 'crypto');
-    await stores.filters.set([
-      {
-        title: 'No ads',
-        enabled: true,
-        rules: [{ target: 'any', operator: 'contains', condition: { text: 'sale' } }],
-        actions: [{ action: 'hide', show_note: true }],
-      },
-    ]);
+    await stores.options.set('read_posts_keep_days', 7);
+    await stores.filters.set([NO_ADS]);
     await stores.locators.set({ post: ['[role=article]'] });
 
     const json = exportBackup(stores);
@@ -94,11 +110,78 @@ describe('data transfer', () => {
     }
     const summary = await applyBackup(parsed, stores);
 
-    expect(summary).toBe('Imported 3 options, 1 filter, 1 locator override.');
+    expect(summary).toBe('Imported 4 options, 1 filter, 1 locator override.');
     expect(stores.options.get('home_feed')).toBe('friends');
     expect(stores.options.get('hidden_keywords')).toBe('crypto');
-    expect(stores.filters.get()).toHaveLength(1);
+    expect(stores.options.get('read_posts_keep_days')).toBe(7);
+    expect(stores.filters.get()).toEqual([NO_ADS]);
     expect(stores.locators.get()).toEqual({ post: ['[role=article]'] });
+  });
+
+  it('skips and counts unknown, mistyped and invalid-choice options', async () => {
+    const stores = makeStores();
+    const parsed = parseBackup(
+      JSON.stringify({
+        options: {
+          not_a_real_option: true,
+          hidden_keywords: 42,
+          hide_sponsored_posts: 'yes',
+          home_feed: 'nowhere',
+          read_posts_keep_days: null,
+          also_not_real: 'x',
+          hide_sponsored_posts_extra: false,
+          home_feed_copy: 'home',
+        },
+      }),
+      options.list(),
+    );
+    expect(parsed).toMatchObject({ ok: true, options: {}, skippedOptions: 8 });
+
+    const mixed = parseBackup(
+      JSON.stringify({
+        options: { not_a_real_option: 1, hide_sponsored_posts: true, home_feed: 'friends' },
+      }),
+      options.list(),
+    );
+    expect(mixed.ok).toBe(true);
+    if (!mixed.ok) {
+      return;
+    }
+    expect(mixed.options).toEqual({ hide_sponsored_posts: true, home_feed: 'friends' });
+    const summary = await applyBackup(mixed, stores);
+    expect(summary).toBe('Imported 2 options (1 unrecognised option skipped).');
+    expect(stores.options.get('hide_sponsored_posts')).toBe(true);
+  });
+
+  it('imports no filters when "filters" is not a list, and keeps the saved ones', async () => {
+    const stores = makeStores();
+    await stores.filters.set([NO_ADS]);
+    for (const filters of [{ 0: NO_ADS }, 'hide everything', 7, null]) {
+      const parsed = parseBackup(JSON.stringify({ filters }), options.list());
+      expect(parsed).toMatchObject({ ok: true, filters: undefined });
+      if (parsed.ok) {
+        expect(await applyBackup(parsed, stores)).toBe('Nothing matched to import.');
+      }
+    }
+    expect(stores.filters.get()).toEqual([NO_ADS]);
+  });
+
+  it('flags a backup from another site', () => {
+    const parsed = parseBackup(JSON.stringify({ site: 'X', options: {} }), options.list());
+    expect(parsed).toMatchObject({ ok: true, site: 'x' });
+  });
+
+  it('resets the read history along with everything else', async () => {
+    const stores = makeStores();
+    const readHistory = savedReadHistory(data);
+    await readHistory.ready;
+    await readHistory.set({ '1234567890': Date.now() });
+    expect(Object.keys(readHistory.get())).toHaveLength(1);
+
+    const withHistory = { ...stores, readHistory };
+    expect(JSON.parse(exportBackup(withHistory))).not.toHaveProperty('readHistory');
+    await resetAllData(withHistory);
+    expect(readHistory.get()).toEqual({});
   });
 
   it('rejects invalid JSON or objects with no recognised sections', () => {

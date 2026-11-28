@@ -4,7 +4,7 @@ import type { OptionSpec, Options, OptionValue } from '../core/options';
 import type { SavedValue } from '../core/saved';
 import type { SiteSettingsClient } from '../core/site-settings';
 import type { ThemeDocumentV1, ThemeLibraryClient } from '../core/theming';
-import type { PostReadData } from '../facebook/post-read';
+import type { ReadHistory } from '../facebook/read-history';
 import type { SavedVideoSpeed } from '../sites/x/features/video-speed-model';
 import { readFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
@@ -32,7 +32,7 @@ export interface DataStores {
   readonly theme?: SavedValue<ThemeDocumentV1> | undefined;
   readonly themeLibrary?: ThemeLibraryClient | undefined;
   readonly siteSettings?: SiteSettingsClient | undefined;
-  readonly read_history?: SavedValue<PostReadData> | undefined;
+  readonly readHistory?: SavedValue<ReadHistory> | undefined;
   readonly videoSpeed?: SavedValue<SavedVideoSpeed> | undefined;
 }
 
@@ -171,13 +171,9 @@ export function parseBackup(text: string, specs: readonly [string, OptionSpec][]
     }
   }
 
-  let parsedFilters: Filter[] | undefined;
-  if (hasFilters) {
-    if (!Array.isArray(raw.filters) && !isRecord(raw.filters)) {
-      return { ok: false, error: '"filters" must be a JSON list.' };
-    }
-    parsedFilters = readFilters(raw.filters);
-  }
+  // Only a list replaces the saved filters. Any other value reads as no
+  // filters at all, so a damaged section cannot wipe the user's list.
+  const parsedFilters = Array.isArray(raw.filters) ? readFilters(raw.filters) : undefined;
 
   let parsedLocators: LocatorOverrides | undefined;
   if (hasLocators) {
@@ -379,7 +375,7 @@ export async function resetAllData({
   filters,
   locators,
   theme,
-  read_history,
+  readHistory,
   videoSpeed,
 }: DataStores): Promise<void> {
   for (const [key, spec] of options.list()) {
@@ -390,8 +386,8 @@ export async function resetAllData({
   if (theme) {
     await theme.set({ ...DEFAULT_THEME_DOCUMENT });
   }
-  if (read_history) {
-    await read_history.set({});
+  if (readHistory) {
+    await readHistory.set({});
   }
   if (videoSpeed) {
     await videoSpeed.set({ ...DEFAULT_VIDEO_SPEED });

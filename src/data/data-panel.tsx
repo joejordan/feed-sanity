@@ -12,7 +12,7 @@ import type { Options } from '../core/options';
 import type { SavedData, SavedValue } from '../core/saved';
 import type { SiteSettingsClient } from '../core/site-settings';
 import type { ThemeLibraryClient } from '../core/theming';
-import type { PostReadData } from '../facebook/post-read';
+import type { ReadHistory } from '../facebook/read-history';
 import type { SavedVideoSpeed } from '../sites/x/features/video-speed-model';
 import type { OptionsPanel } from '../ui/options-dialog/panel';
 import type { DataStores, ParsedBackup } from './transfer';
@@ -141,6 +141,10 @@ export function DataPanel({
     ? `Save ${sitePossessive} ${NAME} options, filters, theme, custom selectors, My Themes library, and site toggles as a portable JSON file.`
     : `Save ${sitePossessive} ${NAME} options, filters, theme, and custom selectors as a portable JSON file.`;
 
+  const clearedOnReset = stores.readHistory
+    ? 'filters, theme, custom selectors and read history'
+    : 'filters, theme and custom selectors';
+
   const reportStatus = (text: string, error = false): void => {
     if (!error && notify) {
       setStatus(null);
@@ -150,12 +154,12 @@ export function DataPanel({
     setStatus(error ? { text, error: true } : { text });
   };
 
-  const subscribePostdata = useCallback(
-    (onChange: () => void) => stores.read_history?.onChange(onChange) ?? (() => undefined),
-    [stores.read_history],
+  const subscribeReadHistory = useCallback(
+    (onChange: () => void) => stores.readHistory?.onChange(onChange) ?? (() => undefined),
+    [stores.readHistory],
   );
-  const readCount = useSyncExternalStore(subscribePostdata, () =>
-    stores.read_history ? Object.keys(stores.read_history.get()).length : 0,
+  const readCount = useSyncExternalStore(subscribeReadHistory, () =>
+    stores.readHistory ? Object.keys(stores.readHistory.get()).length : 0,
   );
 
   const { optionStats, filterCount, locatorCount, activeThemeName } = useMemo(() => {
@@ -174,15 +178,15 @@ export function DataPanel({
   }, [stores, metricsTick]);
 
   const onClearReadHistory = async () => {
-    if (!stores.read_history) {
+    if (!stores.readHistory) {
       return;
     }
     setBusy(true);
     try {
-      await stores.read_history.set({});
-      reportStatus('Read post history cleared.');
+      await stores.readHistory.set({});
+      reportStatus('Read history cleared.');
     } catch {
-      reportStatus('Could not clear read post history.', true);
+      reportStatus('Could not clear the read history.', true);
     } finally {
       setBusy(false);
     }
@@ -362,7 +366,7 @@ export function DataPanel({
         return;
       }
       setConfirmingReset(false);
-      reportStatus('All options, filters, theme and custom selectors were reset to defaults.');
+      reportStatus(`All options, ${clearedOnReset} were reset to defaults.`);
     } catch {
       if (mountedRef.current) {
         reportStatus('Could not reset settings.', true);
@@ -578,11 +582,8 @@ export function DataPanel({
         </div>
       </SettingCard>
 
-      {stores.read_history && (
-        <SettingCard
-          title="Read Post History"
-          action={<Badge tone="neutral">{readCount} stored</Badge>}
-        >
+      {stores.readHistory && (
+        <SettingCard title="Read History" action={<Badge tone="neutral">{readCount} stored</Badge>}>
           <div className="data-card-body">
             <div className="data-inline-row">
               <p className="description">
@@ -610,8 +611,7 @@ export function DataPanel({
               <div className="data-reset-confirm-copy">
                 <strong>Reset {siteName ? `${siteName} settings` : 'all settings'}?</strong>
                 <p className="description">
-                  Every {siteName ? `${siteName} ` : ''}option will return to its default and saved
-                  filters, active theme, and custom selectors for this site will be cleared.
+                  {`Every ${siteName ? `${siteName} ` : ''}option will return to its default, and the saved ${clearedOnReset} for this site will be cleared.`}
                 </p>
               </div>
               <div className="data-actions">
@@ -637,8 +637,7 @@ export function DataPanel({
           ) : (
             <div className="data-inline-row">
               <p className="description">
-                Restore every {siteName ? `${siteName} ` : ''}option to its default and remove all
-                saved filters, theme, and custom selectors.
+                {`Restore every ${siteName ? `${siteName} ` : ''}option to its default and remove the saved ${clearedOnReset}.`}
               </p>
               <button
                 className="button data-danger-outline"
@@ -673,7 +672,7 @@ export function dataPanel(
       stores.theme?.ready ?? Promise.resolve(),
       stores.themeLibrary?.ready ?? Promise.resolve(),
       stores.siteSettings?.ready ?? Promise.resolve(),
-      stores.read_history?.ready ?? Promise.resolve(),
+      stores.readHistory?.ready ?? Promise.resolve(),
       stores.videoSpeed?.ready ?? Promise.resolve(),
     ]).then(() => undefined),
     read: () => null,
@@ -717,7 +716,7 @@ export function siteDataPanel({
   locators,
   themeLibrary,
   siteSettings,
-  read_history,
+  readHistory,
   videoSpeed,
 }: {
   readonly siteId: string;
@@ -727,7 +726,7 @@ export function siteDataPanel({
   readonly locators: SavedValue<LocatorOverrides>;
   readonly themeLibrary?: ThemeLibraryClient | undefined;
   readonly siteSettings?: SiteSettingsClient | undefined;
-  readonly read_history?: SavedValue<PostReadData> | undefined;
+  readonly readHistory?: SavedValue<ReadHistory> | undefined;
   readonly videoSpeed?: SavedValue<SavedVideoSpeed> | undefined;
 }): OptionsPanel {
   return dataPanel(
@@ -739,7 +738,7 @@ export function siteDataPanel({
       theme: data.value(THEME_DATA_KEY, readThemeDocument),
       ...(themeLibrary ? { themeLibrary } : {}),
       ...(siteSettings ? { siteSettings } : {}),
-      ...(read_history ? { read_history } : {}),
+      ...(readHistory ? { readHistory } : {}),
       ...(videoSpeed ? { videoSpeed } : {}),
     },
     { siteName },

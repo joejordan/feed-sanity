@@ -2,12 +2,15 @@ import { cleanup, render, screen } from '@testing-library/preact';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import { NAME } from '../../project';
 import { savedFilters } from '../core/filter-types';
 import { readLocatorOverrides } from '../core/locator';
 import { Options } from '../core/options';
 import { SavedData } from '../core/saved';
 import { LOCATOR_OVERRIDES } from '../facebook/feature';
+import { savedReadHistory } from '../facebook/read-history';
 import { extensionStore } from '../platform/extension-store';
+import { SITE_MANIFEST } from '../sites/manifest';
 import { OptionsDialog } from '../ui/options-dialog/options-dialog';
 import { DataPanel, dataPanel } from './data-panel';
 
@@ -27,7 +30,7 @@ describe('DataPanel', () => {
     fakeBrowser.reset();
     options = new Options(extensionStore, 'u/options');
     options.register({
-      hidden_keywords: { section: 'Hide Posts', title: 'Keywords', description: '', default: '' },
+      hidden_keywords: { section: 'Filtering', title: 'Keywords', description: '', default: '' },
     });
     await options.load();
     data = new SavedData(extensionStore, 'u');
@@ -110,7 +113,6 @@ describe('DataPanel', () => {
     const stores = { ...makeStores(), siteId: 'x' };
     render(<DataPanel stores={stores} siteName="X (Twitter)" />);
 
-    // TODO(clean): assert the panel names no other product on any site (spec-data-transfer.md).
     expect(screen.getByRole('button', { name: 'Reset X (Twitter) settings' })).toBeTruthy();
 
     const box = screen.getByRole<HTMLTextAreaElement>('textbox', {
@@ -126,6 +128,48 @@ describe('DataPanel', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Import anyway' }));
     await vi.waitFor(() => expect(stores.options.get('hidden_keywords')).toBe('cross-site'));
+  });
+
+  it('uses the same Feed Sanity-only copy on every site', () => {
+    const copies = new Set<string>();
+    for (const site of SITE_MANIFEST) {
+      const { container, unmount } = render(
+        <DataPanel stores={{ ...makeStores(), siteId: site.id }} siteName={site.displayName} />,
+      );
+      const text = container.textContent ?? '';
+      expect(text).toContain(NAME);
+      expect(text).not.toMatch(/compatib/i);
+      copies.add(text.replaceAll(site.displayName, '<site>'));
+      unmount();
+
+      const panel = dataPanel(makeStores(), { siteName: site.displayName });
+      for (const item of panel.searchItems?.() ?? []) {
+        expect(`${item.title} ${item.description ?? ''}`).not.toMatch(/compatib/i);
+      }
+    }
+    expect(copies.size).toBe(1);
+  });
+
+  it('shows the read history card only with a read history, with a live count and a clear button', async () => {
+    const { unmount } = render(<DataPanel stores={makeStores()} siteName="X" />);
+    expect(screen.queryByRole('button', { name: 'Clear read history' })).toBeNull();
+    unmount();
+
+    const readHistory = savedReadHistory(data);
+    await readHistory.ready;
+    await readHistory.set({ '1111111111': Date.now() });
+    render(<DataPanel stores={{ ...makeStores(), readHistory }} siteName="Facebook" />);
+    expect(screen.getByText('1 post is remembered as read on this account.')).toBeTruthy();
+
+    await readHistory.set({ '1111111111': Date.now(), '2222222222': Date.now() });
+    await vi.waitFor(() =>
+      expect(screen.getByText('2 posts are remembered as read on this account.')).toBeTruthy(),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear read history' }));
+    await vi.waitFor(() => expect(readHistory.get()).toEqual({}));
+    expect(screen.getByText('No posts are currently marked as read.')).toBeTruthy();
+    expect(screen.getByRole('status').textContent).toContain('Read history cleared.');
   });
 
   it('shows live backup snapshot summary metrics and restores a dropped JSON file', async () => {

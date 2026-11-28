@@ -27,18 +27,6 @@ const KNOWN_SECTIONS: Readonly<Record<string, SectionMeta>> = {
     icon: 'shield',
     subtitle: 'Keep promo rows and noisy threads out of your inbox.',
   },
-  'Filters': {
-    group: 'site',
-    order: 12,
-    icon: 'shield',
-    subtitle: 'Build custom rules to hide, highlight, or route posts.',
-  },
-  'Hide Posts': {
-    group: 'site',
-    order: 14,
-    icon: 'shield',
-    subtitle: 'Filter out ads, suggested posts, and muted keywords.',
-  },
   'Feed & Reading': {
     group: 'site',
     order: 20,
@@ -133,13 +121,13 @@ const KNOWN_SECTIONS: Readonly<Record<string, SectionMeta>> = {
     group: 'manage',
     order: 110,
     icon: 'database',
-    subtitle: 'Save a backup, restore a file, or reset this site to defaults.',
+    subtitle: 'Save a backup, restore one, or reset this site to defaults.',
   },
   'Data': {
     group: 'manage',
     order: 110,
     icon: 'database',
-    subtitle: 'Save a backup, restore a file, or reset this site to defaults.',
+    subtitle: 'Save a backup, restore one, or reset this site to defaults.',
   },
   'Diagnostics': {
     group: 'manage',
@@ -164,12 +152,6 @@ export function getSectionMeta(section: string, siteId?: string): SectionMeta {
   };
   if (section === 'Media' && siteId && SITE_MEDIA_SUBTITLES[siteId]) {
     return { ...base, subtitle: SITE_MEDIA_SUBTITLES[siteId] };
-  }
-  if ((section === 'Data' || section === 'Backup & Reset') && siteId === 'facebook') {
-    return {
-      ...base,
-      subtitle: 'Save a backup, restore one, or reset this site to defaults.',
-    };
   }
   return base;
 }
