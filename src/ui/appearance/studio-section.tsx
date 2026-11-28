@@ -457,6 +457,7 @@ export function StudioVibesCard({
                 key={vibe.id}
                 type="button"
                 className="theme-vibe-card"
+                data-fs-jump-id={`vibe:${vibe.id}`}
                 aria-pressed={activeVibe?.id === vibe.id}
                 onMouseEnter={() => onPreviewVibe?.(vibe)}
                 onFocus={() => onPreviewVibe?.(vibe)}
@@ -486,6 +487,7 @@ export interface CreativeStudioCardProps {
   readonly effects: ThemeEffectsConfig;
   readonly effectsActive: boolean;
   readonly activeVibe?: StudioVibeMeta | undefined;
+  readonly jumpId?: string;
   readonly onPreviewEffects?: (patch: Partial<ThemeEffectsConfig>) => void;
   readonly onUpdateEffects: (patch: Partial<ThemeEffectsConfig>, toastLabel?: string) => void;
   readonly onResetEffects: () => void;
@@ -495,6 +497,7 @@ export function CreativeStudioCard({
   effects,
   effectsActive,
   activeVibe,
+  jumpId,
   onPreviewEffects,
   onUpdateEffects,
   onResetEffects,
@@ -524,6 +527,7 @@ export function CreativeStudioCard({
   return (
     <SettingCard
       title="Customize Effects"
+      {...(jumpId ? { jumpId } : {})}
       action={
         effectsActive ? (
           <button type="button" className="theme-inline-reset" onClick={onResetEffects}>
@@ -669,7 +673,7 @@ export function CreativeStudioCard({
 
       <SettingRow
         title="Surface finish"
-        description="Layer frosted glass, gradient sheen, neon rims, pointer-tracked Prism light, or a Moonlit underglow across cards and buttons."
+        description="Layer frosted glass, gradient sheen, neon rims, pointer-tracked Prism light, Moonlit underglow, sun-dappled canopy light, or Sea Glass caustics across cards and buttons."
         stacked
       >
         <div className="theme-studio-stack">

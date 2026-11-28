@@ -48,6 +48,11 @@ export interface OptionsPanel<T = unknown> {
   read: () => T;
   save: (value: T) => Promise<void>;
   /**
+   * Optional subscription notifying the dialog whenever the panel's backing
+   * value changes (including external writes from the toolbar popup or other tabs).
+   */
+  subscribe?: (listener: () => void) => () => void;
+  /**
    * Why the edited value cannot be saved, or null when it can. While a
    * panel has a problem, the dialog says so and will not save.
    */

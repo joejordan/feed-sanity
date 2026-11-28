@@ -7,9 +7,11 @@ import type { Store } from './storage';
 import { SITE_MANIFEST } from '../sites/manifest';
 import { Listeners } from './listeners';
 import { createLogger } from './log';
-import { isRecord } from './storage';
+import { isRecord, readStoreMany, watchStoreKey } from './storage';
 
 export const SITES_STORAGE_KEY = 'v2/sites';
+/** Persisted opt-in toggled in the Sites tab before experimental/beta controls surface in the toolbar popup. */
+export const EXPERIMENTAL_SITES_KEY = 'v2/experimental-sites';
 
 /** Runtime enablement state of one supported site, shown in the Options dialog's Sites section. */
 export interface SiteStatus {
@@ -26,6 +28,10 @@ export interface SiteSettingsClient {
   readonly list: () => SiteStatus[];
   readonly isEnabled: (siteId: string) => boolean;
   readonly setEnabled: (siteId: string, enabled: boolean) => Promise<void>;
+  /** True once the user has explicitly opted into experimental sites in the Sites tab. */
+  readonly isExperimentalUnlocked: () => boolean;
+  /** Persists the user's experimental-sites opt-in from the Sites tab. */
+  readonly setExperimentalUnlocked: (unlocked: boolean) => Promise<void>;
   readonly onChange: (listener: () => void) => () => void;
   readonly dispose?: () => void;
 }
@@ -82,48 +88,92 @@ function sameMap(
   return true;
 }
 
+/** Validates a raw stored experimental-sites opt-in value. */
+export function readExperimentalUnlocked(raw: unknown): boolean {
+  return raw === true;
+}
+
 /** Creates a reactive `SiteSettingsClient` synced through `store` across tabs. */
 export function createSiteSettings(store: Store): SiteSettingsClient {
   let state: Record<string, boolean> = {};
-  let unread = false;
+  let experimentalUnlocked = false;
+  let sitesUnread = false;
+  let experimentalUnread = false;
   let pendingSaves = 0;
+  let pendingExperimentalSaves = 0;
   let disposed = false;
-  let unsubscribeStore: (() => void) | undefined;
   let saveQueue: Promise<void> = Promise.resolve();
+  let experimentalSaveQueue: Promise<void> = Promise.resolve();
   const listeners = new Listeners<[]>(log);
 
-  const apply = (next: Record<string, boolean>): void => {
+  const updateSites = (next: Record<string, boolean>): boolean => {
     const changed = !sameMap(state, next);
     state = next;
-    if (changed) {
+    return changed;
+  };
+
+  const apply = (next: Record<string, boolean>): void => {
+    if (updateSites(next)) {
       listeners.emit();
     }
   };
 
-  let liveEventSeen = false;
-  const stopStore = store.onChange(SITES_STORAGE_KEY, (_oldValue, newValue) => {
+  const updateExperimental = (next: boolean): boolean => {
+    const changed = experimentalUnlocked !== next;
+    experimentalUnlocked = next;
+    return changed;
+  };
+
+  const applyExperimental = (next: boolean): void => {
+    if (updateExperimental(next)) {
+      listeners.emit();
+    }
+  };
+
+  let liveSitesEventSeen = false;
+  const stopSites = watchStoreKey(store, SITES_STORAGE_KEY, (newValue) => {
     if (!disposed && pendingSaves === 0) {
-      liveEventSeen = true;
+      liveSitesEventSeen = true;
       if (newValue === undefined || isRecord(newValue)) {
-        unread = false;
+        sitesUnread = false;
       }
       apply(readEnabledSites(newValue));
     }
   });
-  if (typeof stopStore === 'function') {
-    unsubscribeStore = stopStore;
-  }
 
-  const ready = store
-    .get(SITES_STORAGE_KEY)
-    .then((raw) => {
-      if (!disposed && !liveEventSeen) {
-        apply(readEnabledSites(raw));
+  let liveExperimentalEventSeen = false;
+  const stopExperimental = watchStoreKey(store, EXPERIMENTAL_SITES_KEY, (newValue) => {
+    if (!disposed && pendingExperimentalSaves === 0) {
+      liveExperimentalEventSeen = true;
+      if (newValue === undefined || typeof newValue === 'boolean') {
+        experimentalUnread = false;
+      }
+      applyExperimental(readExperimentalUnlocked(newValue));
+    }
+  });
+
+  const ready = readStoreMany(store, [SITES_STORAGE_KEY, EXPERIMENTAL_SITES_KEY])
+    .then((loaded) => {
+      if (disposed) {
+        return;
+      }
+      const sitesChanged =
+        !liveSitesEventSeen && updateSites(readEnabledSites(loaded[SITES_STORAGE_KEY]));
+      const expChanged =
+        !liveExperimentalEventSeen &&
+        updateExperimental(readExperimentalUnlocked(loaded[EXPERIMENTAL_SITES_KEY]));
+      if (sitesChanged || expChanged) {
+        listeners.emit();
       }
     })
     .catch((error: unknown) => {
-      if (!liveEventSeen) {
-        unread = true;
+      if (!liveSitesEventSeen) {
+        sitesUnread = true;
+      }
+      if (!liveExperimentalEventSeen) {
+        experimentalUnread = true;
+      }
+      if (!liveSitesEventSeen || !liveExperimentalEventSeen) {
         log.error('could not read site settings', error);
       }
     });
@@ -145,7 +195,7 @@ export function createSiteSettings(store: Store): SiteSettingsClient {
       }
       const run = saveQueue.then(async () => {
         await ready;
-        if (unread) {
+        if (sitesUnread) {
           throw new Error(`'${SITES_STORAGE_KEY}' could not be read, so it is not overwritten`);
         }
         if (isSiteEnabled(state, siteId) === enabled) {
@@ -164,14 +214,37 @@ export function createSiteSettings(store: Store): SiteSettingsClient {
       saveQueue = run.catch(() => undefined);
       return run;
     },
+    isExperimentalUnlocked: () => experimentalUnlocked,
+    setExperimentalUnlocked(unlocked) {
+      const run = experimentalSaveQueue.then(async () => {
+        await ready;
+        if (experimentalUnread) {
+          throw new Error(
+            `'${EXPERIMENTAL_SITES_KEY}' could not be read, so it is not overwritten`,
+          );
+        }
+        if (experimentalUnlocked === unlocked) {
+          return;
+        }
+        pendingExperimentalSaves++;
+        try {
+          await store.set(EXPERIMENTAL_SITES_KEY, unlocked);
+        } finally {
+          pendingExperimentalSaves--;
+        }
+        applyExperimental(unlocked);
+      });
+      experimentalSaveQueue = run.catch(() => undefined);
+      return run;
+    },
     onChange: (listener) => listeners.add(listener),
     dispose() {
       if (disposed) {
         return;
       }
       disposed = true;
-      unsubscribeStore?.();
-      unsubscribeStore = undefined;
+      stopSites();
+      stopExperimental();
       listeners.clear();
     },
   };

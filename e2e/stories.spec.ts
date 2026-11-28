@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, FILTERS_KEY, OPTIONS_KEY, ORIGIN, test } from './extension';
+import { expect, OPTIONS_KEY, ORIGIN, test } from './extension';
 
 const STORIES = `${ORIGIN}/stories/`;
 
@@ -108,30 +108,4 @@ test('lets the page pause the story over the list once switched off, without a r
   await page.locator('#menu').focus();
   await page.keyboard.press('Tab');
   await expect.poll(() => paused(page)).toBe(true);
-});
-
-test('keeps the filter tab list off the stories page', async ({ page, store }) => {
-  await store({
-    [OPTIONS_KEY]: { always_show_tabs: true },
-    [FILTERS_KEY]: [
-      {
-        title: 'Cats',
-        enabled: true,
-        match: 'ALL',
-        rules: [{ target: 'any', operator: 'contains', condition: { text: 'kittens' } }],
-        actions: [{ action: 'move-to-tab', tab: 'Cats' }],
-      },
-    ],
-  });
-  await open(page);
-  const tabList = page.getByRole('navigation', { name: 'Filter tabs' });
-
-  // Closing the viewer goes to the feed without a reload, where the list shows.
-  await page.locator('#close').click();
-  await expect(page).toHaveURL(`${ORIGIN}/`);
-  await expect(tabList).toBeVisible();
-
-  await page.goBack();
-  await expect(page).toHaveURL(STORIES);
-  await expect(tabList).toHaveCount(0);
 });

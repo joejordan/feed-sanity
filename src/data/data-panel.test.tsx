@@ -127,4 +127,29 @@ describe('DataPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Import anyway' }));
     await vi.waitFor(() => expect(stores.options.get('hidden_keywords')).toBe('cross-site'));
   });
+
+  it('shows live backup snapshot summary metrics and restores a dropped JSON file', async () => {
+    const stores = makeStores();
+    render(<DataPanel stores={stores} siteName="Facebook" />);
+
+    const summary = screen.getByRole('group', { name: 'Current configuration summary' });
+    expect(summary.textContent).toContain('0');
+    expect(summary.textContent).toContain('Customized options');
+
+    const dropzone = screen
+      .getByRole('button', { name: 'Load from file...' })
+      .closest('.data-dropzone') as HTMLElement;
+    const file = new File(
+      [JSON.stringify({ options: { hidden_keywords: 'dropped-term' }, filters: [] })],
+      'backup.json',
+      { type: 'application/json' },
+    );
+    const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(dropEvent, 'dataTransfer', { value: { files: [file] } });
+    dropzone.dispatchEvent(dropEvent);
+
+    await vi.waitFor(() => expect(stores.options.get('hidden_keywords')).toBe('dropped-term'));
+    expect(screen.getByRole('status').textContent).toContain('Imported 1 option');
+    await vi.waitFor(() => expect(summary.textContent).toContain('1'));
+  });
 });

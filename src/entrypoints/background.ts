@@ -1,9 +1,10 @@
 import { browser } from 'wxt/browser';
 import { defineBackground } from 'wxt/utils/define-background';
 import type { ToolbarButton } from '../platform/badge';
+import { fetchThemeTextFromUrl } from '../core/theming/url-import';
 import { attachExistingTabs, attachTabListener } from '../platform/auto-attach';
 import { badgeListener } from '../platform/badge';
-import { PING_RUNTIME } from '../platform/messages';
+import { PING_RUNTIME, parseFetchThemeUrlMessage } from '../platform/messages';
 import {
   ensureSafariPageWorldScripts,
   safariPageWorldListener,
@@ -46,9 +47,17 @@ export default defineBackground(() => {
 
   // Liveness ping used by content scripts to authenticate cross-world teardown
   // events so untrusted host-page scripts cannot spoof instance replacement.
-  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message === PING_RUNTIME) {
       sendResponse({ ok: true });
+      return true;
+    }
+    const themeUrl = parseFetchThemeUrlMessage(message);
+    if (themeUrl !== null && sender.id === browser.runtime.id) {
+      void fetchThemeTextFromUrl(themeUrl).then(
+        (result) => sendResponse(result),
+        () => sendResponse({ ok: false, error: 'Could not fetch theme URL.' }),
+      );
       return true;
     }
   });

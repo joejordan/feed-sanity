@@ -75,59 +75,75 @@
   appearance: none;
   display: inline-flex;
   align-items: center;
-  padding: 6px 11px;
-  border: 0;
+  padding: 5px 11px;
+  border: 1px solid color-mix(in srgb, var(--fs-brand-tittle) 38%, var(--fs-divider));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--fs-brand-tittle) 22%, var(--fs-divider));
+  background: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--fs-brand-tittle) 18%, var(--fs-card-bg)) 0%,
+    color-mix(in srgb, var(--fs-accent) 10%, var(--fs-card-bg)) 52%,
+    color-mix(in srgb, var(--fs-accent) 18%, var(--fs-card-bg)) 100%
+  );
   color: var(--fs-text);
   font: 600 11px / 1 var(--fs-font);
   white-space: nowrap;
   cursor: pointer;
-  box-shadow: 0 0 12px -4px color-mix(in srgb, var(--fs-brand-tittle) 36%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--fs-brand-tittle) 32%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--fs-accent) 24%, transparent),
+    0 1px 10px -3px color-mix(in srgb, var(--fs-brand-tittle) 36%, transparent);
   transition:
-    box-shadow 160ms ease,
-    transform 120ms ease;
+    border-color 180ms ease,
+    box-shadow 200ms ease,
+    transform 140ms ease;
 }
 
-.qp-support-btn::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 220px;
-  height: 220px;
-  margin: -110px 0 0 -110px;
-  z-index: -2;
-  pointer-events: none;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    transparent 245deg,
-    color-mix(in srgb, var(--fs-accent) 50%, transparent) 290deg,
-    var(--fs-brand-tittle) 336deg,
-    color-mix(in srgb, var(--fs-brand-tittle) 72%, white) 352deg,
-    transparent 360deg
-  );
-  animation: qp-support-orbit 5.6s linear infinite;
-}
-
+/* Full-button breathing aurora wash + unhurried pearlescent sheen across the entire pill. */
+.qp-support-btn::before,
 .qp-support-btn::after {
   content: "";
   position: absolute;
-  inset: 1.25px;
-  border-radius: inherit;
   z-index: -1;
   pointer-events: none;
-  background: color-mix(in srgb, var(--fs-brand-tittle) 7%, var(--fs-card-bg));
-  transition: background 140ms ease;
+}
+
+.qp-support-btn::before {
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    295deg,
+    color-mix(in srgb, var(--fs-brand-tittle) 26%, transparent) 0%,
+    color-mix(in srgb, var(--fs-accent) 18%, transparent) 55%,
+    color-mix(in srgb, var(--fs-brand-tittle) 12%, transparent) 100%
+  );
+  animation: qp-support-breathe 7s ease-in-out infinite alternate;
+}
+
+.qp-support-btn::after {
+  top: 0;
+  bottom: 0;
+  left: -20%;
+  width: 140%;
+  background: linear-gradient(
+    105deg,
+    transparent 24%,
+    color-mix(in srgb, var(--fs-accent) 24%, transparent) 42%,
+    color-mix(in srgb, var(--fs-brand-tittle) 38%, transparent) 52%,
+    color-mix(in srgb, white 22%, transparent) 57%,
+    color-mix(in srgb, var(--fs-brand-tittle) 18%, transparent) 65%,
+    transparent 78%
+  );
+  transform: translateX(-110%);
+  animation: qp-support-sheen 8s cubic-bezier(0.37, 0, 0.63, 1) infinite;
 }
 
 .qp-support-btn:hover {
-  box-shadow: 0 0 16px -3px color-mix(in srgb, var(--fs-brand-tittle) 62%, transparent);
-}
-
-.qp-support-btn:hover::after {
-  background: color-mix(in srgb, var(--fs-brand-tittle) 15%, var(--fs-card-bg));
+  border-color: color-mix(in srgb, var(--fs-brand-tittle) 62%, var(--fs-accent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--fs-brand-tittle) 48%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--fs-accent) 36%, transparent),
+    0 2px 14px -2px color-mix(in srgb, var(--fs-brand-tittle) 52%, transparent),
+    0 0 10px -4px color-mix(in srgb, var(--fs-accent) 34%, transparent);
 }
 
 .qp-support-btn:active {
@@ -139,19 +155,47 @@
   outline-offset: 2px;
 }
 
-@keyframes qp-support-orbit {
+@keyframes qp-support-breathe {
   from {
-    transform: rotate(0deg);
+    opacity: 0.16;
   }
   to {
-    transform: rotate(360deg);
+    opacity: 0.85;
+  }
+}
+
+@keyframes qp-support-sheen {
+  0%,
+  12% {
+    transform: translateX(-110%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  42% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    transform: translateX(110%);
+    opacity: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .qp-support-btn::before {
     animation: none;
-    transform: rotate(-35deg);
+    opacity: 0.45;
+  }
+
+  .qp-support-btn::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  .qp-support-btn:active {
+    transform: none;
   }
 }
 
@@ -797,6 +841,13 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.qp-permission-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fs-text-secondary);
 }
 
 .qp-site-controls {

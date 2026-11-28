@@ -13,6 +13,7 @@ export interface AuditState {
 export interface ThemeHealthDisclosureProps {
   readonly open: boolean;
   readonly onToggle: () => void;
+  readonly jumpId?: string;
   readonly auditState: AuditState | null;
   readonly hasHeal: boolean;
   readonly onRunAudit: () => void;
@@ -22,6 +23,7 @@ export interface ThemeHealthDisclosureProps {
 export function ThemeHealthDisclosure({
   open,
   onToggle,
+  jumpId,
   auditState,
   hasHeal,
   onRunAudit,
@@ -49,6 +51,7 @@ export function ThemeHealthDisclosure({
       }
       open={open}
       onToggle={onToggle}
+      {...(jumpId ? { jumpId } : {})}
     >
       <div className="theme-drawer-pad">
         <div className="theme-actions">

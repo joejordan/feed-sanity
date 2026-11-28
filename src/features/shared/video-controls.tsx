@@ -1,10 +1,11 @@
 // Cross-site capability feature combining Feed Sanity's bottom video scrubber
-// and click-to-pause behavior (`PauseHolds` + `hasControlAt` + `intercept`)
+// and optional click-to-pause behavior (`PauseHolds` + `hasControlAt` + `intercept`)
 // for any site exposing `MediaCapability` (Instagram, X.com, Reddit, etc.).
 
-import type { CapablePage, MediaItem } from '../../capabilities';
+import type { CapablePage, MediaCapability, MediaItem } from '../../capabilities';
 import type { Feature } from '../../core/feature';
 import type { Locate, LocatorSpec } from '../../core/locator';
+import type { Logger } from '../../core/log';
 import type { OptionSpec } from '../../core/options';
 import type { Scope } from '../../core/scope';
 import { defineCapabilityFeature } from '../../capabilities';
@@ -23,18 +24,23 @@ export interface VideoControlsPage extends CapablePage {
   readonly locate: Locate;
 }
 
-export interface SharedVideoControlsConfig {
-  readonly id: string;
-  /** Option key prefix (e.g. `'ig'` -> `ig_video_scrubber`, `ig_video_click_pauses`). */
-  readonly prefix: string;
-  readonly scrubberDescription: string;
-  readonly clickToPauseDescription: string;
+export interface SharedClickToPauseConfig {
+  readonly description: string;
   /** CSS selector matching the feed post container surrounding clickable feed videos. */
   readonly postSelector: string;
   /** Locator for native player controls so clicking mute/fullscreen never triggers pause. */
   readonly controlSpec: LocatorSpec;
   /** Allowed video surfaces for click-to-pause (defaults to `'feed'`). */
-  readonly clickSurface?: string;
+  readonly surface?: string;
+}
+
+export interface SharedVideoControlsConfig {
+  readonly id: string;
+  /** Option key prefix (e.g. `'ig'` -> `ig_video_scrubber`, `ig_video_click_pauses`). */
+  readonly prefix: string;
+  readonly scrubberDescription: string;
+  /** Optional click-to-pause support for platforms that do not natively pause on video click. */
+  readonly clickToPause?: SharedClickToPauseConfig;
 }
 
 const noopHide = () => () => undefined;
@@ -54,16 +60,155 @@ const isPlainPointer = (event: PointerEvent): boolean => event.isPrimary && isPl
 const distance = (a: { x: number; y: number }, event: MouseEvent): number =>
   Math.hypot(event.clientX - a.x, event.clientY - a.y);
 
+function startClickToPause(
+  page: VideoControlsPage,
+  media: MediaCapability,
+  subScope: Scope,
+  clickSpec: SharedClickToPauseConfig,
+  log: Logger,
+): void {
+  const clickSurface = clickSpec.surface ?? 'feed';
+  const holds = new PauseHolds(subScope, log);
+  const controls = page.locate(clickSpec.controlSpec);
+  subScope.add(media.onRemove((video) => holds.release(video.element)));
+  subScope.add(media.onAdd(() => undefined));
+
+  const videoAt = (event: MouseEvent): MediaItem | undefined => {
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+    let target: Element | undefined;
+    let container: Element | undefined;
+    for (const node of path) {
+      if (!(node instanceof Element)) {
+        continue;
+      }
+      if (node.hasAttribute(OWN_ATTR)) {
+        return undefined;
+      }
+      target ??= node;
+      if (!container && node.matches(clickSpec.postSelector)) {
+        container = node;
+      }
+    }
+    if (!target && event.target instanceof Element) {
+      if (event.target.closest(OWN_SELECTOR)) {
+        return undefined;
+      }
+      target = event.target;
+      container = event.target.closest(clickSpec.postSelector) ?? undefined;
+    }
+    if (!target || !container) {
+      return undefined;
+    }
+    const video = media.around(target, container);
+    if (!video || video.surface !== clickSurface) {
+      return undefined;
+    }
+    // Clicking Like/Retweet/Reply/author outside the video player container
+    // should never force synchronous `getBoundingClientRect()` layout.
+    if (video.container && !containsAcrossShadows(video.container, target)) {
+      return undefined;
+    }
+    // Never hijack pointer events while the player is in fullscreen; host
+    // players provide their own fullscreen scrubber and click controls.
+    if (isVideoInFullscreen(video.element, page.doc)) {
+      return undefined;
+    }
+    const box = video.element.getBoundingClientRect();
+    if (
+      !pointIn(box, event.clientX, event.clientY) ||
+      hasControlAt(event.clientX, event.clientY, video.element, box, controls, page.doc)
+    ) {
+      return undefined;
+    }
+    return video;
+  };
+
+  let press: Press | undefined;
+
+  intercept(
+    subScope,
+    [...PRESS_EVENTS, 'keydown'],
+    (event) => {
+      if (event.type === 'keydown') {
+        holds.gesture(event);
+        return false;
+      }
+      if (event.type === 'pointerdown') {
+        press = undefined;
+        const pointer = event as PointerEvent;
+        if (!isPlainPointer(pointer)) {
+          holds.gesture(event);
+          return false;
+        }
+        const video = videoAt(pointer);
+        if (!video) {
+          holds.gesture(event);
+          return false;
+        }
+        press = {
+          pointerId: pointer.pointerId,
+          video,
+          x: pointer.clientX,
+          y: pointer.clientY,
+          moved: false,
+        };
+        return true;
+      }
+      const current = press;
+      if (!current) {
+        holds.gesture(event);
+        return false;
+      }
+      const isPointer = event.type === 'pointerup' || event.type === 'pointercancel';
+      if (isPointer && (event as PointerEvent).pointerId !== current.pointerId) {
+        return false;
+      }
+      switch (event.type) {
+        case 'pointercancel':
+          press = undefined;
+          return false;
+        case 'pointerup':
+          current.moved = distance(current, event as PointerEvent) > DRAG_DISTANCE;
+          return true;
+        case 'click': {
+          press = undefined;
+          const mouse = event as MouseEvent;
+          if (mouse.detail === 0) {
+            return false;
+          }
+          mouse.preventDefault();
+          if (current.moved || !current.video.element.isConnected) {
+            return true;
+          }
+          const el = current.video.element;
+          if (el.paused) {
+            holds.release(el);
+            el.play().catch((error: unknown) => log.debug('could not play the video', error));
+          } else {
+            el.pause();
+            holds.hold(current.video);
+          }
+          return true;
+        }
+        default:
+          return true;
+      }
+    },
+    log,
+  );
+}
+
 /**
- * Factory for cross-site video scrubber + click-to-pause controls built on
- * `defineCapabilityFeature` (`requires: ['media']`).
+ * Factory for cross-site video scrubber + optional click-to-pause controls built
+ * on `defineCapabilityFeature` (`requires: ['media']`).
  */
 export function createVideoControlsFeature<P extends VideoControlsPage>(
   config: SharedVideoControlsConfig,
 ): Feature<P> {
   const scrubberKey = `${config.prefix}_video_scrubber`;
-  const clickKey = `${config.prefix}_video_click_pauses`;
-  const clickSurface = config.clickSurface ?? 'feed';
+  const click = config.clickToPause
+    ? { key: `${config.prefix}_video_click_pauses`, spec: config.clickToPause }
+    : undefined;
 
   const optionsSpec: Record<string, OptionSpec> = {
     [scrubberKey]: {
@@ -74,14 +219,18 @@ export function createVideoControlsFeature<P extends VideoControlsPage>(
       keywords: ['progress', 'seek', 'video'],
       default: true,
     },
-    [clickKey]: {
-      section: 'Media',
-      group: 'Videos',
-      title: 'Click to pause',
-      description: config.clickToPauseDescription,
-      keywords: ['pause', 'play', 'video'],
-      default: true,
-    },
+    ...(click
+      ? {
+          [click.key]: {
+            section: 'Media',
+            group: 'Videos',
+            title: 'Click to pause',
+            description: click.spec.description,
+            keywords: ['pause', 'play', 'video'],
+            default: true,
+          },
+        }
+      : {}),
   };
 
   return defineCapabilityFeature<typeof optionsSpec, 'media', P>({
@@ -91,171 +240,41 @@ export function createVideoControlsFeature<P extends VideoControlsPage>(
     setup({ page, caps, options, scope, log }) {
       const { media } = caps;
       const overlayPage = { videos: media };
-      let scrubberScope: Scope | undefined;
-      let clickScope: Scope | undefined;
 
-      const startClickToPause = (subScope: Scope): void => {
-        const holds = new PauseHolds(subScope, log);
-        const controls = page.locate(config.controlSpec);
-        subScope.add(media.onRemove((video) => holds.release(video.element)));
-        subScope.add(media.onAdd(() => undefined));
-
-        const videoAt = (event: MouseEvent): MediaItem | undefined => {
-          const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
-          let target: Element | undefined;
-          let container: Element | undefined;
-          for (const node of path) {
-            if (!(node instanceof Element)) {
-              continue;
-            }
-            if (node.hasAttribute(OWN_ATTR)) {
-              return undefined;
-            }
-            target ??= node;
-            if (!container && node.matches(config.postSelector)) {
-              container = node;
-            }
+      const watchScoped = (key: string, start: (subScope: Scope) => void): void => {
+        let childScope: Scope | undefined;
+        options.watch(key, (enabled) => {
+          if (enabled && !childScope) {
+            childScope = scope.child();
+            start(childScope);
+          } else if (!enabled && childScope) {
+            childScope.dispose();
+            childScope = undefined;
           }
-          if (!target && event.target instanceof Element) {
-            if (event.target.closest(OWN_SELECTOR)) {
-              return undefined;
-            }
-            target = event.target;
-            container = event.target.closest(config.postSelector) ?? undefined;
-          }
-          if (!target || !container) {
-            return undefined;
-          }
-          const video = media.around(target, container);
-          if (!video || video.surface !== clickSurface) {
-            return undefined;
-          }
-          // Clicking Like/Retweet/Reply/author outside the video player container
-          // should never force synchronous `getBoundingClientRect()` layout.
-          if (video.container && !containsAcrossShadows(video.container, target)) {
-            return undefined;
-          }
-          // Never hijack pointer events while the player is in fullscreen; host
-          // players provide their own fullscreen scrubber and click controls.
-          if (isVideoInFullscreen(video.element, page.doc)) {
-            return undefined;
-          }
-          const box = video.element.getBoundingClientRect();
-          if (
-            !pointIn(box, event.clientX, event.clientY) ||
-            hasControlAt(event.clientX, event.clientY, video.element, box, controls, page.doc)
-          ) {
-            return undefined;
-          }
-          return video;
-        };
-
-        let press: Press | undefined;
-
-        intercept(
-          subScope,
-          [...PRESS_EVENTS, 'keydown'],
-          (event) => {
-            if (event.type === 'keydown') {
-              holds.gesture(event);
-              return false;
-            }
-            if (event.type === 'pointerdown') {
-              press = undefined;
-              const pointer = event as PointerEvent;
-              if (!isPlainPointer(pointer)) {
-                holds.gesture(event);
-                return false;
-              }
-              const video = videoAt(pointer);
-              if (!video) {
-                holds.gesture(event);
-                return false;
-              }
-              press = {
-                pointerId: pointer.pointerId,
-                video,
-                x: pointer.clientX,
-                y: pointer.clientY,
-                moved: false,
-              };
-              return true;
-            }
-            const current = press;
-            if (!current) {
-              holds.gesture(event);
-              return false;
-            }
-            const isPointer = event.type === 'pointerup' || event.type === 'pointercancel';
-            if (isPointer && (event as PointerEvent).pointerId !== current.pointerId) {
-              return false;
-            }
-            switch (event.type) {
-              case 'pointercancel':
-                press = undefined;
-                return false;
-              case 'pointerup':
-                current.moved = distance(current, event as PointerEvent) > DRAG_DISTANCE;
-                return true;
-              case 'click': {
-                press = undefined;
-                const mouse = event as MouseEvent;
-                if (mouse.detail === 0) {
-                  return false;
-                }
-                mouse.preventDefault();
-                if (current.moved || !current.video.element.isConnected) {
-                  return true;
-                }
-                const el = current.video.element;
-                if (el.paused) {
-                  holds.release(el);
-                  el.play().catch((error: unknown) => log.debug('could not play the video', error));
-                } else {
-                  el.pause();
-                  holds.hold(current.video);
-                }
-                return true;
-              }
-              default:
-                return true;
-            }
-          },
-          log,
-        );
+        });
       };
 
-      options.watch(scrubberKey, (enabled) => {
-        if (enabled && !scrubberScope) {
-          scrubberScope = scope.child();
-          overlayEachVideo<ReturnType<typeof placeStrip>, MediaItem>(
-            { page: overlayPage, scope: scrubberScope, log },
-            {
-              css: scrubberCss,
-              initial: AT_BOTTOM,
-              measure: (video) =>
-                placeStrip(video.element.getBoundingClientRect(), measureControls(video)),
-              same: samePlace,
-              render: (video, place) => (
-                <Scrubber video={video.element} place={place} hide={noopHide} />
-              ),
-            },
-          );
-        } else if (!enabled && scrubberScope) {
-          scrubberScope.dispose();
-          scrubberScope = undefined;
-        }
+      watchScoped(scrubberKey, (subScope) => {
+        overlayEachVideo<ReturnType<typeof placeStrip>, MediaItem>(
+          { page: overlayPage, scope: subScope, log },
+          {
+            css: scrubberCss,
+            initial: AT_BOTTOM,
+            measure: (video) =>
+              placeStrip(video.element.getBoundingClientRect(), measureControls(video)),
+            same: samePlace,
+            render: (video, place) => (
+              <Scrubber video={video.element} place={place} hide={noopHide} />
+            ),
+          },
+        );
       });
 
-      options.watch(clickKey, (enabled) => {
-        if (enabled && !clickScope) {
-          clickScope = scope.child();
-          startClickToPause(clickScope);
-        } else if (!enabled && clickScope) {
-          clickScope.dispose();
-          clickScope = undefined;
-        }
-      });
+      if (click) {
+        watchScoped(click.key, (subScope) =>
+          startClickToPause(page, media, subScope, click.spec, log),
+        );
+      }
     },
   });
 }

@@ -290,9 +290,21 @@ const X_MOCK_HTML = `<!doctype html>
             <span>Ad</span>
           </article>
         </div>
+        <div id="x-shadow-host"></div>
       </div>
     </main>
   </div>
+  <script>
+    const host = document.getElementById('x-shadow-host');
+    const sr = host.attachShadow({ mode: 'open' });
+    const adopted = new CSSStyleSheet();
+    adopted.replaceSync('.xray-card { background-color: rgb(11, 20, 22); color: rgb(242, 244, 245); border: 1px solid rgb(51, 61, 66); padding: 12px; }');
+    sr.adoptedStyleSheets = [adopted];
+    const card = document.createElement('div');
+    card.className = 'xray-card';
+    card.textContent = 'Shadow DOM card with adoptedStyleSheets';
+    sr.appendChild(card);
+  </script>
 </body></html>`;
 
 const REDDIT_MOCK_HTML = `<!doctype html>
@@ -302,18 +314,23 @@ const REDDIT_MOCK_HTML = `<!doctype html>
 </style>
 </head><body>
   <main id="main-content">
-    <shreddit-post id="reddit-post-1"></shreddit-post>
+    <shreddit-feed id="shreddit-feed">
+      <shreddit-post id="reddit-organic" post-title="Clean Firefox post" subreddit-prefixed-name="r/firefox"></shreddit-post>
+      <shreddit-ad-post id="reddit-ad" post-title="Promoted widget" subreddit-prefixed-name="r/ads"></shreddit-ad-post>
+    </shreddit-feed>
   </main>
   <script>
-    const host = document.getElementById('reddit-post-1');
-    const sr = host.attachShadow({ mode: 'open' });
-    const adopted = new CSSStyleSheet();
-    adopted.replaceSync('.shreddit-card { background-color: rgb(11, 20, 22); color: rgb(242, 244, 245); border: 1px solid rgb(51, 61, 66); padding: 12px; }');
-    sr.adoptedStyleSheets = [adopted];
-    const card = document.createElement('div');
-    card.className = 'shreddit-card';
-    card.textContent = 'Shadow DOM Reddit post with adoptedStyleSheets';
-    sr.appendChild(card);
+    for (const [id, text] of [
+      ['reddit-organic', 'Organic Shadow DOM Reddit post'],
+      ['reddit-ad', 'Promoted Shadow DOM Reddit ad'],
+    ]) {
+      const host = document.getElementById(id);
+      const sr = host.attachShadow({ mode: 'open' });
+      const card = document.createElement('div');
+      card.className = 'shreddit-card';
+      card.textContent = text;
+      sr.appendChild(card);
+    }
   </script>
 </body></html>`;
 
@@ -490,7 +507,9 @@ async function checkFacebook(bidi, tab) {
     const tideRenderer = await waitFor(
       () => document.querySelector('[data-fs-renderer]')?.getAttribute('data-fs-renderer') ?? null,
     );
-    await clickByText(root, 'button', /Apply to all sites/i, 200);
+    const hasApplyAllSites = [...root.querySelectorAll('button')].some((b) =>
+      /Apply to all sites/i.test(b.textContent ?? ''),
+    );
 
     await clickByText(root, 'button.section', 'Filtering', 150);
     const hideAds = [...root.querySelectorAll('label, .fs-row, .row')]
@@ -524,11 +543,16 @@ async function checkFacebook(bidi, tab) {
     const statusEl = root.querySelector('.site-status');
     const activeH = statusEl?.getBoundingClientRect().height ?? 0;
     siteToggle?.click();
-    await wait(150);
+    await waitFor(
+      () => !siteToggle?.disabled && statusEl?.textContent?.trim() === 'Paused here',
+    );
     const pausedText = statusEl?.textContent?.trim();
     const pausedH = statusEl?.getBoundingClientRect().height ?? 0;
     siteToggle?.click();
-    await wait(450);
+    await waitFor(
+      () => !siteToggle?.disabled && statusEl?.textContent?.trim() === 'Active on this site',
+    );
+    await wait(300);
 
     await clickByText(root, 'button.section', 'Diagnostics', 250);
     const bridgeConnected = Boolean(
@@ -541,6 +565,7 @@ async function checkFacebook(bidi, tab) {
     return {
       dialogMounted: true,
       tideRenderer,
+      hasApplyAllSites,
       bulkText,
       hasZucked,
       scrollbarWidth: listCs?.scrollbarWidth,
@@ -564,6 +589,11 @@ async function checkFacebook(bidi, tab) {
     fb.tideRenderer === 'webgl' || fb.tideRenderer === 'css',
     `Unexpected renderer: ${fb.tideRenderer}`,
   );
+  assert.equal(
+    fb.hasApplyAllSites,
+    false,
+    'Appearance panel must not render Apply to all sites button',
+  );
   assert.equal(fb.bulkText, 'Bulk Keyword Blocklist');
   assert.equal(fb.hasZucked, true);
   assert.equal(fb.scrollbarWidth, 'thin');
@@ -584,6 +614,44 @@ async function checkX(bidi, tab) {
   const x = await bidi.evalIn(
     tab,
     `
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = async (fn, timeoutMs = 4000) => {
+      const end = Date.now() + timeoutMs;
+      while (Date.now() < end) {
+        const val = fn();
+        if (val) return val;
+        await wait(50);
+      }
+      return fn();
+    };
+
+    // Open Appearance via X's Display Settings notice and apply Luminous Tide on X.
+    const noticeBtn = await waitFor(() => {
+      for (const h of document.querySelectorAll('feed-sanity-ui')) {
+        const btn = [...(h.shadowRoot?.querySelectorAll('button') ?? [])].find((b) =>
+          /Appearance|Feed Sanity/i.test(b.textContent ?? ''),
+        );
+        if (btn) return btn;
+      }
+      return null;
+    });
+    noticeBtn?.click();
+
+    const root = await waitFor(() => {
+      const host = [...document.querySelectorAll('feed-sanity-ui')].find((h) =>
+        h.shadowRoot?.querySelector('dialog'),
+      );
+      return host?.shadowRoot ?? null;
+    });
+    const tideBtn = root
+      ? [...root.querySelectorAll('button')].find((b) => b.textContent?.includes('Luminous Tide'))
+      : null;
+    tideBtn?.click();
+    const renderer = await waitFor(
+      () => document.querySelector('[data-fs-renderer]')?.getAttribute('data-fs-renderer') ?? null,
+    );
+    await wait(300);
+
     const isStripped = (payload) => {
       const entries = payload?.data?.home?.home_timeline_urt?.instructions?.[0]?.entries ?? [];
       return entries.length === 1 && entries[0].entryId === 'tweet-1';
@@ -604,6 +672,9 @@ async function checkX(bidi, tab) {
     const toolbar = document.querySelector('[data-testid="toolBar"]');
     const tablist = document.getElementById('x-toolbar-tablist');
     const iconBtn = document.getElementById('x-icon-btn');
+    const sr = document.getElementById('x-shadow-host')?.shadowRoot;
+    const adaptive = await waitFor(() => sr?.getElementById('feed_sanity_adaptive_theme') ?? null);
+    const xrayCard = sr?.querySelector('.xray-card');
 
     return {
       fetchStripped,
@@ -613,7 +684,11 @@ async function checkX(bidi, tab) {
       toolbarBoxShadow: toolbar ? getComputedStyle(toolbar).boxShadow : null,
       tablistBg: tablist ? getComputedStyle(tablist).backgroundColor : null,
       iconBtnBorderTop: iconBtn ? getComputedStyle(iconBtn).borderTopColor : null,
-      renderer: document.querySelector('[data-fs-renderer]')?.getAttribute('data-fs-renderer') ?? null,
+      renderer,
+      hasAdaptiveInShadow: Boolean(adaptive),
+      compiledAdoptedRule: Boolean(adaptive?.textContent?.includes('.xray-card')),
+      cardHealBg: xrayCard?.getAttribute('data-fs-heal-bg'),
+      cardBg: xrayCard ? getComputedStyle(xrayCard).backgroundColor : null,
     };
   `,
   );
@@ -626,37 +701,51 @@ async function checkX(bidi, tab) {
   assert.equal(x.tablistBg, 'rgba(0, 0, 0, 0)', 'Composer toolbar tablist must stay transparent');
   assert.equal(x.iconBtnBorderTop, 'rgba(0, 0, 0, 0)');
   assert.ok(x.renderer === 'webgl' || x.renderer === 'css');
-}
-
-async function checkRedditShadowXray(bidi, tab) {
-  await navigate(bidi, tab, 'https://www.reddit.com/', 1400);
-  const reddit = await bidi.evalIn(
-    tab,
-    `
-    const sr = document.getElementById('reddit-post-1')?.shadowRoot;
-    const adaptive = sr?.getElementById('feed_sanity_adaptive_theme');
-    const card = sr?.querySelector('.shreddit-card');
-    return {
-      hasAdaptiveInShadow: Boolean(adaptive),
-      compiledAdoptedRule: Boolean(adaptive?.textContent?.includes('.shreddit-card')),
-      cardHealBg: card?.getAttribute('data-fs-heal-bg'),
-      cardBg: card ? getComputedStyle(card).backgroundColor : null,
-    };
-  `,
-  );
-
-  assert.equal(reddit.hasAdaptiveInShadow, true, 'Adaptive CSS must inject into open ShadowRoot');
+  assert.equal(x.hasAdaptiveInShadow, true, 'Adaptive CSS must inject into open ShadowRoot');
   assert.equal(
-    reddit.compiledAdoptedRule,
+    x.compiledAdoptedRule,
     true,
     'Adaptive compiler must read shadowRoot.adoptedStyleSheets across Gecko Xray',
   );
   assert.equal(
-    reddit.cardHealBg,
+    x.cardHealBg,
     null,
     'Layer 1 should theme adoptedStyleSheets without Layer 2 fallback',
   );
-  assert.notEqual(reddit.cardBg, 'rgb(11, 20, 22)', 'Shadow card background should be themed');
+  assert.notEqual(x.cardBg, 'rgb(11, 20, 22)', 'Shadow card background should be themed');
+}
+
+async function checkRedditEnabled(bidi, tab) {
+  await navigate(bidi, tab, 'https://www.reddit.com/', 1400);
+  const reddit = await bidi.evalIn(
+    tab,
+    `
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const waitFor = async (fn, timeoutMs = 4000) => {
+      const end = Date.now() + timeoutMs;
+      while (Date.now() < end) {
+        const val = fn();
+        if (val) return val;
+        await wait(50);
+      }
+      return fn();
+    };
+    const adHidden = await waitFor(
+      () => document.getElementById('reddit-ad')?.getAttribute('data-feed-sanity-hidden') ?? null,
+    );
+    return {
+      adHidden,
+      organicHidden: document.getElementById('reddit-organic')?.hasAttribute('data-feed-sanity-hidden'),
+    };
+  `,
+  );
+
+  assert.equal(
+    reddit.adHidden,
+    'none',
+    'Enabled experimental Reddit should hide promoted shreddit-ad-post',
+  );
+  assert.equal(reddit.organicHidden, false, 'Organic Reddit post should stay visible');
 }
 
 async function main() {
@@ -743,7 +832,7 @@ async function main() {
     await checkRedditDisabledByDefault(bidi, tab);
     await checkFacebook(bidi, tab);
     await checkX(bidi, tab);
-    await checkRedditShadowXray(bidi, tab);
+    await checkRedditEnabled(bidi, tab);
 
     const errors = bidi.logs.filter((entry) => entry.level === 'error');
     assert.equal(

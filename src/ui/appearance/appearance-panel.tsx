@@ -11,6 +11,7 @@ import type {
   ThemeFontId,
   ThemeLibraryClient,
   ThemeLibraryViewMode,
+  ThemeUrlFetcher,
 } from '../../core/theming';
 import type { OptionsPanel, PanelProps, PanelSearchItem } from '../options-dialog/panel';
 import type { AuditState } from './health-disclosure';
@@ -28,7 +29,6 @@ import {
   findActiveStudioVibe,
   findActiveThemePreset,
   getPaletteSwatches,
-  isCustomImportedDocument,
   isThemeFontId,
   resolveTheme,
   sanitizeFontStack,
@@ -39,7 +39,6 @@ import {
 } from '../../core/theming';
 import { definePanel } from '../options-dialog/panel';
 import {
-  Badge,
   previewLeaveProps,
   SegmentedControl,
   SettingCard,
@@ -54,11 +53,7 @@ import { ThemeHealthDisclosure } from './health-disclosure';
 import { PaletteCustomizationDisclosure } from './palette-section';
 import { CreativeStudioCard, StudioVibesCard } from './studio-section';
 import { handleInlineFormKeyDown, ThemeLibraryCard } from './theme-library-card';
-import {
-  downloadThemeDocumentFile,
-  ThemeSwatches,
-  ThemeTransferDisclosure,
-} from './theme-transfer';
+import { ThemeSwatches, ThemeTransferDisclosure } from './theme-transfer';
 
 export { readThemeDocument, THEME_DATA_KEY } from '../../core/theming';
 
@@ -118,11 +113,15 @@ function AppearancePanelView({
   options,
   controller,
   library,
+  fetchThemeUrl,
+  subscribeExternalChange,
   consumePendingDisclosure,
   registerDisclosureOpener,
 }: PanelProps<ThemeDocumentV1> & {
   controller: ThemeController;
   library?: ThemeLibraryClient;
+  fetchThemeUrl?: ThemeUrlFetcher;
+  subscribeExternalChange: (listener: () => void) => () => void;
   consumePendingDisclosure: () => AppearanceDisclosureId | null;
   registerDisclosureOpener: (fn: ((id: AppearanceDisclosureId) => void) | undefined) => void;
 }) {
@@ -154,15 +153,14 @@ function AppearancePanelView({
     () => (library ? analyzeLibraryDocument(value).capabilities.fingerprint : ''),
     [library, value],
   );
-  const analyzedLibrary = useMemo(() => {
-    const items = libraryEntries.map((entry) => {
-      const { capabilities, swatches } = analyzeLibraryDocument(entry.document);
-      return { entry, capabilities, swatches };
-    });
-    const fingerprints = new Set(items.map((item) => item.capabilities.fingerprint));
-    return { items, fingerprints };
-  }, [libraryEntries]);
-  const savedInLibrary = Boolean(library && analyzedLibrary.fingerprints.has(activeFingerprint));
+  const analyzedLibrary = useMemo(
+    () =>
+      libraryEntries.map((entry) => {
+        const { capabilities, swatches } = analyzeLibraryDocument(entry.document);
+        return { entry, capabilities, swatches };
+      }),
+    [libraryEntries],
+  );
   const [auditState, setAuditState] = useState<AuditState | null>(null);
   const [schemeFilter, setSchemeFilter] = useState<SchemeFilter>('all');
 
@@ -186,13 +184,10 @@ function AppearancePanelView({
     });
   }, [hasExternalCssOption, options]);
 
-  const isImported = useMemo(() => isCustomImportedDocument(value), [value]);
   const [initialDisclosure] = useState<AppearanceDisclosureId | null>(() =>
     consumePendingDisclosure(),
   );
-  const [transferOpen, setTransferOpen] = useState(
-    () => isImported || initialDisclosure === 'transfer',
-  );
+  const [transferOpen, setTransferOpen] = useState(() => initialDisclosure === 'transfer');
   const [cssOpen, setCssOpen] = useState(
     () =>
       Boolean((value.customCss ?? '').trim() || savedExternalCssUrl.trim()) ||
@@ -237,9 +232,20 @@ function AppearancePanelView({
   const effective = value.palette;
   const activePreset = useMemo(() => findActiveThemePreset(value), [value]);
 
-  const clearColorDrafts = (): void => {
+  const clearColorDrafts = useCallback((): void => {
     setDraftResetKey((k) => k + 1);
-  };
+  }, []);
+
+  // Reset local hex/ribbon drafts & stale audit state when storage updates externally
+  // (e.g. flipping Light/Dark or picking a Quick Theme from the toolbar popup).
+  useEffect(
+    () =>
+      subscribeExternalChange(() => {
+        clearColorDrafts();
+        setAuditState(null);
+      }),
+    [subscribeExternalChange, clearColorDrafts],
+  );
 
   const handlePreview = useCallback(
     (doc: ThemeDocumentV1 | null): void => {
@@ -379,21 +385,6 @@ function AppearancePanelView({
     applyEdit(entry.document, `Applied "${entry.document.meta.name}"`);
   };
 
-  const handleApplyAllSites = (doc: ThemeDocumentV1): void => {
-    if (!library) {
-      return;
-    }
-    if (doc !== value) {
-      clearColorDrafts();
-      applyEdit(doc);
-    }
-    void runLibraryAction(
-      (client) => client.applyToAllSites(doc),
-      (override) => notify?.(`Applied "${override.document.meta.name}" to all sites`),
-      'Could not apply theme across all sites',
-    );
-  };
-
   const handleRenameLibraryEntry = (entryId: string, nextName: string): void => {
     void runLibraryAction(
       (client) => client.renameTheme(entryId, nextName),
@@ -520,52 +511,9 @@ function AppearancePanelView({
 
   return (
     <section className="theme-panel">
-      {isImported && (
-        <div className="theme-imported-banner" role="region" aria-label="Active imported theme">
-          <div className="theme-imported-info">
-            <Badge tone="accent">Imported</Badge>
-            <strong className="theme-card-name">{value.meta.name}</strong>
-            {value.meta.author && <span className="theme-studio-hint">by {value.meta.author}</span>}
-          </div>
-          <div className="theme-audit-buttons">
-            {library && !savedInLibrary && (
-              <button
-                type="button"
-                className="theme-inline-reset"
-                onClick={() => {
-                  void handleSaveToLibrary(value);
-                }}
-              >
-                Save to My Themes
-              </button>
-            )}
-            <button
-              type="button"
-              className="theme-inline-reset"
-              onClick={() => {
-                const filename = downloadThemeDocumentFile(value);
-                notify?.(`Exported ${filename}`);
-              }}
-            >
-              Export
-            </button>
-            <button
-              type="button"
-              className="theme-inline-reset"
-              onClick={() => {
-                clearColorDrafts();
-                applyEdit({ ...DEFAULT_THEME_DOCUMENT }, 'Cleared imported theme');
-              }}
-            >
-              Reset
-            </button>
-          </div>
-        </div>
-      )}
-
       {library && (
         <ThemeLibraryCard
-          items={analyzedLibrary.items}
+          items={analyzedLibrary}
           activeDocument={value}
           activeFingerprint={activeFingerprint}
           viewMode={libraryViewMode}
@@ -581,7 +529,6 @@ function AppearancePanelView({
               hoverPreview.clear();
             }
           }}
-          onApplyAllSites={handleApplyAllSites}
           onRenameEntry={handleRenameLibraryEntry}
           onDeleteEntry={handleDeleteLibraryEntry}
           onExportEntry={(_entry, filename) => notify?.(`Exported ${filename}`)}
@@ -651,6 +598,7 @@ function AppearancePanelView({
                 key={preset.id}
                 type="button"
                 className="theme-card"
+                data-fs-jump-id={`preset:${preset.id}`}
                 aria-pressed={!effectsActive && activePreset?.id === preset.id}
                 data-base={effectsActive && activePreset?.id === preset.id ? 'true' : undefined}
                 onMouseEnter={() => previewPreset(preset.id)}
@@ -668,6 +616,7 @@ function AppearancePanelView({
           title="Live hover preview"
           description="Preview color and live themes when hovering or focusing cards."
           htmlFor={hoverPreviewId}
+          jumpId="hover-preview"
         >
           <Switch
             id={hoverPreviewId}
@@ -678,16 +627,27 @@ function AppearancePanelView({
         </SettingRow>
       </SettingCard>
 
+      <SettingCard jumpId="customize-colors">
+        <PaletteCustomizationDisclosure
+          value={value}
+          activePreset={activePreset}
+          draftResetKey={draftResetKey}
+          onPreviewEdit={(next) => controller.preview(resolveTheme(next))}
+          onApplyEdit={applyEdit}
+        />
+      </SettingCard>
+
       <CreativeStudioCard
         effects={effects}
         effectsActive={effectsActive}
         activeVibe={activeVibe}
+        jumpId="creative-studio"
         onPreviewEffects={previewEffects}
         onUpdateEffects={updateEffects}
         onResetEffects={resetEffects}
       />
 
-      <SettingCard title="Typography & Advanced">
+      <SettingCard title="Typography" jumpId="typography">
         <SettingRow
           title="Typography"
           description="Applies across site text and Feed Sanity controls."
@@ -753,28 +713,26 @@ function AppearancePanelView({
             )}
           </div>
         </SettingRow>
+      </SettingCard>
 
-        <PaletteCustomizationDisclosure
-          value={value}
-          activePreset={activePreset}
-          draftResetKey={draftResetKey}
-          onPreviewEdit={(next) => controller.preview(resolveTheme(next))}
-          onApplyEdit={applyEdit}
-        />
-
+      <SettingCard title="Theme Import & Export" jumpId="import-export-theme">
         <ThemeTransferDisclosure
           open={transferOpen}
           onToggle={() => setTransferOpen((open) => !open)}
           document={value}
           onImport={handleImportDocument}
           {...(library ? { onSaveToLibrary: handleSaveToLibrary } : {})}
+          {...(fetchThemeUrl ? { fetchThemeUrl } : {})}
           {...(notify ? { notify } : {})}
         />
+      </SettingCard>
 
+      <SettingCard title="Advanced">
         {effective && controller.audit && (
           <ThemeHealthDisclosure
             open={healthOpen}
             onToggle={() => setHealthOpen((open) => !open)}
+            jumpId="theme-health"
             auditState={auditState}
             hasHeal={Boolean(controller.healNow)}
             onRunAudit={runAudit}
@@ -785,6 +743,7 @@ function AppearancePanelView({
         <CustomCssDisclosure
           open={cssOpen}
           onToggle={() => setCssOpen((open) => !open)}
+          jumpId="custom-css"
           customCss={value.customCss ?? ''}
           onCustomCssChange={(nextCss) => applyEdit(updateThemeCustomCss(value, nextCss))}
           hasExternalCssOption={hasExternalCssOption}
@@ -809,6 +768,7 @@ export function appearancePanel(
   onApply: (doc: ThemeDocumentV1) => void = (next) => controller.apply(resolveTheme(next)),
   library?: ThemeLibraryClient,
   extraReady?: Promise<void>,
+  fetchThemeUrl?: ThemeUrlFetcher,
 ): OptionsPanel {
   const baseReady = library
     ? Promise.all([saved.ready, library.ready]).then(() => undefined)
@@ -842,6 +802,12 @@ export function appearancePanel(
   ): void => {
     activeDisclosureOpener = fn;
   };
+  const subscribeExternalChange = (listener: () => void): (() => void) =>
+    saved.onChange((_next, source) => {
+      if (source === 'external') {
+        listener();
+      }
+    });
   return definePanel<ThemeDocumentV1>({
     section: 'Appearance',
     css,
@@ -849,6 +815,7 @@ export function appearancePanel(
     ready,
     read: () => saved.get(),
     save: saveDocument,
+    subscribe: (listener) => saved.onChange(() => listener()),
     swatch: () => {
       const palette = saved.get().palette;
       return palette ? { bg: palette.background, accent: palette.accent } : null;
@@ -858,10 +825,9 @@ export function appearancePanel(
         ? [
             {
               id: 'theme-library',
-              title: 'My Themes library / Apply to all sites',
-              description:
-                'Save customized or imported themes and apply any theme across every site.',
-              keywords: ['library', 'saved', 'my themes', 'all sites', 'sync', 'global'],
+              title: 'My Themes library',
+              description: 'Save, rename, export, or switch between your saved themes.',
+              keywords: ['library', 'saved', 'my themes'],
             },
             ...library.list().map((entry) => ({
               id: `saved-theme:${entry.id}`,
@@ -887,8 +853,20 @@ export function appearancePanel(
       {
         id: 'import-export-theme',
         title: 'Import / Export theme (.fstheme.json)',
-        description: 'Export your active theme to a single file or import a shared .fstheme.json.',
-        keywords: ['import', 'export', 'share', 'json', 'fstheme', 'backup', 'file'],
+        description:
+          'Export your active theme to a file or import one from a file, HTTPS URL, or JSON.',
+        keywords: [
+          'import',
+          'export',
+          'share',
+          'json',
+          'fstheme',
+          'backup',
+          'file',
+          'url',
+          'link',
+          'https',
+        ],
         onSelect: () => requestDisclosure('transfer'),
       },
       {
@@ -909,7 +887,7 @@ export function appearancePanel(
         id: 'creative-studio',
         title: 'Creative Studio (Backgrounds, Glass, Prism & Click FX)',
         description:
-          'Add Luminous Tide glowing surf, Event Horizon black hole, Matrix Rain, Vice City sunset, Aurora, Silk, Prism sheen, and click effects.',
+          'Add Luminous Tide glowing surf, Rainforest Canopy sunbeams, Coral Lagoon shoreline caustics, Event Horizon black hole, Matrix Rain, Vice City sunset, Aurora, Silk, Prism sheen, and click effects.',
         keywords: [
           'luminous tide',
           'ocean',
@@ -917,6 +895,22 @@ export function appearancePanel(
           'bioluminescent',
           'moonlit',
           'tide',
+          'rainforest',
+          'jungle',
+          'canopy',
+          'forest',
+          'fireflies',
+          'dappled',
+          'petals',
+          'coral',
+          'lagoon',
+          'shoreline',
+          'beach',
+          'island',
+          'caustics',
+          'sea glass',
+          'seafoam',
+          'manta',
           'event horizon',
           'black hole',
           'shader',
@@ -968,6 +962,8 @@ export function appearancePanel(
         {...props}
         controller={controller}
         {...(library ? { library } : {})}
+        {...(fetchThemeUrl ? { fetchThemeUrl } : {})}
+        subscribeExternalChange={subscribeExternalChange}
         consumePendingDisclosure={consumePendingDisclosure}
         registerDisclosureOpener={registerDisclosureOpener}
       />

@@ -9,3 +9,26 @@ export function useOptionValue(options: Options, key: string): OptionValue {
   );
   return useSyncExternalStore(subscribe, () => options.get(key));
 }
+
+/** Subscribes to subsequent changes on any of `keys` (skipping each watcher's initial emission). */
+export function watchOptionChanges(
+  options: Options,
+  keys: readonly string[],
+  onChange: () => void,
+): () => void {
+  const stops = keys.map((key) => {
+    let initialized = false;
+    return options.watch(key, () => {
+      if (!initialized) {
+        initialized = true;
+        return;
+      }
+      onChange();
+    });
+  });
+  return () => {
+    for (const stop of stops) {
+      stop();
+    }
+  };
+}

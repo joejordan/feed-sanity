@@ -75,8 +75,9 @@ test('extension toolbar popup controls live Facebook tab (Starter Mode, Quick Th
   await expect(dialog.getByRole('heading', { name: 'Appearance' })).toBeVisible();
 });
 
-test('extension toolbar popup shows Supported Sites launcher on unsupported tabs', async ({
+test('extension toolbar popup gates Show beta behind Sites tab and opens standalone Settings window with site switcher', async ({
   page,
+  context,
   store,
   openPopup,
 }) => {
@@ -86,15 +87,67 @@ test('extension toolbar popup shows Supported Sites launcher on unsupported tabs
   await expect(popup.getByText('Not active on this page')).toBeVisible();
   await expect(popup.getByText('Facebook')).toBeVisible();
   await expect(popup.getByText('X (Twitter)')).toBeVisible();
-  // Experimental sites stay hidden on unsupported tabs unless actively enabled.
+  // Neither experimental sites nor "Show beta" appear on the main plugin menu until opted in via Sites tab.
+  await expect(popup.getByRole('button', { name: 'Show beta' })).toHaveCount(0);
   await expect(popup.getByText('Instagram')).toHaveCount(0);
   await expect(popup.getByText('Reddit')).toHaveCount(0);
   await expect(popup.getByText('Gmail')).toHaveCount(0);
 
+  // Clicking "All settings" from an unsupported tab opens the standalone Settings window.
+  const settingsPagePromise = context.waitForEvent('page');
+  await popup.getByRole('button', { name: /All settings/i }).click();
+  const settingsPage = await settingsPagePromise;
+  await settingsPage.waitForLoadState();
+
+  await expect(settingsPage.getByRole('main', { name: OPTIONS_TITLE })).toBeVisible();
+  await expect(
+    settingsPage.getByRole('button', { name: /Switch site \(Facebook\)/ }),
+  ).toBeVisible();
+
+  // Switching sites via the top-left rich dropdown loads X (Twitter)'s settings.
+  await settingsPage.getByRole('button', { name: /Switch site \(Facebook\)/ }).click();
+  await expect(settingsPage.getByRole('listbox')).toBeVisible();
+  await settingsPage.getByRole('option', { name: /X \(Twitter\)/ }).click();
+  await expect(
+    settingsPage.getByRole('button', { name: /Switch site \(X \(Twitter\)\)/ }),
+  ).toBeVisible();
+  await expect(settingsPage.getByRole('button', { name: 'Timeline & Clutter' })).toBeVisible();
+
+  // Visiting the Sites tab and enabling "Show experimental sites" unlocks experimental sites everywhere.
+  await settingsPage
+    .getByRole('navigation', { name: 'Sections' })
+    .getByRole('button', { name: /^Sites\b/ })
+    .click();
+  await settingsPage.getByRole('checkbox', { name: 'Show experimental sites' }).click();
+  await expect(settingsPage.getByRole('button', { name: 'Enable Reddit' })).toBeVisible();
+
+  // Top-left site switcher now lists beta sites too.
+  await settingsPage.getByRole('button', { name: /Switch site \(X \(Twitter\)\)/ }).click();
+  await expect(settingsPage.getByRole('option', { name: /Reddit/ })).toBeVisible();
+  await settingsPage.keyboard.press('Escape');
+
+  // Re-opening the toolbar popup on an unsupported tab now displays "Show beta" (and toggles beta rows).
+  const popupAfter = await openPopup();
+  const showBeta = popupAfter.getByRole('button', { name: 'Show beta' });
+  await expect(showBeta).toBeVisible();
+  await showBeta.click();
+  await expect(popupAfter.getByText('Instagram')).toBeVisible();
+  await expect(popupAfter.getByText('Reddit')).toBeVisible();
+  await expect(popupAfter.getByText('Gmail')).toBeVisible();
+
+  // Enabling Reddit via storage keeps it visible even when collapsing beta.
   await store({ 'v2/sites': { reddit: true } });
-  await expect(popup.getByText('Reddit')).toBeVisible();
-  await expect(popup.getByText('Instagram')).toHaveCount(0);
-  await expect(popup.getByText('Gmail')).toHaveCount(0);
+  await popupAfter.getByRole('button', { name: 'Hide beta' }).click();
+  await expect(popupAfter.getByText('Reddit')).toBeVisible();
+  await expect(popupAfter.getByText('Instagram')).toHaveCount(0);
+  await expect(popupAfter.getByText('Gmail')).toHaveCount(0);
+
+  // Clicking "Theme Studio" while the standalone Settings window is already open reuses and navigates it.
+  const pageCountBefore = context.pages().length;
+  await popupAfter.getByRole('button', { name: /Theme Studio/i }).click();
+  await expect(settingsPage.getByRole('heading', { name: 'Appearance' })).toBeVisible();
+  expect(context.pages().length).toBeLessThanOrEqual(pageCountBefore);
+  await settingsPage.close();
 });
 
 test('extension toolbar popup previews & switches My Themes, pauses live backdrop motion, and broadcasts to all sites', async ({

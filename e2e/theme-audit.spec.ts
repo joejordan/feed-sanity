@@ -14,10 +14,12 @@ import { OPTIONS_TITLE } from '../project';
 import { EVENT_HORIZON_SHADER } from '../src/core/theme-effects/event-horizon-shader';
 import { LUMINOUS_TIDE_SHADER } from '../src/core/theme-effects/luminous-tide-shader';
 import { resolveEffectParams } from '../src/core/theme-effects/model';
+import { CANOPY_FRAGMENT } from '../src/core/theme-effects/renderers/canopy';
 import {
   buildCustomFragmentSource,
   encodeShaderParam,
 } from '../src/core/theme-effects/renderers/custom-shader';
+import { SHORELINE_FRAGMENT } from '../src/core/theme-effects/renderers/shoreline';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const USERSCRIPT = path.join(ROOT, '.output', 'userscript', 'feed-sanity.user.js');
@@ -810,6 +812,128 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
         await page.mouse.move(300, 620);
         await page.mouse.move(520, 600, { steps: 6 });
         expect(shaderErrors).toEqual([]);
+
+        // Rainforest Canopy: a built-in engine (WebGL, or Canvas 2D on GPU-less runners, never
+        // the static CSS wash) with generated tuners, the Dappled finish, and Petals click FX.
+        await studioDialog
+          .getByRole('group', { name: 'Live themes' })
+          .getByRole('button', { name: /Rainforest Canopy/i })
+          .click();
+        await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'canopy');
+        await expect(backdrop.locator('canvas')).toHaveCount(1);
+        await expect(backdrop.locator('canvas')).toHaveAttribute(
+          'data-fs-renderer',
+          /^(webgl|canvas2d)$/,
+        );
+        await expect(
+          studioDialog
+            .getByRole('group', { name: 'Live background effect' })
+            .getByRole('button', { name: /Jungle Canopy/i }),
+        ).toHaveAttribute('aria-pressed', 'true');
+        await expect(studioDialog.getByRole('slider', { name: 'Sunbeams' })).toBeVisible();
+        const canopyTime = studioDialog.getByRole('combobox', { name: 'Time of day' });
+        await expect(canopyTime).toHaveValue('morning');
+        for (const time of ['dawn', 'golden', 'dusk', 'night', 'clock', 'morning']) {
+          await canopyTime.selectOption(time);
+        }
+        await expect(backdrop.locator('canvas')).toHaveCount(1);
+
+        // Dappled lays static pools of light over popups, again with no backdrop blur.
+        const dappledButton = studioDialog.getByRole('button', { name: 'Dappled', exact: true });
+        await expect(dappledButton).toHaveAttribute('aria-pressed', 'true');
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const style = getComputedStyle(document.querySelector('#typeaheadDropdown-1')!);
+              return {
+                pools: style.backgroundImage.split('radial-gradient(').length - 1,
+                blur: style.backdropFilter,
+              };
+            }),
+          )
+          .toEqual({ pools: 4, blur: 'none' });
+
+        // A press spawns one round dew ring, one bead, and six petals in the click-FX shadow root.
+        const petalBurst = await dappledButton.evaluate((button) => {
+          const overlaySelector = '[data-feed-sanity="theme-click-fx"]';
+          document.querySelector(overlaySelector)?.shadowRoot?.replaceChildren();
+          button.dispatchEvent(
+            new PointerEvent('pointerdown', {
+              button: 0,
+              clientX: 60,
+              clientY: 60,
+              bubbles: true,
+              composed: true,
+            }),
+          );
+          const particles = document.querySelector(overlaySelector)?.shadowRoot;
+          const ring = particles?.firstElementChild as HTMLElement | null | undefined;
+          const petal = particles?.lastElementChild as HTMLElement | null | undefined;
+          return {
+            particles: particles?.childElementCount ?? 0,
+            roundRing: ring ? ring.style.width === ring.style.height : false,
+            petalShape: petal?.style.borderRadius ?? '',
+          };
+        });
+        expect(petalBurst).toEqual({ particles: 8, roundRing: true, petalShape: '0px 100%' });
+
+        // Coral Lagoon: daylight aerial shoreline engine with Sea Glass finish & Seafoam click FX.
+        await studioDialog
+          .getByRole('group', { name: 'Live themes' })
+          .getByRole('button', { name: /Coral Lagoon/i })
+          .click();
+        await expect(backdrop).toHaveAttribute('data-fs-backdrop', 'shoreline');
+        await expect(backdrop.locator('canvas')).toHaveCount(1);
+        await expect(backdrop.locator('canvas')).toHaveAttribute(
+          'data-fs-renderer',
+          /^(webgl|canvas2d)$/,
+        );
+        await expect(
+          studioDialog
+            .getByRole('group', { name: 'Live background effect' })
+            .getByRole('button', { name: /Coral Shoreline/i }),
+        ).toHaveAttribute('aria-pressed', 'true');
+        await expect(studioDialog.getByRole('slider', { name: 'Water caustics' })).toBeVisible();
+        const shorelineTime = studioDialog.getByRole('combobox', { name: 'Time of day' });
+        await expect(shorelineTime).toHaveValue('noon');
+        for (const time of ['sunrise', 'sunset', 'moonlit', 'clock', 'noon']) {
+          await shorelineTime.selectOption(time);
+        }
+
+        // Sea Glass lays three static caustic light washes over popups with zero backdrop blur.
+        const seaGlassButton = studioDialog.getByRole('button', { name: 'Sea Glass', exact: true });
+        await expect(seaGlassButton).toHaveAttribute('aria-pressed', 'true');
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const style = getComputedStyle(document.querySelector('#typeaheadDropdown-1')!);
+              return {
+                washes: style.backgroundImage.split('radial-gradient(').length - 1,
+                blur: style.backdropFilter,
+              };
+            }),
+          )
+          .toEqual({ washes: 3, blur: 'none' });
+
+        // A press spawns two surf spray rings and seven buoyant sea-bubbles in the click-FX shadow root.
+        const seafoamBurst = await seaGlassButton.evaluate((button) => {
+          const overlaySelector = '[data-feed-sanity="theme-click-fx"]';
+          document.querySelector(overlaySelector)?.shadowRoot?.replaceChildren();
+          button.dispatchEvent(
+            new PointerEvent('pointerdown', {
+              button: 0,
+              clientX: 60,
+              clientY: 60,
+              bubbles: true,
+              composed: true,
+            }),
+          );
+          const particles = document.querySelector(overlaySelector)?.shadowRoot;
+          return {
+            particles: particles?.childElementCount ?? 0,
+          };
+        });
+        expect(seafoamBurst).toEqual({ particles: 9 });
       } finally {
         page.off('console', onConsole);
       }
@@ -864,6 +988,69 @@ test.describe('adaptive theme & layout-integrity audit E2E', () => {
         expect(result.opaque, `${name}: opaque output`).toBe(true);
         expect(result.brightest, `${name}: brightest channel`).toBeGreaterThan(80);
       }
+
+      // Jungle Canopy is a built-in engine, so its fragment source is compiled as shipped. No
+      // foliage texture is bound here: the light, mist, and motes must draw on their own.
+      const canopyUniforms: Array<[string, number[]]> = [
+        ['uResolution', [160, 90]],
+        ['uTime', [12]],
+        ['uPointer', [0.3, 0.3, 1]],
+        ['uClick', [0.5, 0.5, 0.2, 1]],
+        ['uScroll', [0.5, 0.4]],
+        ['uDeep', [0.02, 0.06, 0.04]],
+        ['uHaze', [0.1, 0.27, 0.18]],
+        ['uLeafNear', [0.04, 0.13, 0.08]],
+        ['uLeafLit', [0.27, 0.56, 0.3]],
+        ['uLeafMid', [0.08, 0.22, 0.15]],
+        ['uLight', [0.97, 0.87, 0.6]],
+        ['uMote', [1, 0.95, 0.8]],
+        ['uSun', [0.3, 1.28, 1, 0]],
+        ['uTune', [1, 0.64, 1, 1]],
+        ['uBreeze', [1]],
+      ];
+      const canopy = await page.evaluate(compileAndDrawShader, {
+        source: CANOPY_FRAGMENT,
+        params: canopyUniforms,
+      });
+      expect(canopy.webgl, 'canopy: WebGL 1 context').toBe(true);
+      expect(canopy.log, 'canopy: GLSL compile/link log').toBe('');
+      expect(canopy.glError, 'canopy: gl.getError()').toBe(0);
+      expect(canopy.opaque, 'canopy: opaque output').toBe(true);
+      expect(canopy.brightest, 'canopy: brightest channel').toBeGreaterThan(80);
+
+      // Coral Shoreline built-in WebGL fragment shader smoke check.
+      const shorelineUniforms: Array<[string, number[]]> = [
+        ['uResolution', [160, 90]],
+        ['uTime', [14]],
+        ['uPointer', [0.7, 0.4, 1]],
+        ['uPointerVel', [0.4, -0.1]],
+        ['uScroll', [0.3, 0.25]],
+        ['uSandDry', [0.95, 0.91, 0.84]],
+        ['uSandWet', [0.85, 0.79, 0.69]],
+        ['uWaterShallow', [0.56, 0.94, 0.9]],
+        ['uWaterMid', [0.12, 0.78, 0.78]],
+        ['uWaterDeep', [0.04, 0.49, 0.62]],
+        ['uCaustic', [1, 0.97, 0.84]],
+        ['uFoam', [1, 1, 1]],
+        ['uCoral', [0.89, 0.43, 0.35]],
+        ['uPalmShadow', [0.04, 0.45, 0.56]],
+        ['uSkySpec', [1, 1, 1]],
+        ['uMood', [0.026, -0.032, 1.15, 1]],
+        ['uTune', [1, 1, 1, 1]],
+        ['uFlags', [1, 1, 1, 0.65]],
+        ['uManta', [1.45, 0.38, 0.8, -0.6]],
+        ['uSchool', [1.1, 0.28, -0.7, 0.71]],
+        ['uClicks[0]', [0.7, 0.3, 0.4, 1, 0.2, 0.8, 0.3, 1, 0.5, 0.5, 999, 0, 0.5, 0.5, 999, 0]],
+      ];
+      const shoreline = await page.evaluate(compileAndDrawShader, {
+        source: SHORELINE_FRAGMENT,
+        params: shorelineUniforms,
+      });
+      expect(shoreline.webgl, 'shoreline: WebGL 1 context').toBe(true);
+      expect(shoreline.log, 'shoreline: GLSL compile/link log').toBe('');
+      expect(shoreline.glError, 'shoreline: gl.getError()').toBe(0);
+      expect(shoreline.opaque, 'shoreline: opaque output').toBe(true);
+      expect(shoreline.brightest, 'shoreline: brightest channel').toBeGreaterThan(80);
     } finally {
       await page.close();
     }

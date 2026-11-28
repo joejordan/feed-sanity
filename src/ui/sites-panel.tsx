@@ -6,26 +6,32 @@ import { definePanel } from './options-dialog/panel';
 import { Badge, getSiteMark, SettingCard, Switch } from './primitives';
 import css from './sites-panel.css?inline';
 
+interface BusyToggle {
+  readonly id: string;
+  readonly enabling: boolean;
+}
+
 function SiteCard({
   site,
   currentSiteId,
-  busyId,
+  busyToggle,
   onToggle,
 }: {
   readonly site: SiteStatus;
   readonly currentSiteId?: string;
-  readonly busyId: string | null;
+  readonly busyToggle: BusyToggle | null;
   readonly onToggle: (site: SiteStatus) => void;
 }) {
-  const busy = busyId === site.id;
+  const busy = busyToggle?.id === site.id;
+  const visualEnabled = busy ? !busyToggle.enabling : site.enabled;
   let actionLabel: string;
   if (busy) {
-    actionLabel = site.enabled ? 'Disabling…' : 'Enabling…';
+    actionLabel = busyToggle.enabling ? 'Enabling…' : 'Disabling…';
   } else {
     actionLabel = site.enabled ? 'Disable' : 'Enable';
   }
   return (
-    <li className="sites-row">
+    <li className="sites-row" data-fs-jump-id={`site:${site.id}`}>
       <span className="sites-mark" aria-hidden="true">
         {getSiteMark(site.id, site.displayName)}
       </span>
@@ -41,12 +47,14 @@ function SiteCard({
         <p className="sites-desc">{site.description}</p>
       </div>
       <button
-        className={site.enabled ? 'button' : 'button primary'}
+        className={visualEnabled ? 'button sites-toggle-btn' : 'button primary sites-toggle-btn'}
         type="button"
-        aria-label={`${site.enabled ? 'Disable' : 'Enable'} ${site.displayName}`}
-        disabled={busyId !== null}
+        aria-label={`${visualEnabled ? 'Disable' : 'Enable'} ${site.displayName}`}
+        aria-busy={busy || undefined}
+        disabled={busyToggle !== null}
         onClick={() => onToggle(site)}
       >
+        {busy && <span className="fs-spinner" aria-hidden="true" />}
         {actionLabel}
       </button>
     </li>
@@ -56,25 +64,29 @@ function SiteCard({
 function SitesPanelView({
   client,
   currentSiteId,
+  waitForSiteSync,
   onSiteListChange,
   consumeRevealPending,
   registerReveal,
 }: {
   client: SiteSettingsClient;
   currentSiteId?: string;
+  waitForSiteSync?: (siteId: string) => Promise<void>;
   onSiteListChange: () => void;
   consumeRevealPending: () => boolean;
   registerReveal: (fn: (() => void) | undefined) => void;
 }) {
   const experimentalToggleId = useId();
   const [sites, setSites] = useState<SiteStatus[]>(() => client.list());
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyToggle, setBusyToggle] = useState<BusyToggle | null>(null);
   const [showExperimental, setShowExperimental] = useState<boolean>(
     () =>
       consumeRevealPending() ||
+      client.isExperimentalUnlocked() ||
       sites.some((s) => s.experimental && (s.enabled || s.id === currentSiteId)),
   );
   const alive = useRef(true);
+  const lastUnlockedRef = useRef(client.isExperimentalUnlocked());
   const onSiteListChangeRef = useRef(onSiteListChange);
   onSiteListChangeRef.current = onSiteListChange;
 
@@ -88,6 +100,11 @@ function SitesPanelView({
     const refresh = (): void => {
       if (alive.current) {
         setSites(client.list());
+        const nextUnlocked = client.isExperimentalUnlocked();
+        if (nextUnlocked !== lastUnlockedRef.current) {
+          lastUnlockedRef.current = nextUnlocked;
+          setShowExperimental(nextUnlocked);
+        }
         onSiteListChangeRef.current();
       }
     };
@@ -98,15 +115,34 @@ function SitesPanelView({
     };
   }, [client]);
 
+  const toggleExperimental = (next: boolean): void => {
+    lastUnlockedRef.current = next;
+    setShowExperimental(next);
+    void client.setExperimentalUnlocked(next).catch(() => {
+      if (alive.current) {
+        const persisted = client.isExperimentalUnlocked();
+        lastUnlockedRef.current = persisted;
+        setShowExperimental(persisted);
+      }
+    });
+  };
+
   const toggle = async (site: SiteStatus): Promise<void> => {
-    setBusyId(site.id);
+    const nextEnabled = !site.enabled;
+    setBusyToggle({ id: site.id, enabling: nextEnabled });
     try {
-      await client.setEnabled(site.id, !site.enabled);
+      await client.setEnabled(site.id, nextEnabled);
+      if (site.experimental && nextEnabled && !client.isExperimentalUnlocked()) {
+        await client.setExperimentalUnlocked(true);
+      }
+      if (waitForSiteSync) {
+        await waitForSiteSync(site.id);
+      }
     } catch {
       // Keep current list on transient storage error.
     } finally {
       if (alive.current) {
-        setBusyId(null);
+        setBusyToggle(null);
       }
     }
   };
@@ -118,7 +154,7 @@ function SitesPanelView({
           key={site.id}
           site={site}
           {...(currentSiteId ? { currentSiteId } : {})}
-          busyId={busyId}
+          busyToggle={busyToggle}
           onToggle={(target) => void toggle(target)}
         />
       ))}
@@ -155,7 +191,7 @@ function SitesPanelView({
               id={experimentalToggleId}
               checked={showExperimental}
               ariaLabel="Show experimental sites"
-              onChange={setShowExperimental}
+              onChange={toggleExperimental}
             />
           </div>
 
@@ -175,7 +211,11 @@ function SitesPanelView({
 }
 
 /** Per-site enable/disable panel shown identically in Options across every supported site. */
-export function sitesPanel(client: SiteSettingsClient, currentSiteId?: string): OptionsPanel {
+export function sitesPanel(
+  client: SiteSettingsClient,
+  currentSiteId?: string,
+  waitForSiteSync?: (siteId: string) => Promise<void>,
+): OptionsPanel {
   let revealPending = false;
   let revealActive: (() => void) | undefined;
   const requestReveal = (): void => {
@@ -230,6 +270,7 @@ export function sitesPanel(client: SiteSettingsClient, currentSiteId?: string): 
       <SitesPanelView
         client={client}
         {...(currentSiteId ? { currentSiteId } : {})}
+        {...(waitForSiteSync ? { waitForSiteSync } : {})}
         onSiteListChange={() => onChange(null)}
         consumeRevealPending={consumeRevealPending}
         registerReveal={registerReveal}

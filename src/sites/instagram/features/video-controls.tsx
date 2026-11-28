@@ -11,7 +11,9 @@ export default createVideoControlsFeature<InstagramPage>({
   prefix: 'ig',
   scrubberDescription:
     'Show a seekable progress bar along the bottom edge of Instagram videos and Reels.',
-  clickToPauseDescription: 'Click an Instagram feed video to pause or resume playback.',
-  postSelector: 'article',
-  controlSpec: IG_VIDEO_CONTROL,
+  clickToPause: {
+    description: 'Click an Instagram feed video to pause or resume playback.',
+    postSelector: 'article',
+    controlSpec: IG_VIDEO_CONTROL,
+  },
 });

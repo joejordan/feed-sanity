@@ -504,30 +504,111 @@
   color: var(--fs-text);
 }
 
-.theme-external-css-row {
+.theme-external-css-row,
+.theme-transfer-url-row {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.theme-imported-banner {
+.theme-transfer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--fs-divider);
+  border-radius: 10px;
+  background: var(--fs-background);
+}
+
+.theme-transfer-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fs-text);
+}
+
+.theme-transfer-file-ext {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--fs-text-secondary);
+}
+
+.theme-transfer-export-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 9px 12px;
-  border: 1px solid var(--fs-accent);
-  border-radius: 10px;
-  background: var(--fs-accent-surface);
 }
 
-.theme-imported-info {
+.theme-transfer-active-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.theme-transfer-active-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fs-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 210px;
+}
+
+.theme-transfer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-transfer-dropzone {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--fs-divider);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fs-surface) 60%, transparent);
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.theme-transfer-dropzone[data-dragging="true"] {
+  border-color: var(--fs-accent);
+  background: var(--fs-accent-surface);
+}
+
+.theme-transfer-drop-hint {
+  font-size: 12px;
+  color: var(--fs-text-secondary);
+}
+
+.theme-transfer-subblock {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.theme-transfer-sublabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fs-text-secondary);
+}
+
+.theme-transfer-url-row .field {
+  flex: 1;
   min-width: 0;
+}
+
+.theme-transfer-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 
 .theme-transfer-actions,
@@ -556,10 +637,16 @@
   display: flex;
   flex-direction: column;
   gap: 9px;
-  padding: 10px 12px;
-  border: 1px solid var(--fs-divider);
-  border-radius: 9px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--fs-accent) 42%, var(--fs-divider));
+  border-radius: 10px;
   background: var(--fs-background);
+}
+
+.theme-transfer-preview-strip {
+  height: 4px;
+  margin: -11px -12px 2px;
+  border-radius: 9px 9px 0 0;
 }
 
 .theme-transfer-preview-head {
@@ -568,6 +655,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.theme-transfer-preview-title {
+  min-width: 0;
 }
 
 .theme-transfer-pills {
@@ -1059,39 +1150,11 @@
 .theme-library-card-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 6px;
   margin-top: auto;
   padding: 6px 7px 7px 9px;
   border-top: 1px solid var(--fs-divider-subtle);
-}
-
-.theme-library-allsites {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 26px;
-  padding: 0 8px 0 7px;
-  border: 1px solid var(--fs-divider);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--fs-text);
-  font-size: 11px;
-  font-weight: 650;
-  white-space: nowrap;
-  flex-shrink: 0;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease;
-}
-
-.theme-library-allsites:hover {
-  border-color: transparent;
-  background: var(--fs-accent-surface);
-  color: var(--fs-accent);
 }
 
 .theme-library-icon-actions {
@@ -1128,7 +1191,6 @@
   color: var(--fs-error);
 }
 
-.theme-library-allsites:focus-visible,
 .theme-library-icon-button:focus-visible {
   outline: 2px solid var(--fs-accent);
   outline-offset: 1px;
@@ -1273,7 +1335,6 @@
   .theme-library-view-btn,
   .theme-library-card,
   .theme-library-name,
-  .theme-library-allsites,
   .theme-library-icon-button {
     transition: none;
   }

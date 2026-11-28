@@ -134,9 +134,15 @@ export function PaletteCustomizationDisclosure({
     }
   };
 
+  const effectiveAccentRef = useRef(effective?.accent);
+  effectiveAccentRef.current = effective?.accent;
+
   useEffect(() => {
     if (draftResetKey > 0) {
       setColorDrafts((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      if (effectiveAccentRef.current) {
+        setSeedColor(effectiveAccentRef.current);
+      }
     }
   }, [draftResetKey]);
 

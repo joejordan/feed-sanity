@@ -154,13 +154,14 @@ export function Switch({
 export interface SettingCardProps {
   readonly title?: string;
   readonly action?: ReactNode;
+  readonly jumpId?: string;
   readonly children: ReactNode;
 }
 
 /** Grouped card container with an optional uppercase section kicker. */
-export function SettingCard({ title, action, children }: SettingCardProps) {
+export function SettingCard({ title, action, jumpId, children }: SettingCardProps) {
   return (
-    <div className="fs-card-wrap">
+    <div className="fs-card-wrap" data-fs-jump-id={jumpId}>
       {(title || action) && (
         <div className="fs-kicker-row">
           {title && <h4 className="fs-kicker">{title}</h4>}
@@ -178,11 +179,41 @@ export interface SettingRowProps {
   readonly hint?: string;
   readonly htmlFor?: string;
   readonly descriptionId?: string;
+  readonly jumpId?: string;
   readonly stacked?: boolean;
   readonly dimmed?: boolean;
   readonly nested?: boolean;
   readonly pulse?: boolean;
   readonly children: ReactNode;
+}
+
+/** Scrolls `el` to the vertical center of its scroll container, respecting reduced motion. */
+export function scrollIntoViewCentered(el: Element | null | undefined): void {
+  if (!el) {
+    return;
+  }
+  const reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView?.({
+    block: 'center',
+    behavior: reducedMotion ? 'auto' : 'smooth',
+  });
+}
+
+/** Triggers a browser download of `text` as a UTF-8 JSON file and revokes its object URL. */
+export function downloadJsonFile(filename: string, text: string): void {
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.style.display = 'none';
+  document.body.append(link);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    globalThis.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 }
 
 export function SettingRow({
@@ -191,6 +222,7 @@ export function SettingRow({
   hint,
   htmlFor,
   descriptionId,
+  jumpId,
   stacked = false,
   dimmed = false,
   nested = false,
@@ -200,11 +232,7 @@ export function SettingRow({
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (pulse) {
-      const reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-      rowRef.current?.scrollIntoView?.({
-        block: 'center',
-        behavior: reducedMotion ? 'auto' : 'smooth',
-      });
+      scrollIntoViewCentered(rowRef.current);
     }
   }, [pulse]);
 
@@ -253,7 +281,7 @@ export function SettingRow({
   };
 
   return (
-    <div ref={rowRef} className={classes.join(' ')}>
+    <div ref={rowRef} className={classes.join(' ')} data-fs-jump-id={jumpId}>
       <div
         className={clickable ? 'fs-row-text fs-row-clickable' : 'fs-row-text'}
         onClick={clickable ? handleTextClick : undefined}
@@ -293,6 +321,8 @@ export interface SegmentedControlProps<T extends string> {
   readonly onChange: (value: T) => void;
 }
 
+const MAX_SEGMENTS_PER_ROW = 7;
+
 export function SegmentedControl<T extends string>({
   options,
   value,
@@ -301,12 +331,13 @@ export function SegmentedControl<T extends string>({
   fullWidth = false,
   onChange,
 }: SegmentedControlProps<T>) {
+  // A long full-width row (eight click effects) splits into two even rows before its labels truncate.
+  const columns =
+    options.length > MAX_SEGMENTS_PER_ROW ? Math.ceil(options.length / 2) : options.length;
   return (
     <div
       className={fullWidth ? 'fs-segmented fs-segmented-full' : 'fs-segmented'}
-      style={
-        fullWidth ? { gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` } : undefined
-      }
+      style={fullWidth ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
       role="group"
       aria-label={ariaLabel}
     >
@@ -345,15 +376,17 @@ export interface DisclosureProps {
   readonly badge?: ReactNode;
   readonly open: boolean;
   readonly onToggle: () => void;
+  readonly jumpId?: string;
   readonly children: ReactNode;
 }
 
-export function Disclosure({ label, badge, open, onToggle, children }: DisclosureProps) {
+export function Disclosure({ label, badge, open, onToggle, jumpId, children }: DisclosureProps) {
   return (
     <>
       <button
         type="button"
         className="fs-disclosure-trigger"
+        data-fs-jump-id={jumpId}
         aria-expanded={open}
         onClick={onToggle}
       >

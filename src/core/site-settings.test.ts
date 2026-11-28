@@ -4,10 +4,17 @@ import { SITE_MANIFEST } from '../sites/manifest';
 import { siteRegistry } from '../start';
 import {
   createSiteSettings,
+  EXPERIMENTAL_SITES_KEY,
   isSiteEnabled,
   readEnabledSites,
+  readExperimentalUnlocked,
   SITES_STORAGE_KEY,
 } from './site-settings';
+import {
+  readSiteAccountsFromSnapshot,
+  resolveSiteAccountId,
+  siteAccountStorageKey,
+} from './site-storage';
 import { inMemoryStore } from './testing';
 
 describe('site settings and equal site registry', () => {
@@ -115,6 +122,54 @@ describe('site settings and equal site registry', () => {
     const unreadSettings = createSiteSettings(unreadStore);
     await unreadSettings.ready;
     await expect(unreadSettings.setEnabled('facebook', false)).rejects.toThrow('could not be read');
+    await expect(unreadSettings.setExperimentalUnlocked(true)).rejects.toThrow('could not be read');
     expect(unreadStore.set).not.toHaveBeenCalled();
+  });
+
+  it('persists experimental sites opt-in reactively and resolves stored site account prefixes cleanly', async () => {
+    const store = inMemoryStore();
+    const setSpy = vi.spyOn(store, 'set');
+    const settings = createSiteSettings(store);
+    await settings.ready;
+
+    expect(settings.isExperimentalUnlocked()).toBe(false);
+    expect(readExperimentalUnlocked('true')).toBe(false);
+    expect(readExperimentalUnlocked(true)).toBe(true);
+
+    // No-op write is skipped.
+    await settings.setExperimentalUnlocked(false);
+    expect(setSpy).not.toHaveBeenCalled();
+
+    const changes = vi.fn();
+    const stop = settings.onChange(changes);
+    await settings.setExperimentalUnlocked(true);
+    expect(settings.isExperimentalUnlocked()).toBe(true);
+    expect(await store.get(EXPERIMENTAL_SITES_KEY)).toBe(true);
+    expect(changes).toHaveBeenCalledTimes(1);
+
+    // Cross-tab update syncs immediately.
+    await store.set(EXPERIMENTAL_SITES_KEY, false);
+    expect(settings.isExperimentalUnlocked()).toBe(false);
+    expect(changes).toHaveBeenCalledTimes(2);
+    stop();
+    settings.dispose?.();
+
+    // Account resolution prefers recorded non-anonymous per-site keys, then scans storage keys.
+    expect(
+      readSiteAccountsFromSnapshot({
+        [siteAccountStorageKey('facebook')]: '1000123',
+        [siteAccountStorageKey('x')]: 'bad/slash',
+        [siteAccountStorageKey('unknown')]: '99',
+      }),
+    ).toEqual({
+      facebook: '1000123',
+    });
+    expect(
+      resolveSiteAccountId('facebook', { facebook: '1000123' }, ['v2/facebook/999/options']),
+    ).toBe('1000123');
+    expect(resolveSiteAccountId('x', {}, ['v2/x/anonymous/options', 'v2/x/424242/theme'])).toBe(
+      '424242',
+    );
+    expect(resolveSiteAccountId('gmail', {}, [])).toBe('anonymous');
   });
 });

@@ -1,6 +1,6 @@
 import type { SiteSettingsClient } from './site-settings';
 import type { Store } from './storage';
-import type { ThemeDocumentV1, ThemeLibraryClient } from './theming';
+import type { ThemeDocumentV1, ThemeLibraryClient, ThemeUrlFetcher } from './theming';
 
 /** What the toolbar button's badge shows for the page. */
 export interface Badge {
@@ -75,6 +75,12 @@ export interface Platform {
    * runtime is still live (rejecting spoofed page events).
    */
   isContextInvalidated?: () => boolean | Promise<boolean>;
+  /**
+   * Optional HTTPS theme URL fetcher routed through the extension background
+   * context so host-page `connect-src` CSP never blocks importing `.fstheme.json`
+   * files from CORS-enabled hosts.
+   */
+  fetchThemeUrl?: ThemeUrlFetcher;
   /**
    * Puts the page-world side of the bridge, `startPageWorld` in
    * `src/page-world.ts`, in the page, where it runs with the page's own

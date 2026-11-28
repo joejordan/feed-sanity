@@ -382,7 +382,7 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await dialog.getByRole('button', { name: /Mute posts by keyword/i }).click();
       await dialog.getByRole('textbox', { name: 'Text to look for' }).fill('systems engineering');
       await dialog.getByRole('button', { name: /All filters/ }).click();
-      await expect(dialog.getByText('Mute keyword')).toBeVisible();
+      await expect(dialog.getByRole('button', { name: 'Mute keyword', exact: true })).toBeVisible();
       await dialog.getByRole('button', { name: 'Close' }).click();
       await expect(dialog).toBeHidden();
 

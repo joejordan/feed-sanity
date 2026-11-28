@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SUPPORT_URL } from '../../../project';
 import { readFilters } from '../../core/filter-types';
 import { Options } from '../../core/options';
-import { SITES_STORAGE_KEY } from '../../core/site-settings';
+import { EXPERIMENTAL_SITES_KEY, SITES_STORAGE_KEY } from '../../core/site-settings';
 import { inMemoryStore } from '../../core/testing';
 import { STUDIO_VIBES } from '../../core/theme-effects';
 import {
@@ -476,9 +476,11 @@ describe('QuickPopup', () => {
     const delayedStore: typeof backing = {
       get: (key) => backing.get(key),
       getMany: async (keys) => {
-        await new Promise<void>((resolve) => {
-          releaseLoad = resolve;
-        });
+        if (keys.includes('x/123/options')) {
+          await new Promise<void>((resolve) => {
+            releaseLoad = resolve;
+          });
+        }
         return Object.fromEntries(
           await Promise.all(keys.map(async (k) => [k, await backing.get(k)])),
         );
@@ -692,11 +694,12 @@ describe('QuickPopup', () => {
     });
   });
 
-  it('shows permission recovery card for unattached supported tabs and lets users reveal beta sites', async () => {
+  it('shows permission recovery card, hides Show beta until enabled in Sites, and opens full settings from unsupported tabs', async () => {
     const store = inMemoryStore();
     const onRequestAccess = vi.fn(() => Promise.resolve(true));
     const onRetryConnect = vi.fn();
     const onReloadTab = vi.fn();
+    const onOpenSettings = vi.fn();
 
     render(
       <QuickPopup
@@ -710,7 +713,7 @@ describe('QuickPopup', () => {
         onRequestAccess={onRequestAccess}
         onRetryConnect={onRetryConnect}
         onReloadTab={onReloadTab}
-        onOpenSettings={vi.fn()}
+        onOpenSettings={onOpenSettings}
         onOpenSiteUrl={vi.fn()}
       />,
     );
@@ -723,11 +726,27 @@ describe('QuickPopup', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reload tab' }));
     expect(onReloadTab).toHaveBeenCalledTimes(1);
 
-    // Experimental sites are hidden until the user clicks "Show beta".
+    // Unsupported-tab footer opens standalone full settings and Theme Studio.
+    await userEvent.click(screen.getByRole('button', { name: /All settings/i }));
+    expect(onOpenSettings).toHaveBeenCalledWith();
+    await userEvent.click(screen.getByRole('button', { name: /Theme Studio/i }));
+    expect(onOpenSettings).toHaveBeenCalledWith('Appearance');
+
+    // "Show beta" stays completely hidden until experimental sites are opted into from the Sites tab.
+    expect(screen.queryByRole('button', { name: 'Show beta' })).toBeNull();
     expect(screen.queryByText('Instagram')).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: 'Show beta' }));
+
+    // Once experimental sites are unlocked via the Sites tab, "Show beta" appears and toggles beta rows.
+    await act(() => store.set(EXPERIMENTAL_SITES_KEY, true));
+    const showBeta = await screen.findByRole('button', { name: 'Show beta' });
+    await userEvent.click(showBeta);
     expect(screen.getByText('Instagram')).toBeTruthy();
     expect(screen.getByText('Reddit')).toBeTruthy();
     expect(screen.getByText('Gmail')).toBeTruthy();
+
+    // Disabling experimental sites opt-in removes "Show beta" and hides disabled beta rows again.
+    await act(() => store.set(EXPERIMENTAL_SITES_KEY, false));
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Show beta' })).toBeNull());
+    expect(screen.queryByText('Instagram')).toBeNull();
   });
 });

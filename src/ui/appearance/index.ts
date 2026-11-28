@@ -1,6 +1,13 @@
 import type { DomEnvironment } from '../../core/dom-env';
-import type { SavedData } from '../../core/saved';
-import type { SiteThemeMapping, ThemeController, ThemeLibraryClient } from '../../core/theming';
+import type { Logger } from '../../core/log';
+import type { SavedData, SavedValue } from '../../core/saved';
+import type {
+  SiteThemeMapping,
+  ThemeController,
+  ThemeDocumentV1,
+  ThemeLibraryClient,
+  ThemeUrlFetcher,
+} from '../../core/theming';
 import type { OptionsPanel } from '../options-dialog/panel';
 import { createLogger } from '../../core/log';
 import {
@@ -17,61 +24,31 @@ export { readThemeDocument, THEME_DATA_KEY } from './appearance-panel';
 
 const log = createLogger('theme');
 
-export interface SiteThemeRuntime {
-  readonly controller: ThemeController;
-  readonly panel: OptionsPanel;
-  /** Enables or suspends live theme injection without losing saved configuration. */
-  readonly setActive: (active: boolean) => void;
-  readonly dispose: () => void;
-}
-
-export interface SiteThemeOptions {
-  readonly active?: boolean;
-  /** When set, keeps the per-origin `sessionStorage` early-theme CSS cache synced for zero-FOUC boot. */
-  readonly earlyCacheKey?: string;
-  /** Shared cross-site "My Themes" library & "Apply to all sites" broadcast client. */
-  readonly library?: ThemeLibraryClient;
-}
-
 /**
- * Initializes first-class theming for a site: loads the site's persisted
- * `ThemeDocumentV1` from `SavedData`, reconciles any newer cross-site
- * `globalTheme` broadcast from `library`, applies it while `active` (and
- * whenever storage changes across tabs), and returns the ready-to-mount
- * `Appearance` panel.
+ * Connects a site's saved `ThemeDocumentV1` to the cross-site `ThemeLibraryClient`
+ * so "Apply to all sites" broadcasts adopt once per revision on both live tabs
+ * and the standalone Settings window.
  */
-export function initSiteTheme(
-  env: DomEnvironment,
-  data: SavedData,
-  mapping: SiteThemeMapping,
-  { active: initialActive = true, earlyCacheKey, library }: SiteThemeOptions = {},
-): SiteThemeRuntime {
-  const saved = data.value(THEME_DATA_KEY, readThemeDocument);
-  const globalRev = library ? data.value(THEME_GLOBAL_REV_KEY, readGlobalThemeRevision) : undefined;
-  const controller = createThemeController(env, mapping, setUserThemeCss);
-  let active = initialActive;
-  let loaded = false;
+export function connectGlobalThemeSync({
+  data,
+  saved,
+  library,
+  onAdopted,
+  logger = log,
+}: {
+  readonly data: SavedData;
+  readonly saved: SavedValue<ThemeDocumentV1>;
+  readonly library: ThemeLibraryClient;
+  readonly onAdopted: () => void;
+  readonly logger?: Logger;
+}): { readonly ready: Promise<void>; readonly dispose: () => void } {
+  const globalRev = data.value(THEME_GLOBAL_REV_KEY, readGlobalThemeRevision);
   let disposed = false;
   let lastAdoptedRev = 0;
   let stopLibrary: (() => void) | undefined;
 
-  const syncCache = (effective: ReturnType<typeof resolveTheme>): void => {
-    if (!earlyCacheKey) {
-      return;
-    }
-    writeEarlyThemeCss(earlyCacheKey, effective ? (controller.compiledHostCss?.() ?? '') : '');
-  };
-
-  const sync = (clearPreview = false): void => {
-    const effective = active ? resolveTheme(saved.get()) : null;
-    controller.apply(effective, clearPreview ? { clearPreview: true } : undefined);
-    if (loaded || !active) {
-      syncCache(effective);
-    }
-  };
-
-  const reconcileGlobalTheme = async (): Promise<void> => {
-    if (disposed || !library || !globalRev) {
+  const reconcile = async (): Promise<void> => {
+    if (disposed) {
       return;
     }
     const global = library.getGlobalTheme();
@@ -86,7 +63,7 @@ export function initSiteTheme(
       if (!sameDoc) {
         await saved.set(global.document);
         if (!disposed) {
-          sync(true);
+          onAdopted();
         }
       }
       if (!disposed && lastAdoptedRev === targetRev) {
@@ -96,7 +73,79 @@ export function initSiteTheme(
       if (lastAdoptedRev === targetRev) {
         lastAdoptedRev = globalRev.get();
       }
-      log.error('could not adopt global theme', error);
+      logger.error('could not adopt global theme', error);
+    }
+  };
+
+  const ready = Promise.all([saved.ready, globalRev.ready, library.ready]).then(async () => {
+    if (disposed) {
+      return;
+    }
+    stopLibrary = library.onChange(() => {
+      void reconcile();
+    });
+    await reconcile();
+  });
+
+  return {
+    ready,
+    dispose() {
+      disposed = true;
+      stopLibrary?.();
+      stopLibrary = undefined;
+    },
+  };
+}
+
+export interface SiteThemeRuntime {
+  readonly controller: ThemeController;
+  readonly panel: OptionsPanel;
+  /** Enables or suspends live theme injection without losing saved configuration. */
+  readonly setActive: (active: boolean) => void;
+  readonly dispose: () => void;
+}
+
+export interface SiteThemeOptions {
+  readonly active?: boolean;
+  /** When set, keeps the per-origin `sessionStorage` early-theme CSS cache synced for zero-FOUC boot. */
+  readonly earlyCacheKey?: string;
+  /** Shared cross-site "My Themes" library & "Apply to all sites" broadcast client. */
+  readonly library?: ThemeLibraryClient;
+  /** Optional HTTPS fetcher routed through the extension background context for Import-by-URL. */
+  readonly fetchThemeUrl?: ThemeUrlFetcher;
+}
+
+/**
+ * Initializes first-class theming for a site: loads the site's persisted
+ * `ThemeDocumentV1` from `SavedData`, reconciles any newer cross-site
+ * `globalTheme` broadcast from `library`, applies it while `active` (and
+ * whenever storage changes across tabs), and returns the ready-to-mount
+ * `Appearance` panel.
+ */
+export function initSiteTheme(
+  env: DomEnvironment,
+  data: SavedData,
+  mapping: SiteThemeMapping,
+  { active: initialActive = true, earlyCacheKey, library, fetchThemeUrl }: SiteThemeOptions = {},
+): SiteThemeRuntime {
+  const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+  const controller = createThemeController(env, mapping, setUserThemeCss);
+  let active = initialActive;
+  let loaded = false;
+  let disposed = false;
+
+  const syncCache = (effective: ReturnType<typeof resolveTheme>): void => {
+    if (!earlyCacheKey) {
+      return;
+    }
+    writeEarlyThemeCss(earlyCacheKey, effective ? (controller.compiledHostCss?.() ?? '') : '');
+  };
+
+  const sync = (clearPreview = false): void => {
+    const effective = active ? resolveTheme(saved.get()) : null;
+    controller.apply(effective, clearPreview ? { clearPreview: true } : undefined);
+    if (loaded || !active) {
+      syncCache(effective);
     }
   };
 
@@ -115,18 +164,14 @@ export function initSiteTheme(
     }
   });
 
-  const initialSyncReady =
-    library && globalRev
-      ? Promise.all([saved.ready, globalRev.ready, library.ready]).then(async () => {
-          if (disposed) {
-            return;
-          }
-          stopLibrary = library.onChange(() => {
-            void reconcileGlobalTheme();
-          });
-          await reconcileGlobalTheme();
-        })
-      : undefined;
+  const globalSync = library
+    ? connectGlobalThemeSync({
+        data,
+        saved,
+        library,
+        onAdopted: () => sync(true),
+      })
+    : undefined;
 
   let cachedPanel: OptionsPanel | undefined;
 
@@ -140,7 +185,8 @@ export function initSiteTheme(
         controller,
         () => undefined,
         library,
-        initialSyncReady,
+        globalSync?.ready,
+        fetchThemeUrl,
       );
       return cachedPanel;
     },
@@ -165,7 +211,7 @@ export function initSiteTheme(
       }
       disposed = true;
       stopWatch();
-      stopLibrary?.();
+      globalSync?.dispose();
       controller.dispose();
     },
   };

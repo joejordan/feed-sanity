@@ -860,6 +860,9 @@ export function QuickPopup({
   onClose,
 }: QuickPopupProps) {
   const [sites, setSites] = useState<SiteStatus[]>(() => providedSiteSettings?.list() ?? []);
+  const [experimentalUnlocked, setExperimentalUnlocked] = useState<boolean>(
+    () => providedSiteSettings?.isExperimentalUnlocked() ?? false,
+  );
   const [savedThemes, setSavedThemes] = useState<readonly SavedThemeEntry[]>(
     () => providedThemeLibrary?.list() ?? EMPTY_THEME_LIBRARY.themes,
   );
@@ -878,6 +881,7 @@ export function QuickPopup({
     (client) => {
       const next = client.list();
       setSites((prev) => (sameSiteStatuses(prev, next) ? prev : next));
+      setExperimentalUnlocked(client.isExperimentalUnlocked());
     },
   );
 
@@ -936,6 +940,7 @@ export function QuickPopup({
     return (
       <UnsupportedTabView
         sites={sites}
+        experimentalUnlocked={experimentalUnlocked}
         {...(unattachedTab ? { unattachedTab } : {})}
         {...(onRequestAccess ? { onRequestAccess } : {})}
         {...(onRetryConnect ? { onRetryConnect } : {})}
@@ -946,6 +951,7 @@ export function QuickPopup({
         toastEl={toastEl}
         onSetSiteEnabled={setSiteEnabled}
         onApplyAllSites={applyDocumentToAllSites}
+        onOpenSettings={onOpenSettings}
         onOpenSiteUrl={onOpenSiteUrl}
       />
     );

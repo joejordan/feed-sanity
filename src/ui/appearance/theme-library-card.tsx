@@ -33,7 +33,6 @@ export interface ThemeLibraryCardProps {
   readonly onSaveCurrent: (name: string) => void;
   readonly onApplyEntry: (entry: SavedThemeEntry) => void;
   readonly onPreviewEntry?: (entry: SavedThemeEntry | null) => void;
-  readonly onApplyAllSites: (doc: ThemeDocumentV1) => void;
   readonly onRenameEntry: (entryId: string, nextName: string) => void;
   readonly onDeleteEntry: (entry: SavedThemeEntry) => void;
   readonly onExportEntry?: (entry: SavedThemeEntry, filename: string) => void;
@@ -139,7 +138,6 @@ interface SavedThemeItemProps {
   readonly onCancelRename: () => void;
   readonly onApply: () => void;
   readonly onPreview: () => void;
-  readonly onApplyAllSites: () => void;
   readonly onExport: () => void;
   readonly onDelete: () => void;
 }
@@ -245,7 +243,6 @@ function SavedThemeItem({
   onCancelRename,
   onApply,
   onPreview,
-  onApplyAllSites,
   onExport,
   onDelete,
 }: SavedThemeItemProps) {
@@ -279,6 +276,7 @@ function SavedThemeItem({
   return (
     <div
       className="theme-library-card"
+      data-fs-jump-id={`saved-theme:${entry.id}`}
       data-view={viewMode}
       data-active={isActive ? 'true' : undefined}
       data-renaming={isRenaming ? 'true' : undefined}
@@ -328,16 +326,6 @@ function SavedThemeItem({
             </span>
           </button>
           <div className="theme-library-card-actions">
-            <button
-              type="button"
-              className="theme-library-allsites"
-              aria-label={`Apply ${name} to all sites`}
-              title="Apply to all sites"
-              onClick={onApplyAllSites}
-            >
-              <UiIcon name="globe" size={12} />
-              All sites
-            </button>
             <span className="theme-library-icon-actions">
               {iconActions.map((action) => (
                 <button
@@ -490,7 +478,6 @@ export function ThemeLibraryCard({
   onSaveCurrent,
   onApplyEntry,
   onPreviewEntry,
-  onApplyAllSites,
   onRenameEntry,
   onDeleteEntry,
   onExportEntry,
@@ -576,16 +563,10 @@ export function ThemeLibraryCard({
   return (
     <SettingCard
       title="My Themes"
+      jumpId="theme-library"
       action={
         <div className="theme-library-header-actions">
           {items.length > 0 && <Badge tone="neutral">{items.length}</Badge>}
-          <button
-            type="button"
-            className="theme-inline-reset"
-            onClick={() => onApplyAllSites(activeDocument)}
-          >
-            Apply to all sites
-          </button>
           <button
             ref={saveButtonRef}
             type="button"
@@ -635,7 +616,7 @@ export function ThemeLibraryCard({
         {items.length === 0 ? (
           <p className="theme-studio-intro">
             Save customized themes or imported <code>{THEME_FILE_EXTENSION}</code> files here to
-            switch in one click or apply across every site.
+            switch in one click.
           </p>
         ) : (
           <div
@@ -665,7 +646,6 @@ export function ThemeLibraryCard({
                     onPreviewEntry?.(item.entry);
                   }
                 }}
-                onApplyAllSites={() => onApplyAllSites(item.entry.document)}
                 onExport={() => {
                   const filename = downloadThemeDocumentFile(item.entry.document);
                   onExportEntry?.(item.entry, filename);

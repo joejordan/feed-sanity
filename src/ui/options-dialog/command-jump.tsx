@@ -10,6 +10,7 @@ export interface IndexedSearchHit {
   readonly section: string;
   readonly haystack: string;
   readonly optionKey?: string;
+  readonly panelItemId?: string;
   readonly groupKey?: string;
   readonly onSelect?: () => void;
 }

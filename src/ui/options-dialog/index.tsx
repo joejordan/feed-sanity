@@ -21,7 +21,7 @@ export function closeOptionsDialog(): void {
 export interface OpenOptionsDialogConfig {
   readonly site?: SiteIdentity;
   readonly siteEnabled?: boolean;
-  readonly onToggleSite?: (enabled: boolean) => void;
+  readonly onToggleSite?: (enabled: boolean) => void | Promise<void>;
   readonly onSiteEnabledChange?: (listener: (enabled: boolean) => void) => () => void;
   readonly initialSection?: string;
 }

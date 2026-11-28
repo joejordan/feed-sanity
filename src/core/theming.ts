@@ -23,6 +23,12 @@ export type {
   ThemeViolation,
   ThemeViolationKind,
 } from './theming/audit';
+export type {
+  FetchThemeUrlOptions,
+  ThemeUrlFetcher,
+  ThemeUrlFetchResult,
+  ThemeUrlValidationResult,
+} from './theming/url-import';
 export {
   DEFAULT_THEME_EFFECTS,
   getActiveBackdropParamSpecs,
@@ -180,6 +186,11 @@ export {
 } from './theming/library';
 export { BUILTIN_THEMES, findThemePreset } from './theming/presets';
 export {
+  THEME_TRANSITION_MS,
+  THEME_TRANSITION_STYLE_ID,
+  VIEW_TRANSITION_CSS,
+} from './theming/transition';
+export {
   type AdaptiveThemeMappingOptions,
   type BackdropRevealMetrics,
   isThemeFontId,
@@ -200,3 +211,9 @@ export {
   type ThemePreset,
   type ThemeRibbonSpec,
 } from './theming/types';
+export {
+  fetchThemeTextFromUrl,
+  MAX_THEME_IMPORT_URL_LENGTH,
+  THEME_URL_FETCH_TIMEOUT_MS,
+  validateThemeImportUrl,
+} from './theming/url-import';

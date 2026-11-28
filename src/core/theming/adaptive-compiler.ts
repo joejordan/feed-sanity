@@ -225,15 +225,25 @@ function cssomIdOf(obj: object | undefined): number {
   return id;
 }
 
-function recordCssomSheet(signature: number[], sheet: CSSStyleSheet, rules: CSSRuleList): void {
-  signature.push(cssomIdOf(sheet), rules.length, cssomIdOf(rules[0]), cssomIdOf(lastRuleOf(rules)));
+function recordCssomSheet(
+  signature: number[],
+  sheet: CSSStyleSheet,
+  rules: CSSRuleList | null,
+): void {
+  signature.push(
+    cssomIdOf(sheet),
+    sheet.disabled ? 1 : 0,
+    rules ? rules.length : -1,
+    rules ? cssomIdOf(rules[0]) : 0,
+    rules ? cssomIdOf(lastRuleOf(rules)) : 0,
+  );
 }
 
 /**
- * Captures a lightweight, non-retaining CSSOM fingerprint across accessible
- * non-own stylesheets in `root` (`styleSheets` + `adoptedStyleSheets`) so
- * callers can detect runtime `insertRule()`, `deleteRule()`, `replaceSync()`,
- * and `adoptedStyleSheets` swaps in both light DOM and open Shadow Roots.
+ * Captures a lightweight, non-retaining CSSOM fingerprint across non-own
+ * stylesheets in `root` (`styleSheets` + `adoptedStyleSheets`) so callers can
+ * detect runtime `insertRule()`, `deleteRule()`, `replaceSync()`, `disabled`
+ * flips, and `adoptedStyleSheets` swaps in both light DOM and open Shadow Roots.
  */
 export function captureCssomSnapshot(
   root: Document | ShadowRoot,
@@ -241,11 +251,13 @@ export function captureCssomSnapshot(
 ): RootCssomSnapshot {
   const signature: number[] = [];
   for (const sheet of collectStyleSheets(root, skipIds)) {
+    let rules: CSSRuleList | null = null;
     try {
-      recordCssomSheet(signature, sheet, sheet.cssRules);
+      rules = sheet.cssRules;
     } catch {
-      // Ignore cross-origin stylesheets.
+      // Cross-origin stylesheet: identity and disabled state still detect swaps/toggles.
     }
+    recordCssomSheet(signature, sheet, rules);
   }
   return { signature };
 }
@@ -776,17 +788,16 @@ export function compileAdaptiveRootCss(
   const onCssomSnapshot = options.onCssomSnapshot;
   const snapshotSignature: number[] | undefined = onCssomSnapshot ? [] : undefined;
   for (const sheet of collectStyleSheets(root, skipIds)) {
-    let rules: CSSRuleList;
+    let rules: CSSRuleList | null = null;
     try {
       rules = sheet.cssRules;
     } catch {
       // Cross-origin stylesheet: handled in real time by Layer 2 (`ThemeHealer`).
-      continue;
     }
     if (snapshotSignature) {
       recordCssomSheet(snapshotSignature, sheet, rules);
     }
-    if (totalInspected >= MAX_RULES_PER_ROOT) {
+    if (!rules || totalInspected >= MAX_RULES_PER_ROOT) {
       continue;
     }
     const extracted = extractSheet(

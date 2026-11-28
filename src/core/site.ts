@@ -15,8 +15,13 @@ import { createLogger } from './log';
 import { Options } from './options';
 import { SavedData } from './saved';
 import { readSiteEnabledHint, writeSiteEnabledHint } from './site-hint';
-import { createSiteSettings, isSiteEnabledByDefault, SITES_STORAGE_KEY } from './site-settings';
-import { siteStoragePrefix } from './site-storage';
+import {
+  createSiteSettings,
+  EXPERIMENTAL_SITES_KEY,
+  isSiteEnabledByDefault,
+  SITES_STORAGE_KEY,
+} from './site-settings';
+import { readStoredAccountId, siteAccountStorageKey, siteStoragePrefix } from './site-storage';
 import { createPreloadedStore, readStoreMany } from './storage';
 import { OWN_ATTR, OWN_UI_TAG } from './surface';
 import {
@@ -167,6 +172,37 @@ export class SiteRegistry {
 const EMPTY_BADGE: Badge = { count: 0, failed: false };
 const PAUSED_BADGE: Badge = { count: 0, failed: false, paused: true };
 
+const YIELD_FALLBACK_MS = 50;
+
+/** Yields one paint frame on visible tabs (with a short timer fallback if hidden mid-yield) so UI throbbers render before site toggle work runs. */
+const yieldToPaint = (): Promise<void> => {
+  if (
+    typeof document === 'undefined' ||
+    document.hidden ||
+    typeof globalThis.requestAnimationFrame !== 'function'
+  ) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    let rafId = 0;
+    let timerId: ReturnType<typeof setTimeout> | undefined;
+    const done = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      globalThis.cancelAnimationFrame?.(rafId);
+      if (timerId !== undefined) {
+        clearTimeout(timerId);
+      }
+      resolve();
+    };
+    rafId = globalThis.requestAnimationFrame(done);
+    timerId = setTimeout(done, YIELD_FALLBACK_MS);
+  });
+};
+
 /**
  * Boots a single `SiteAdapter` against `platform`: loads the shared site
  * enablement state, wires the toolbar/menu Options trigger, and lazily creates
@@ -197,8 +233,16 @@ export async function startSite<P, F extends PageFactory<P>>(
     }
   };
 
-  const bootPrefix = siteStoragePrefix(site.id, site.accountId());
+  const bootAccountId = site.accountId();
+  const bootPrefix = siteStoragePrefix(site.id, bootAccountId);
+  const siteAccountKey = siteAccountStorageKey(site.id);
   const hintedEnabled = readSiteEnabledHint(site.id, isSiteEnabledByDefault(site.id));
+  const shouldRecordAccount = Boolean(
+    platform.onPopupStateRequest &&
+      bootAccountId &&
+      bootAccountId !== 'anonymous' &&
+      !bootAccountId.includes('/'),
+  );
 
   setSiteThemeCss(site.themeCss);
   if (site.themeMapping && hintedEnabled) {
@@ -233,6 +277,8 @@ export async function startSite<P, F extends PageFactory<P>>(
   const bootKeys = hintedEnabled
     ? [
         SITES_STORAGE_KEY,
+        EXPERIMENTAL_SITES_KEY,
+        ...(shouldRecordAccount ? [siteAccountKey] : []),
         `${bootPrefix}/options`,
         `${bootPrefix}/filters`,
         ...(site.themeMapping
@@ -243,7 +289,7 @@ export async function startSite<P, F extends PageFactory<P>>(
             ]
           : []),
       ]
-    : [SITES_STORAGE_KEY];
+    : [SITES_STORAGE_KEY, EXPERIMENTAL_SITES_KEY];
   let preloadedStore: ReturnType<typeof createPreloadedStore> | undefined;
   const bootStoreReady: Promise<typeof platform.store> = platform.store.getMany
     ? readStoreMany(platform.store, bootKeys)
@@ -270,6 +316,14 @@ export async function startSite<P, F extends PageFactory<P>>(
   let themeLibrary: ThemeLibraryClient | undefined;
   let active = false;
   let generation = 0;
+  let initialBootDone = false;
+  let activeSync: Promise<string[]> = Promise.resolve([]);
+  const waitForSiteSync = async (targetSiteId: string): Promise<void> => {
+    if (targetSiteId !== site.id) {
+      return;
+    }
+    await activeSync;
+  };
 
   const dispose = (): void => {
     if (disposed) {
@@ -388,6 +442,7 @@ export async function startSite<P, F extends PageFactory<P>>(
           active: false,
           earlyCacheKey: bootPrefix,
           ...(library ? { library } : {}),
+          ...(platform.fetchThemeUrl ? { fetchThemeUrl: platform.fetchThemeUrl } : {}),
         })
       : undefined;
     const page = site.createPage(
@@ -417,7 +472,7 @@ export async function startSite<P, F extends PageFactory<P>>(
       cachedPanels = [
         ...(theme ? [theme.panel] : []),
         ...sitePanels.slice(0, insertAt),
-        sitesPanel(settings, site.id),
+        sitesPanel(settings, site.id, waitForSiteSync),
         ...sitePanels.slice(insertAt),
       ];
       return cachedPanels;
@@ -483,10 +538,13 @@ export async function startSite<P, F extends PageFactory<P>>(
           return openOptionsDialog(options, ensurePanels(), {
             site: { id: site.id, displayName: site.displayName },
             siteEnabled: settings.isEnabled(site.id),
-            onToggleSite: (enabled) => {
-              void settings.setEnabled(site.id, enabled).catch((error: unknown) => {
+            onToggleSite: async (enabled) => {
+              try {
+                await settings.setEnabled(site.id, enabled);
+                await waitForSiteSync(site.id);
+              } catch (error: unknown) {
                 createLogger('sites').error('could not toggle site state', error);
-              });
+              }
             },
             onSiteEnabledChange: (listener) =>
               settings.onChange(() => listener(settings.isEnabled(site.id))),
@@ -580,6 +638,18 @@ export async function startSite<P, F extends PageFactory<P>>(
       clearEarlyThemeStyle();
     }
     emitBadge(PAUSED_BADGE);
+  } else if (shouldRecordAccount) {
+    // Record this site's active account slot atomically under its own per-site
+    // key so concurrent multi-tab boots never contend on a shared map.
+    void bootStore
+      .get(siteAccountKey)
+      .then((raw) => {
+        if (disposed || readStoredAccountId(raw) === bootAccountId) {
+          return;
+        }
+        return platform.store.set(siteAccountKey, bootAccountId);
+      })
+      .catch(() => undefined);
   }
 
   const deactivate = (): void => {
@@ -602,18 +672,38 @@ export async function startSite<P, F extends PageFactory<P>>(
       return [];
     }
     const token = ++generation;
+    const liveToggle = initialBootDone;
     active = want;
     if (!want) {
       writeSiteEnabledHint(site.id, false);
+      if (liveToggle) {
+        await yieldToPaint();
+        if (disposed || token !== generation) {
+          return [];
+        }
+      }
       deactivate();
       return [];
     }
     cancelDisarm();
-    const current = ensureRuntime();
     writeSiteEnabledHint(site.id, true);
+    if (liveToggle) {
+      await yieldToPaint();
+      if (disposed || token !== generation) {
+        return [];
+      }
+    }
+    const current = ensureRuntime();
     current.env.setActive(true);
     current.page.setActive?.(true);
     current.theme?.setActive(true);
+    if (liveToggle) {
+      // Let the GPU View Transition start smoothly before starting all site features.
+      await yieldToPaint();
+      if (disposed || token !== generation) {
+        return [];
+      }
+    }
     const failed = await current.runner.start();
     if (disposed) {
       return [];
@@ -632,11 +722,19 @@ export async function startSite<P, F extends PageFactory<P>>(
     return failed;
   };
 
+  const triggerSync = (): Promise<string[]> => {
+    const next = syncEnabled();
+    activeSync = next;
+    return next;
+  };
+
   registerCleanup(
     resolvedSiteSettings.onChange(() => {
-      void syncEnabled();
+      void triggerSync();
     }),
   );
 
-  return syncEnabled();
+  const initialResult = await triggerSync();
+  initialBootDone = true;
+  return initialResult;
 }

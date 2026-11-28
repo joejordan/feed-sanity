@@ -3,6 +3,12 @@ import type { ReactNode } from 'react';
 import { OWN_ATTR } from '../core/surface';
 import { colorSchemeOf, parseCssColor } from '../core/theming/color';
 import { HOST_SCHEME_ATTRS } from '../core/theming/host-scheme';
+import {
+  attachTransitionStyle,
+  canAnimateThemeTransition,
+  THEME_TRANSITION_CLEANUP_MS,
+  UI_THEME_TRANSITION_CSS,
+} from '../core/theming/transition';
 import theme from './theme.css?inline';
 
 /** The tag of every host element, so they are easy to find in the page. */
@@ -16,6 +22,9 @@ let siteThemeCss = '';
 
 /** Optional user-selected theme overrides applied on top of `siteThemeCss`. */
 let userThemeCss = '';
+/** Dedicated short-lived transition `<style>` nodes active only while switching user themes. */
+const uiTransitionStyles = new Map<Document | ShadowRoot, HTMLStyleElement>();
+let uiTransitionTimer: ReturnType<typeof setTimeout> | undefined;
 
 interface MountedEntry {
   readonly host: HTMLElement;
@@ -30,6 +39,17 @@ const docWatchers = new Map<Document, () => void>();
 
 const buildShadowCss = (extraCss: string): string =>
   [theme, siteThemeCss, extraCss, userThemeCss].filter(Boolean).join('\n');
+
+const clearUiTransitions = (): void => {
+  if (uiTransitionTimer !== undefined) {
+    clearTimeout(uiTransitionTimer);
+    uiTransitionTimer = undefined;
+  }
+  for (const style of uiTransitionStyles.values()) {
+    style.remove();
+  }
+  uiTransitionStyles.clear();
+};
 
 function detectShadowUiScheme(host: HTMLElement): 'dark' | 'light' | null {
   if (!host.isConnected) {
@@ -121,6 +141,7 @@ function releaseDocumentWatcher(doc: Document): void {
 
 const refreshMountedStyles = (): void => {
   const touchedDocs = new Set<Document>();
+  const connectedHosts: HTMLElement[] = [];
   for (const [style, entry] of mountedStyles) {
     if (!style.isConnected) {
       mountedStyles.delete(style);
@@ -128,7 +149,16 @@ const refreshMountedStyles = (): void => {
       continue;
     }
     style.textContent = buildShadowCss(entry.extraCss);
-    syncBrandScheme(entry.host);
+    connectedHosts.push(entry.host);
+  }
+  // Batch reads separately from style textContent writes to avoid interleaved style recalcs.
+  const nextSchemes = connectedHosts.map((host) => [host, detectShadowUiScheme(host)] as const);
+  for (const [host, scheme] of nextSchemes) {
+    if (scheme) {
+      host.setAttribute(BRAND_SCHEME_ATTR, scheme);
+    } else {
+      host.removeAttribute(BRAND_SCHEME_ATTR);
+    }
   }
   for (const doc of touchedDocs) {
     releaseDocumentWatcher(doc);
@@ -145,11 +175,39 @@ export function setSiteThemeCss(css: string): void {
 }
 
 /** Applies or clears user-selected theme overrides across all active and future shadow roots. */
-export function setUserThemeCss(css: string): void {
+export function setUserThemeCss(css: string, options?: { readonly animate?: boolean }): void {
   if (css === userThemeCss) {
     return;
   }
+  const hasMountedUi = mountedStyles.size > 0;
+  const firstDoc = hasMountedUi
+    ? mountedStyles.values().next().value?.host.ownerDocument
+    : undefined;
   userThemeCss = css;
+  if (options?.animate !== false && hasMountedUi && canAnimateThemeTransition(firstDoc)) {
+    for (const [style, entry] of mountedStyles) {
+      const root = style.getRootNode();
+      if (!(root instanceof ShadowRoot) || !entry.host.isConnected) {
+        continue;
+      }
+      attachTransitionStyle(
+        entry.host.ownerDocument,
+        root,
+        UI_THEME_TRANSITION_CSS,
+        uiTransitionStyles,
+      );
+    }
+    if (uiTransitionStyles.size > 0) {
+      if (uiTransitionTimer !== undefined) {
+        clearTimeout(uiTransitionTimer);
+      }
+      uiTransitionTimer = setTimeout(clearUiTransitions, THEME_TRANSITION_CLEANUP_MS);
+    } else {
+      clearUiTransitions();
+    }
+  } else {
+    clearUiTransitions();
+  }
   refreshMountedStyles();
 }
 
@@ -195,6 +253,14 @@ export function renderInShadow(host: HTMLElement, ui: ReactNode, css = ''): () =
   root.render(ui);
   return () => {
     mountedStyles.delete(style);
+    const transitionEl = uiTransitionStyles.get(shadow);
+    if (transitionEl) {
+      transitionEl.remove();
+      uiTransitionStyles.delete(shadow);
+    }
+    if (mountedStyles.size === 0) {
+      clearUiTransitions();
+    }
     releaseDocumentWatcher(host.ownerDocument);
     root.unmount();
   };

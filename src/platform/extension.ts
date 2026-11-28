@@ -4,7 +4,9 @@ import { extensionStore } from './extension-store';
 import {
   badgeMessage,
   badgeVisualKey,
+  fetchThemeUrlMessage,
   GET_POPUP_STATE,
+  isThemeUrlFetchResult,
   PING_RUNTIME,
   parseOpenOptionsMessage,
   parseThemePreviewMessage,
@@ -189,6 +191,20 @@ export const extensionPlatform: Platform = {
           !(typeof reply === 'object' && reply !== null && (reply as { ok?: unknown }).ok === true),
         () => true,
       );
+  },
+  async fetchThemeUrl(url) {
+    try {
+      const reply: unknown = await browser.runtime.sendMessage(fetchThemeUrlMessage(url));
+      if (isThemeUrlFetchResult(reply)) {
+        return reply;
+      }
+      return { ok: false, error: 'Unexpected response while fetching theme URL.' };
+    } catch {
+      return {
+        ok: false,
+        error: 'Extension background is unavailable — reload the tab and retry.',
+      };
+    }
   },
   // Chrome and Firefox register each site's `*-page-world.content.ts` with
   // `world: 'MAIN'` in the manifest. Safari uses dynamic `registerContentScripts`

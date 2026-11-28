@@ -5,9 +5,15 @@ import { DEFAULT_THEME_DOCUMENT, findThemePreset, presetToThemeDocument } from '
 import { BADGE_DELAY_MS, buildName, extensionPlatform } from './extension';
 import {
   badgeMessage,
+  fetchThemeUrlMessage,
   GET_POPUP_STATE,
+  isThemeUrlFetchResult,
+  NAVIGATE_OPTIONS,
+  navigateOptionsMessage,
   OPEN_OPTIONS,
   openOptionsMessage,
+  parseFetchThemeUrlMessage,
+  parseNavigateOptionsMessage,
   THEME_PREVIEW_PORT,
   themePreviewMessage,
 } from './messages';
@@ -247,5 +253,71 @@ describe('extensionPlatform', () => {
     expect(send).toHaveBeenCalledTimes(5);
     expect(send).toHaveBeenLastCalledWith(badgeMessage({ count: 2, failed: true }));
     pending.shift()!.resolve();
+  });
+
+  it('parses FETCH_THEME_URL messages, validates replies, and handles background fetch errors', async () => {
+    const sampleUrl = 'https://themes.example.com/tide.fstheme.json';
+    expect(parseFetchThemeUrlMessage(fetchThemeUrlMessage(sampleUrl))).toBe(sampleUrl);
+    expect(parseFetchThemeUrlMessage({ type: 'feed-sanity/fetch-theme-url', url: '' })).toBeNull();
+    expect(parseFetchThemeUrlMessage({ type: 'feed-sanity/fetch-theme-url', url: 42 })).toBeNull();
+    expect(parseFetchThemeUrlMessage({ type: 'other', url: sampleUrl })).toBeNull();
+    expect(parseFetchThemeUrlMessage('not-an-object')).toBeNull();
+
+    expect(isThemeUrlFetchResult({ ok: true, text: '{}', finalUrl: sampleUrl })).toBe(true);
+    expect(isThemeUrlFetchResult({ ok: false, error: 'HTTP 404' })).toBe(true);
+    expect(isThemeUrlFetchResult({ ok: true, text: '{}' })).toBe(false);
+    expect(isThemeUrlFetchResult({ ok: false })).toBe(false);
+    expect(isThemeUrlFetchResult(null)).toBe(false);
+
+    const send = vi.spyOn(browser.runtime, 'sendMessage') as unknown as ReturnType<typeof vi.fn>;
+    send.mockResolvedValueOnce({
+      ok: true,
+      text: '{"format":"feed-sanity-theme"}',
+      finalUrl: sampleUrl,
+    });
+    await expect(extensionPlatform.fetchThemeUrl?.(sampleUrl)).resolves.toEqual({
+      ok: true,
+      text: '{"format":"feed-sanity-theme"}',
+      finalUrl: sampleUrl,
+    });
+    expect(send).toHaveBeenLastCalledWith(fetchThemeUrlMessage(sampleUrl));
+
+    send.mockResolvedValueOnce({ ok: false, error: 'Server returned HTTP 404.' });
+    await expect(extensionPlatform.fetchThemeUrl?.(sampleUrl)).resolves.toEqual({
+      ok: false,
+      error: 'Server returned HTTP 404.',
+    });
+
+    send.mockResolvedValueOnce({ unexpected: true });
+    await expect(extensionPlatform.fetchThemeUrl?.(sampleUrl)).resolves.toEqual({
+      ok: false,
+      error: 'Unexpected response while fetching theme URL.',
+    });
+
+    send.mockRejectedValueOnce(new Error('Extension context invalidated.'));
+    await expect(extensionPlatform.fetchThemeUrl?.(sampleUrl)).resolves.toEqual({
+      ok: false,
+      error: 'Extension background is unavailable — reload the tab and retry.',
+    });
+  });
+
+  it('builds and parses NAVIGATE_OPTIONS messages cleanly', () => {
+    expect(navigateOptionsMessage({ siteId: 'x', section: 'Appearance' })).toEqual({
+      type: NAVIGATE_OPTIONS,
+      siteId: 'x',
+      section: 'Appearance',
+    });
+    expect(navigateOptionsMessage({})).toEqual({ type: NAVIGATE_OPTIONS });
+    expect(
+      parseNavigateOptionsMessage(navigateOptionsMessage({ siteId: 'x', section: 'Sites' })),
+    ).toEqual({
+      siteId: 'x',
+      section: 'Sites',
+    });
+    expect(
+      parseNavigateOptionsMessage({ type: NAVIGATE_OPTIONS, siteId: '', section: 42 }),
+    ).toEqual({});
+    expect(parseNavigateOptionsMessage({ type: 'other', siteId: 'x' })).toBeNull();
+    expect(parseNavigateOptionsMessage(null)).toBeNull();
   });
 });

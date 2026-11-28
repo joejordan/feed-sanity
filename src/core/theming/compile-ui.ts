@@ -3,7 +3,7 @@
 
 import type { ThemeEffectsConfig } from '../theme-effects/model';
 import type { ResolvedTheme, ThemeChromeConfig, ThemePalette, ThemeRibbonSpec } from './types';
-import { hexWithAlpha } from './color';
+import { hexWithAlpha, mixHex, SEA_GLASS_TINT, SUNLIGHT } from './color';
 
 /** Clamps `value` to `[min, max]` and rounds to `decimals` decimal places. */
 export function clampNumber(value: number, min: number, max: number, decimals = 0): number {
@@ -62,6 +62,20 @@ export function compileUiSurfaceCss(
   if (effects.surface === 'moonlit') {
     const text = palette?.text ?? '#f8fafc';
     return `.dialog, .qp-root { box-shadow: inset 0 1px 0 0 ${hexWithAlpha(text, 0.1)}, 0 26px 54px -22px ${hexWithAlpha(accent, 0.4)}, 0 24px 60px var(--fs-shadow-2); }`;
+  }
+  if (effects.surface === 'dappled') {
+    const sun = palette?.accentSecondary ?? SUNLIGHT[palette?.colorScheme ?? 'dark'];
+    return `.pane, .qp-body { background-image: radial-gradient(ellipse 42% 46% at 8% 0%, ${hexWithAlpha(sun, 0.08)} 0%, transparent 70%), radial-gradient(ellipse 46% 50% at 100% 100%, ${hexWithAlpha(accent, 0.06)} 0%, transparent 72%); }`;
+  }
+  if (effects.surface === 'caustic') {
+    const scheme = palette?.colorScheme ?? 'dark';
+    const isLight = scheme === 'light';
+    const sun = palette?.accentSecondary ?? SUNLIGHT[scheme];
+    const aqua = mixHex(accent, SEA_GLASS_TINT[scheme], 0.42);
+    return [
+      `.dialog, .qp-root { box-shadow: inset 0 1px 0 0 ${hexWithAlpha('#ffffff', isLight ? 0.7 : 0.16)}, inset 0 -1px 0 0 ${hexWithAlpha(aqua, 0.34)}, 0 24px 56px -18px ${hexWithAlpha(accent, isLight ? 0.24 : 0.38)}, 0 24px 60px var(--fs-shadow-2); }`,
+      `.pane, .qp-body { background-image: radial-gradient(ellipse 46% 50% at 14% 0%, ${hexWithAlpha(aqua, 0.1)} 0%, transparent 72%), radial-gradient(ellipse 36% 40% at 72% 4%, ${hexWithAlpha(sun, 0.07)} 0%, transparent 72%), radial-gradient(ellipse 48% 52% at 96% 100%, ${hexWithAlpha(accent, 0.06)} 0%, transparent 74%); }`,
+    ].join('\n');
   }
   return '';
 }

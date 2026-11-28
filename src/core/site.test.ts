@@ -12,6 +12,7 @@ import { servePageWorld } from './page-world';
 import { SITE_INSTANCE_REPLACE_EVENT, SiteRegistry, scrubCommonPii, startSite } from './site';
 import { readSiteEnabledHint, writeSiteEnabledHint } from './site-hint';
 import { SITES_STORAGE_KEY } from './site-settings';
+import { siteAccountStorageKey } from './site-storage';
 import { inMemoryStore } from './testing';
 import {
   applyThemePreset,
@@ -562,5 +563,54 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     } finally {
       server.dispose();
     }
+  });
+
+  it('records active non-anonymous account ID atomically per site for extension platforms, skipping anonymous, disabled, and userscript boots', async () => {
+    const makeAdapter = (id: string, accountId: string): SiteAdapter => ({
+      id,
+      displayName: id,
+      matchesHost: () => true,
+      themeCss: '',
+      accountId: () => accountId,
+      scrubPii: scrubCommonPii,
+      createPage: () => () => ({}),
+      features: [],
+      createPanels: () => [],
+    });
+
+    const store = inMemoryStore();
+    const setSpy = vi.spyOn(store, 'set');
+    const extPlatform = {
+      build: 'test',
+      store,
+      setBadge: () => undefined,
+      onOpenOptions: () => () => undefined,
+      onPopupStateRequest: () => () => undefined,
+      installPageWorld: () => Promise.resolve(),
+    };
+
+    // Enabled extension site with valid account ID records `v2/site-account/facebook`.
+    await startSite(makeAdapter('facebook', '1000123'), extPlatform);
+    await vi.waitFor(async () =>
+      expect(await store.get(siteAccountStorageKey('facebook'))).toBe('1000123'),
+    );
+
+    // Repeat boot with identical account ID skips redundant write.
+    setSpy.mockClear();
+    await startSite(makeAdapter('facebook', '1000123'), extPlatform);
+    await Promise.resolve();
+    expect(setSpy).not.toHaveBeenCalledWith(siteAccountStorageKey('facebook'), expect.anything());
+
+    // Anonymous account, slash-containing ID, disabled site, and userscript (no onPopupStateRequest) do not write.
+    await startSite(makeAdapter('x', 'anonymous'), extPlatform);
+    await startSite(makeAdapter('x', 'bad/id'), extPlatform);
+    await store.set(SITES_STORAGE_KEY, { reddit: false });
+    await startSite(makeAdapter('reddit', 'u42'), extPlatform);
+    const { onPopupStateRequest: _, ...userscriptStub } = extPlatform;
+    await startSite(makeAdapter('gmail', 'u0'), userscriptStub);
+    await Promise.resolve();
+    expect(await store.get(siteAccountStorageKey('x'))).toBeUndefined();
+    expect(await store.get(siteAccountStorageKey('reddit'))).toBeUndefined();
+    expect(await store.get(siteAccountStorageKey('gmail'))).toBeUndefined();
   });
 });

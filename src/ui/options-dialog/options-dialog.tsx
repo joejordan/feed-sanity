@@ -3,6 +3,7 @@ import type { OptionSpec, Options, OptionValue } from '../../core/options';
 import type { IndexedSearchHit } from './command-jump';
 import type { Edit } from './option-row';
 import type { OptionsPanel } from './panel';
+import type { SiteSwitcherConfig } from './site-switcher';
 import { NAME, OPTIONS_TITLE, WEBSITE_URL } from '../../../project';
 import { createLogger } from '../../core/log';
 import {
@@ -13,14 +14,19 @@ import {
   getSiteMark,
   SettingCard,
   Switch,
+  scrollIntoViewCentered,
   Toast,
   UiIcon,
   useDraggable,
   useToast,
 } from '../primitives';
+import { watchOptionChanges } from '../use-option-value';
 import { CommandJumpOverlay } from './command-jump';
 import { groupSectionOptions, OptionRow } from './option-row';
 import { getSectionMeta, orderSections } from './sections';
+import { SiteSwitcherCard } from './site-switcher';
+
+export type { SiteSwitcherConfig } from './site-switcher';
 
 const log = createLogger('options');
 const TOAST_MS = 4000;
@@ -45,15 +51,21 @@ export interface OptionsDialogProps {
   /** Whether Feed Sanity is currently enabled on `site`. */
   siteEnabled?: boolean;
   /** Optional pause/resume toggle callback for `site`. */
-  onToggleSite?: (enabled: boolean) => void;
+  onToggleSite?: (enabled: boolean) => void | Promise<void>;
   /** Optional subscription keeping the header status synced if `site` is toggled in the Sites panel. */
   onSiteEnabledChange?: (listener: (enabled: boolean) => void) => () => void;
+  /** Optional rich site switcher turning the top-left site card into a dropdown menu (standalone mode). */
+  siteSwitcher?: SiteSwitcherConfig;
+  /** Full-viewport standalone window layout (disables modal backdrop, dragging, and Escape close). */
+  standalone?: boolean;
   /** Optional initial section to open (e.g. deep-linked from the Toolbar Popup). */
   initialSection?: string;
+  /** Notified whenever the active section changes. */
+  onSectionChange?: (section: string) => void;
   /** Registers an imperative section jumper used when `openOptionsDialog` is re-invoked while open. */
   registerSectionJump?: (jump: ((section: string) => void) | undefined) => void;
-  /** Called when the user closes the dialog. */
-  onClose: () => void;
+  /** Called when the user closes the dialog (unused in standalone mode). */
+  onClose?: () => void;
 }
 
 /**
@@ -68,7 +80,10 @@ export function OptionsDialog({
   siteEnabled = true,
   onToggleSite,
   onSiteEnabledChange,
+  siteSwitcher,
+  standalone = false,
   initialSection,
+  onSectionChange,
   registerSectionJump,
   onClose,
 }: OptionsDialogProps) {
@@ -112,12 +127,24 @@ export function OptionsDialog({
   const [cmdQuery, setCmdQuery] = useState('');
   const [cmdIndex, setCmdIndex] = useState(0);
   const [pulseKey, setPulseKey] = useState<string | null>(null);
+  const [panelJumpTarget, setPanelJumpTarget] = useState<{
+    readonly seq: number;
+    readonly jumpId: string;
+  } | null>(null);
   const [openDisclosures, setOpenDisclosures] = useState<ReadonlySet<string>>(new Set());
   const [edits, setEdits] = useState<ReadonlyMap<string, Edit>>(new Map());
   const [panelEdits, setPanelEdits] = useState<ReadonlyMap<OptionsPanel, unknown>>(new Map());
   const [saving, setSaving] = useState(false);
   const [enabledHere, setEnabledHere] = useState(siteEnabled);
+  const [togglingSite, setTogglingSite] = useState<'enabling' | 'disabling' | null>(null);
   const [, setTick] = useState(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const { toast, notify } = useToast(TOAST_MS);
 
   // Re-render dependent option rows immediately when a parent toggle changes externally
@@ -126,24 +153,49 @@ export function OptionsDialog({
     if (dependencyKeys.length === 0) {
       return;
     }
-    const stops = dependencyKeys.map((depKey) => {
-      let initialized = false;
-      return options.watch(depKey, () => {
-        if (!initialized) {
-          initialized = true;
-          return;
-        }
-        setTick((t) => t + 1);
-      });
+    return watchOptionChanges(options, dependencyKeys, () => setTick((t) => t + 1));
+  }, [options, dependencyKeys]);
+
+  const clearPanelEdit = useCallback((panel: OptionsPanel): void => {
+    setPanelEdits((previous) => {
+      if (!previous.has(panel)) {
+        return previous;
+      }
+      const next = new Map(previous);
+      next.delete(panel);
+      return next;
     });
+  }, []);
+
+  // Keep custom panels (Appearance, Filtering, etc.) and sidebar swatches/badges synced
+  // immediately when storage changes externally (e.g. toggling light/dark or Quick Mute in popup).
+  useEffect(() => {
+    const stops: Array<() => void> = [];
+    for (const panel of panels) {
+      if (!panel.subscribe) {
+        continue;
+      }
+      stops.push(
+        panel.subscribe(() => {
+          if (panel.instant) {
+            clearPanelEdit(panel);
+          }
+          setTick((t) => t + 1);
+        }),
+      );
+    }
+    if (stops.length === 0) {
+      return;
+    }
     return () => {
       for (const stop of stops) {
         stop();
       }
     };
-  }, [options, dependencyKeys]);
+  }, [panels, clearPanelEdit]);
 
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const listRef = useRef<HTMLDivElement>(null);
   const closedRef = useRef(false);
   const searchTriggerRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -201,14 +253,16 @@ export function OptionsDialog({
 
   const closeDialog = () => {
     closePanelsOnce();
-    onClose();
+    onClose?.();
   };
 
   // Open the modal dialog before measuring the sidebar pill so `.dialog:not([open])` is visible.
   useEffect(() => {
-    const el = dialog.current;
-    if (el && !el.open) {
-      el.showModal();
+    if (!standalone) {
+      const el = dialog.current;
+      if (el && !el.open) {
+        el.showModal();
+      }
     }
     return () => {
       if (pulseTimer.current !== undefined) {
@@ -216,7 +270,15 @@ export function OptionsDialog({
       }
       closePanelsOnce();
     };
-  }, [closePanelsOnce]);
+  }, [closePanelsOnce, standalone]);
+
+  const onSectionChangeRef = useRef(onSectionChange);
+  onSectionChangeRef.current = onSectionChange;
+  useEffect(() => {
+    if (section) {
+      onSectionChangeRef.current?.(section);
+    }
+  }, [section]);
 
   useEffect(() => {
     pointerTargetRef.current = null;
@@ -269,6 +331,62 @@ export function OptionsDialog({
       setTick((t) => t + 1);
     });
   }, [onSiteEnabledChange]);
+
+  // Scroll panel-contributed Command Jump targets into view once the target section & disclosures lay out.
+  useEffect(() => {
+    if (!panelJumpTarget) {
+      return;
+    }
+    let cancelled = false;
+    let clearPulseTimer: ReturnType<typeof setTimeout> | undefined;
+    let pulsedEl: HTMLElement | null = null;
+
+    const locateAndScroll = (): void => {
+      if (cancelled) {
+        return;
+      }
+      const list = listRef.current;
+      if (!list) {
+        return;
+      }
+      const candidates = list.querySelectorAll<HTMLElement>('[data-fs-jump-id]');
+      const target = Array.from(candidates).find(
+        (el) => el.dataset.fsJumpId === panelJumpTarget.jumpId,
+      );
+      if (!target) {
+        return;
+      }
+      scrollIntoViewCentered(target);
+      pulsedEl = target;
+      target.dataset.fsJumpPulse = 'true';
+      clearPulseTimer = setTimeout(() => {
+        if (pulsedEl) {
+          delete pulsedEl.dataset.fsJumpPulse;
+          pulsedEl = null;
+        }
+      }, 1250);
+    };
+
+    const rafId =
+      typeof globalThis.requestAnimationFrame === 'function'
+        ? globalThis.requestAnimationFrame(locateAndScroll)
+        : undefined;
+    if (rafId === undefined) {
+      locateAndScroll();
+    }
+    return () => {
+      cancelled = true;
+      if (rafId !== undefined) {
+        globalThis.cancelAnimationFrame?.(rafId);
+      }
+      if (clearPulseTimer !== undefined) {
+        clearTimeout(clearPulseTimer);
+      }
+      if (pulsedEl) {
+        delete pulsedEl.dataset.fsJumpPulse;
+      }
+    };
+  }, [panelJumpTarget]);
 
   const closeCommandJump = useCallback((): void => {
     setCmdOpen(false);
@@ -378,17 +496,14 @@ export function OptionsDialog({
     if (panel.instant) {
       const problem = panel.problem?.(nextValue) ?? null;
       if (!problem) {
-        setPanelEdits((previous) => {
-          if (!previous.has(panel)) {
-            return previous;
-          }
-          const next = new Map(previous);
-          next.delete(panel);
-          return next;
-        });
+        clearPanelEdit(panel);
         void panel
           .save(nextValue)
-          .then(() => setTick((t) => t + 1))
+          .then(() => {
+            if (!panel.subscribe && mountedRef.current) {
+              setTick((t) => t + 1);
+            }
+          })
           .catch((error: unknown) => log.error('could not save panel', error));
         return;
       }
@@ -435,6 +550,7 @@ export function OptionsDialog({
           haystack: [item.title, item.description ?? '', panel.section, ...(item.keywords ?? [])]
             .join('\n')
             .toLowerCase(),
+          panelItemId: item.id,
           ...(item.onSelect ? { onSelect: item.onSelect } : {}),
         });
       }
@@ -459,11 +575,15 @@ export function OptionsDialog({
       setOpenDisclosures((prev) => new Set(prev).add(targetGroup));
     }
     if (hit.optionKey) {
+      setPanelJumpTarget(null);
       setPulseKey(hit.optionKey);
       if (pulseTimer.current !== undefined) {
         clearTimeout(pulseTimer.current);
       }
       pulseTimer.current = setTimeout(() => setPulseKey(null), 1200);
+    } else if (hit.panelItemId) {
+      const targetId = hit.panelItemId;
+      setPanelJumpTarget((prev) => ({ seq: (prev?.seq ?? 0) + 1, jumpId: targetId }));
     }
     if (hit.onSelect) {
       hit.onSelect();
@@ -635,66 +755,97 @@ export function OptionsDialog({
       );
     });
 
-  return (
-    <dialog
-      ref={dialog}
-      className="dialog"
-      aria-label={OPTIONS_TITLE}
-      data-dragging={drag.dragging ? 'true' : undefined}
-      data-moved={drag.moved ? 'true' : undefined}
-      style={drag.style}
-      onKeyDown={handleDialogKeyDown}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (cmdOpen) {
-          closeCommandJump();
-          return;
-        }
-        closeDialog();
-      }}
-    >
+  const handleSiteToggle = (next: boolean): void => {
+    if (togglingSite !== null) {
+      return;
+    }
+    setEnabledHere(next);
+    const pending = onToggleSite?.(next);
+    if (pending && typeof pending === 'object' && 'then' in pending) {
+      setTogglingSite(next ? 'enabling' : 'disabling');
+      void Promise.resolve(pending).then(
+        () => {
+          if (mountedRef.current) {
+            setTogglingSite(null);
+          }
+        },
+        () => {
+          if (mountedRef.current) {
+            setEnabledHere(!next);
+            setTogglingSite(null);
+          }
+        },
+      );
+    }
+  };
+
+  const hasSitesSection = sections.includes('Sites');
+  const headerDragAttrs = standalone
+    ? undefined
+    : {
+        title: 'Drag to move · Double-click to center',
+        ...drag.handleProps,
+      };
+
+  const content = (
+    <>
       <div className="shell">
         <aside className="sidebar">
-          <div
-            className="site-header drag-handle"
-            title="Drag to move · Double-click to center"
-            {...drag.handleProps}
-          >
-            <div className="site-identity">
-              {site ? (
-                <span className="site-mark" aria-hidden="true">
-                  {getSiteMark(site.id, site.displayName)}
-                </span>
-              ) : (
-                <BrandMark size={30} />
-              )}
-              <div className="site-meta">
-                <h2 className="site-title">
-                  {site ? site.displayName : <BrandWordmark height={15} label={NAME} />}
-                </h2>
-                {site && (
-                  <span className="site-status">
-                    <span
-                      className="site-dot"
-                      data-paused={enabledHere ? undefined : 'true'}
-                      aria-hidden="true"
-                    />
-                    {enabledHere ? 'Active on this site' : 'Paused here'}
+          {site && siteSwitcher ? (
+            <SiteSwitcherCard
+              site={site}
+              enabledHere={enabledHere}
+              togglingSite={togglingSite}
+              {...(onToggleSite ? { onToggleSite: handleSiteToggle } : {})}
+              switcher={siteSwitcher}
+              {...(hasSitesSection ? { onManageSites: () => setSection('Sites') } : {})}
+            />
+          ) : (
+            <div
+              className={standalone ? 'site-header' : 'site-header drag-handle'}
+              {...headerDragAttrs}
+            >
+              <div className="site-identity">
+                {site ? (
+                  <span className="site-mark" aria-hidden="true">
+                    {getSiteMark(site.id, site.displayName)}
                   </span>
+                ) : (
+                  <BrandMark size={30} />
                 )}
+                <div className="site-meta">
+                  <h2 className="site-title">
+                    {site ? site.displayName : <BrandWordmark height={15} label={NAME} />}
+                  </h2>
+                  {site && (
+                    <span className="site-status" aria-busy={togglingSite !== null || undefined}>
+                      {togglingSite === null ? (
+                        <span
+                          className="site-dot"
+                          data-paused={enabledHere ? undefined : 'true'}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <span className="fs-spinner" aria-hidden="true" />
+                      )}
+                      {togglingSite === 'enabling' && 'Enabling…'}
+                      {togglingSite === 'disabling' && 'Pausing…'}
+                      {togglingSite === null &&
+                        (enabledHere ? 'Active on this site' : 'Paused here')}
+                    </span>
+                  )}
+                </div>
               </div>
+              {site && onToggleSite && (
+                <Switch
+                  checked={enabledHere}
+                  disabled={togglingSite !== null}
+                  ariaLabel={`Enable Feed Sanity on ${site.displayName}`}
+                  onChange={handleSiteToggle}
+                />
+              )}
             </div>
-            {site && onToggleSite && (
-              <Switch
-                checked={enabledHere}
-                ariaLabel={`Enable Feed Sanity on ${site.displayName}`}
-                onChange={(next) => {
-                  setEnabledHere(next);
-                  onToggleSite(next);
-                }}
-              />
-            )}
-          </div>
+          )}
 
           <button
             ref={searchTriggerRef}
@@ -747,14 +898,15 @@ export function OptionsDialog({
 
         <div className="pane">
           <header
-            className="pane-header drag-handle"
-            title="Drag to move · Double-click to center"
-            {...drag.handleProps}
+            className={standalone ? 'pane-header' : 'pane-header drag-handle'}
+            {...headerDragAttrs}
           >
             <div className="pane-header-title">
-              <span className="drag-grip" aria-hidden="true">
-                <UiIcon name="grip" size={14} />
-              </span>
+              {!standalone && (
+                <span className="drag-grip" aria-hidden="true">
+                  <UiIcon name="grip" size={14} />
+                </span>
+              )}
               {sectionMeta && (
                 <span className="pane-icon" aria-hidden="true">
                   <UiIcon name={sectionMeta.icon} size={15} />
@@ -765,14 +917,16 @@ export function OptionsDialog({
                 {sectionMeta?.subtitle && <p className="pane-subtitle">{sectionMeta.subtitle}</p>}
               </div>
             </div>
-            <button className="close" type="button" aria-label="Close" onClick={closeDialog}>
-              <UiIcon name="x" size={16} />
-            </button>
+            {!standalone && (
+              <button className="close" type="button" aria-label="Close" onClick={closeDialog}>
+                <UiIcon name="x" size={16} />
+              </button>
+            )}
           </header>
 
-          <div className="list">
+          <div ref={listRef} className="list">
             <div key={section ?? '__empty__'} className="pane-content">
-              {site && !enabledHere && sectionMeta?.group === 'site' && (
+              {site && !enabledHere && togglingSite === null && sectionMeta?.group === 'site' && (
                 <div className="pane-paused-banner" role="status">
                   <span>
                     {NAME} is paused on {site.displayName}. Settings saved here will apply once
@@ -782,10 +936,7 @@ export function OptionsDialog({
                     <button
                       type="button"
                       className="button primary"
-                      onClick={() => {
-                        setEnabledHere(true);
-                        onToggleSite(true);
-                      }}
+                      onClick={() => handleSiteToggle(true)}
                     >
                       Resume
                     </button>
@@ -885,6 +1036,41 @@ export function OptionsDialog({
           onClose={closeCommandJump}
         />
       )}
+    </>
+  );
+
+  if (standalone) {
+    return (
+      <main
+        className="dialog"
+        data-standalone="true"
+        aria-label={OPTIONS_TITLE}
+        onKeyDown={handleDialogKeyDown}
+      >
+        {content}
+      </main>
+    );
+  }
+
+  return (
+    <dialog
+      ref={dialog}
+      className="dialog"
+      aria-label={OPTIONS_TITLE}
+      data-dragging={drag.dragging ? 'true' : undefined}
+      data-moved={drag.moved ? 'true' : undefined}
+      style={drag.style}
+      onKeyDown={handleDialogKeyDown}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (cmdOpen) {
+          closeCommandJump();
+          return;
+        }
+        closeDialog();
+      }}
+    >
+      {content}
     </dialog>
   );
 }

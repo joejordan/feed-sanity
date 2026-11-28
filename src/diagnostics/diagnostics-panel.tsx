@@ -576,14 +576,16 @@ export function DiagnosticsPanel({
 
   return (
     <section className="diag">
-      <HealthOverview
-        diagnostics={diagnostics}
-        itemNoun={itemNoun}
-        livePaused={livePaused}
-        onToggleLive={() => setLivePaused((paused) => !paused)}
-        onRefresh={() => setDiagnostics(collect())}
-        onCopy={() => void copyReport()}
-      />
+      <div data-fs-jump-id="copy-report">
+        <HealthOverview
+          diagnostics={diagnostics}
+          itemNoun={itemNoun}
+          livePaused={livePaused}
+          onToggleLive={() => setLivePaused((paused) => !paused)}
+          onRefresh={() => setDiagnostics(collect())}
+          onCopy={() => void copyReport()}
+        />
+      </div>
 
       {copy && 'copied' in copy && (
         <p role="status" className="diag-copy-status">
@@ -612,7 +614,7 @@ export function DiagnosticsPanel({
       <ExtraSections diagnostics={diagnostics} />
       <Facts diagnostics={diagnostics} />
 
-      <SettingCard>
+      <SettingCard jumpId="locator-overrides">
         <Disclosure
           label="Locator inspector & custom selectors"
           badge={locatorBadge}

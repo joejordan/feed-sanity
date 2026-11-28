@@ -4,8 +4,6 @@ import { browser } from 'wxt/browser';
 import type { PopupTabState } from '../../core/platform';
 import type { ThemeDocumentV1 } from '../../core/theming/document';
 import type { UnattachedSupportedTab } from '../../ui/popup/quick-popup';
-import { compileUiThemeCss } from '../../core/theming/compile-ui';
-import { resolveTheme } from '../../core/theming/config';
 import { matchAttachableSite } from '../../platform/auto-attach';
 import { extensionStore } from '../../platform/extension-store';
 import {
@@ -13,91 +11,93 @@ import {
   GET_POPUP_STATE,
   isAttachTabReply,
   isPopupTabState,
+  navigateOptionsMessage,
   openOptionsMessage,
   THEME_PREVIEW_PORT,
   themePreviewMessage,
 } from '../../platform/messages';
 import { SITE_MANIFEST } from '../../sites/manifest';
+import {
+  compileDocumentUiTheme,
+  EXTENSION_THEME_TOKENS_CSS,
+  injectDocumentStyle,
+  toDocumentCss,
+} from '../../ui/document-theme';
 import { QuickPopup } from '../../ui/popup/quick-popup';
 import quickPopupCss from '../../ui/popup/quick-popup.css?inline';
 import { BrandMark, BrandWordmark, primitivesCss } from '../../ui/primitives';
 import baseThemeCss from '../../ui/theme.css?inline';
 
-// Default popup palette aligned with Feed Sanity Paper (light) and Night Edition (dark)
-// brand tokens; overridden live by `compileUiThemeCss` whenever the active tab has a theme.
-const POPUP_THEME_TOKENS_CSS = `
-:root {
-  color-scheme: light;
-  --fs-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --fs-background: #f8fafc;
-  --fs-surface: #eef3f9;
-  --fs-sidebar-bg: #eef3f9;
-  --fs-card-bg: #ffffff;
-  --fs-control-bg: #f1f5f9;
-  --fs-hover: rgb(7 11 31 / 5%);
-  --fs-press: rgb(7 11 31 / 10%);
-  --fs-text: #070b1f;
-  --fs-text-secondary: #4a5a7a;
-  --fs-divider: rgba(23, 54, 102, 0.14);
-  --fs-accent: #0b6b8f;
-  --fs-accent-surface: rgba(11, 107, 143, 0.12);
-  --fs-accent-text: #ffffff;
-  --fs-button-secondary: #e7eef6;
-  --fs-shadow-2: rgb(7 11 31 / 18%);
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --fs-background: #070b1f;
-    --fs-surface: #0e1a3d;
-    --fs-sidebar-bg: #0c1633;
-    --fs-card-bg: #0e1a3d;
-    --fs-control-bg: #152854;
-    --fs-hover: rgb(255 252 238 / 7%);
-    --fs-press: rgb(255 252 238 / 13%);
-    --fs-text: #fffcee;
-    --fs-text-secondary: #9fb3d1;
-    --fs-divider: rgba(159, 179, 209, 0.18);
-    --fs-accent: #5be9e0;
-    --fs-accent-surface: rgba(91, 233, 224, 0.15);
-    --fs-accent-text: #070b1f;
-    --fs-button-secondary: #173666;
-    --fs-shadow-2: rgb(0 0 0 / 50%);
-  }
-}
-`;
-
-const styleCache = new Map<string, HTMLStyleElement>();
-
-function injectStyle(id: string, text: string): void {
-  let el = styleCache.get(id);
-  if (!el?.isConnected) {
-    el = document.querySelector<HTMLStyleElement>(`#${id}`) ?? undefined;
-    if (!el) {
-      el = document.createElement('style');
-      el.id = id;
-      document.head.append(el);
-    }
-    styleCache.set(id, el);
-  }
-  if (el.textContent !== text) {
-    el.textContent = text;
-  }
-}
-
-// Adapt `:host` rules from baseThemeCss and compileUiThemeCss to `:root` for the
-// popup document without resetting `<html>` layout via Shadow DOM's `all: initial`.
-function toDocumentCss(cssText: string): string {
-  return cssText
-    .replace(/:host\(([^)]+)\)/g, ':root$1')
-    .replaceAll(':host', ':root')
-    .replace(/\ball\s*:\s*initial\s*;/g, '');
-}
-
-injectStyle(
+injectDocumentStyle(
   'fs-popup-base-style',
-  [toDocumentCss(baseThemeCss), POPUP_THEME_TOKENS_CSS, primitivesCss, quickPopupCss].join('\n'),
+  [toDocumentCss(baseThemeCss), EXTENSION_THEME_TOKENS_CSS, primitivesCss, quickPopupCss].join(
+    '\n',
+  ),
 );
+
+const STANDALONE_WINDOW_WIDTH = 980;
+const STANDALONE_WINDOW_HEIGHT = 720;
+
+async function openStandaloneSettingsWindow(args: {
+  readonly siteId?: string;
+  readonly section?: string;
+}): Promise<void> {
+  const baseUrl = browser.runtime.getURL('/options.html');
+  const url = new URL(baseUrl);
+  if (args.siteId) {
+    url.searchParams.set('site', args.siteId);
+  }
+  if (args.section) {
+    url.searchParams.set('section', args.section);
+  }
+  const targetUrl = url.toString();
+
+  // Focus and navigate an existing standalone Settings window if one is already open.
+  try {
+    const existingTabs = await browser.tabs.query({ url: `${baseUrl}*` });
+    const existing = existingTabs.find((tab) => tab.id !== undefined);
+    if (existing?.id !== undefined) {
+      let navigated = false;
+      try {
+        const reply: unknown = await browser.tabs.sendMessage(
+          existing.id,
+          navigateOptionsMessage(args),
+        );
+        navigated = Boolean(reply);
+      } catch {
+        // Tab may still be loading; fall back to updating its URL directly.
+      }
+      const tabUpdate = browser.tabs.update(
+        existing.id,
+        navigated ? { active: true } : { url: targetUrl, active: true },
+      );
+      const windowUpdate =
+        existing.windowId !== undefined && typeof browser.windows?.update === 'function'
+          ? browser.windows.update(existing.windowId, { focused: true }).catch(() => undefined)
+          : undefined;
+      await Promise.all([tabUpdate, windowUpdate]);
+      return;
+    }
+  } catch {
+    // Fall through to creating a fresh window/tab.
+  }
+
+  if (typeof browser.windows?.create === 'function') {
+    try {
+      await browser.windows.create({
+        url: targetUrl,
+        type: 'popup',
+        width: STANDALONE_WINDOW_WIDTH,
+        height: STANDALONE_WINDOW_HEIGHT,
+        focused: true,
+      });
+      return;
+    } catch {
+      // Mobile or restricted browser environments fall back to opening a tab.
+    }
+  }
+  await browser.tabs.create({ url: targetUrl });
+}
 
 interface ActiveTabInfo {
   readonly tabId: number;
@@ -130,11 +130,6 @@ async function queryTabPopupState(tabId: number): Promise<unknown> {
       clearTimeout(timer);
     }
   }
-}
-
-function compilePopupUiTheme(doc: ThemeDocumentV1 | null): string {
-  const resolved = doc ? resolveTheme(doc) : null;
-  return resolved ? toDocumentCss(compileUiThemeCss(resolved)) : '';
 }
 
 function PopupApp() {
@@ -215,7 +210,7 @@ function PopupApp() {
         setUnattached(result.kind === 'unattached' ? result.unattached : null);
         savedThemeCssRef.current = '';
         previewingRef.current = false;
-        injectStyle('fs-popup-user-theme', '');
+        injectDocumentStyle('fs-popup-user-theme', '');
         setLoaded(true);
         return false;
       });
@@ -247,13 +242,13 @@ function PopupApp() {
 
   const handleThemeChange = useCallback(
     (doc: ThemeDocumentV1, meta?: { readonly committed?: boolean }) => {
-      const css = compilePopupUiTheme(doc);
+      const css = compileDocumentUiTheme(doc);
       savedThemeCssRef.current = css;
       if (meta?.committed) {
         previewingRef.current = false;
       }
       if (!previewingRef.current) {
-        injectStyle('fs-popup-user-theme', css);
+        injectDocumentStyle('fs-popup-user-theme', css);
       }
     },
     [],
@@ -262,7 +257,10 @@ function PopupApp() {
   const handlePreviewTheme = useCallback(
     (doc: ThemeDocumentV1 | null) => {
       previewingRef.current = doc !== null;
-      injectStyle('fs-popup-user-theme', doc ? compilePopupUiTheme(doc) : savedThemeCssRef.current);
+      injectDocumentStyle(
+        'fs-popup-user-theme',
+        doc ? compileDocumentUiTheme(doc) : savedThemeCssRef.current,
+      );
       if (!active) {
         return;
       }
@@ -349,7 +347,14 @@ function PopupApp() {
             .sendMessage(active.tabId, openOptionsMessage(section))
             .catch(() => undefined)
             .finally(() => window.close());
+          return;
         }
+        void openStandaloneSettingsWindow({
+          ...(unattached ? { siteId: unattached.siteId } : {}),
+          ...(section ? { section } : {}),
+        })
+          .catch(() => undefined)
+          .finally(() => window.close());
       }}
       onOpenSiteUrl={(url) => {
         void browser.tabs.create({ url }).finally(() => window.close());

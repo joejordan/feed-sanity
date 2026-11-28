@@ -4,6 +4,7 @@ import type {
   ThemeDocumentFilterOptions,
   ThemeDocumentV1,
   ThemeParseResult,
+  ThemeUrlFetcher,
 } from '../../core/theming';
 import {
   getBackdropDisplayName,
@@ -13,15 +14,16 @@ import {
 import {
   analyzeThemeDocument,
   autoFixDocumentContrast,
+  fetchThemeTextFromUrl,
   getPaletteSwatches,
-  isCustomImportedDocument,
   MAX_THEME_FILE_BYTES,
   parseThemeDocument,
   serializeThemeDocument,
   THEME_FILE_EXTENSION,
   themeParseFailure,
+  validateThemeImportUrl,
 } from '../../core/theming';
-import { Badge, Disclosure } from '../primitives';
+import { Badge, Disclosure, downloadJsonFile, TextInput, UiIcon } from '../primitives';
 
 export type ThemeImportOptions = Required<ThemeDocumentFilterOptions>;
 
@@ -43,6 +45,7 @@ export interface ThemeTransferDisclosureProps {
     doc: ThemeDocumentV1,
     options: ThemeImportOptions,
   ) => Promise<boolean>;
+  readonly fetchThemeUrl?: ThemeUrlFetcher;
   readonly notify?: (message: string, onUndo?: () => void) => void;
 }
 
@@ -68,20 +71,7 @@ export function ThemeSwatches({ swatches }: { readonly swatches: readonly string
 /** Triggers a browser download of `doc` as a standalone `.fstheme.json` file. */
 export function downloadThemeDocumentFile(doc: ThemeDocumentV1): string {
   const filename = `${doc.id}${THEME_FILE_EXTENSION}`;
-  const json = serializeThemeDocument(doc);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.style.display = 'none';
-  document.body.append(link);
-  try {
-    link.click();
-  } finally {
-    link.remove();
-    globalThis.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
+  downloadJsonFile(filename, serializeThemeDocument(doc));
   return filename;
 }
 
@@ -133,6 +123,7 @@ function trustBadgeLabel(trust: ThemeCapabilities['trust']): string {
 interface ThemeImportPreviewProps {
   readonly doc: ThemeDocumentV1;
   readonly parsed: ThemeParseResult;
+  readonly sourceHost?: string | null;
   readonly importOptions: ThemeImportOptions;
   readonly onImportOptionsChange: (patch: Partial<ThemeImportOptions>) => void;
   readonly onFixContrast: () => void;
@@ -144,6 +135,7 @@ interface ThemeImportPreviewProps {
 function ThemeImportPreview({
   doc,
   parsed,
+  sourceHost,
   importOptions,
   onImportOptionsChange,
   onFixContrast,
@@ -174,8 +166,18 @@ function ThemeImportPreview({
 
   return (
     <div className="theme-transfer-preview" role="region" aria-label="Theme import preview">
+      {swatches.length >= 2 && (
+        <div
+          className="theme-transfer-preview-strip"
+          aria-hidden="true"
+          style={{
+            background: `linear-gradient(90deg, ${swatches.join(', ')})`,
+          }}
+        />
+      )}
+
       <div className="theme-transfer-preview-head">
-        <div>
+        <div className="theme-transfer-preview-title">
           <strong className="theme-card-name">{doc.meta.name}</strong>
           {byline && <span className="theme-studio-hint"> {byline}</span>}
         </div>
@@ -188,6 +190,7 @@ function ThemeImportPreview({
         <Badge tone={capabilities.trust === 'data-only' ? 'accent' : 'warning'}>
           {trustBadgeLabel(capabilities.trust)}
         </Badge>
+        {sourceHost && <Badge tone="neutral">From {sourceHost}</Badge>}
         {features.map((item) => (
           <Badge key={item} tone="neutral">
             {item}
@@ -264,26 +267,52 @@ export function ThemeTransferDisclosure({
   document: activeDoc,
   onImport,
   onSaveToLibrary,
+  fetchThemeUrl,
   notify,
 }: ThemeTransferDisclosureProps) {
+  const urlId = useId();
   const pasteId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const readSeqRef = useRef(0);
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const [urlDraft, setUrlDraft] = useState('');
+  const [fetchingUrl, setFetchingUrl] = useState(false);
+  const [sourceHost, setSourceHost] = useState<string | null>(null);
+  const [draggingFile, setDraggingFile] = useState(false);
   const [pasteDraft, setPasteDraft] = useState('');
   const [parsed, setParsed] = useState<ThemeParseResult | null>(null);
   const [importOptions, setImportOptions] = useState<ThemeImportOptions>(DEFAULT_IMPORT_OPTIONS);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
+  const activeSwatches = useMemo(
+    () => (open ? getPaletteSwatches(activeDoc.palette, activeDoc.meta.swatches, true) : []),
+    [open, activeDoc.palette, activeDoc.meta.swatches],
+  );
+
+  const abortPendingFetch = (): void => {
+    fetchAbortRef.current?.abort();
+    fetchAbortRef.current = null;
+    setFetchingUrl(false);
+  };
+
   useEffect(
     () => () => {
       readSeqRef.current++;
+      fetchAbortRef.current?.abort();
+      fetchAbortRef.current = null;
     },
     [],
   );
 
-  const resetPreview = (nextParsed: ThemeParseResult | null, clearStatus = false): void => {
+  const resetPreview = (
+    nextParsed: ThemeParseResult | null,
+    clearStatus = false,
+    nextSourceHost: string | null = null,
+  ): void => {
     readSeqRef.current++;
+    abortPendingFetch();
     setParsed(nextParsed);
+    setSourceHost(nextSourceHost);
     setImportOptions(DEFAULT_IMPORT_OPTIONS);
     if (clearStatus) {
       setStatusMessage(null);
@@ -293,6 +322,10 @@ export function ThemeTransferDisclosure({
   const clearPreview = (): void => resetPreview(null);
   const setImportError = (message: string): void => resetPreview(themeParseFailure(message), true);
   const inspectRawJson = (rawText: string): void => resetPreview(parseThemeDocument(rawText), true);
+  const applyLoadedText = (text: string, host: string | null): void => {
+    setPasteDraft(text);
+    resetPreview(parseThemeDocument(text), true, host);
+  };
 
   const handleExportDownload = (): void => {
     const filename = downloadThemeDocumentFile(activeDoc);
@@ -318,9 +351,7 @@ export function ThemeTransferDisclosure({
       });
   };
 
-  const handleFileChange = (input: HTMLInputElement): void => {
-    const file = input.files?.[0];
-    input.value = '';
+  const loadThemeFile = (file: File | undefined): void => {
     if (!file) {
       return;
     }
@@ -328,6 +359,7 @@ export function ThemeTransferDisclosure({
       setImportError(`File "${file.name}" exceeds the ${MAX_THEME_FILE_BYTES / 1024} KB limit.`);
       return;
     }
+    abortPendingFetch();
     const seq = ++readSeqRef.current;
     void file
       .text()
@@ -335,10 +367,7 @@ export function ThemeTransferDisclosure({
         if (seq !== readSeqRef.current) {
           return;
         }
-        setPasteDraft(text);
-        setParsed(parseThemeDocument(text));
-        setImportOptions(DEFAULT_IMPORT_OPTIONS);
-        setStatusMessage(null);
+        applyLoadedText(text, null);
       })
       .catch(() => {
         if (seq !== readSeqRef.current) {
@@ -348,8 +377,79 @@ export function ThemeTransferDisclosure({
       });
   };
 
+  const handleFileChange = (input: HTMLInputElement): void => {
+    const file = input.files?.[0];
+    input.value = '';
+    loadThemeFile(file);
+  };
+
+  const handleDragOver = (event: {
+    preventDefault: () => void;
+    stopPropagation: () => void;
+    dataTransfer: DataTransfer | null;
+  }): void => {
+    const types = event.dataTransfer?.types;
+    if (!types || !Array.from(types).includes('Files')) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+    if (!draggingFile) {
+      setDraggingFile(true);
+    }
+  };
+
+  const handleFetchUrl = (): void => {
+    const checked = validateThemeImportUrl(urlDraft);
+    if (!checked.ok) {
+      setImportError(checked.error);
+      return;
+    }
+    resetPreview(null, true);
+    const seq = readSeqRef.current;
+    setFetchingUrl(true);
+
+    let runFetch: Promise<Awaited<ReturnType<ThemeUrlFetcher>>>;
+    if (fetchThemeUrl) {
+      runFetch = fetchThemeUrl(checked.url);
+    } else {
+      const controller = new AbortController();
+      fetchAbortRef.current = controller;
+      runFetch = fetchThemeTextFromUrl(checked.url, { signal: controller.signal });
+    }
+
+    void runFetch
+      .then((result) => {
+        if (seq !== readSeqRef.current) {
+          return;
+        }
+        if (!result.ok) {
+          setImportError(result.error);
+          return;
+        }
+        let host = checked.displayHost;
+        if (result.finalUrl && result.finalUrl !== checked.url) {
+          const finalHost = validateThemeImportUrl(result.finalUrl);
+          if (finalHost.ok) {
+            host = finalHost.displayHost;
+          }
+        }
+        applyLoadedText(result.text, host);
+      })
+      .catch(() => {
+        if (seq !== readSeqRef.current) {
+          return;
+        }
+        setImportError('Could not fetch theme URL.');
+      });
+  };
+
   const previewDoc = parsed?.ok ? parsed.document : undefined;
   const hasPasteDraft = /\S/.test(pasteDraft);
+  const hasUrlDraft = /\S/.test(urlDraft);
 
   const handleFixPreviewContrast = (): void => {
     if (!previewDoc) {
@@ -375,6 +475,7 @@ export function ThemeTransferDisclosure({
     onImport(previewDoc, importOptions);
     clearPreview();
     setPasteDraft('');
+    setUrlDraft('');
     setStatusMessage(`Imported "${previewDoc.meta.name}"`);
   };
 
@@ -392,39 +493,175 @@ export function ThemeTransferDisclosure({
   };
 
   return (
-    <Disclosure
-      label="Import / Export theme"
-      badge={
-        isCustomImportedDocument(activeDoc) ? <Badge tone="accent">Imported</Badge> : undefined
-      }
-      open={open}
-      onToggle={onToggle}
-    >
+    <Disclosure label="Import / Export theme" open={open} onToggle={onToggle}>
       {open && (
         <div className="theme-drawer-pad">
-          <p className="theme-studio-intro">
-            Save or share your full theme (colors, font, Studio effects, and chrome) as a single{' '}
-            <code>{THEME_FILE_EXTENSION}</code> file.
-          </p>
+          <div className="theme-transfer-section">
+            <div className="theme-studio-subhead">
+              <span className="theme-transfer-section-label">Export current theme</span>
+              <span className="theme-transfer-file-ext">{THEME_FILE_EXTENSION}</span>
+            </div>
+            <div className="theme-transfer-export-row">
+              <div className="theme-transfer-active-meta">
+                <ThemeSwatches swatches={activeSwatches} />
+                <span className="theme-transfer-active-name" title={activeDoc.meta.name}>
+                  {activeDoc.meta.name}
+                </span>
+              </div>
+              <div className="theme-transfer-actions">
+                <button
+                  type="button"
+                  className="button primary theme-transfer-btn"
+                  onClick={handleExportDownload}
+                >
+                  <UiIcon name="download" size={13} />
+                  Export {THEME_FILE_EXTENSION}
+                </button>
+                <button
+                  type="button"
+                  className="button theme-transfer-btn"
+                  onClick={handleCopyJson}
+                >
+                  <UiIcon name="copy" size={13} />
+                  Copy JSON
+                </button>
+              </div>
+            </div>
+          </div>
 
-          <div className="theme-transfer-actions">
-            <button type="button" className="button primary" onClick={handleExportDownload}>
-              Export {THEME_FILE_EXTENSION}
-            </button>
-            <button type="button" className="button" onClick={handleCopyJson}>
-              Copy JSON
-            </button>
-            <button type="button" className="button" onClick={() => fileInputRef.current?.click()}>
-              Choose file…
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="theme-transfer-file-input"
-              aria-label="Import theme file"
-              accept=".fstheme.json,.json,application/json"
-              onChange={(event) => handleFileChange(event.currentTarget)}
-            />
+          <div className="theme-transfer-section">
+            <div className="theme-studio-subhead">
+              <span className="theme-transfer-section-label">Import a theme</span>
+              <span className="theme-studio-hint">
+                Validated locally before applying · max {MAX_THEME_FILE_BYTES / 1024} KB
+              </span>
+            </div>
+
+            <div
+              className="theme-transfer-dropzone"
+              data-dragging={draggingFile ? 'true' : undefined}
+              onDragEnter={handleDragOver}
+              onDragOver={handleDragOver}
+              onDragLeave={(event) => {
+                event.stopPropagation();
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  setDraggingFile(false);
+                }
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setDraggingFile(false);
+                loadThemeFile(event.dataTransfer?.files?.[0]);
+              }}
+            >
+              <button
+                type="button"
+                className="button theme-transfer-btn"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <UiIcon name="upload" size={13} />
+                Choose file…
+              </button>
+              <span className="theme-transfer-drop-hint">
+                {draggingFile
+                  ? `Drop to preview ${THEME_FILE_EXTENSION}`
+                  : `or drag and drop a ${THEME_FILE_EXTENSION} file here`}
+              </span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="theme-transfer-file-input"
+                aria-label="Import theme file"
+                accept=".fstheme.json,.json,application/json"
+                onChange={(event) => handleFileChange(event.currentTarget)}
+              />
+            </div>
+
+            <div className="theme-transfer-subblock">
+              <label className="theme-transfer-sublabel" htmlFor={urlId}>
+                Import from HTTPS URL
+              </label>
+              <div className="theme-transfer-url-row">
+                <TextInput
+                  id={urlId}
+                  type="url"
+                  spellCheck={false}
+                  className="field"
+                  ariaLabel="Theme URL"
+                  placeholder="https://example.com/theme.fstheme.json"
+                  value={urlDraft}
+                  onValueChange={(next) => {
+                    setUrlDraft(next);
+                    if (fetchingUrl || (parsed && !parsed.ok)) {
+                      clearPreview();
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && hasUrlDraft && !fetchingUrl) {
+                      event.preventDefault();
+                      handleFetchUrl();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="button theme-transfer-btn"
+                  aria-busy={fetchingUrl || undefined}
+                  disabled={!hasUrlDraft || fetchingUrl}
+                  onClick={handleFetchUrl}
+                >
+                  <UiIcon name="link" size={13} />
+                  {fetchingUrl ? 'Fetching…' : 'Fetch'}
+                </button>
+              </div>
+            </div>
+
+            <div className="theme-transfer-subblock">
+              <label className="theme-transfer-sublabel" htmlFor={pasteId}>
+                Or paste .fstheme.json
+              </label>
+              <textarea
+                id={pasteId}
+                className="field theme-transfer-textarea"
+                rows={4}
+                aria-label="Paste theme JSON"
+                placeholder='{"format": "feed-sanity-theme", "schemaVersion": 1, ...}'
+                spellCheck={false}
+                value={pasteDraft}
+                onChange={(event) => {
+                  setPasteDraft(event.currentTarget.value);
+                  if (fetchingUrl || parsed) {
+                    clearPreview();
+                  } else {
+                    readSeqRef.current++;
+                  }
+                }}
+              />
+              <div className="theme-transfer-actions">
+                <button
+                  type="button"
+                  className="button"
+                  disabled={!hasPasteDraft || fetchingUrl}
+                  onClick={() => inspectRawJson(pasteDraft)}
+                >
+                  Preview import
+                </button>
+                {(pasteDraft || urlDraft || parsed) && (
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={() => {
+                      setPasteDraft('');
+                      setUrlDraft('');
+                      clearPreview();
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {statusMessage && (
@@ -432,48 +669,6 @@ export function ThemeTransferDisclosure({
               {statusMessage}
             </p>
           )}
-
-          <div className="theme-color-row">
-            <label htmlFor={pasteId}>Or paste .fstheme.json</label>
-            <textarea
-              id={pasteId}
-              className="field"
-              rows={4}
-              aria-label="Paste theme JSON"
-              placeholder='{"format": "feed-sanity-theme", "schemaVersion": 1, ...}'
-              spellCheck={false}
-              value={pasteDraft}
-              onChange={(event) => {
-                readSeqRef.current++;
-                setPasteDraft(event.currentTarget.value);
-                if (parsed) {
-                  clearPreview();
-                }
-              }}
-            />
-            <div className="theme-transfer-actions">
-              <button
-                type="button"
-                className="button"
-                disabled={!hasPasteDraft}
-                onClick={() => inspectRawJson(pasteDraft)}
-              >
-                Preview import
-              </button>
-              {(pasteDraft || parsed) && (
-                <button
-                  type="button"
-                  className="button"
-                  onClick={() => {
-                    setPasteDraft('');
-                    clearPreview();
-                  }}
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
 
           {parsed && !parsed.ok && (
             <div className="theme-transfer-error" role="alert">
@@ -490,6 +685,7 @@ export function ThemeTransferDisclosure({
             <ThemeImportPreview
               doc={previewDoc}
               parsed={parsed}
+              sourceHost={sourceHost}
               importOptions={importOptions}
               onImportOptionsChange={(patch) => setImportOptions((prev) => ({ ...prev, ...patch }))}
               onFixContrast={handleFixPreviewContrast}

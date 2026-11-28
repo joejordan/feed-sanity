@@ -4,12 +4,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { Options } from '../../core/options';
+import { createSiteSettings } from '../../core/site-settings';
+import { inMemoryStore } from '../../core/testing';
+import {
+  applyThemePreset,
+  createThemeLibrary,
+  DEFAULT_THEME_DOCUMENT,
+  THEME_DATA_KEY,
+} from '../../core/theming';
 import { extensionStore } from '../../platform/extension-store';
+import { facebookSite } from '../../sites/facebook';
+import { gmailSite } from '../../sites/gmail';
+import { instagramSite } from '../../sites/instagram';
+import { redditSite } from '../../sites/reddit';
+import { xSite } from '../../sites/x';
 import { HOST_TAG } from '../mount';
 import { openOptionsDialog } from '.';
 import { OptionsDialog } from './options-dialog';
 import { definePanel } from './panel';
 import { orderSections } from './sections';
+import { createStandaloneSiteSession } from './standalone-site';
 
 const specs = {
   hide_ads: {
@@ -208,34 +222,51 @@ describe('OptionsDialog', () => {
           keywords: ['json', 'backup'],
         },
       ],
-      Panel: () => <p>Backup body</p>,
+      Panel: () => (
+        <div data-fs-jump-id="export-json">
+          <p>Backup body</p>
+        </div>
+      ),
     });
-    render(<OptionsDialog options={options} panels={[panel]} onClose={onClose} />);
+    const scrollSpy = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollSpy;
+    try {
+      render(<OptionsDialog options={options} panels={[panel]} onClose={onClose} />);
 
-    await userEvent.click(button('Search options'));
-    const search = screen.getByRole('combobox', { name: 'Jump to setting' });
-    expect(search.getAttribute('aria-controls')).toBeTruthy();
-    await userEvent.type(search, 'style sheet');
+      await userEvent.click(button('Search options'));
+      const search = screen.getByRole('combobox', { name: 'Jump to setting' });
+      expect(search.getAttribute('aria-controls')).toBeTruthy();
+      await userEvent.type(search, 'style sheet');
 
-    expect(screen.getByText('External CSS url')).toBeTruthy();
-    await userEvent.click(screen.getByRole('option', { name: /External CSS url/ }));
+      expect(screen.getByText('External CSS url')).toBeTruthy();
+      await userEvent.click(screen.getByRole('option', { name: /External CSS url/ }));
 
-    expect(field('textbox', 'External CSS url').isConnected).toBe(true);
-    expect(screen.queryByRole('checkbox', { name: 'Hide ads' })).toBeNull();
+      expect(field('textbox', 'External CSS url').isConnected).toBe(true);
+      expect(screen.queryByRole('checkbox', { name: 'Hide ads' })).toBeNull();
 
-    // Also searches custom panel items and jumps straight to that section.
-    await userEvent.click(button('Search options'));
-    await userEvent.type(screen.getByRole('combobox', { name: 'Jump to setting' }), 'backup');
-    await userEvent.click(screen.getByRole('option', { name: /Export settings backup/ }));
-    expect(screen.getByText('Backup body')).toBeTruthy();
+      // Also searches custom panel items, switches sections, scrolls the target into view, and pulses it.
+      scrollSpy.mockClear();
+      await userEvent.click(button('Search options'));
+      await userEvent.type(screen.getByRole('combobox', { name: 'Jump to setting' }), 'backup');
+      await userEvent.click(screen.getByRole('option', { name: /Export settings backup/ }));
+      expect(screen.getByText('Backup body')).toBeTruthy();
+      const target = screen.getByText('Backup body').closest('[data-fs-jump-id="export-json"]');
+      await vi.waitFor(() => {
+        expect(scrollSpy).toHaveBeenCalled();
+        expect(target?.getAttribute('data-fs-jump-pulse')).toBe('true');
+      });
 
-    // Empty state for unmatched queries.
-    await userEvent.click(button('Search options'));
-    await userEvent.type(
-      screen.getByRole('combobox', { name: 'Jump to setting' }),
-      'nothing matches this',
-    );
-    expect(screen.getByText('No options match.')).toBeTruthy();
+      // Empty state for unmatched queries.
+      await userEvent.click(button('Search options'));
+      await userEvent.type(
+        screen.getByRole('combobox', { name: 'Jump to setting' }),
+        'nothing matches this',
+      );
+      expect(screen.getByText('No options match.')).toBeTruthy();
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 
   it('groups advanced options under collapsible disclosures and supports site pause switch', async () => {
@@ -647,5 +678,190 @@ describe('OptionsDialog panels', () => {
     await user.keyboard('{Escape}');
     expect(input.value).toBe('');
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('renders standalone full-window layout with a rich top-left site switcher dropdown and keyboard navigation', async () => {
+    const user = userEvent.setup();
+    const options = await loadedOptions();
+    const onSelectSite = vi.fn();
+    const onToggleSite = vi.fn();
+    const sitesStub = definePanel<null>({
+      section: 'Sites',
+      ready: Promise.resolve(),
+      read: () => null,
+      save: () => Promise.resolve(),
+      Panel: () => <div>Sites panel body</div>,
+    });
+    const switcherSites = [
+      {
+        id: 'facebook',
+        displayName: 'Facebook',
+        description: 'Filters ads and suggested posts on Facebook.',
+        enabled: true,
+      },
+      {
+        id: 'x',
+        displayName: 'X (Twitter)',
+        description: 'Drops promoted posts and clears Grok.',
+        enabled: false,
+      },
+      {
+        id: 'reddit',
+        displayName: 'Reddit',
+        description: 'Filters promoted posts on Shreddit.',
+        enabled: true,
+        experimental: true,
+      },
+    ];
+
+    render(
+      <OptionsDialog
+        standalone
+        options={options}
+        panels={[sitesStub]}
+        site={{ id: 'facebook', displayName: 'Facebook' }}
+        siteEnabled={true}
+        onToggleSite={onToggleSite}
+        siteSwitcher={{
+          sites: switcherSites,
+          onSelectSite,
+          hasHiddenExperimental: true,
+        }}
+      />,
+    );
+
+    // Standalone mode uses a full-bleed <main> landmark with no dialog Close button.
+    expect(screen.getByRole('main').getAttribute('data-standalone')).toBe('true');
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+
+    // Toggling the pause/resume Switch does not open the switcher dropdown.
+    await user.click(field('checkbox', 'Enable Feed Sanity on Facebook'));
+    expect(onToggleSite).toHaveBeenCalledWith(false);
+    expect(screen.queryByRole('listbox')).toBeNull();
+
+    // Clicking the top-left site card opens the rich listbox with descriptions, status, and Beta badge.
+    const trigger = button(/Switch site \(Facebook\)/);
+    await user.click(trigger);
+    expect(screen.getByRole('listbox', { name: /Load site settings/i })).toBeTruthy();
+    expect(screen.getByText('Filters ads and suggested posts on Facebook.')).toBeTruthy();
+    expect(screen.getByText('Drops promoted posts and clears Grok.')).toBeTruthy();
+    expect(screen.getByText('Beta')).toBeTruthy();
+
+    // Pressing Escape closes the menu and restores focus to the trigger.
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+
+    // ArrowDown opens the listbox, Home/End/ArrowUp/ArrowDown move roving focus, and Enter selects X.
+    await user.keyboard('{ArrowDown}');
+    const fbOpt = screen.getByRole('option', { name: /Facebook/ });
+    const xOpt = screen.getByRole('option', { name: /X \(Twitter\)/ });
+    const redditOpt = screen.getByRole('option', { name: /Reddit/ });
+    expect(document.activeElement).toBe(fbOpt);
+    expect(fbOpt.tabIndex).toBe(0);
+    expect(xOpt.tabIndex).toBe(-1);
+
+    await user.keyboard('{End}');
+    expect(document.activeElement).toBe(redditOpt);
+    await user.keyboard('{Home}');
+    expect(document.activeElement).toBe(fbOpt);
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).toBe(xOpt);
+    await user.keyboard('{Enter}');
+    expect(onSelectSite).toHaveBeenCalledWith('x');
+    expect(screen.queryByRole('listbox')).toBeNull();
+
+    // Tabbing from the active option reaches the footer Manage button cleanly without closing the menu.
+    await user.click(trigger);
+    await user.keyboard('{Tab}');
+    const manageBtn = button(/Manage & unlock beta sites/i);
+    expect(document.activeElement).toBe(manageBtn);
+    await user.click(manageBtn);
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(screen.getByText('Sites panel body')).toBeTruthy();
+
+    // Clicking outside the switcher closes the open menu.
+    await user.click(trigger);
+    expect(screen.getByRole('listbox')).toBeTruthy();
+    await user.click(screen.getByText('Sites panel body'));
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('createStandaloneSiteSession matches all 5 site adapters, adopts global theme broadcasts, and silences CSS on dispose', async () => {
+    const store = inMemoryStore({
+      'v2/x/424242/options': { x_hide_grok: true },
+      [`v2/x/424242/${THEME_DATA_KEY}`]: applyThemePreset(DEFAULT_THEME_DOCUMENT, 'nord'),
+    });
+    const siteSettings = createSiteSettings(store);
+    const themeLibrary = createThemeLibrary(store);
+    await Promise.all([siteSettings.ready, themeLibrary.ready]);
+
+    // Verify all 5 sites hydrate cleanly and register the exact same OptionSpec keys as their live adapters.
+    const adapters = [facebookSite, xSite, instagramSite, redditSite, gmailSite] as const;
+    for (const adapter of adapters) {
+      const liveOptions = new Options(inMemoryStore(), `live/${adapter.id}/options`);
+      for (const feature of adapter.features) {
+        if (feature.options) {
+          liveOptions.register(feature.options);
+        }
+      }
+      const probe = createStandaloneSiteSession({
+        siteId: adapter.id as 'facebook' | 'x' | 'instagram' | 'reddit' | 'gmail',
+        storagePrefix: `v2/${adapter.id}/424242`,
+        store,
+        siteSettings,
+        themeLibrary,
+      });
+      await probe.ready;
+      expect(probe.displayName).toBe(adapter.displayName);
+      expect(probe.options.list().map(([k]) => k)).toEqual(liveOptions.list().map(([k]) => k));
+      probe.dispose();
+    }
+
+    const emittedCss: string[] = [];
+    const session = createStandaloneSiteSession({
+      siteId: 'x',
+      storagePrefix: 'v2/x/424242',
+      store,
+      siteSettings,
+      themeLibrary,
+      onUiThemeCss: (css) => emittedCss.push(css),
+    });
+    await session.ready;
+
+    expect(session.displayName).toBe('X (Twitter)');
+    expect(session.options.get('x_hide_grok')).toBe(true);
+    expect(session.panels.map((p) => p.section)).toEqual([
+      'Appearance',
+      'Filtering',
+      'Backup & Reset',
+      'Sites',
+    ]);
+    // Nord Frost UI theme CSS was compiled and emitted for live window theming.
+    expect(emittedCss.some((css) => css.includes('--fs-accent'))).toBe(true);
+
+    // Broadcasting a global theme updates the standalone session live and persists to the site prefix.
+    const countBeforeBroadcast = emittedCss.length;
+    await themeLibrary.applyToAllSites(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'warm-paper'));
+    await vi.waitFor(() => expect(emittedCss.length).toBeGreaterThan(countBeforeBroadcast));
+    expect((await store.get(`v2/x/424242/${THEME_DATA_KEY}`)) as { id?: string }).toMatchObject({
+      id: 'warm-paper',
+    });
+
+    // Saving an option writes straight to the live site storage prefix.
+    await session.options.set('x_hide_grok', false);
+    expect(await store.get('v2/x/424242/options')).toMatchObject({ x_hide_grok: false });
+
+    // After dispose(), further global broadcasts emit no stale CSS.
+    session.dispose();
+    const countAfterDispose = emittedCss.length;
+    await themeLibrary.applyToAllSites(
+      applyThemePreset(DEFAULT_THEME_DOCUMENT, 'catppuccin-mocha'),
+    );
+    await Promise.resolve();
+    expect(emittedCss.length).toBe(countAfterDispose);
+
+    siteSettings.dispose?.();
+    themeLibrary.dispose();
   });
 });

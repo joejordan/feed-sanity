@@ -1,5 +1,6 @@
 import type { PopupTabState } from '../core/platform';
 import type { ThemeDocumentV1 } from '../core/theming/document';
+import type { ThemeUrlFetchResult } from '../core/theming/url-import';
 import { isRecord } from '../core/storage';
 import { parseThemeDocument } from '../core/theming/document';
 
@@ -47,11 +48,81 @@ export function parseOpenOptionsMessage(
   return { matched: false };
 }
 
+/** Sent from the toolbar popup to an already-open standalone Settings window to switch site/section. */
+export const NAVIGATE_OPTIONS = 'feed-sanity/navigate-options';
+
+export interface NavigateOptionsMessage {
+  readonly type: typeof NAVIGATE_OPTIONS;
+  readonly siteId?: string;
+  readonly section?: string;
+}
+
+export function navigateOptionsMessage(args: {
+  readonly siteId?: string;
+  readonly section?: string;
+}): NavigateOptionsMessage {
+  return {
+    type: NAVIGATE_OPTIONS,
+    ...(args.siteId ? { siteId: args.siteId } : {}),
+    ...(args.section ? { section: args.section } : {}),
+  };
+}
+
+export function parseNavigateOptionsMessage(
+  message: unknown,
+): { readonly siteId?: string; readonly section?: string } | null {
+  if (!isRecord(message) || message.type !== NAVIGATE_OPTIONS) {
+    return null;
+  }
+  const siteId =
+    typeof message.siteId === 'string' && message.siteId.length > 0 ? message.siteId : undefined;
+  const section =
+    typeof message.section === 'string' && message.section.length > 0 ? message.section : undefined;
+  return {
+    ...(siteId ? { siteId } : {}),
+    ...(section ? { section } : {}),
+  };
+}
+
 /** Sent from the toolbar popup to the active tab to inspect site, account prefix, and hidden count. */
 export const GET_POPUP_STATE = 'feed-sanity/get-popup-state';
 
 /** Sent by a content script to verify its own extension background runtime is still alive. */
 export const PING_RUNTIME = 'feed-sanity/ping';
+
+/** Sent by Appearance's Import-by-URL UI so fetches bypass host-page `connect-src` CSP. */
+export const FETCH_THEME_URL = 'feed-sanity/fetch-theme-url';
+
+export interface FetchThemeUrlMessage {
+  readonly type: typeof FETCH_THEME_URL;
+  readonly url: string;
+}
+
+export function fetchThemeUrlMessage(url: string): FetchThemeUrlMessage {
+  return { type: FETCH_THEME_URL, url };
+}
+
+export function parseFetchThemeUrlMessage(message: unknown): string | null {
+  if (
+    isRecord(message) &&
+    message.type === FETCH_THEME_URL &&
+    typeof message.url === 'string' &&
+    message.url.length > 0
+  ) {
+    return message.url;
+  }
+  return null;
+}
+
+export function isThemeUrlFetchResult(value: unknown): value is ThemeUrlFetchResult {
+  if (!isRecord(value) || typeof value.ok !== 'boolean') {
+    return false;
+  }
+  if (value.ok) {
+    return typeof value.text === 'string' && typeof value.finalUrl === 'string';
+  }
+  return typeof value.error === 'string';
+}
 
 export function isPopupTabState(value: unknown): value is PopupTabState {
   if (!isRecord(value)) {

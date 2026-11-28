@@ -28,9 +28,12 @@ import {
   resolveTheme,
   THEME_FONT_STACKS,
   THEME_STYLE_ID,
+  THEME_TRANSITION_MS,
+  THEME_TRANSITION_STYLE_ID,
   updateThemeCustomCss,
   updateThemePalette,
   updateThemeTypography,
+  VIEW_TRANSITION_CSS,
   writeEarlyThemeCss,
 } from './theming';
 import { samePalette } from './theming/color';
@@ -519,8 +522,11 @@ describe('first-class multi-site theming engine', () => {
     });
     expect(extraCss).toHaveBeenCalledTimes(1);
     expect(setUiCss).toHaveBeenCalledTimes(1);
-    expect((firstBackdrop as HTMLElement).style.opacity).toBe('0.45');
-    expect(firstBackdrop?.getAttribute('data-fs-backdrop')).toBe('silk');
+    const activeBackdrop = document.querySelector<HTMLElement>(BACKDROP_SELECTOR);
+    expect(activeBackdrop?.getAttribute('data-fs-backdrop')).toBe('silk');
+    await vi.waitFor(() => {
+      expect(activeBackdrop?.style.opacity).toBe('0.45');
+    });
 
     // Turning backdrop off (`silk` -> `none`) DOES recompile CSS.
     controller.preview({
@@ -1042,5 +1048,198 @@ describe('first-class multi-site theming engine', () => {
     expect(document.querySelector('#main-landmark')?.hasAttribute(SHELL_ATTR)).toBe(false);
     fallbackController.apply(null);
     expect(document.querySelectorAll(`[${SHELL_ATTR}]`).length).toBe(0);
+  });
+
+  it('morphs host and shadow colors smoothly on theme switches, skips initial boot & reduced motion, and cleans up after completion', () => {
+    vi.useFakeTimers();
+    try {
+      const env = createDomEnvironment({ pierceShadow: true });
+      cleanups.push(() => env.dispose());
+
+      const shadowHost = document.createElement('div');
+      const shadow = shadowHost.attachShadow({ mode: 'open' });
+      document.body.append(shadowHost);
+
+      const controller = createThemeController(env, xThemeMapping, vi.fn());
+      cleanups.push(() => controller.dispose());
+
+      const midnight = BUILTIN_THEMES[0]!.palette;
+      const nord = BUILTIN_THEMES.find((t) => t.id === 'nord')!.palette;
+
+      // Initial boot apply must NOT inject a transition sheet (zero first-paint lag).
+      const transitionSelector = `#${THEME_TRANSITION_STYLE_ID}`;
+      controller.apply({ palette: midnight });
+      expect(document.querySelector(transitionSelector)).toBeNull();
+      expect(shadow.querySelector(transitionSelector)).toBeNull();
+
+      // Switching palettes injects temporary landmark-only fallback transition sheets (never `div`/`span`).
+      controller.apply({ palette: nord });
+      const hostTransition = document.querySelector(transitionSelector);
+      expect(hostTransition).not.toBeNull();
+      expect(hostTransition?.textContent).toContain('@layer fs-user,');
+      expect(hostTransition?.textContent).toContain(`${THEME_TRANSITION_MS}ms`);
+      expect(hostTransition?.textContent).not.toContain('div');
+      expect(hostTransition?.textContent).not.toContain('span');
+      expect(shadow.querySelector(transitionSelector)).not.toBeNull();
+
+      // Transition sheets remove themselves cleanly once the morph settles.
+      vi.advanceTimersByTime(THEME_TRANSITION_MS + 100);
+      expect(document.querySelector(transitionSelector)).toBeNull();
+      expect(shadow.querySelector(transitionSelector)).toBeNull();
+
+      // Reduced motion skips the transition sheet completely.
+      const originalMatchMedia = globalThis.matchMedia;
+      globalThis.matchMedia = vi.fn(
+        (query: string) =>
+          ({
+            matches: query.includes('prefers-reduced-motion'),
+            media: query,
+            onchange: null,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+          }) as unknown as MediaQueryList,
+      );
+      try {
+        controller.apply({ palette: midnight });
+        expect(document.querySelector(transitionSelector)).toBeNull();
+      } finally {
+        globalThis.matchMedia = originalMatchMedia;
+      }
+
+      // Calling dispose() mid-transition removes any active transition sheet immediately.
+      controller.apply({ palette: nord });
+      expect(document.querySelector(transitionSelector)).not.toBeNull();
+      controller.dispose();
+      expect(document.querySelector(transitionSelector)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses GPU-composited document.startViewTransition when available without main-thread element transitions', async () => {
+    const env = createDomEnvironment();
+    cleanups.push(() => env.dispose());
+
+    const pendingCallbacks: Array<() => void> = [];
+    const skipFns: Array<ReturnType<typeof vi.fn>> = [];
+    const finishedResolvers: Array<() => void> = [];
+    const startViewTransition = vi.fn((cb: () => void) => {
+      pendingCallbacks.push(cb);
+      const skipTransition = vi.fn();
+      skipFns.push(skipTransition);
+      const finished = new Promise<void>((resolve) => {
+        finishedResolvers.push(resolve);
+      });
+      return {
+        ready: Promise.resolve(),
+        finished,
+        skipTransition,
+      };
+    });
+    Object.defineProperty(document, 'startViewTransition', {
+      configurable: true,
+      writable: true,
+      value: startViewTransition,
+    });
+    cleanups.push(() => {
+      (document as { startViewTransition?: unknown }).startViewTransition = undefined;
+    });
+
+    const setUiCss = vi.fn();
+    const controller = createThemeController(env, xThemeMapping, setUiCss);
+    cleanups.push(() => controller.dispose());
+
+    const midnight = BUILTIN_THEMES[0]!.palette;
+    const nord = BUILTIN_THEMES.find((t) => t.id === 'nord')!.palette;
+    const warm = BUILTIN_THEMES.find((t) => t.id === 'warm-paper')!.palette;
+
+    // Initial boot runs synchronously without View Transition.
+    controller.apply({ palette: midnight });
+    expect(startViewTransition).not.toHaveBeenCalled();
+
+    // Switching palette invokes `document.startViewTransition` with zero-selector View Transition CSS.
+    controller.apply({ palette: nord });
+    expect(startViewTransition).toHaveBeenCalledTimes(1);
+    const vtStyle = document.querySelector(`#${THEME_TRANSITION_STYLE_ID}`);
+    expect(vtStyle?.textContent).toBe(VIEW_TRANSITION_CSS);
+    expect(vtStyle?.textContent).toContain('pointer-events: none !important;');
+    // `compiledHostCss()` is synchronously up to date even before the next-frame callback fires.
+    expect(controller.compiledHostCss?.()).toContain(nord.background);
+
+    // Clicking another theme before the first finishes skips the previous transition cleanly.
+    controller.apply({ palette: warm });
+    expect(skipFns[0]).toHaveBeenCalledTimes(1);
+    expect(startViewTransition).toHaveBeenCalledTimes(2);
+    // Running the stale first callback is a no-op; running the latest applies Warm Paper.
+    pendingCallbacks[0]?.();
+    pendingCallbacks[1]?.();
+    expect(document.querySelector(`#${THEME_STYLE_ID}`)?.textContent).toContain(warm.background);
+    expect(setUiCss).toHaveBeenLastCalledWith(expect.any(String), { animate: false });
+
+    // Resolving `vt.finished` removes `#feed_sanity_theme_transition` cleanly.
+    finishedResolvers[1]?.();
+    await vi.waitFor(() => {
+      expect(document.querySelector(`#${THEME_TRANSITION_STYLE_ID}`)).toBeNull();
+    });
+
+    // Live-theme Appearance flow (`preview(live)` -> `apply(live)` -> `clearPreview()`) before the
+    // VT callback runs must NOT abort its own View Transition via `skipTransition`.
+    const liveTheme = {
+      palette: nord,
+      effects: { ...DEFAULT_THEME_EFFECTS, backdrop: 'aurora' as const, surface: 'glass' as const },
+    };
+    controller.preview(liveTheme);
+    controller.apply(liveTheme);
+    controller.clearPreview();
+    expect(startViewTransition).toHaveBeenCalledTimes(3);
+    expect(skipFns[2]).not.toHaveBeenCalled();
+    pendingCallbacks[2]?.();
+    finishedResolvers[2]?.();
+    await vi.waitFor(() => {
+      expect(document.querySelector(BACKDROP_SELECTOR)?.getAttribute('data-fs-backdrop')).toBe(
+        'aurora',
+      );
+      expect(document.querySelector(`#${THEME_TRANSITION_STYLE_ID}`)).toBeNull();
+    });
+  });
+
+  it('styles X GIF and Emoji picker search pills with rounded clipping, transparent inner inputs, accent focus borders, and surface-matched HoverCard carets', () => {
+    const palette = BUILTIN_THEMES[0]!.palette;
+    const css = compileHostThemeCss({ palette }, xThemeMapping);
+
+    expect(css).toContain('border-radius: 9999px !important;');
+    expect(css).toContain('overflow: hidden !important;');
+    expect(css).toContain('[data-testid="gifSearchSearchInput"]');
+    expect(css).toContain('[aria-label*="Search" i]');
+    expect(css).toContain('[placeholder*="Search" i]');
+    expect(css).toContain('[style*="border-color: rgb(29, 155, 240)"]');
+    expect(css).toContain(`border-color: ${palette.accent} !important;`);
+    expect(css).toContain('[data-testid="HoverCard"] svg[viewBox="0 0 24 12"]');
+    expect(css).toContain(`fill: ${palette.surface} !important;`);
+    expect(xThemeMapping.surfaces?.searchContainers?.length).toBeGreaterThan(1);
+  });
+
+  it('keeps Facebook full-viewport [role="dialog"] overlays transparent while keeping dialog card tokens opaque under live backdrops', () => {
+    const lightPalette = BUILTIN_THEMES.find((t) => t.palette.colorScheme === 'light')!.palette;
+    const css = compileHostThemeCss(
+      {
+        palette: lightPalette,
+        effects: {
+          ...DEFAULT_THEME_EFFECTS,
+          backdrop: 'canopy',
+          surface: 'dappled',
+        },
+      },
+      facebookThemeMapping,
+    );
+
+    expect(facebookThemeMapping.surfaces?.popups).not.toContain('[role="dialog"]');
+    expect(css).toContain('--overlay-alpha-80:');
+    expect(css).toContain('[role="dialog"] {\n  --card-background:');
+    expect(css).toContain('[role="dialog"] > * {\n  --fs-reveal-canvas:');
+    expect(css).not.toMatch(/\[role="dialog"\]\s*\{[^}]*(?:background-color:|--fs-reveal-canvas:)/);
   });
 });

@@ -68,6 +68,7 @@ export function PopupBrandBar({
 
 interface UnsupportedTabViewProps {
   readonly sites: readonly SiteStatus[];
+  readonly experimentalUnlocked: boolean;
   readonly unattachedTab?: UnattachedSupportedTab | null;
   readonly onRequestAccess?: () => Promise<boolean>;
   readonly onRetryConnect?: () => void;
@@ -78,11 +79,13 @@ interface UnsupportedTabViewProps {
   readonly toastEl: ReactNode;
   readonly onSetSiteEnabled: (siteId: string, enabled: boolean) => void;
   readonly onApplyAllSites: (doc: ThemeDocumentV1, displayName?: string) => void;
+  readonly onOpenSettings: (section?: string) => void;
   readonly onOpenSiteUrl: (url: string) => void;
 }
 
 export function UnsupportedTabView({
   sites,
+  experimentalUnlocked,
   unattachedTab,
   onRequestAccess,
   onRetryConnect,
@@ -93,6 +96,7 @@ export function UnsupportedTabView({
   toastEl,
   onSetSiteEnabled,
   onApplyAllSites,
+  onOpenSettings,
   onOpenSiteUrl,
 }: UnsupportedTabViewProps) {
   const siteIdPrefix = useId();
@@ -109,11 +113,12 @@ export function UnsupportedTabView({
       seenEnabled.add(site.id);
     }
   }
-  const hasHiddenExperimental = sites.some(
-    (site) => site.experimental && !isSiteVisible(site) && !seenEnabled.has(site.id),
-  );
+  const betaExpanded = experimentalUnlocked && showExperimental;
+  const canToggleBeta =
+    experimentalUnlocked &&
+    sites.some((site) => site.experimental && !isSiteVisible(site) && !seenEnabled.has(site.id));
   const visibleSites = sites.filter(
-    (site) => showExperimental || isSiteVisible(site) || seenEnabled.has(site.id),
+    (site) => betaExpanded || isSiteVisible(site) || seenEnabled.has(site.id),
   );
 
   const globalThemeFingerprint = useMemo(
@@ -179,6 +184,9 @@ export function UnsupportedTabView({
                   </button>
                 )}
               </div>
+              <p className="qp-permission-hint">
+                In Safari, you can also enable access in Safari → Settings → Extensions.
+              </p>
             </div>
           </SettingCard>
         )}
@@ -186,14 +194,14 @@ export function UnsupportedTabView({
         <SettingCard
           title="Supported sites"
           action={
-            hasHiddenExperimental ? (
+            canToggleBeta ? (
               <button
                 type="button"
                 className="qp-presets-btn"
-                aria-expanded={showExperimental}
+                aria-expanded={betaExpanded}
                 onClick={() => setShowExperimental((open) => !open)}
               >
-                {showExperimental ? 'Hide beta' : 'Show beta'}
+                {betaExpanded ? 'Hide beta' : 'Show beta'}
               </button>
             ) : undefined
           }
@@ -252,11 +260,21 @@ export function UnsupportedTabView({
       {toastEl}
 
       <footer className="qp-footer">
-        <p className="qp-footer-tip">
-          {unattachedTab
-            ? 'In Safari, you can also enable access in Safari → Settings → Extensions.'
-            : 'Open any supported site above to access filters, themes, and quick modes.'}
-        </p>
+        <button
+          type="button"
+          className="qp-btn qp-btn-ghost"
+          onClick={() => onOpenSettings('Appearance')}
+        >
+          <UiIcon name="sparkles" size={13} />
+          Theme Studio
+        </button>
+        <button
+          type="button"
+          className="qp-btn primary qp-btn-grow"
+          onClick={() => onOpenSettings()}
+        >
+          All settings →
+        </button>
       </footer>
     </div>
   );

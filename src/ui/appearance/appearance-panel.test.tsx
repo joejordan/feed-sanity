@@ -10,6 +10,7 @@ import {
   applyThemePreset,
   createThemeLibrary,
   DEFAULT_THEME_DOCUMENT,
+  flipThemeColorScheme,
   isCustomImportedDocument,
   MAX_THEME_FILE_BYTES,
   readEarlyThemeCss,
@@ -630,13 +631,120 @@ describe('appearancePanel & initSiteTheme', () => {
       expect(saved.get().customCss).toBeUndefined();
     });
 
-    // Active imported theme banner appears at the top of Appearance and can reset cleanly.
-    expect(screen.getByRole('region', { name: 'Active imported theme' })).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    // No redundant top-level "Imported" banner appears above Appearance; Reset to site default still clears cleanly.
+    expect(screen.queryByRole('region', { name: 'Active imported theme' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Reset to site default' }));
     await vi.waitFor(() => {
       expect(isCustomImportedDocument(saved.get())).toBe(false);
       expect(saved.get().id).toBe('default');
     });
+  });
+
+  it('imports themes by HTTPS URL with strict validation, source host badge, and fetch error handling', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    const controller = makeController();
+
+    const remoteThemeJson = JSON.stringify({
+      format: THEME_FILE_FORMAT,
+      schemaVersion: 1,
+      id: 'moon-lagoon',
+      meta: { name: 'Moon Lagoon', author: 'Marina' },
+      palette: {
+        colorScheme: 'dark',
+        background: '#06101c',
+        surface: '#0d1e30',
+        text: '#e8f4fb',
+        accent: '#45d8ff',
+      },
+      customCss: '.feed-card { border-radius: 12px; }',
+    });
+
+    const fetchThemeUrl = vi.fn(async (url: string) => {
+      if (url.includes('fail.fstheme.json')) {
+        return { ok: false as const, error: 'Server returned HTTP 404.' };
+      }
+      return { ok: true as const, text: remoteThemeJson, finalUrl: url };
+    });
+
+    const panel = appearancePanel(
+      saved,
+      controller,
+      (next) => controller.apply(resolveTheme(next)),
+      undefined,
+      undefined,
+      fetchThemeUrl,
+    );
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    await userEvent.click(screen.getByRole('button', { name: /Import \/ Export theme/i }));
+
+    const urlInput = screen.getByRole<HTMLInputElement>('textbox', { name: 'Theme URL' });
+    const fetchBtn = screen.getByRole('button', { name: 'Fetch' });
+
+    // Non-HTTPS URL is rejected locally without invoking the network fetcher.
+    await userEvent.type(urlInput, 'http://example.com/theme.fstheme.json');
+    await userEvent.click(fetchBtn);
+    expect(screen.getByRole('alert').textContent).toContain('https://');
+    expect(fetchThemeUrl).not.toHaveBeenCalled();
+
+    // Private/loopback URL is rejected locally without invoking the network fetcher.
+    await userEvent.clear(urlInput);
+    await userEvent.type(urlInput, 'https://127.0.0.1/theme.fstheme.json');
+    await userEvent.click(fetchBtn);
+    expect(screen.getByRole('alert').textContent).toContain('not allowed');
+    expect(fetchThemeUrl).not.toHaveBeenCalled();
+
+    // Remote HTTP failure surfaces cleanly in the alert box.
+    await userEvent.clear(urlInput);
+    await userEvent.type(urlInput, 'https://themes.example.com/fail.fstheme.json');
+    await userEvent.click(fetchBtn);
+    await vi.waitFor(() => expect(screen.getByRole('alert').textContent).toContain('HTTP 404'));
+
+    // Valid public HTTPS URL fetches, previews with source host badge, keeps custom CSS opt-in unchecked, and applies.
+    await userEvent.clear(urlInput);
+    await userEvent.type(urlInput, 'https://themes.example.com/moon-lagoon.fstheme.json');
+    await userEvent.click(fetchBtn);
+    await vi.waitFor(() => expect(screen.getByText('Moon Lagoon')).toBeTruthy());
+    expect(screen.getByText('From themes.example.com')).toBeTruthy();
+    expect(
+      screen.getByRole<HTMLInputElement>('checkbox', { name: /Include custom CSS/i }).checked,
+    ).toBe(false);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Apply imported theme' }));
+    await vi.waitFor(() => {
+      expect(saved.get().meta.name).toBe('Moon Lagoon');
+      expect(saved.get().customCss).toBeUndefined();
+    });
+    expect(screen.queryByRole('region', { name: 'Active imported theme' })).toBeNull();
+
+    // Editing the URL mid-fetch cancels the in-flight state and ignores stale responses.
+    let resolveStale!: (value: { ok: true; text: string; finalUrl: string }) => void;
+    fetchThemeUrl.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+    );
+    await userEvent.type(urlInput, 'https://themes.example.com/slow.fstheme.json');
+    await userEvent.click(fetchBtn);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Fetching…' }).disabled).toBe(
+      true,
+    );
+    await userEvent.type(urlInput, 'x');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Fetch' }).disabled).toBe(false);
+    resolveStale({
+      ok: true,
+      text: remoteThemeJson,
+      finalUrl: 'https://themes.example.com/slow.fstheme.json',
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole('region', { name: 'Theme import preview' })).toBeNull();
   });
 
   it('supports custom CSS opt-in with preserved warnings, invalid/oversized file errors, Export, Copy JSON, and clearing imported font', async () => {
@@ -769,7 +877,7 @@ describe('appearancePanel & initSiteTheme', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
       await vi.waitFor(() => expect(library.list()).toHaveLength(1));
-      const matrixCardBtn = screen.getByRole('button', { name: /^Night Matrix/i });
+      const matrixCardBtn = await screen.findByRole('button', { name: /^Night Matrix/i });
       expect(matrixCardBtn).toBeTruthy();
       // Redesigned card renders human-readable backdrop name (not raw slug) and palette stage vars.
       expect(within(matrixCardBtn).getByText('Matrix Rain')).toBeTruthy();
@@ -954,13 +1062,26 @@ describe('appearancePanel & initSiteTheme', () => {
     let redditRuntime: ReturnType<typeof initSiteTheme> | undefined;
     let redditLibrary: ReturnType<typeof createThemeLibrary> | undefined;
     try {
-      // Mount Facebook's Appearance panel, pick Nord, and click Apply to all sites.
+      // Mount Facebook's Appearance panel and verify separated cards + no "Apply to all sites" control.
       render(<OptionsDialog options={fbOptions} panels={[fbRuntime.panel]} onClose={vi.fn()} />);
       await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+      expect(screen.getByRole('heading', { name: 'Typography' })).toBeTruthy();
+      expect(screen.getByRole('heading', { name: 'Theme Import & Export' })).toBeTruthy();
+      expect(screen.getByRole('heading', { name: 'Advanced' })).toBeTruthy();
+      const customizeColorsBtn = screen.getByRole('button', { name: /Customize colors/i });
+      const customizeEffectsHeading = screen.getByRole('heading', { name: 'Customize Effects' });
+      expect(
+        Boolean(
+          customizeColorsBtn.compareDocumentPosition(customizeEffectsHeading) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      ).toBe(true);
+      expect(screen.queryByRole('button', { name: /Apply to all sites/i })).toBeNull();
       await userEvent.click(screen.getByRole('button', { name: /Nord/i }));
       await vi.waitFor(() => expect(fbSaved.get().id).toBe('nord'));
 
-      await userEvent.click(screen.getByRole('button', { name: 'Apply to all sites' }));
+      // Cross-site broadcast (triggered from the toolbar popup) adopts Nord across open & future tabs.
+      await fbLibrary.applyToAllSites(fbSaved.get());
 
       // Open X tab adopts Nord live automatically.
       await vi.waitFor(() => expect(xSaved.get().id).toBe('nord'));
@@ -1461,5 +1582,216 @@ describe('appearancePanel & initSiteTheme', () => {
         .getByRole('button', { name: /Luminous Tide/i })
         .getAttribute('aria-pressed'),
     ).toBe('true');
+  });
+
+  it('applies the Rainforest Canopy Live Theme and tunes its time of day, Dappled surface, and Petals click effect', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+
+    // One click applies the palette, vine ribbon, backdrop engine, finish, and click effect.
+    const liveThemesGroup = screen.getByRole('group', { name: 'Live themes' });
+    const canopyCard = within(liveThemesGroup).getByRole('button', { name: /Rainforest Canopy/i });
+    await userEvent.click(canopyCard);
+    await vi.waitFor(() => {
+      expect(saved.get().id).toBe('rainforest-canopy');
+      expect(saved.get().palette?.accent).toBe('#4be38a');
+      expect(saved.get().palette?.accentSecondary).toBe('#f4c95d');
+      expect(saved.get().chrome?.ribbon?.enabled).toBe(true);
+      expect(saved.get().effects?.backdrop?.id).toBe('canopy');
+      expect(saved.get().effects?.surface?.finish).toBe('dappled');
+      expect(saved.get().effects?.click?.id).toBe('petals');
+    });
+    expect(canopyCard.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('Rainforest Canopy theme applied')).toBeTruthy();
+
+    // Jungle Canopy is a built-in engine, so it sits in the Live background grid for any theme to use.
+    const backdropGroup = screen.getByRole('group', { name: 'Live background effect' });
+    expect(
+      within(backdropGroup)
+        .getByRole('button', { name: /Jungle Canopy/i })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+
+    // Its tuners are generated from the parameter specs: one select and five sliders.
+    const timeOfDay = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Time of day' });
+    expect(timeOfDay.value).toBe('morning');
+    expect([...timeOfDay.options].map((option) => option.textContent)).toEqual([
+      'Misty dawn',
+      'Sunlit morning',
+      'Golden hour',
+      'Firefly dusk',
+      'Moonlit night',
+      'Follow my clock',
+    ]);
+    await userEvent.selectOptions(timeOfDay, 'clock');
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.time).toBe('clock'));
+    for (const name of ['Sunbeams', 'Foliage', 'Mist', 'Fireflies & pollen', 'Breeze']) {
+      expect(screen.getByRole('slider', { name })).toBeTruthy();
+    }
+
+    // The Dappled finish and Petals click effect are selected, each with its own tuners.
+    const dappledBtn = screen.getByRole('button', { name: 'Dappled' });
+    expect(dappledBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('slider', { name: 'Dappled light' })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: 'Canopy glow' })).toBeTruthy();
+    const petalsBtn = screen.getByRole('button', { name: 'Petals' });
+    expect(petalsBtn.getAttribute('aria-pressed')).toBe('true');
+    const scatterStyle = screen.getByRole<HTMLSelectElement>('combobox', {
+      name: 'Scatter style',
+    });
+    await userEvent.selectOptions(scatterStyle, 'dew');
+    await vi.waitFor(() => expect(saved.get().effects?.click?.params?.style).toBe('dew'));
+
+    // Nine click effects and eight finishes each split into two balanced rows.
+    expect(screen.getByRole('group', { name: 'Click effects' }).getAttribute('style')).toContain(
+      'repeat(5, minmax(0',
+    );
+    expect(screen.getByRole('group', { name: 'Surface finish' }).getAttribute('style')).toContain(
+      'repeat(4, minmax(0',
+    );
+
+    // Resetting the engine's tuners keeps the Live Theme; resetting effects keeps the palette.
+    await userEvent.click(screen.getByRole('button', { name: 'Reset Jungle Canopy tuners' }));
+    await vi.waitFor(() => {
+      expect(saved.get().effects?.backdrop?.id).toBe('canopy');
+      expect(saved.get().effects?.backdrop?.params?.time).toBe('morning');
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Reset effects' }));
+    await vi.waitFor(() => {
+      expect(saved.get().id).toBe('rainforest-canopy');
+      expect(saved.get().effects).toBeUndefined();
+      expect(saved.get().palette?.background).toBe('#06120c');
+    });
+    const presetsGroup = screen.getByRole('group', { name: 'Theme presets' });
+    expect(
+      within(presetsGroup)
+        .getByRole('button', { name: /Rainforest Canopy/i })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('applies the Coral Lagoon Live Theme and tunes time of day, switches, Sea Glass surface, and Seafoam click FX', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+
+    const liveThemesGroup = screen.getByRole('group', { name: 'Live themes' });
+    const lagoonCard = within(liveThemesGroup).getByRole('button', { name: /Coral Lagoon/i });
+    await userEvent.click(lagoonCard);
+    await vi.waitFor(() => {
+      expect(saved.get().id).toBe('coral-lagoon');
+      expect(saved.get().palette?.colorScheme).toBe('light');
+      expect(saved.get().palette?.background).toBe('#eaf7f5');
+      expect(saved.get().effects?.backdrop?.id).toBe('shoreline');
+      expect(saved.get().effects?.surface?.finish).toBe('caustic');
+      expect(saved.get().effects?.click?.id).toBe('seafoam');
+    });
+    expect(lagoonCard.getAttribute('aria-pressed')).toBe('true');
+
+    const backdropGroup = screen.getByRole('group', { name: 'Live background effect' });
+    expect(
+      within(backdropGroup)
+        .getByRole('button', { name: /Coral Shoreline/i })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+
+    const timeSelect = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Time of day' });
+    expect(timeSelect.value).toBe('noon');
+    await userEvent.selectOptions(timeSelect, 'sunset');
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.time).toBe('sunset'));
+
+    for (const name of ['Water caustics', 'Tide level', 'Surf & foam', 'Trade wind']) {
+      expect(screen.getByRole('slider', { name })).toBeTruthy();
+    }
+    const palmsSwitch = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Palm shadows' });
+    const wildlifeSwitch = screen.getByRole<HTMLInputElement>('checkbox', {
+      name: 'Lagoon wildlife',
+    });
+    expect(palmsSwitch.checked).toBe(true);
+    expect(wildlifeSwitch.checked).toBe(true);
+    await userEvent.click(palmsSwitch);
+    await vi.waitFor(() => expect(saved.get().effects?.backdrop?.params?.palms).toBe(false));
+
+    expect(screen.getByRole('button', { name: 'Sea Glass' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(screen.getByRole('slider', { name: 'Caustic light' })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: 'Sea-glass rim' })).toBeTruthy();
+
+    expect(screen.getByRole('button', { name: 'Seafoam' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    const splashStyle = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Splash style' });
+    await userEvent.selectOptions(splashStyle, 'bubbles');
+    await vi.waitFor(() => expect(saved.get().effects?.click?.params?.style).toBe('bubbles'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Reset Coral Shoreline tuners' }));
+    await vi.waitFor(() => {
+      expect(saved.get().effects?.backdrop?.id).toBe('shoreline');
+      expect(saved.get().effects?.backdrop?.params?.time).toBe('noon');
+      expect(saved.get().effects?.backdrop?.params?.palms).toBe(true);
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Reset effects' }));
+    await vi.waitFor(() => {
+      expect(saved.get().id).toBe('coral-lagoon');
+      expect(saved.get().effects).toBeUndefined();
+      expect(saved.get().palette?.background).toBe('#eaf7f5');
+    });
+    const presetsGroup = screen.getByRole('group', { name: 'Theme presets' });
+    expect(
+      within(presetsGroup)
+        .getByRole('button', { name: /Coral Lagoon/i })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('syncs external light/dark flips from the popup immediately into an open Settings dialog without reverting on subsequent color edits', async () => {
+    const store = inMemoryStore();
+    const options = new Options(store, 'test/options');
+    await options.load();
+    const data = new SavedData(store, 'test');
+    const saved = data.value(THEME_DATA_KEY, readThemeDocument);
+    await saved.ready;
+    await saved.set(applyThemePreset(DEFAULT_THEME_DOCUMENT, 'midnight'));
+    const controller = makeController();
+    const panel = appearancePanel(saved, controller);
+
+    render(<OptionsDialog options={options} panels={[panel]} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    await userEvent.click(screen.getByRole('button', { name: /Customize colors/i }));
+    expect(screen.getByRole('button', { name: 'Flip Light' })).toBeTruthy();
+
+    // Simulate the toolbar Quick Popup flipping Dark -> Light directly in extension storage.
+    const flipped = flipThemeColorScheme(saved.get());
+    expect(flipped.palette?.colorScheme).toBe('light');
+    await store.set('test/theme', flipped);
+
+    // The open Settings dialog reflects the external Light flip immediately.
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Flip Dark' })).toBeTruthy();
+    });
+
+    // Tweaking a color afterward preserves Light mode instead of reverting to Dark.
+    fireEvent.input(screen.getByLabelText('Accent picker'), { target: { value: '#10b981' } });
+    await vi.waitFor(() => {
+      expect(saved.get().palette?.accent).toBe('#10b981');
+      expect(saved.get().palette?.colorScheme).toBe('light');
+    });
   });
 });

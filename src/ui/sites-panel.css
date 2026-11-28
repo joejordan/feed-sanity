@@ -82,6 +82,14 @@
   color: var(--fs-text-secondary);
 }
 
+.sites-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .sites-experimental {
   display: flex;
   flex-direction: column;

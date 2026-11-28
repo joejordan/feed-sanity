@@ -58,13 +58,14 @@ import {
   sanitizeCustomCss,
   sanitizeFontStack,
 } from './css-sanitizer';
-import { isThemeFontId } from './types';
+import { isThemeFontId, MAX_THEME_FILE_BYTES } from './types';
 
 export type { EffectParamSpec, EffectParamValues, SanitizedCssResult };
 export {
   cleanDocumentText,
   DIGITAL_RAIN_PARAM_SPECS,
   MAX_CUSTOM_CSS_BYTES,
+  MAX_THEME_FILE_BYTES,
   sanitizeCustomCss,
   sanitizeFontStack,
 };
@@ -72,7 +73,6 @@ export {
 export const THEME_FILE_FORMAT = 'feed-sanity-theme' as const;
 export const THEME_SCHEMA_VERSION = 1 as const;
 export const THEME_FILE_EXTENSION = '.fstheme.json' as const;
-export const MAX_THEME_FILE_BYTES = 64 * 1024;
 
 const MAX_GLOW_SPOTS = 4;
 const MAX_RIBBON_STOPS = 8;

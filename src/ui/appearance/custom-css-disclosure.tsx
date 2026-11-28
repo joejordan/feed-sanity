@@ -6,6 +6,7 @@ const CUSTOM_CSS_DEBOUNCE_MS = 250;
 export interface CustomCssDisclosureProps {
   readonly open: boolean;
   readonly onToggle: () => void;
+  readonly jumpId?: string;
   readonly customCss: string;
   readonly onCustomCssChange: (nextCss: string) => void;
   readonly hasExternalCssOption: boolean;
@@ -18,6 +19,7 @@ export interface CustomCssDisclosureProps {
 export function CustomCssDisclosure({
   open,
   onToggle,
+  jumpId,
   customCss,
   onCustomCssChange,
   hasExternalCssOption,
@@ -81,6 +83,7 @@ export function CustomCssDisclosure({
       badge={isActive ? <Badge tone="accent">Active</Badge> : undefined}
       open={open}
       onToggle={onToggle}
+      {...(jumpId ? { jumpId } : {})}
     >
       <div className="theme-drawer-pad">
         <label className="theme-color-row">

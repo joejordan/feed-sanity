@@ -489,7 +489,9 @@ test('marks posts as read, persists across reloads, and clears read history from
   // Clear read history from the Backup & Reset section in Options and verify live unhide.
   await pressToolbarButton();
   await dialog(page).getByRole('button', { name: 'Backup & Reset', exact: true }).click();
-  await expect(dialog(page).getByText('1 post is remembered as read.')).toBeVisible();
+  await expect(
+    dialog(page).getByText('1 post is remembered as read on this account.'),
+  ).toBeVisible();
   await dialog(page).getByRole('button', { name: 'Clear read history' }).click();
   await expect(dialog(page).getByText('Read post history cleared.')).toBeVisible();
   await expect(averyReloaded).not.toHaveClass(/\bfs_post_read\b/);
