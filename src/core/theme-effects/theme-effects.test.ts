@@ -68,6 +68,8 @@ interface CanvasStubs {
   readonly fillTexts: string[];
   readonly glCalls: string[];
   readonly glUniform1f: Record<string, number>;
+  readonly glUniform4f: Record<string, readonly [number, number, number, number]>;
+  readonly glUniform4fv: Record<string, number[]>;
   readonly loseContext: Mock<() => void>;
 }
 
@@ -118,6 +120,8 @@ function fake2dContext(
 function fakeWebGlContext(
   calls: string[],
   uniform1f: Record<string, number>,
+  uniform4f: Record<string, readonly [number, number, number, number]>,
+  uniform4fv: Record<string, number[]>,
   loseContext: () => void,
   compileOk: boolean,
 ): WebGLRenderingContext {
@@ -159,9 +163,29 @@ function fakeWebGlContext(
             }
             return;
           }
+          case 'uniform4f': {
+            const loc = args[0] as { name?: string } | null;
+            if (loc?.name) {
+              uniform4f[loc.name] = [
+                Number(args[1]),
+                Number(args[2]),
+                Number(args[3]),
+                Number(args[4]),
+              ];
+            }
+            return;
+          }
+          case 'uniform4fv': {
+            const loc = args[0] as { name?: string } | null;
+            if (loc?.name && args[1] && typeof (args[1] as ArrayLike<number>).length === 'number') {
+              uniform4fv[loc.name] = Array.from(args[1] as ArrayLike<number>);
+            }
+            return;
+          }
           case 'createShader':
           case 'createProgram':
           case 'createBuffer':
+          case 'createTexture':
             return {};
           default:
             return;
@@ -178,6 +202,8 @@ function installCanvasStubs(options: { webgl: GlMode; twoD: boolean }): CanvasSt
     fillTexts: [],
     glCalls: [],
     glUniform1f: {},
+    glUniform4f: {},
+    glUniform4fv: {},
     loseContext: vi.fn<() => void>(),
   };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function getContext(
@@ -190,6 +216,8 @@ function installCanvasStubs(options: { webgl: GlMode; twoD: boolean }): CanvasSt
         : fakeWebGlContext(
             stubs.glCalls,
             stubs.glUniform1f,
+            stubs.glUniform4f,
+            stubs.glUniform4fv,
             stubs.loseContext,
             options.webgl === 'ok',
           );
@@ -527,6 +555,177 @@ describe('Creative Theme & Effects Studio engine', () => {
       expect(backdropHost()).toBeNull();
       expect(frames.pending.size).toBe(0);
     }
+  });
+
+  it('runs Jungle Canopy on WebGL from a painted foliage texture and frees it on destroy', async () => {
+    const stubs = installCanvasStubs({ webgl: 'ok', twoD: true });
+    const frames = installFrameDriver();
+    const layer = createEffectsLayerController(document);
+    cleanups.push(() => layer.dispose());
+
+    layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'canopy' }, null, 'dark');
+    expect(rendererKind()).toBe('webgl');
+    // The leaves are painted once with Canvas 2D paths and uploaded as a mipmapped data texture.
+    expect(stubs.calls2d).toContain('fill');
+    expect(stubs.calls2d).toContain('stroke');
+    expect(stubs.glCalls.filter((call) => call === 'texImage2D')).toHaveLength(1);
+    expect(stubs.glCalls).toContain('generateMipmap');
+    frames.flush(16);
+    frames.flush(80);
+    await Promise.resolve();
+    expect(rendererKind()).toBe('webgl');
+    expect(stubs.glCalls).toContain('drawArrays');
+    expect(stubs.glUniform1f.uBreeze).toBe(1);
+
+    // Tuning a parameter reaches the shader on the next frame without repainting the leaves.
+    layer.sync(
+      { ...DEFAULT_THEME_EFFECTS, backdrop: 'canopy', backdropParams: { breeze: 0.5 } },
+      null,
+      'dark',
+    );
+    frames.flush(160);
+    expect(stubs.glUniform1f.uBreeze).toBe(0.5);
+    expect(stubs.glCalls.filter((call) => call === 'texImage2D')).toHaveLength(1);
+
+    layer.sync(DEFAULT_THEME_EFFECTS, null, 'dark');
+    expect(stubs.glCalls).toContain('deleteTexture');
+    expect(stubs.glCalls).toContain('deleteProgram');
+    expect(stubs.loseContext).toHaveBeenCalledTimes(1);
+    expect(backdropHost()).toBeNull();
+    expect(frames.pending.size).toBe(0);
+  });
+
+  it('feeds every plain click to Jungle Canopy, whatever click effect is active', () => {
+    const stubs = installCanvasStubs({ webgl: 'none', twoD: true });
+    const frames = installFrameDriver();
+    const layer = createEffectsLayerController(document);
+    cleanups.push(() => layer.dispose());
+    const main = document.querySelector('main')!;
+    let clock = 0;
+    const spritesDrawn = (): number => {
+      stubs.calls2d.length = 0;
+      clock += 1000;
+      frames.flush(clock);
+      return stubs.calls2d.filter((call) => call === 'drawImage').length;
+    };
+
+    layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'canopy' }, null, 'dark');
+    expect(rendererKind()).toBe('canvas2d');
+    const quiet = spritesDrawn();
+    // A click on the page margin shakes a ring of pollen loose in the scene, with no click effect set.
+    fire(main, 'click', 200, 150);
+    expect(clickParticles()).toBe(0);
+    expect(spritesDrawn()).toBe(quiet + 14);
+
+    // With motion paused a click's age cannot advance, so a still repaint draws no frozen ring.
+    const paused = { ...DEFAULT_THEME_EFFECTS, backdrop: 'canopy', paused: true } as const;
+    layer.sync(paused, null, 'dark');
+    fire(main, 'click', 200, 150);
+    stubs.calls2d.length = 0;
+    layer.sync(paused, null, 'dark');
+    expect(stubs.calls2d.filter((call) => call === 'drawImage')).toHaveLength(quiet);
+
+    // With pointer reactions off, a freshly mounted scene ignores clicks.
+    layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'none' }, null, 'dark');
+    layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'canopy', interactive: false }, null, 'dark');
+    const still = spritesDrawn();
+    fire(main, 'click', 200, 150);
+    expect(spritesDrawn()).toBe(still);
+  });
+
+  it('runs Coral Shoreline on WebGL from a painted coastal atlas, updates tuners live, and frees GPU resources', async () => {
+    const stubs = installCanvasStubs({ webgl: 'ok', twoD: true });
+    const frames = installFrameDriver();
+    const layer = createEffectsLayerController(document);
+    cleanups.push(() => layer.dispose());
+    const main = document.querySelector('main')!;
+
+    layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'shoreline' }, null, 'light');
+    expect(rendererKind()).toBe('webgl');
+    expect(stubs.glCalls.filter((call) => call === 'texImage2D')).toHaveLength(1);
+    expect(stubs.glCalls).toContain('generateMipmap');
+    frames.flush(16);
+    frames.flush(80);
+    await Promise.resolve();
+    expect(rendererKind()).toBe('webgl');
+    expect(stubs.glUniform4f.uTune).toEqual([1, 1, 1, 1]);
+    expect(stubs.glUniform4f.uFlags?.slice(0, 3)).toEqual([1, 1, 1]);
+
+    // Tuning params updates uniforms without re-uploading the atlas texture.
+    layer.sync(
+      {
+        ...DEFAULT_THEME_EFFECTS,
+        backdrop: 'shoreline',
+        backdropParams: { time: 'clock', caustics: 0.4, surf: 0, palms: false, marineLife: false },
+      },
+      null,
+      'light',
+    );
+    frames.flush(160);
+    expect(stubs.glUniform4f.uTune).toEqual([0.4, 1, 0, 1]);
+    expect(stubs.glUniform4f.uFlags?.slice(0, 2)).toEqual([0, 0]);
+    expect(stubs.glCalls.filter((call) => call === 'texImage2D')).toHaveLength(1);
+
+    // Plain clicks feed uClicks[0] via reactsToClicks even with click: 'none'.
+    fire(main, 'click', 240, 180);
+    frames.flush(240);
+    expect(stubs.glUniform4fv['uClicks[0]']?.[3]).toBe(1);
+
+    // Paused still frames suppress frozen click rings in the shader uniform.
+    layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'shoreline', paused: true }, null, 'light');
+    expect(stubs.glUniform4fv['uClicks[0]']?.[3]).toBe(0);
+
+    layer.sync(DEFAULT_THEME_EFFECTS, null, 'light');
+    expect(stubs.glCalls).toContain('deleteTexture');
+    expect(stubs.glCalls).toContain('deleteProgram');
+    expect(stubs.loseContext).toHaveBeenCalledTimes(1);
+    expect(backdropHost()).toBeNull();
+    expect(frames.pending.size).toBe(0);
+  });
+
+  it('draws Coral Shoreline Canvas 2D click rings only while active and interactive', () => {
+    const stubs = installCanvasStubs({ webgl: 'none', twoD: true });
+    const frames = installFrameDriver();
+    const layer = createEffectsLayerController(document);
+    cleanups.push(() => layer.dispose());
+    const main = document.querySelector('main')!;
+    let clock = 0;
+    const arcsDrawn = (): number => {
+      stubs.calls2d.length = 0;
+      clock += 1000;
+      frames.flush(clock);
+      return stubs.calls2d.filter((call) => call === 'arc').length;
+    };
+
+    layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'shoreline' }, null, 'light');
+    expect(rendererKind()).toBe('canvas2d');
+    const quiet = arcsDrawn();
+    fire(main, 'click', 300, 220);
+    expect(clickParticles()).toBe(0);
+    expect(arcsDrawn()).toBe(quiet + 1);
+
+    // Paused still frames draw no frozen splash rings.
+    const paused = { ...DEFAULT_THEME_EFFECTS, backdrop: 'shoreline', paused: true } as const;
+    layer.sync(paused, null, 'light');
+    stubs.calls2d.length = 0;
+    layer.sync(paused, null, 'light');
+    expect(stubs.calls2d.filter((call) => call === 'arc')).toHaveLength(quiet);
+
+    // Turning off interactive ignores clicks on a freshly mounted shoreline.
+    layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'none' }, null, 'light');
+    layer.sync(
+      {
+        ...DEFAULT_THEME_EFFECTS,
+        backdrop: 'shoreline',
+        interactive: false,
+        backdropParams: { palms: false, marineLife: false, caustics: 0, surf: 0 },
+      },
+      null,
+      'light',
+    );
+    const still = arcsDrawn();
+    fire(main, 'click', 300, 220);
+    expect(arcsDrawn()).toBe(still);
   });
 
   it('steps down from WebGL to Canvas 2D on compile failure and on context loss', async () => {
@@ -1379,6 +1578,59 @@ describe('Creative Theme & Effects Studio engine', () => {
       await Promise.resolve();
       expect(rendererKind()).toBe('canvas2d');
       expect(twoDStubs.calls2d.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('crossfades live backdrops smoothly when transition is enabled and tears down exiting layers cleanly', () => {
+    vi.useFakeTimers();
+    try {
+      const frames = installFrameDriver();
+      const layer = createEffectsLayerController(document);
+      cleanups.push(() => layer.dispose());
+
+      layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'aurora' }, null, 'dark');
+      const firstHost = backdropHost() as HTMLElement | null;
+      expect(firstHost).not.toBeNull();
+      expect(firstHost?.getAttribute('data-fs-backdrop')).toBe('aurora');
+
+      // Switching backdrop with transition promotes the outgoing host to exiting and mounts a fresh incoming host.
+      layer.sync({ ...DEFAULT_THEME_EFFECTS, backdrop: 'silk', intensity: 0.7 }, null, 'dark', {
+        transition: true,
+      });
+      const secondHost = backdropHost() as HTMLElement | null;
+      expect(secondHost).not.toBeNull();
+      expect(secondHost).not.toBe(firstHost);
+      expect(secondHost?.getAttribute('data-fs-backdrop')).toBe('silk');
+      expect(firstHost?.isConnected).toBe(true);
+      expect(firstHost?.getAttribute('data-fs-exiting')).toBe('true');
+      expect(firstHost?.getAttribute('data-fs-backdrop')).toBeNull();
+      expect(firstHost?.querySelector('[data-fs-renderer]')).toBeNull();
+      expect(secondHost?.style.opacity).toBe('0');
+
+      // On the next animation frame, incoming fades up to target intensity and outgoing fades to 0.
+      frames.flush(16);
+      expect(secondHost?.style.opacity).toBe('0.7');
+      expect(firstHost?.style.opacity).toBe('0');
+
+      // After the crossfade duration, the outgoing host is removed and inline transition is cleared.
+      vi.advanceTimersByTime(1000);
+      expect(firstHost?.isConnected).toBe(false);
+      expect(backdropHost()).toBe(secondHost);
+      expect(secondHost?.style.transition).toBe('');
+
+      // Turning backdrop off with transition marks the host exiting immediately so backdropHost() is null.
+      layer.sync(DEFAULT_THEME_EFFECTS, null, 'dark', { transition: true });
+      expect(backdropHost()).toBeNull();
+      expect(secondHost?.isConnected).toBe(true);
+      expect(secondHost?.getAttribute('data-fs-exiting')).toBe('true');
+      frames.flush(32);
+      expect(secondHost?.style.opacity).toBe('0');
+
+      // Calling dispose() mid-crossfade removes exiting hosts immediately.
+      layer.dispose();
+      expect(secondHost?.isConnected).toBe(false);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

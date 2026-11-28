@@ -979,7 +979,7 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
       expect(LUMINOUS_TIDE_SHADER.fragment, uniform).toMatch(new RegExp(`\\b${uniform}\\b`));
     }
 
-    // Leads the Live Themes list, and its palette is appended after the existing presets.
+    // Leads the Live Themes list, and its palette follows the presets that came before it.
     const vibe = STUDIO_VIBES[0]!;
     expect(vibe.id).toBe('luminous-tide');
     expect(vibe.effects).toMatchObject({
@@ -988,7 +988,8 @@ describe('Tier 2 custom-scene & Tier 3 custom-shader runtime renderers', () => {
       click: 'tide',
     });
     expect(BUILTIN_THEMES[0]?.id).toBe('midnight');
-    expect(BUILTIN_THEMES.at(-1)?.id).toBe('luminous-tide');
+    const presetIds = BUILTIN_THEMES.map((theme) => theme.id);
+    expect(presetIds.indexOf('luminous-tide')).toBe(presetIds.indexOf('event-horizon') + 1);
     const preset = findThemePreset('luminous-tide')!;
     expect(preset.palette.accentSecondary).toBe('#5ef2c2');
     expect(preset.chrome?.ribbon?.position).toBe('bottom');

@@ -29,6 +29,17 @@ export type PaintPropertyKind = 'background' | 'border' | 'text';
 export const WCAG_AA_TEXT_CONTRAST = 4.5;
 export const WCAG_AA_ACCENT_CONTRAST = 3;
 
+/**
+ * Sunbeam gold for effects that paint sunlight (the Dappled finish, Jungle
+ * Canopy). A palette's secondary accent plays the sun when it has one; without
+ * one the usual fallback is `danger`, and red sunlight reads as an error, so
+ * those palettes get this gold instead.
+ */
+export const SUNLIGHT = { dark: '#f4c95d', light: '#c98a1b' } as const;
+
+/** Sea-glass lagoon aqua highlight shared by the Sea Glass (`caustic`) finish and Shadow DOM UI. */
+export const SEA_GLASS_TINT = { dark: '#67e8f9', light: '#5eead4' } as const;
+
 export const PALETTE_MOODS = [
   'midnight',
   'soft-dark',

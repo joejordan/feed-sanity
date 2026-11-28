@@ -1,5 +1,5 @@
 // Subtle, tactile click micro-effects (`ripple`, `spark`, `matrix-burst`,
-// `glow-pulse`, `supernova`, `tide`). Particles fire only on interactive targets (buttons, links,
+// `glow-pulse`, `supernova`, `tide`, `petals`, `seafoam`). Particles fire only on interactive targets (buttons, links,
 // tabs, menu items, switches, inputs) so selecting post text or clicking empty
 // space never sprays particles. With Glyphs over a backdrop that reacts to
 // bursts (Matrix Rain), plain clicks still cascade it gently, without particles.
@@ -11,7 +11,8 @@
 import type { ThemePalette } from '../theming';
 import type { ClickEffectId, EffectParamValues } from './model';
 import { OWN_ATTR } from '../surface';
-import { hexWithAlpha } from '../theming/color';
+import { hexWithAlpha, SUNLIGHT } from '../theming/color';
+import { GOLDEN_ANGLE } from './digital-rain/math';
 import { getClickParamSpecs, resolveEffectParams } from './model';
 import { CLICK_FX_OWN_VALUE } from './surfaces';
 
@@ -114,7 +115,6 @@ const TIDE_OUTER_KEYFRAMES: Keyframe[] = [
 ];
 
 const TIDE_MOTE_COUNT = 7;
-const GOLDEN_ANGLE = 2.399_963;
 /** Ripple rings are drawn as ovals, the way a ring on water looks from the shore. */
 const TIDE_RING_FLATTEN = 0.62;
 
@@ -156,6 +156,109 @@ function buildTideMotes(scale: number): readonly TideMote[] {
 
 const TIDE_MOTES: readonly TideMote[] = buildTideMotes(1);
 
+const DEW_RING_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.2)', opacity: 0 },
+  { transform: 'scale(0.5)', opacity: 0.7, offset: 0.2 },
+  { transform: 'scale(1)', opacity: 0 },
+];
+
+const DEW_BEAD_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.4)', opacity: 0.95 },
+  { transform: 'scale(1)', opacity: 0.75, offset: 0.35 },
+  { transform: 'scale(1.5)', opacity: 0 },
+];
+
+const PETAL_COUNT = 6;
+
+/**
+ * Petals shaken loose by a click: each leaves on a golden-angle heading, lifts,
+ * then flutters down while turning over. Laid out without per-click randomness.
+ * The shared ease-out spends its first tenth on the lift and the long tail on
+ * the drift down, so the keyframes put most of the travel early.
+ */
+function buildPetalKeyframes(scale: number): readonly Keyframe[][] {
+  return Array.from({ length: PETAL_COUNT }, (_, i) => {
+    const angle = i * GOLDEN_ANGLE - 0.9;
+    const dx = Math.cos(angle) * (26 + (i % 3) * 9) * scale;
+    const lift = -(12 + Math.abs(Math.sin(angle)) * 12) * scale;
+    const fall = (30 + (i % 2) * 14) * scale;
+    const spin = (i % 2 === 0 ? 1 : -1) * (150 + i * 24);
+    const at = (x: number, y: number, turn: number, size: number): string =>
+      `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px) rotate(${Math.round(turn)}deg) scale(${size})`;
+    return [
+      { transform: at(0, 0, 0, 0.3), opacity: 0 },
+      { transform: at(dx * 0.6, lift, spin * 0.3, 1), opacity: 1, offset: 0.45 },
+      {
+        transform: at(dx * 0.9, lift * 0.3 + fall * 0.3, spin * 0.65, 1),
+        opacity: 0.95,
+        offset: 0.8,
+      },
+      { transform: at(dx, fall, spin, 0.75), opacity: 0 },
+    ];
+  });
+}
+
+const PETAL_KEYFRAMES: readonly Keyframe[][] = buildPetalKeyframes(1);
+
+const SEAFOAM_CREST_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.24)', opacity: 0 },
+  { transform: 'scale(0.58)', opacity: 0.82, offset: 0.18 },
+  { transform: 'scale(1.06)', opacity: 0 },
+];
+
+const SEAFOAM_HALO_KEYFRAMES: Keyframe[] = [
+  { transform: 'scale(0.18)', opacity: 0 },
+  { transform: 'scale(0.62)', opacity: 0.45, offset: 0.26 },
+  { transform: 'scale(1.22)', opacity: 0 },
+];
+
+const SEAFOAM_BUBBLE_COUNT = 7;
+
+interface SeafoamBubble {
+  readonly dx: number;
+  readonly dy: number;
+  readonly size: number;
+  readonly frames: Keyframe[];
+}
+
+/**
+ * Buoyant glossy sea-bubbles laid out deterministically along a golden-angle
+ * splash arc: each pops out, wobbles upward on an S-curve, and bursts cleanly.
+ */
+function buildSeafoamBubbles(scale: number): readonly SeafoamBubble[] {
+  return Array.from({ length: SEAFOAM_BUBBLE_COUNT }, (_, i) => {
+    const angle = i * GOLDEN_ANGLE + 0.35;
+    const radius = (8 + 18 * Math.sqrt((i + 0.4) / SEAFOAM_BUBBLE_COUNT)) * scale;
+    const rise = (18 + (i % 3) * 8) * scale;
+    const wobble = (i % 2 === 0 ? 6 : -6) * scale;
+    const size = Math.max(5, Math.round((5 + (i % 3) * 2.5) * scale));
+    return {
+      dx: Math.cos(angle) * radius,
+      dy: Math.sin(angle) * radius * 0.72,
+      size,
+      frames: [
+        { transform: 'translate(0px, 0px) scale(0.35)', opacity: 0 },
+        {
+          transform: `translate(${(wobble * 0.55).toFixed(2)}px, ${(-rise * 0.35).toFixed(2)}px) scale(1.05)`,
+          opacity: 0.92,
+          offset: 0.28,
+        },
+        {
+          transform: `translate(${(-wobble * 0.45).toFixed(2)}px, ${(-rise * 0.78).toFixed(2)}px) scale(1)`,
+          opacity: 0.72,
+          offset: 0.72,
+        },
+        {
+          transform: `translate(${(wobble * 0.2).toFixed(2)}px, ${(-rise).toFixed(2)}px) scale(1.25)`,
+          opacity: 0,
+        },
+      ],
+    };
+  });
+}
+
+const SEAFOAM_BUBBLES: readonly SeafoamBubble[] = buildSeafoamBubbles(1);
+
 /** O(1) tag & role lookup sets for interactive targets that earn click feedback. */
 const INTERACTIVE_TAGS = new Set([
   'button',
@@ -190,7 +293,8 @@ export interface ClickEffectOptions {
   readonly cascade?: boolean;
   /**
    * Forward primary non-selection clicks to `onBurst` regardless of the active
-   * `ClickEffectId` (used by Tier 2 `custom-scene` click bursts and Tier 3 `u_click`).
+   * `ClickEffectId` (used by backdrops that react to clicks themselves: Tier 2
+   * `custom-scene` click bursts, Tier 3 `u_click`, Jungle Canopy, and Coral Shoreline).
    */
   readonly alwaysCascade?: boolean;
   /** Optional validated click-effect parameter overrides (`scale`, `count`, `glyphs`, `style`). */
@@ -263,6 +367,8 @@ export function mountClickEffects(
   let supernovaEmberFrames: readonly Keyframe[][] = SUPERNOVA_EMBER_KEYFRAMES;
   let sparkFrames: readonly Keyframe[][] = DEFAULT_SPARK_KEYFRAMES;
   let tideMotes: readonly TideMote[] = TIDE_MOTES;
+  let petalFrames: readonly Keyframe[][] = PETAL_KEYFRAMES;
+  let seafoamBubbles: readonly SeafoamBubble[] = SEAFOAM_BUBBLES;
   let cascadeEnabled = false;
   let alwaysCascade = false;
   let overlay: HTMLDivElement | null = null;
@@ -330,6 +436,7 @@ export function mountClickEffects(
 
     const accent = palette?.accent ?? '#3b82f6';
     const secondary = palette?.accentSecondary ?? palette?.danger ?? '#a855f7';
+    const sun = palette && !palette.accentSecondary ? SUNLIGHT[palette.colorScheme] : secondary;
     const text = palette?.text ?? '#ffffff';
     const scale = (resolvedParams.scale as number | undefined) ?? 1;
     const ovalParticle = (
@@ -414,6 +521,115 @@ export function mountClickEffects(
               mote.frames,
               620,
               40 + i * 45,
+            );
+          }
+        }
+      });
+      return;
+    }
+
+    if (effect === 'petals') {
+      const style = (resolvedParams.style as string | undefined) ?? 'both';
+      // A dewdrop landing (one ring and a bright bead) and a scatter of petals and
+      // small leaves that lift, turn over, and drift down.
+      runBatch((batch, queue) => {
+        if (style !== 'petals') {
+          queue(
+            circleParticle(
+              batch,
+              Math.round(44 * scale),
+              `border:1.25px solid ${hexWithAlpha(accent, 0.8)};box-shadow:inset 0 0 6px ${hexWithAlpha(accent, 0.25)};opacity:0;`,
+            ),
+            DEW_RING_KEYFRAMES,
+            460,
+          );
+          queue(
+            circleParticle(
+              batch,
+              Math.max(6, Math.round(9 * scale)),
+              `background:radial-gradient(circle at 35% 30%, ${hexWithAlpha(text, 0.95)} 0%, ${hexWithAlpha(accent, 0.55)} 55%, transparent 100%);opacity:0;`,
+            ),
+            DEW_BEAD_KEYFRAMES,
+            380,
+          );
+        }
+        if (style !== 'dew') {
+          // Without a secondary accent `sun` uses sunbeam gold instead of repeating danger red.
+          const petalColors = [sun, palette?.danger ?? '#fb7185', accent] as const;
+          for (let i = 0; i < petalFrames.length; i++) {
+            const frames = petalFrames[i];
+            if (!frames) {
+              continue;
+            }
+            const size = Math.max(5, Math.round((i % 3 === 0 ? 10 : 8) * scale));
+            const color = petalColors[i % petalColors.length] ?? accent;
+            queue(
+              particle(
+                batch,
+                // Two opposite corners rounded fully make a petal (or a small leaf).
+                `left:${x}px;top:${y}px;width:${size}px;height:${size}px;margin:${-size / 2}px 0 0 ${-size / 2}px;border-radius:0 100% 0 100%;background:linear-gradient(135deg, ${color} 0%, ${hexWithAlpha(color, 0.55)} 100%);opacity:0;`,
+              ),
+              frames,
+              980,
+              i * 28,
+            );
+          }
+        }
+      });
+      return;
+    }
+
+    if (effect === 'seafoam') {
+      const style = (resolvedParams.style as string | undefined) ?? 'both';
+      const pearl = palette?.colorScheme === 'light' ? '#ffffff' : text;
+      // A crisp sunlit surf crest splash + buoyant hollow glossy sea-bubbles.
+      runBatch((batch, queue) => {
+        if (style !== 'bubbles') {
+          queue(
+            circleParticle(
+              batch,
+              Math.round(48 * scale),
+              `border:1.5px solid ${hexWithAlpha(accent, 0.85)};box-shadow:0 0 8px ${hexWithAlpha(pearl, 0.55)},inset 0 0 8px ${hexWithAlpha(accent, 0.24)};opacity:0;`,
+            ),
+            SEAFOAM_CREST_KEYFRAMES,
+            460,
+          );
+          queue(
+            circleParticle(
+              batch,
+              Math.round(74 * scale),
+              `border:1px solid ${hexWithAlpha(sun, 0.65)};box-shadow:inset 0 0 6px ${hexWithAlpha(pearl, 0.45)};opacity:0;`,
+            ),
+            SEAFOAM_HALO_KEYFRAMES,
+            600,
+            60,
+          );
+        }
+        if (style !== 'spray') {
+          const pearlCore = hexWithAlpha(pearl, 0.95);
+          const pearlMid = hexWithAlpha(pearl, 0.25);
+          const pearlInner = hexWithAlpha(pearl, 0.7);
+          const bubbleStyle = (rimColor: string): string =>
+            `border:1px solid ${hexWithAlpha(rimColor, 0.82)};background:radial-gradient(circle at 32% 28%, ${pearlCore} 0%, ${pearlMid} 38%, ${hexWithAlpha(rimColor, 0.16)} 100%);box-shadow:inset 0 0 3px ${pearlInner};opacity:0;`;
+          const accentBubbleCss = bubbleStyle(accent);
+          const sunBubbleCss = bubbleStyle(sun);
+          for (let i = 0; i < seafoamBubbles.length; i++) {
+            const bubble = seafoamBubbles[i];
+            if (!bubble) {
+              continue;
+            }
+            queue(
+              ovalParticle(
+                batch,
+                bubble.size,
+                bubble.size,
+                i % 3 === 0 ? sunBubbleCss : accentBubbleCss,
+                bubble.dx,
+                bubble.dy,
+              ),
+              bubble.frames,
+              760,
+              25 + i * 32,
             );
           }
         }
@@ -624,6 +840,10 @@ export function mountClickEffects(
             : buildSparkKeyframes(nextCount, nextScale);
       } else if (nextEffect === 'tide') {
         tideMotes = nextScale === 1 ? TIDE_MOTES : buildTideMotes(nextScale);
+      } else if (nextEffect === 'petals') {
+        petalFrames = nextScale === 1 ? PETAL_KEYFRAMES : buildPetalKeyframes(nextScale);
+      } else if (nextEffect === 'seafoam') {
+        seafoamBubbles = nextScale === 1 ? SEAFOAM_BUBBLES : buildSeafoamBubbles(nextScale);
       }
       cascadeEnabled = options?.cascade ?? false;
       alwaysCascade = Boolean(options?.alwaysCascade);

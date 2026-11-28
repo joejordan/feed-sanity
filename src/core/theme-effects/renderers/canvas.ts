@@ -21,6 +21,14 @@ export function createLayer(doc: Document, width: number, height: number, ratio 
   return { canvas, g };
 }
 
+/** Releases an offscreen layer's pixel backing store immediately instead of waiting for GC. */
+export function releaseLayer(layer: Layer | null): void {
+  if (layer) {
+    layer.canvas.width = 0;
+    layer.canvas.height = 0;
+  }
+}
+
 /** A square sprite filled with a radial gradient (glows, bokeh, star halos). */
 export function createRadialSprite(
   doc: Document,

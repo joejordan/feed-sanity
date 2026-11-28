@@ -1,6 +1,6 @@
 // Compiles site-safe backdrop reveal CSS (translucent page gutters + readable
-// feed columns) and Surface Finishes (Glass, Gradient Sheen, Neon, Prism, Moonlit) from
-// one declarative `SurfaceSelectors` contract so no site ever creates
+// feed columns) and Surface Finishes (Glass, Gradient Sheen, Neon, Prism, Moonlit, Dappled,
+// Sea Glass) from one declarative `SurfaceSelectors` contract so no site ever creates
 // stacking-context or `backdrop-filter` traps on ancestors or popups.
 
 import type {
@@ -12,7 +12,7 @@ import type {
 import type { ThemeEffectsConfig } from './model';
 import { OWN_ATTR, SHELL_ATTR } from '../surface';
 import { splitSelectorList } from '../theming/adaptive-compiler';
-import { hexWithAlpha } from '../theming/color';
+import { hexWithAlpha, mixHex, SEA_GLASS_TINT, SUNLIGHT } from '../theming/color';
 import { formatRootSelectors, TEXT_INPUT_SELECTOR, wrapThemeLayer } from '../theming/types';
 import { getSurfaceParamSpecs, resolveEffectParams, THEME_EFFECT_BOUNDS } from './model';
 
@@ -242,8 +242,8 @@ function compileInputFocusRules(
 }
 
 /**
- * Compiles site-agnostic Surface Finish enhancements (`glass`, `gradient`, `neon`, `prism`, `moonlit`)
- * emitted into `@layer fs-finish` so finishes cleanly outrank `fs-reveal` and
+ * Compiles site-agnostic Surface Finish enhancements (`glass`, `gradient`, `neon`, `prism`, `moonlit`,
+ * `dappled`, `caustic`) emitted into `@layer fs-finish` so finishes cleanly outrank `fs-reveal` and
  * `fs-mapping` without `:where(...)` specificity loss or hardcoded site selectors.
  */
 export function compileSurfaceFinishCss(
@@ -255,7 +255,8 @@ export function compileSurfaceFinishCss(
   if (effects.surface === 'default') {
     return '';
   }
-  const isLight = hostScheme === 'light';
+  const scheme: ThemeColorScheme = palette?.colorScheme ?? hostScheme;
+  const isLight = scheme === 'light';
   const accent = palette?.accent ?? (isLight ? '#2563eb' : '#3b82f6');
   const surface = palette?.surface ?? (isLight ? '#ffffff' : '#131926');
   const alt = palette?.surfaceAlt ?? (isLight ? '#f1f5f9' : '#1c2436');
@@ -386,6 +387,68 @@ export function compileSurfaceFinishCss(
       ctaDecls: `  background-image: linear-gradient(180deg, ${accent} 0%, ${secondary} 100%) !important;\n  box-shadow: 0 8px 18px -8px ${scaledHex(accent, 0.6 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.3)} !important;`,
       columnDecls: `  border-color: ${scaledHex(text, 0.1 * sheen)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(accent, 0.2 * glow)} !important;`,
       searchBorder: scaledHex(accent, 0.3 * glow),
+    });
+  }
+
+  if (effects.surface === 'dappled') {
+    // Komorebi, sunlight that has come down through leaves: warm pools of light
+    // fall across the top of each card and the canopy bounces green back up from
+    // the far corner. Static gradients and shadows only, so scrolling stays free.
+    const light = (sp.light as number | undefined) ?? 1;
+    const glow = (sp.glow as number | undefined) ?? 1;
+    const sun = palette?.accentSecondary ?? SUNLIGHT[scheme];
+    const pool = scaledHex(sun, (isLight ? 0.17 : 0.13) * light);
+    const fleck = scaledHex(sun, (isLight ? 0.1 : 0.075) * light);
+    const bounce = scaledHex(accent, (isLight ? 0.07 : 0.09) * glow);
+    const litEdge = scaledHex(sun, (isLight ? 0.42 : 0.3) * light);
+    const underglow = scaledHex(accent, (isLight ? 0.2 : 0.26) * glow);
+    const dapple = [
+      `radial-gradient(ellipse 38% 72% at 9% 0%, ${pool} 0%, transparent 70%)`,
+      `radial-gradient(ellipse 20% 44% at 47% 0%, ${fleck} 0%, transparent 72%)`,
+      `radial-gradient(ellipse 28% 54% at 84% 3%, ${fleck} 0%, transparent 72%)`,
+      `radial-gradient(ellipse 48% 62% at 100% 100%, ${bounce} 0%, transparent 72%)`,
+    ].join(', ');
+    return compileSlottedFinish({
+      cardDecls: `  background-image: ${dapple} !important;\n  border-color: ${scaledHex(accent, (isLight ? 0.26 : 0.22) * glow)} !important;\n  box-shadow: inset 0 1px 0 0 ${litEdge}, 0 14px 26px -18px ${underglow} !important;`,
+      focusShadow: `0 0 0 2px ${scaledHex(accent, 0.55 * glow)}, 0 0 14px ${scaledHex(sun, 0.3 * light)}`,
+      // Hovering a post lets one sunbeam fall across its leading edge (inset-only, no outer blur).
+      feedHoverDecls: `  box-shadow: inset 3px 0 0 0 ${scaledHex(sun, 0.8 * light)}, inset 28px 0 26px -22px ${scaledHex(sun, 0.32 * light)}, inset 0 1px 0 0 ${litEdge} !important;`,
+      // The gradient stays on the accent side so accent text keeps its contrast across the button.
+      ctaDecls: `  background-image: linear-gradient(135deg, ${accent} 0%, ${mixHex(accent, sun, 0.4)} 100%) !important;\n  box-shadow: 0 8px 18px -8px ${scaledHex(accent, 0.55 * glow)}, inset 0 1px 0 0 ${hexWithAlpha(text, 0.3)} !important;`,
+      columnDecls: `  border-color: ${scaledHex(accent, 0.2 * glow)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(sun, 0.1 * light)} !important;`,
+      searchBorder: scaledHex(accent, 0.3 * glow),
+    });
+  }
+
+  if (effects.surface === 'caustic') {
+    // Sea Glass: sunlit water caustics refracted across the top and lower corner of
+    // each card with a crisp pearlescent sea-glass bevel and lagoon-tinted edge.
+    // Pure static gradients and inset-only hover shadows so scrolling stays free.
+    const caustics = (sp.caustics as number | undefined) ?? 1;
+    const rim = (sp.rim as number | undefined) ?? 1;
+    const sun = palette?.accentSecondary ?? SUNLIGHT[scheme];
+    const aqua = mixHex(accent, SEA_GLASS_TINT[scheme], isLight ? 0.45 : 0.35);
+    const pearl = isLight ? '#ffffff' : text;
+    const waveA = scaledHex(aqua, (isLight ? 0.16 : 0.14) * caustics);
+    const waveB = scaledHex(sun, (isLight ? 0.12 : 0.1) * caustics);
+    const waveC = scaledHex(accent, (isLight ? 0.08 : 0.1) * caustics);
+    const topLip = scaledHex(pearl, (isLight ? 0.72 : 0.18) * rim);
+    const waterLip = scaledHex(aqua, (isLight ? 0.42 : 0.34) * rim);
+    const drop = scaledHex(accent, (isLight ? 0.16 : 0.28) * rim);
+    const causticWash = [
+      `radial-gradient(ellipse 44% 58% at 14% 0%, ${waveA} 0%, transparent 72%)`,
+      `radial-gradient(ellipse 26% 42% at 62% 2%, ${waveB} 0%, transparent 72%)`,
+      `radial-gradient(ellipse 50% 62% at 96% 100%, ${waveC} 0%, transparent 74%)`,
+    ].join(', ');
+    return compileSlottedFinish({
+      cardDecls: `  background-image: ${causticWash} !important;\n  border-color: ${scaledHex(accent, (isLight ? 0.3 : 0.26) * rim)} !important;\n  box-shadow: inset 0 1px 0 0 ${topLip}, inset 0 -1px 0 0 ${waterLip}, 0 12px 24px -16px ${drop} !important;`,
+      focusShadow: `0 0 0 2px ${scaledHex(accent, 0.52 * rim)}, 0 0 14px ${scaledHex(aqua, 0.34 * caustics)}`,
+      // Hovering a post sends a crisp sunlit waterline glint along its leading & upper edges.
+      feedHoverDecls: `  box-shadow: inset 3px 0 0 0 ${scaledHex(aqua, 0.85 * rim)}, inset 0 1px 0 0 ${scaledHex(sun, 0.55 * caustics)}, inset 28px 0 24px -22px ${scaledHex(aqua, 0.34 * caustics)} !important;`,
+      // Keeps CTA gradient anchored on `accent` so `accentText` preserves high contrast end-to-end.
+      ctaDecls: `  background-image: linear-gradient(135deg, ${accent} 0%, ${mixHex(accent, aqua, 0.32)} 100%) !important;\n  box-shadow: 0 8px 18px -8px ${scaledHex(accent, 0.5 * rim)}, inset 0 1px 0 0 ${hexWithAlpha(pearl, isLight ? 0.45 : 0.28)} !important;`,
+      columnDecls: `  border-color: ${scaledHex(accent, 0.22 * rim)} !important;\n  box-shadow: 0 0 0 1px ${scaledHex(aqua, 0.16 * rim)} !important;`,
+      searchBorder: scaledHex(accent, 0.34 * rim),
     });
   }
 

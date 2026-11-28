@@ -18,6 +18,8 @@ export const BACKDROP_EFFECT_IDS = [
   'cyber-grid',
   'prism-beams',
   'dot-spotlight',
+  'canopy',
+  'shoreline',
   'custom-scene',
   'custom-shader',
 ] as const;
@@ -31,6 +33,8 @@ export const SURFACE_FINISH_IDS = [
   'neon',
   'prism',
   'moonlit',
+  'dappled',
+  'caustic',
 ] as const;
 export type SurfaceFinishId = (typeof SURFACE_FINISH_IDS)[number];
 
@@ -42,6 +46,8 @@ export const CLICK_EFFECT_IDS = [
   'glow-pulse',
   'supernova',
   'tide',
+  'petals',
+  'seafoam',
 ] as const;
 export type ClickEffectId = (typeof CLICK_EFFECT_IDS)[number];
 
@@ -376,6 +382,90 @@ export const DOT_SPOTLIGHT_PARAM_SPECS: readonly EffectParamSpec[] = [
   },
 ];
 
+export const CANOPY_TIMES = ['dawn', 'morning', 'golden', 'dusk', 'night', 'clock'] as const;
+export type CanopyTime = (typeof CANOPY_TIMES)[number];
+
+function backdropScaleParam(key: string, label: string): EffectParamSpec {
+  return { key, kind: 'number', label, min: 0, max: 1.6, step: 0.05, defaultValue: 1, unit: '×' };
+}
+
+export const CANOPY_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'time',
+    kind: 'enum',
+    label: 'Time of day',
+    options: CANOPY_TIMES,
+    optionLabels: {
+      dawn: 'Misty dawn',
+      morning: 'Sunlit morning',
+      golden: 'Golden hour',
+      dusk: 'Firefly dusk',
+      night: 'Moonlit night',
+      clock: 'Follow my clock',
+    },
+    defaultValue: 'morning',
+  },
+  backdropScaleParam('rays', 'Sunbeams'),
+  {
+    key: 'foliage',
+    kind: 'number',
+    label: 'Foliage',
+    min: 0.5,
+    max: 1.4,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  },
+  backdropScaleParam('mist', 'Mist'),
+  backdropScaleParam('motes', 'Fireflies & pollen'),
+  backdropScaleParam('breeze', 'Breeze'),
+];
+
+export const SHORELINE_TIMES = ['noon', 'sunrise', 'sunset', 'moonlit', 'clock'] as const;
+export type ShorelineTime = (typeof SHORELINE_TIMES)[number];
+
+export const SHORELINE_PARAM_SPECS: readonly EffectParamSpec[] = [
+  {
+    key: 'time',
+    kind: 'enum',
+    label: 'Time of day',
+    options: SHORELINE_TIMES,
+    optionLabels: {
+      noon: 'Sunlit lagoon',
+      sunrise: 'Coral sunrise',
+      sunset: 'Mango sunset',
+      moonlit: 'Moonlit cove',
+      clock: 'Follow my clock',
+    },
+    defaultValue: 'noon',
+  },
+  backdropScaleParam('caustics', 'Water caustics'),
+  {
+    key: 'tide',
+    kind: 'number',
+    label: 'Tide level',
+    min: 0.3,
+    max: 1.4,
+    step: 0.05,
+    defaultValue: 1,
+    unit: '×',
+  },
+  backdropScaleParam('surf', 'Surf & foam'),
+  backdropScaleParam('breeze', 'Trade wind'),
+  {
+    key: 'palms',
+    kind: 'boolean',
+    label: 'Palm shadows',
+    defaultValue: true,
+  },
+  {
+    key: 'marineLife',
+    kind: 'boolean',
+    label: 'Lagoon wildlife',
+    defaultValue: true,
+  },
+];
+
 /** Declarative parameter specifications keyed by backdrop engine ID. */
 export const BACKDROP_PARAM_SPECS: Readonly<
   Record<Exclude<BackdropEffectId, 'none'>, readonly EffectParamSpec[]>
@@ -388,6 +478,8 @@ export const BACKDROP_PARAM_SPECS: Readonly<
   'cyber-grid': CYBER_GRID_PARAM_SPECS,
   'prism-beams': PRISM_BEAMS_PARAM_SPECS,
   'dot-spotlight': DOT_SPOTLIGHT_PARAM_SPECS,
+  canopy: CANOPY_PARAM_SPECS,
+  shoreline: SHORELINE_PARAM_SPECS,
   'custom-scene': [],
   'custom-shader': [],
 };
@@ -609,6 +701,11 @@ export const SURFACE_PARAM_SPECS: Readonly<Record<SurfaceFinishId, readonly Effe
     },
   ],
   moonlit: [surfaceScaleParam('sheen', 'Moonlight sheen'), surfaceScaleParam('glow', 'Underglow')],
+  dappled: [surfaceScaleParam('light', 'Dappled light'), surfaceScaleParam('glow', 'Canopy glow')],
+  caustic: [
+    surfaceScaleParam('caustics', 'Caustic light'),
+    surfaceScaleParam('rim', 'Sea-glass rim'),
+  ],
 };
 
 export const CLICK_PARAM_SPECS: Readonly<Record<ClickEffectId, readonly EffectParamSpec[]>> = {
@@ -662,6 +759,36 @@ export const CLICK_PARAM_SPECS: Readonly<Record<ClickEffectId, readonly EffectPa
         both: 'Ripples & Sea Sparkle',
         ripples: 'Ripples',
         sparkle: 'Sea Sparkle',
+      },
+      defaultValue: 'both',
+    },
+    clickScaleParam('Splash size'),
+  ],
+  petals: [
+    {
+      key: 'style',
+      kind: 'enum',
+      label: 'Scatter style',
+      options: ['both', 'petals', 'dew'],
+      optionLabels: {
+        both: 'Dewdrop & Petals',
+        petals: 'Petals',
+        dew: 'Dewdrop',
+      },
+      defaultValue: 'both',
+    },
+    clickScaleParam('Scatter size'),
+  ],
+  seafoam: [
+    {
+      key: 'style',
+      kind: 'enum',
+      label: 'Splash style',
+      options: ['both', 'bubbles', 'spray'],
+      optionLabels: {
+        both: 'Spray & Bubbles',
+        bubbles: 'Sea Bubbles',
+        spray: 'Surf Spray',
       },
       defaultValue: 'both',
     },

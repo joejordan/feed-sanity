@@ -5,16 +5,32 @@ import type { ThemeColorScheme, ThemePalette } from '../theming';
 import type { BackdropInstance } from './backdrops';
 import type { BackdropEffectId, ThemeEffectsConfig } from './model';
 import { OWN_ATTR } from '../surface';
+import {
+  canAnimateThemeTransition,
+  THEME_TRANSITION_EASING,
+  THEME_TRANSITION_MS,
+} from '../theming/transition';
 import { BACKDROP_REGISTRY } from './backdrops';
 import { mountClickEffects } from './click-fx';
 import { DEFAULT_THEME_EFFECTS, getSurfaceParamSpecs, resolveEffectParams } from './model';
 import { BACKDROP_OWN_VALUE, PRISM_ANGLE_VAR } from './surfaces';
+
+const BACKDROP_FADE_MS = THEME_TRANSITION_MS + 50;
+const BACKDROP_FADE_CLEANUP_MS = BACKDROP_FADE_MS + 60;
+const BACKDROP_FADE_TRANSITION = `opacity ${BACKDROP_FADE_MS}ms ${THEME_TRANSITION_EASING}`;
+const BACKDROP_EXITING_OWN_VALUE = 'theme-backdrop-exiting';
+
+export interface EffectsSyncOptions {
+  /** Smoothly crossfades live backdrop switches (~0.9s) when motion is allowed. */
+  readonly transition?: boolean;
+}
 
 export interface EffectsLayerController {
   sync: (
     effects: ThemeEffectsConfig | undefined,
     palette: ThemePalette | null,
     hostScheme: ThemeColorScheme,
+    options?: EffectsSyncOptions,
   ) => void;
   /** True when the live backdrop container is currently connected to the host document. */
   isBackdropConnected: () => boolean;
@@ -166,9 +182,15 @@ function createPrismLightDriver(doc: Document) {
 }
 
 export function createEffectsLayerController(doc: Document): EffectsLayerController {
+  const win = doc.defaultView ?? globalThis;
   let backdropHost: HTMLDivElement | null = null;
   let activeBackdropId: BackdropEffectId = 'none';
   let activeBackdrop: BackdropInstance | null = null;
+  let exitingHost: HTMLDivElement | null = null;
+  let exitingBackdrop: BackdropInstance | null = null;
+  let exitingTimer: ReturnType<typeof setTimeout> | undefined;
+  let fadeRafId = 0;
+  let targetHostOpacity = 1;
   let disposed = false;
 
   const prismLight = createPrismLightDriver(doc);
@@ -176,7 +198,110 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
     activeBackdrop?.burst?.(normX, normY);
   });
 
-  const teardownBackdrop = (): void => {
+  const cancelFadeRaf = (): void => {
+    if (fadeRafId !== 0) {
+      win.cancelAnimationFrame?.(fadeRafId);
+      fadeRafId = 0;
+    }
+  };
+
+  const clearActiveFadeStyle = (): void => {
+    if (backdropHost) {
+      backdropHost.style.transition = '';
+      backdropHost.style.willChange = '';
+    }
+  };
+
+  const flushExiting = (): void => {
+    if (exitingTimer !== undefined) {
+      clearTimeout(exitingTimer);
+      exitingTimer = undefined;
+    }
+    if (fadeRafId !== 0) {
+      cancelFadeRaf();
+      if (backdropHost) {
+        backdropHost.style.opacity = String(targetHostOpacity);
+      }
+    }
+    clearActiveFadeStyle();
+    exitingBackdrop?.destroy();
+    exitingBackdrop = null;
+    exitingHost?.remove();
+    exitingHost = null;
+  };
+
+  const stripRendererAttrs = (el: HTMLElement): void => {
+    el.removeAttribute('data-fs-backdrop');
+    el.removeAttribute('data-fs-renderer');
+    for (const child of el.querySelectorAll('[data-fs-renderer], [data-fs-backdrop]')) {
+      child.removeAttribute('data-fs-renderer');
+      child.removeAttribute('data-fs-backdrop');
+    }
+  };
+
+  const createBackdropHost = (
+    opacity: number,
+    insertAfter?: HTMLDivElement | null,
+  ): HTMLDivElement | null => {
+    if (disposed) {
+      return null;
+    }
+    const target = doc.body ?? doc.documentElement;
+    if (!target) {
+      return null;
+    }
+    const host = doc.createElement('div');
+    host.setAttribute(OWN_ATTR, BACKDROP_OWN_VALUE);
+    host.setAttribute('aria-hidden', 'true');
+    host.style.cssText = `position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;contain:strict;opacity:${opacity};`;
+    if (insertAfter?.isConnected) {
+      insertAfter.after(host);
+    } else {
+      target.prepend(host);
+    }
+    return host;
+  };
+
+  const promoteActiveToExiting = (): HTMLDivElement | null => {
+    if (!activeBackdrop || !backdropHost?.isConnected) {
+      return null;
+    }
+    const host = backdropHost;
+    const instance = activeBackdrop;
+    backdropHost = null;
+    activeBackdrop = null;
+    activeBackdropId = 'none';
+    host.setAttribute(OWN_ATTR, BACKDROP_EXITING_OWN_VALUE);
+    host.setAttribute('data-fs-exiting', 'true');
+    host.style.willChange = 'opacity';
+    stripRendererAttrs(host);
+    exitingHost = host;
+    exitingBackdrop = instance;
+    return host;
+  };
+
+  const teardownBackdrop = (animate = false): void => {
+    cancelFadeRaf();
+    flushExiting();
+    if (animate) {
+      const outgoing = promoteActiveToExiting();
+      if (outgoing) {
+        if (typeof win.requestAnimationFrame === 'function') {
+          fadeRafId = win.requestAnimationFrame(() => {
+            fadeRafId = 0;
+            if (!disposed && exitingHost === outgoing) {
+              outgoing.style.transition = BACKDROP_FADE_TRANSITION;
+              outgoing.style.opacity = '0';
+            }
+          });
+        } else {
+          outgoing.style.transition = BACKDROP_FADE_TRANSITION;
+          outgoing.style.opacity = '0';
+        }
+        exitingTimer = setTimeout(flushExiting, BACKDROP_FADE_CLEANUP_MS);
+        return;
+      }
+    }
     activeBackdrop?.destroy();
     activeBackdrop = null;
     activeBackdropId = 'none';
@@ -184,64 +309,89 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
     backdropHost = null;
   };
 
-  const ensureBackdropHost = (): HTMLDivElement | null => {
-    if (disposed) {
-      return null;
-    }
-    if (backdropHost?.isConnected) {
-      return backdropHost;
-    }
-    // The page detached our host: the live backdrop went with it, so remount it
-    // in the fresh host instead of updating a renderer nobody can see.
-    if (backdropHost) {
-      teardownBackdrop();
-    }
-    const target = doc.body ?? doc.documentElement;
-    if (!target) {
-      return null;
-    }
-    backdropHost = doc.createElement('div');
-    backdropHost.setAttribute(OWN_ATTR, BACKDROP_OWN_VALUE);
-    backdropHost.setAttribute('aria-hidden', 'true');
-    backdropHost.style.cssText =
-      'position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;contain:strict;';
-    target.prepend(backdropHost);
-    return backdropHost;
-  };
-
   const syncBackdrop = (
     effects: ThemeEffectsConfig,
     palette: ThemePalette | null,
     hostScheme: ThemeColorScheme,
+    animate: boolean,
   ): void => {
     if (effects.backdrop === 'none') {
-      teardownBackdrop();
+      teardownBackdrop(animate);
       return;
     }
-    const host = ensureBackdropHost();
-    if (!host) {
-      return;
-    }
-    host.style.opacity = String(effects.intensity);
-    host.dataset.fsBackdrop = effects.backdrop;
 
-    const ctx = { doc, container: host, palette, hostScheme, effects };
-    if (activeBackdrop && activeBackdropId === effects.backdrop) {
-      activeBackdrop.update(ctx);
+    // The page detached our host: the live backdrop went with it, so remount fresh.
+    if (backdropHost && !backdropHost.isConnected) {
+      teardownBackdrop(false);
+    }
+
+    if (activeBackdrop && backdropHost?.isConnected && activeBackdropId === effects.backdrop) {
+      targetHostOpacity = effects.intensity;
+      if (fadeRafId === 0) {
+        backdropHost.style.opacity = String(effects.intensity);
+      }
+      backdropHost.dataset.fsBackdrop = effects.backdrop;
+      activeBackdrop.update({ doc, container: backdropHost, palette, hostScheme, effects });
       return;
     }
-    activeBackdrop?.destroy();
-    activeBackdrop = BACKDROP_REGISTRY[effects.backdrop].mount(ctx);
+
+    cancelFadeRaf();
+    flushExiting();
+
+    const shouldCrossfade = animate && typeof win.requestAnimationFrame === 'function';
+    let outgoing: HTMLDivElement | null = null;
+    if (shouldCrossfade) {
+      outgoing = promoteActiveToExiting();
+    } else {
+      activeBackdrop?.destroy();
+      activeBackdrop = null;
+      backdropHost?.remove();
+      backdropHost = null;
+    }
+
+    targetHostOpacity = effects.intensity;
+    const incomingHost = createBackdropHost(shouldCrossfade ? 0 : effects.intensity, outgoing);
+    if (!incomingHost) {
+      flushExiting();
+      return;
+    }
+    incomingHost.dataset.fsBackdrop = effects.backdrop;
+    backdropHost = incomingHost;
+    activeBackdrop = BACKDROP_REGISTRY[effects.backdrop].mount({
+      doc,
+      container: incomingHost,
+      palette,
+      hostScheme,
+      effects,
+    });
     activeBackdropId = effects.backdrop;
+
+    if (shouldCrossfade) {
+      incomingHost.style.willChange = 'opacity';
+      fadeRafId = win.requestAnimationFrame(() => {
+        fadeRafId = 0;
+        if (disposed || backdropHost !== incomingHost) {
+          return;
+        }
+        incomingHost.style.transition = BACKDROP_FADE_TRANSITION;
+        incomingHost.style.opacity = String(targetHostOpacity);
+        if (outgoing && exitingHost === outgoing) {
+          outgoing.style.transition = BACKDROP_FADE_TRANSITION;
+          outgoing.style.opacity = '0';
+        }
+      });
+      exitingTimer = setTimeout(flushExiting, BACKDROP_FADE_CLEANUP_MS);
+    }
   };
 
   return {
-    sync(rawEffects, palette, hostScheme) {
+    sync(rawEffects, palette, hostScheme, options) {
       if (disposed) {
         return;
       }
+      const animate = Boolean(options?.transition) && canAnimateThemeTransition(doc);
       const effects = rawEffects ?? DEFAULT_THEME_EFFECTS;
-      syncBackdrop(effects, palette, hostScheme);
+      syncBackdrop(effects, palette, hostScheme, animate);
       if (effects.surface === 'prism' && effects.interactive && !effects.paused) {
         const prismParams = resolveEffectParams(
           getSurfaceParamSpecs('prism'),
@@ -255,13 +405,13 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
       } else {
         prismLight.sync(false);
       }
-      // Clicks cascade Matrix Rain when Glyphs is active, and always feed Tier 2
-      // custom-scene click bursts & Tier 3 custom-shader `u_click` when interactive.
-      const isCustomBackdrop =
-        effects.backdrop === 'custom-scene' || effects.backdrop === 'custom-shader';
+      // Clicks cascade Matrix Rain when Glyphs is active, and always feed backdrops that
+      // react to clicks themselves (Tier 2 scenes, Tier 3 `u_click`, Jungle Canopy) when interactive.
+      const reactsToClicks =
+        effects.backdrop !== 'none' && Boolean(BACKDROP_REGISTRY[effects.backdrop].reactsToClicks);
       clickFx.setEffect(effects.click, palette, {
         cascade: effects.interactive && Boolean(activeBackdrop?.burst),
-        alwaysCascade: effects.interactive && isCustomBackdrop,
+        alwaysCascade: effects.interactive && reactsToClicks,
         ...(effects.clickParams ? { params: effects.clickParams } : {}),
       });
     },
@@ -272,7 +422,7 @@ export function createEffectsLayerController(doc: Document): EffectsLayerControl
       }
       disposed = true;
       prismLight.dispose();
-      teardownBackdrop();
+      teardownBackdrop(false);
       clickFx.destroy();
     },
   };

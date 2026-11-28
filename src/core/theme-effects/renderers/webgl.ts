@@ -6,6 +6,7 @@ import type { EffectParamValues } from '../model';
 import type { ScenePalette } from './palette';
 import type { Scene, SceneFactory, SceneFrame } from './scene-host';
 import { sameEffectParams } from '../model';
+import { createLayer, releaseLayer } from './canvas';
 
 /** Uniforms every shader scene receives from the runner. */
 const BUILTIN_UNIFORMS = ['uResolution', 'uTime', 'uPointer'] as const;
@@ -146,6 +147,58 @@ export function releaseWebglContext(gl: WebGLRenderingContext): void {
   gl.getExtension('WEBGL_lose_context')?.loseContext();
 }
 
+/**
+ * Paints a square offscreen RGB data atlas via `paint` and uploads it as a
+ * mipmapped WebGL 1 texture on unit 0 (falling back to a 1×1 black texture when
+ * no 2D context is available). Releases the staging canvas immediately.
+ */
+export function uploadAtlasTexture(
+  gl: WebGLRenderingContext,
+  doc: Document,
+  size: number,
+  paint: (g: CanvasRenderingContext2D, size: number) => void,
+): WebGLTexture | null {
+  const texture = gl.createTexture();
+  if (!texture) {
+    return null;
+  }
+  try {
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const frame = createLayer(doc, size, size);
+    if (frame) {
+      try {
+        paint(frame.g, size);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, frame.canvas);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      } finally {
+        releaseLayer(frame);
+      }
+    } else {
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGB,
+        1,
+        1,
+        0,
+        gl.RGB,
+        gl.UNSIGNED_BYTE,
+        new Uint8Array([0, 0, 0]),
+      );
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    }
+    return texture;
+  } catch (err) {
+    gl.deleteTexture(texture);
+    throw err;
+  }
+}
+
 const DEFAULT_WEBGL_RENDER_SCALE = 0.45;
 const DEFAULT_WEBGL_MAX_PIXELS = 640_000;
 
@@ -168,6 +221,8 @@ export interface FullscreenWebglSpec<TState> {
     params: EffectParamValues | undefined,
   ) => void;
   readonly onRender: (gl: WebGLRenderingContext, state: TState, frame: SceneFrame) => void;
+  /** Releases extra GPU resources (textures) the scene allocated in `init`. */
+  readonly onDispose?: (gl: WebGLRenderingContext, state: TState) => void;
 }
 
 /**
@@ -185,12 +240,14 @@ export function createFullscreenWebglScene<TState>(
     }
     let program: WebGLProgram | null = null;
     let buffer: WebGLBuffer | null = null;
+    let state: TState;
     try {
       program = linkFullscreenProgram(gl, spec.fragment, spec.onError);
       buffer = program ? setupFullscreenTriangle(gl, program) : null;
       if (!program || !buffer) {
         throw new Error('WebGL program setup failed');
       }
+      state = spec.init(gl, program);
     } catch {
       if (buffer) gl.deleteBuffer(buffer);
       if (program) gl.deleteProgram(program);
@@ -200,7 +257,6 @@ export function createFullscreenWebglScene<TState>(
 
     const linked = program;
     const vertexBuffer = buffer;
-    const state = spec.init(gl, linked);
     let boundPalette: ScenePalette | null = null;
     let boundParams: EffectParamValues | undefined | null = null;
     let boundWidth = 0;
@@ -262,6 +318,7 @@ export function createFullscreenWebglScene<TState>(
           gl.bindBuffer(gl.ARRAY_BUFFER, null);
           // biome-ignore lint/correctness/useHookAtTopLevel: WebGL API method, not a React hook
           gl.useProgram(null);
+          spec.onDispose?.(gl, state);
           gl.deleteBuffer(vertexBuffer);
           gl.deleteProgram(linked);
         }

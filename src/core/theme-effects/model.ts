@@ -34,6 +34,7 @@ export {
   AURORA_PARAM_SPECS,
   BACKDROP_EFFECT_IDS,
   BACKDROP_PARAM_SPECS,
+  CANOPY_PARAM_SPECS,
   CLICK_EFFECT_IDS,
   CLICK_PARAM_SPECS,
   CYBER_GRID_PARAM_SPECS,
@@ -49,6 +50,7 @@ export {
   RAIN_INTRO_NAMES,
   RAIN_LOOK_NAMES,
   resolveEffectParams,
+  SHORELINE_PARAM_SPECS,
   SILK_PARAM_SPECS,
   STARFIELD_PARAM_SPECS,
   SURFACE_FINISH_IDS,
@@ -325,6 +327,20 @@ export const BACKDROP_OPTIONS: readonly BackdropOptionMeta[] = [
     preview:
       'radial-gradient(circle at 50% 45%, rgb(59 130 246 / 55%) 0%, transparent 60%), radial-gradient(rgb(255 255 255 / 35%) 1px, transparent 1.4px) 0 0 / 8px 8px, #111827',
   },
+  {
+    id: 'canopy',
+    name: 'Jungle Canopy',
+    tagline: 'Leaf-cast sunbeams, mist & fireflies',
+    preview:
+      'radial-gradient(ellipse 60% 70% at 0% 100%, #06120c 0%, transparent 70%), radial-gradient(ellipse 60% 70% at 100% 100%, #06120c 0%, transparent 70%), conic-gradient(from 152deg at 34% -20%, transparent 0deg, rgb(244 201 93 / 55%) 9deg, transparent 18deg, rgb(244 201 93 / 38%) 30deg, transparent 42deg, transparent 360deg), linear-gradient(180deg, #2c6b47 0%, #123524 60%, #06120c 100%)',
+  },
+  {
+    id: 'shoreline',
+    name: 'Coral Shoreline',
+    tagline: 'Aerial lagoon caustics, lacy surf & palms',
+    preview:
+      'radial-gradient(ellipse 42% 48% at 72% 38%, rgb(255 250 225 / 55%) 0%, transparent 70%), linear-gradient(104deg, #f3e6cf 0%, #dcc5a0 24%, #ffffff 28%, #8be8df 36%, #24b9be 68%, #0a6f87 100%)',
+  },
 ];
 
 const BACKDROP_OPTION_BY_ID: ReadonlyMap<BackdropEffectId, BackdropOptionMeta> = new Map(
@@ -358,6 +374,8 @@ export const SURFACE_FINISH_OPTIONS: ReadonlyArray<{
   { value: 'neon', label: 'Neon', summary: 'Luminous accent borders' },
   { value: 'prism', label: 'Prism', summary: 'Pointer-tracked specular sheen' },
   { value: 'moonlit', label: 'Moonlit', summary: 'Top-lit sheen & luminous underglow' },
+  { value: 'dappled', label: 'Dappled', summary: 'Sunlight through leaves & canopy glow' },
+  { value: 'caustic', label: 'Sea Glass', summary: 'Refracted caustic light & sea-glass rims' },
 ];
 
 export const CLICK_EFFECT_OPTIONS: ReadonlyArray<{
@@ -371,6 +389,8 @@ export const CLICK_EFFECT_OPTIONS: ReadonlyArray<{
   { value: 'glow-pulse', label: 'Glow' },
   { value: 'supernova', label: 'Supernova' },
   { value: 'tide', label: 'Tide' },
+  { value: 'petals', label: 'Petals' },
+  { value: 'seafoam', label: 'Seafoam' },
 ];
 
 const SURFACE_FINISH_LABEL_BY_ID: ReadonlyMap<SurfaceFinishId, string> = new Map(
@@ -438,6 +458,42 @@ const RAW_STUDIO_VIBE_METAS: readonly StudioVibeMetaData[] = [
       glassStrength: 0.3,
       surface: 'moonlit',
       click: 'tide',
+      paused: false,
+      interactive: true,
+    },
+  },
+  {
+    id: 'rainforest-canopy',
+    name: 'Rainforest Canopy',
+    tagline: 'Leaf-cast sunbeams, drifting fireflies, dappled cards & petals',
+    preset: 'rainforest-canopy',
+    swatch:
+      'radial-gradient(ellipse 46% 74% at 0% 100%, #06120c 0%, rgb(6 18 12 / 0%) 72%), radial-gradient(ellipse 46% 74% at 100% 100%, #06120c 0%, rgb(6 18 12 / 0%) 72%), conic-gradient(from 150deg at 30% -24%, rgb(244 201 93 / 0%) 0deg, rgb(244 201 93 / 60%) 8deg, rgb(244 201 93 / 0%) 17deg, rgb(244 201 93 / 42%) 28deg, rgb(244 201 93 / 0%) 40deg, rgb(244 201 93 / 0%) 360deg), linear-gradient(180deg, #2f7a4f 0%, #134029 58%, #06120c 100%)',
+    effects: {
+      backdrop: 'canopy',
+      intensity: 0.92,
+      speed: 1,
+      glassStrength: 0.28,
+      surface: 'dappled',
+      click: 'petals',
+      paused: false,
+      interactive: true,
+    },
+  },
+  {
+    id: 'coral-lagoon',
+    name: 'Coral Lagoon',
+    tagline: 'Aerial turquoise cove, dancing caustics, sea-glass cards & seafoam',
+    preset: 'coral-lagoon',
+    swatch:
+      'radial-gradient(ellipse 42% 48% at 72% 38%, rgb(255 250 225 / 55%) 0%, rgb(255 250 225 / 0%) 70%), linear-gradient(106deg, #f3e6cf 0%, #ddc7a3 24%, #ffffff 28%, #8be8df 36%, #24b9be 68%, #0a6f87 100%)',
+    effects: {
+      backdrop: 'shoreline',
+      intensity: 0.92,
+      speed: 1,
+      glassStrength: 0.24,
+      surface: 'caustic',
+      click: 'seafoam',
       paused: false,
       interactive: true,
     },

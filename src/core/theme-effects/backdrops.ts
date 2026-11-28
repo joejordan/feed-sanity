@@ -1,5 +1,6 @@
 // Pluggable live backdrop registry: Matrix Digital Rain, Vice City VI Horizon,
-// Aurora, Silk, Constellations, Cyber Grid, Prism Beams, and Dot Spotlight.
+// Aurora, Silk, Constellations, Cyber Grid, Prism Beams, Dot Spotlight,
+// Jungle Canopy, and Coral Shoreline.
 //
 // Every renderer is Trusted Types safe (canvas drawing and CSSOM styling only,
 // zero innerHTML), loads zero external assets, caps its resolution and frame
@@ -15,6 +16,7 @@ import { mountDigitalRain } from './digital-rain/mount';
 import { RAIN_PRESETS } from './digital-rain/settings';
 import { DIGITAL_RAIN_PARAM_SPECS, resolveEffectParams } from './model';
 import { AURORA_SCENE } from './renderers/aurora';
+import { CANOPY_SCENE } from './renderers/canopy';
 import { mountCustomSceneBackdrop } from './renderers/custom-scene';
 import { mountCustomShaderBackdrop } from './renderers/custom-shader';
 import { CYBER_GRID_SCENE } from './renderers/cyber-grid';
@@ -22,6 +24,7 @@ import { DOT_SPOTLIGHT_SCENE } from './renderers/dot-spotlight';
 import { FALLBACK_COLORS } from './renderers/palette';
 import { PRISM_BEAMS_SCENE } from './renderers/prism-beams';
 import { createSceneCanvas, mountScene } from './renderers/scene-host';
+import { SHORELINE_SCENE } from './renderers/shoreline';
 import { SILK_SCENE } from './renderers/silk';
 import { STARFIELD_SCENE } from './renderers/starfield';
 import { VICE_HORIZON_SCENE } from './renderers/vice-horizon';
@@ -31,6 +34,11 @@ export type { BackdropContext, BackdropInstance } from './renderers/types';
 export interface BackdropPlugin {
   readonly id: Exclude<BackdropEffectId, 'none'>;
   readonly mount: (ctx: BackdropContext) => BackdropInstance;
+  /**
+   * The scene answers clicks itself, so every primary click is fed to `burst`
+   * whatever click effect is active. Other backdrops burst only under Glyphs.
+   */
+  readonly reactsToClicks?: boolean;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -115,6 +123,16 @@ export const BACKDROP_REGISTRY: Readonly<
   'cyber-grid': { id: 'cyber-grid', mount: (ctx) => mountScene(ctx, CYBER_GRID_SCENE) },
   'prism-beams': { id: 'prism-beams', mount: (ctx) => mountScene(ctx, PRISM_BEAMS_SCENE) },
   'dot-spotlight': { id: 'dot-spotlight', mount: (ctx) => mountScene(ctx, DOT_SPOTLIGHT_SCENE) },
-  'custom-scene': { id: 'custom-scene', mount: mountCustomSceneBackdrop },
-  'custom-shader': { id: 'custom-shader', mount: mountCustomShaderBackdrop },
+  canopy: {
+    id: 'canopy',
+    mount: (ctx) => mountScene(ctx, CANOPY_SCENE),
+    reactsToClicks: true,
+  },
+  shoreline: {
+    id: 'shoreline',
+    mount: (ctx) => mountScene(ctx, SHORELINE_SCENE),
+    reactsToClicks: true,
+  },
+  'custom-scene': { id: 'custom-scene', mount: mountCustomSceneBackdrop, reactsToClicks: true },
+  'custom-shader': { id: 'custom-shader', mount: mountCustomShaderBackdrop, reactsToClicks: true },
 };

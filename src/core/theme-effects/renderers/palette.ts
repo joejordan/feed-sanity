@@ -14,6 +14,8 @@ export interface ScenePalette {
   readonly accent: Rgb;
   /** Secondary decorative accent (`palette.accentSecondary`, falling back to `palette.danger`). */
   readonly alt: Rgb;
+  /** False when `alt` is only the `danger` fallback, for scenes where red would mean the wrong thing. */
+  readonly hasSecondary: boolean;
   readonly text: Rgb;
   readonly background: Rgb;
   readonly surface: Rgb;
@@ -76,6 +78,11 @@ export function rgbUnit(c: Rgb): [number, number, number] {
   return [c[0] / 255, c[1] / 255, c[2] / 255];
 }
 
+/** Stable string key for a list of RGB triples so cached layers know when colours changed. */
+export function rgbKey(colors: readonly Rgb[]): string {
+  return colors.map((c) => c.map(Math.round).join(',')).join('|');
+}
+
 /** Rotates hue while keeping saturation and lightness (HSL). */
 export function rotateHue(c: Rgb, degrees: number): Rgb {
   const r = c[0] / 255;
@@ -122,9 +129,11 @@ export function resolveScenePalette(ctx: BackdropContext): ScenePalette {
   const surface = toRgb(p?.surface, base.surface);
   const border = toRgb(p?.border, base.border);
   const danger = toRgb(p?.danger, base.danger);
+  const hasSecondary = Boolean(p?.accentSecondary);
   const key = [
     scheme,
     p ? 'theme' : 'native',
+    hasSecondary ? 'duo' : 'solo',
     accent,
     alt,
     text,
@@ -135,7 +144,19 @@ export function resolveScenePalette(ctx: BackdropContext): ScenePalette {
   ]
     .map((part) => (Array.isArray(part) ? part.map(Math.round).join(',') : String(part)))
     .join('|');
-  return { scheme, accent, alt, text, background, surface, border, danger, native: !p, key };
+  return {
+    scheme,
+    accent,
+    alt,
+    hasSecondary,
+    text,
+    background,
+    surface,
+    border,
+    danger,
+    native: !p,
+    key,
+  };
 }
 
 /**

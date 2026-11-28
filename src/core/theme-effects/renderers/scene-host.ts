@@ -123,6 +123,16 @@ export interface SceneWatchdogSpec {
   readonly consecutiveLimit: number;
 }
 
+/**
+ * Adaptive slow-frame safeguard for rich built-in WebGL scenes: fast GPUs never
+ * trip it, while slow integrated laptops halve render scale (4× fewer pixels)
+ * before stepping down to Canvas 2D.
+ */
+export const BUILTIN_SHADER_WATCHDOG: SceneWatchdogSpec = {
+  slowFrameMs: 28,
+  consecutiveLimit: 12,
+};
+
 export interface SceneSpec {
   /** Tried in order until one returns a scene. */
   readonly factories: readonly SceneFactory[];

@@ -441,6 +441,99 @@ export const BUILTIN_THEMES: readonly ThemePreset[] = [
       },
     },
   },
+  {
+    id: 'rainforest-canopy',
+    name: 'Rainforest Canopy',
+    description: 'Deep canopy greens with leaf-white type, emerald, sunbeam gold, and hibiscus.',
+    palette: {
+      colorScheme: 'dark',
+      background: '#06120c',
+      surface: '#0c1d14',
+      surfaceAlt: '#14301f',
+      text: '#ecf7e6',
+      textMuted: '#9bbfa2',
+      border: '#234a31',
+      accent: '#4be38a',
+      accentSecondary: '#f4c95d',
+      accentText: '#04140b',
+      danger: '#ff7f8f',
+    },
+    swatches: ['#06120c', '#14301f', '#4be38a', '#c5e86c', '#f4c95d', '#ff7f8f'],
+    swatchGradient:
+      'conic-gradient(from 150deg at 32% -18%, rgb(244 201 93 / 0%) 0deg, #f4c95d 10deg, rgb(244 201 93 / 0%) 22deg, rgb(244 201 93 / 0%) 360deg), linear-gradient(180deg, #2f7a4f 0%, #134029 55%, #06120c 100%)',
+    chrome: {
+      // Light running along a vine: canopy green warming to sunbeam gold at the centre.
+      ribbon: {
+        enabled: true,
+        stops: [
+          'transparent',
+          '#2f9e6b',
+          '#4be38a',
+          '#c5e86c',
+          '#f4c95d',
+          '#c5e86c',
+          '#4be38a',
+          'transparent',
+        ],
+        height: 2,
+      },
+      ambientGlow: {
+        enabled: true,
+        spots: [
+          { color: '#f4c95d', alpha: 0.11, x: 22, y: 0, radiusX: 54, radiusY: 46 },
+          { color: '#4be38a', alpha: 0.1, x: 0, y: 100, radiusX: 52, radiusY: 40 },
+          { color: '#2fc4b2', alpha: 0.08, x: 100, y: 100, radiusX: 50, radiusY: 38 },
+        ],
+      },
+    },
+  },
+  {
+    id: 'coral-lagoon',
+    name: 'Coral Lagoon',
+    description:
+      'Sun-bleached coral sand and shell-white cards with Caribbean reef teal and sunlit gold.',
+    palette: {
+      colorScheme: 'light',
+      background: '#eaf7f5',
+      surface: '#fbfefd',
+      surfaceAlt: '#d9f0ec',
+      text: '#092b32',
+      textMuted: '#2c5c63',
+      border: '#a8d8d4',
+      accent: '#077685',
+      accentSecondary: '#e09132',
+      accentText: '#ffffff',
+      danger: '#cf2e46',
+    },
+    swatches: ['#fbfefd', '#f2e6cf', '#5eead4', '#077685', '#e09132', '#cf2e46'],
+    swatchGradient:
+      'linear-gradient(108deg, #f3e6cf 0%, #dfc9a3 24%, #ffffff 28%, #8be8df 38%, #24b9be 68%, #077685 100%)',
+    chrome: {
+      // Sunlit reef horizon: lagoon turquoise warming through coral gold and hibiscus.
+      ribbon: {
+        enabled: true,
+        stops: [
+          'transparent',
+          '#2dd4bf',
+          '#077685',
+          '#5eead4',
+          '#f3c57a',
+          '#ff8b7b',
+          '#2dd4bf',
+          'transparent',
+        ],
+        height: 2,
+      },
+      ambientGlow: {
+        enabled: true,
+        spots: [
+          { color: '#f3c57a', alpha: 0.16, x: 14, y: 0, radiusX: 56, radiusY: 46 },
+          { color: '#2dd4bf', alpha: 0.15, x: 88, y: 100, radiusX: 62, radiusY: 48 },
+          { color: '#ff8b7b', alpha: 0.1, x: 92, y: 8, radiusX: 46, radiusY: 38 },
+        ],
+      },
+    },
+  },
 ];
 
 const BUILTIN_THEME_BY_ID: ReadonlyMap<string, ThemePreset> = new Map(

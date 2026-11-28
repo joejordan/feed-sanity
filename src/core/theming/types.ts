@@ -11,6 +11,9 @@ import type { ThemeEffectsConfig } from '../theme-effects/model';
 export const THEME_LAYER_ORDER =
   '@layer fs-user, fs-reveal-shell, fs-healer, fs-finish, fs-reveal, fs-mapping, fs-adaptive;';
 
+/** Maximum accepted byte size for imported `.fstheme.json` files and URL payloads. */
+export const MAX_THEME_FILE_BYTES = 64 * 1024;
+
 export type ThemeLayerName =
   | 'fs-user'
   | 'fs-reveal-shell'

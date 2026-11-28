@@ -3,6 +3,9 @@
 
 export type RandomSource = () => number;
 
+/** The golden angle in radians: stepping by it scatters points evenly with no visible pattern. */
+export const GOLDEN_ANGLE = 2.399_963;
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
