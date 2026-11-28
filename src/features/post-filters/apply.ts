@@ -7,29 +7,12 @@ import type { Scope } from '../../core/scope';
 import type { PostFields } from '../../facebook/post-fields';
 import type { Post } from '../../facebook/posts';
 import { postElements, textSkip, walkText } from '../../facebook/post-text';
-
-/** `post.element`, or the matches of `selector` in the post's own content. A bad selector finds nothing. */
-function targetsOf(
-  post: Post,
-  selector: string | undefined,
-  locate: Locate,
-  cache: Map<string, Element[]>,
-): readonly Element[] {
-  if (!selector) {
-    return [post.element];
-  }
-  let targets = cache.get(selector);
-  if (!targets) {
-    targets = postElements(post.content, selector, locate);
-    cache.set(selector, targets);
-  }
-  return targets;
-}
+import { applyClassesAndStyles } from '../shared/apply-filter-outcome';
 
 /**
- * Adds the outcome's classes and inline styles to the post until `scope` is
- * disposed. A class already there is left alone and not removed later. A
- * style is put back exactly as it was, value and priority.
+ * Adds the outcome's classes and inline styles to `post.element`, or to the
+ * matches of their selector in the post's own content, until `scope` is
+ * disposed. A selector that does not parse finds nothing.
  */
 export function applyStyling(
   scope: Scope,
@@ -37,38 +20,9 @@ export function applyStyling(
   outcome: Pick<FilterOutcome, 'classes' | 'styles'>,
   locate: Locate,
 ): void {
-  if (outcome.classes.length === 0 && outcome.styles.length === 0) {
-    return;
-  }
-  const cache = new Map<string, Element[]>();
-  for (const { name, selector } of outcome.classes) {
-    const tokens = name.split(/\s+/).filter((token) => token !== '');
-    for (const target of targetsOf(post, selector, locate, cache)) {
-      const added = tokens.filter((token) => !target.classList.contains(token));
-      if (added.length > 0) {
-        target.classList.add(...added);
-        scope.add(() => target.classList.remove(...added));
-      }
-    }
-  }
-  for (const { property, value, important, selector } of outcome.styles) {
-    for (const target of targetsOf(post, selector, locate, cache)) {
-      if (!(target instanceof HTMLElement || target instanceof SVGElement)) {
-        continue;
-      }
-      const { style } = target;
-      const before = style.getPropertyValue(property);
-      const beforePriority = style.getPropertyPriority(property);
-      style.setProperty(property, value, important ? 'important' : '');
-      scope.add(() => {
-        if (before) {
-          style.setProperty(property, before, beforePriority);
-        } else {
-          style.removeProperty(property);
-        }
-      });
-    }
-  }
+  applyClassesAndStyles(scope, outcome, (selector) =>
+    selector ? postElements(post.content, selector, locate) : [post.element],
+  );
 }
 
 /** What each text node held right after this project last rewrote it. */

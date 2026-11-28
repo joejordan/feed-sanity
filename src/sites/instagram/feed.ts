@@ -78,18 +78,22 @@ function readInstagramFields(
             '';
           return author;
         case 'hashtags':
-          hashtags ??= listPart(
-            [...article.querySelectorAll('a[href*="/explore/tags/"]')].map((a) =>
-              (a.textContent ?? '').trim().replace(/^#/, ''),
-            ),
-          );
+          if (hashtags === undefined) {
+            hashtags = listPart(
+              [...article.querySelectorAll('a[href*="/explore/tags/"]')].map((a) =>
+                (a.textContent ?? '').trim().replace(/^#/, ''),
+              ),
+            );
+          }
           return hashtags;
         case 'image_text':
-          images ??= listPart(
-            [...article.querySelectorAll('img[alt]')].map(
-              (img) => img.getAttribute('alt')?.trim() ?? '',
-            ),
-          );
+          if (images === undefined) {
+            images = listPart(
+              [...article.querySelectorAll('img[alt]')].map(
+                (img) => img.getAttribute('alt')?.trim() ?? '',
+              ),
+            );
+          }
           return images;
         case 'sponsored':
           return signals.isAd ? 'sponsored' : null;

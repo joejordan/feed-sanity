@@ -4,11 +4,12 @@
 
 import type { Action, Condition, Filter, TextCondition } from '../../core/filter-types';
 import type { FilterSchema } from './schema';
-import { compileTextCondition } from '../../core/filter-engine';
+import {
+  compileReplacePattern,
+  compileTextCondition,
+  USER_REGEX_FLAGS,
+} from '../../core/filter-engine';
 import { displayFilterTitle } from './summary';
-
-/** Regex flags a user may add. Case comes from "Match case"; `g` and `y` make tests stateful. */
-export const ALLOWED_REGEX_FLAGS = 'dmsuv';
 
 function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -21,7 +22,7 @@ export function validateRegexFlags(flags: string): string | null {
     if (flag === 'i') {
       return 'Use "Match case" instead of the i flag.';
     }
-    if (!ALLOWED_REGEX_FLAGS.includes(flag)) {
+    if (!USER_REGEX_FLAGS.includes(flag)) {
       return `"${flag}" is not a flag you can use here. Use d, m, s, u or v.`;
     }
     if (seen.has(flag)) {
@@ -101,7 +102,7 @@ export function validateAction(action: Action, schema?: FilterSchema): string | 
         return null;
       }
       try {
-        void new RegExp(action.find, 'gi');
+        compileReplacePattern(action.find);
         return null;
       } catch (error) {
         return `Invalid find pattern: ${messageOf(error, 'it does not compile')}`;

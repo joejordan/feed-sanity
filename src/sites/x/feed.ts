@@ -80,25 +80,31 @@ function readXFields(
           author ??= article.querySelector('[data-testid="User-Name"]')?.textContent ?? '';
           return author;
         case 'hashtags':
-          hashtags ??= listPart(
-            [...article.querySelectorAll('a[href^="/hashtag/"]')].map((a) =>
-              (a.textContent ?? '').trim().replace(/^#/, ''),
-            ),
-          );
+          if (hashtags === undefined) {
+            hashtags = listPart(
+              [...article.querySelectorAll('a[href^="/hashtag/"]')].map((a) =>
+                (a.textContent ?? '').trim().replace(/^#/, ''),
+              ),
+            );
+          }
           return hashtags;
         case 'link_urls':
-          links ??= listPart(
-            [...article.querySelectorAll('a[href]')]
-              .map((a) => a.getAttribute('href') ?? '')
-              .filter((href) => href.startsWith('http')),
-          );
+          if (links === undefined) {
+            links = listPart(
+              [...article.querySelectorAll('a[href]')]
+                .map((a) => a.getAttribute('href') ?? '')
+                .filter((href) => href.startsWith('http')),
+            );
+          }
           return links;
         case 'image_text':
-          images ??= listPart(
-            [...article.querySelectorAll('img[alt]')]
-              .map((img) => img.getAttribute('alt')?.trim() ?? '')
-              .filter((alt) => alt !== 'Image'),
-          );
+          if (images === undefined) {
+            images = listPart(
+              [...article.querySelectorAll('img[alt]')]
+                .map((img) => img.getAttribute('alt')?.trim() ?? '')
+                .filter((alt) => alt !== 'Image'),
+            );
+          }
           return images;
         case 'sponsored':
           return signals.isAd ? 'sponsored' : null;

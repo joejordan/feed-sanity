@@ -13,7 +13,7 @@ import type { SavedData } from '../../core/saved';
 import type { OptionsPanel, PanelProps } from '../options-dialog/panel';
 import type { FilterSchema } from './schema';
 import { getFilterHitTracker } from '../../core/filter-hits';
-import { newFilterId, savedFilters } from '../../core/filter-types';
+import { newFilterId, savedFilters, withUniqueIds } from '../../core/filter-types';
 import { definePanel } from '../options-dialog/panel';
 import { FilterEditor } from './filter-editor';
 import css from './filters-panel.css?inline';
@@ -66,16 +66,6 @@ export interface SiteFiltersPanelProps extends PanelProps<Filter[]> {
 }
 
 const NOOP_SUBSCRIBE = () => () => undefined;
-
-/** `list` with every id that is repeated or already in `taken` renewed. */
-function withUniqueIds(list: readonly Filter[], taken: readonly Filter[]): Filter[] {
-  const seen = new Set(taken.map((filter) => filter.id));
-  return list.map((filter) => {
-    const unique = seen.has(filter.id) ? { ...filter, id: newFilterId() } : filter;
-    seen.add(unique.id);
-    return unique;
-  });
-}
 
 /** The jump-to id of a filter's list card. */
 const jumpIdOf = (filter: Filter) => `filter:${filter.id}`;

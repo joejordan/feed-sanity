@@ -9,73 +9,13 @@ import { Options } from '../../core/options';
 import { SavedData } from '../../core/saved';
 import { bindPage } from '../../facebook/feature';
 import { savedReadHistory } from '../../facebook/read-history';
-import { fakeLocate, makePost, postHeader, videoPage } from '../../facebook/testing';
+import { FakePosts, fakeLocate, makePost, postHeader, videoPage } from '../../facebook/testing';
 import { extensionStore } from '../../platform/extension-store';
 import postFilters from '../post-filters';
 import readPosts from './index';
 import { HIDE_READ_ATTR, READ_ATTR, READ_NOTE_CLASS } from './markers';
 
-type Listener = (post: Post) => void;
-
 const DAY = 24 * 60 * 60 * 1000;
-
-/** Stands in for fb-dom's post tracker: the test adds, refills and removes posts. */
-class FakePosts {
-  readonly posts: Post[] = [];
-  readonly #tracked = new Set<Listener>();
-  readonly #added = new Set<Listener>();
-  readonly #updated = new Set<Listener>();
-  readonly #removed = new Set<Listener>();
-  readonly #reset = new Set<() => void>();
-
-  readonly services: PageServices['posts'] = {
-    onTrack: (listener) => this.#subscribe(this.#tracked, listener),
-    onAdd: (listener) => this.#subscribe(this.#added, listener),
-    onUntrack: (listener) => this.#subscribe(this.#removed, listener, false),
-    onRemove: (listener) => this.#subscribe(this.#removed, listener, false),
-    onUpdate: (listener) => this.#subscribe(this.#updated, listener, false),
-    onReset: (listener) => {
-      this.#reset.add(listener);
-      return () => this.#reset.delete(listener);
-    },
-  };
-
-  add(post: Post): Post {
-    this.posts.push(post);
-    for (const listener of [...this.#tracked, ...this.#added]) {
-      listener(post);
-    }
-    return post;
-  }
-
-  update(post: Post): void {
-    for (const listener of this.#updated) {
-      listener(post);
-    }
-  }
-
-  reset(): void {
-    for (const post of this.posts.splice(0)) {
-      post.element.remove();
-      for (const listener of this.#removed) {
-        listener(post);
-      }
-    }
-    for (const listener of this.#reset) {
-      listener();
-    }
-  }
-
-  #subscribe(listeners: Set<Listener>, listener: Listener, replay = true): () => void {
-    listeners.add(listener);
-    if (replay) {
-      for (const post of this.posts) {
-        listener(post);
-      }
-    }
-    return () => listeners.delete(listener);
-  }
-}
 
 /** A post's markup: a header with the author and Facebook's menu button in a row, and some text. */
 const postHtml = (author: string, text: string): string => `

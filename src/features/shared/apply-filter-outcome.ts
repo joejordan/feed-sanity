@@ -16,26 +16,69 @@ export function parseKeywords(raw: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-function resolveTargets(
-  root: HTMLElement,
-  selector: string | undefined,
-  cache: Map<string, Element[]>,
-): Element[] {
-  if (!selector) {
-    return [root];
-  }
-  const cached = cache.get(selector);
-  if (cached) {
-    return cached;
-  }
-  let matches: Element[];
+/** The matches of `selector` inside `root`, through open shadow roots. A bad selector finds nothing. */
+function queryTargets(root: HTMLElement, selector: string): Element[] {
   try {
-    matches = queryDeepAll(root, selector, OWN_ATTR);
+    return queryDeepAll(root, selector, OWN_ATTR);
   } catch {
-    matches = [];
+    return [];
   }
-  cache.set(selector, matches);
-  return matches;
+}
+
+/**
+ * Adds `outcome`'s classes and inline styles until `scope` is disposed.
+ * `targetsOf` gives the elements a selector picks, or the item itself when
+ * there is none. A class already there is left alone and not removed later.
+ * A style is put back exactly as it was, value and priority.
+ */
+export function applyClassesAndStyles(
+  scope: Scope,
+  outcome: Pick<FilterOutcome, 'classes' | 'styles'>,
+  targetsOf: (selector: string | undefined) => readonly Element[],
+): void {
+  if (outcome.classes.length === 0 && outcome.styles.length === 0) {
+    return;
+  }
+  const cache = new Map<string | undefined, readonly Element[]>();
+  const targets = (selector: string | undefined): readonly Element[] => {
+    let found = cache.get(selector);
+    if (!found) {
+      found = targetsOf(selector);
+      cache.set(selector, found);
+    }
+    return found;
+  };
+  for (const { name, selector } of outcome.classes) {
+    const tokens = name.split(/\s+/).filter((token) => token.length > 0);
+    if (tokens.length === 0) {
+      continue;
+    }
+    for (const target of targets(selector)) {
+      const added = tokens.filter((token) => !target.classList.contains(token));
+      if (added.length > 0) {
+        target.classList.add(...added);
+        scope.add(() => target.classList.remove(...added));
+      }
+    }
+  }
+  for (const { property, value, important, selector } of outcome.styles) {
+    for (const target of targets(selector)) {
+      if (!(target instanceof HTMLElement || target instanceof SVGElement)) {
+        continue;
+      }
+      const { style } = target;
+      const before = style.getPropertyValue(property);
+      const beforePriority = style.getPropertyPriority(property);
+      style.setProperty(property, value, important ? 'important' : '');
+      scope.add(() => {
+        if (before) {
+          style.setProperty(property, before, beforePriority);
+        } else {
+          style.removeProperty(property);
+        }
+      });
+    }
+  }
 }
 
 function createHideNote(
@@ -203,40 +246,9 @@ export function applyFilterOutcome(
     }
   }
 
-  const selectorCache = new Map<string, Element[]>();
-
-  for (const { name, selector } of outcome.classes) {
-    const tokens = name.split(/\s+/).filter((token) => token.length > 0);
-    if (tokens.length === 0) {
-      continue;
-    }
-    for (const target of resolveTargets(element, selector, selectorCache)) {
-      const added = tokens.filter((token) => !target.classList.contains(token));
-      if (added.length > 0) {
-        target.classList.add(...added);
-        itemScope.add(() => target.classList.remove(...added));
-      }
-    }
-  }
-
-  for (const { property, value, important, selector } of outcome.styles) {
-    const priority = important ? 'important' : '';
-    for (const target of resolveTargets(element, selector, selectorCache)) {
-      if (!(target instanceof HTMLElement)) {
-        continue;
-      }
-      const prevValue = target.style.getPropertyValue(property);
-      const prevPriority = target.style.getPropertyPriority(property);
-      target.style.setProperty(property, value, priority);
-      itemScope.add(() => {
-        if (prevValue) {
-          target.style.setProperty(property, prevValue, prevPriority);
-        } else {
-          target.style.removeProperty(property);
-        }
-      });
-    }
-  }
+  applyClassesAndStyles(itemScope, outcome, (selector) =>
+    selector ? queryTargets(element, selector) : [element],
+  );
 
   if (outcome.replacements.length > 0) {
     applyTextReplacements(element, outcome.replacements, itemScope);

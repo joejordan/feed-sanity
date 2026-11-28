@@ -6,6 +6,7 @@ import { useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Action, Filter } from '../../core/filter-types';
 import type { FilterSchema } from './schema';
+import { escapeRegex } from '../../core/filter-engine';
 import { FilterIcon } from './icons';
 import { withField } from './list-edit';
 import { getSimpleActions, getSimpleTargets, HIGHLIGHT_PRESETS } from './schema';
@@ -90,8 +91,7 @@ function buildHighlightPattern(words: readonly string[]): RegExp | null {
     return null;
   }
   const sorted = [...active].sort((a, b) => b.length - a.length);
-  const escaped = sorted.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`));
-  return new RegExp(`(${escaped.join('|')})`, 'gi');
+  return new RegExp(`(${sorted.map(escapeRegex).join('|')})`, 'gi');
 }
 
 /** Renders `text` with any matches of `pattern` wrapped in `.fr-preview-hit` spans (zero innerHTML). */

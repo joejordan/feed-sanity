@@ -14,7 +14,7 @@ import { HIDDEN_ATTR, OWN_ATTR } from '../../core/surface';
 import { bindPage } from '../../facebook/feature';
 import { savedReadHistory } from '../../facebook/read-history';
 import { FEED_FILTERING, MARK, POST_CHECKED } from '../../facebook/selectors';
-import { fakeLocate, makePost, postHeader, testBridge } from '../../facebook/testing';
+import { FakePosts, fakeLocate, makePost, postHeader, testBridge } from '../../facebook/testing';
 import { Videos } from '../../facebook/videos';
 import { extensionStore } from '../../platform/extension-store';
 import { BUILT_IN_IDS, BUILT_IN_NOTES } from './built-ins';
@@ -22,83 +22,6 @@ import postFilters from './index';
 import { FILTER_NOTE_CLASS, FILTERED_ATTR, isFilterHidden, isPagePost } from './markers';
 import { NOTE_HIDE, NOTE_SHOW } from './notes';
 import { STYLE_ID } from './styles';
-
-type Listener = (post: Post) => void;
-
-/** Stands in for fb-dom's post tracker: the test tracks, announces, refills and removes posts. */
-class FakePosts {
-  readonly #tracked = new Set<Listener>();
-  readonly #added = new Set<Listener>();
-  readonly #updated = new Set<Listener>();
-  readonly #untracked = new Set<Listener>();
-  readonly #reset = new Set<() => void>();
-  readonly #present: Post[] = [];
-
-  readonly services: PageServices['posts'] = {
-    onTrack: (listener) => this.#subscribe(this.#tracked, listener, true),
-    onAdd: (listener) => this.#subscribe(this.#added, listener, true),
-    onUntrack: (listener) => this.#subscribe(this.#untracked, listener),
-    onRemove: (listener) => this.#subscribe(this.#untracked, listener),
-    onUpdate: (listener) => this.#subscribe(this.#updated, listener),
-    onReset: (listener) => {
-      this.#reset.add(listener);
-      return () => this.#reset.delete(listener);
-    },
-  };
-
-  /** Tracks `post` and announces it with `id`, as fb-dom does a moment after tracking. */
-  add(post: Post, id: string | null = null): Post {
-    this.track(post);
-    return this.announce(post, id);
-  }
-
-  track(post: Post): Post {
-    this.#present.push(post);
-    for (const listener of this.#tracked) {
-      listener(post);
-    }
-    return post;
-  }
-
-  announce(post: Post, id: string | null = null): Post {
-    const announced = { ...post, id };
-    this.#present[this.#present.indexOf(post)] = announced;
-    for (const listener of this.#added) {
-      listener(announced);
-    }
-    return announced;
-  }
-
-  update(post: Post): void {
-    for (const listener of this.#updated) {
-      listener(post);
-    }
-  }
-
-  remove(post: Post): void {
-    this.#present.splice(this.#present.indexOf(post), 1);
-    post.element.remove();
-    for (const listener of this.#untracked) {
-      listener(post);
-    }
-  }
-
-  reset(): void {
-    for (const listener of this.#reset) {
-      listener();
-    }
-  }
-
-  #subscribe(listeners: Set<Listener>, listener: Listener, present = false): () => void {
-    listeners.add(listener);
-    if (present) {
-      for (const post of this.#present) {
-        listener(post);
-      }
-    }
-    return () => listeners.delete(listener);
-  }
-}
 
 /** A page-world bridge whose questions `ask` answers, for the ad paths. */
 function askingBridge(ask: PageWorld['ask']): PageWorld {

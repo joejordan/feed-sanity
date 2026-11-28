@@ -27,6 +27,97 @@ export function makePost(html: string, changes: Partial<Post> = {}): Post {
   return { element, content: element, number, id: null, permalink: false, ...changes };
 }
 
+type PostListener = (post: Post) => void;
+
+/**
+ * Stands in for fb-dom's post tracker in `PageServices['posts']`: the test
+ * tracks, announces, refills and removes posts. Late `onTrack` and `onAdd`
+ * listeners are told about the posts already present, as `Posts` does.
+ */
+export class FakePosts {
+  /** The posts on the page, as last announced. */
+  readonly posts: Post[] = [];
+  readonly #tracked = new Set<PostListener>();
+  readonly #added = new Set<PostListener>();
+  readonly #updated = new Set<PostListener>();
+  readonly #untracked = new Set<PostListener>();
+  readonly #reset = new Set<() => void>();
+
+  readonly services: PageServices['posts'] = {
+    onTrack: (listener) => this.#subscribe(this.#tracked, listener, true),
+    onAdd: (listener) => this.#subscribe(this.#added, listener, true),
+    onUntrack: (listener) => this.#subscribe(this.#untracked, listener),
+    onRemove: (listener) => this.#subscribe(this.#untracked, listener),
+    onUpdate: (listener) => this.#subscribe(this.#updated, listener),
+    onReset: (listener) => {
+      this.#reset.add(listener);
+      return () => this.#reset.delete(listener);
+    },
+  };
+
+  /** Tracks `post` and announces it with `id`, as fb-dom does a moment after tracking. */
+  add(post: Post, id: string | null = post.id): Post {
+    this.track(post);
+    return this.announce(post, id);
+  }
+
+  track(post: Post): Post {
+    this.posts.push(post);
+    for (const listener of this.#tracked) {
+      listener(post);
+    }
+    return post;
+  }
+
+  announce(post: Post, id: string | null = post.id): Post {
+    const announced = { ...post, id };
+    const index = this.posts.findIndex((present) => present.element === post.element);
+    this.posts[index === -1 ? this.posts.length : index] = announced;
+    for (const listener of this.#added) {
+      listener(announced);
+    }
+    return announced;
+  }
+
+  update(post: Post): void {
+    for (const listener of this.#updated) {
+      listener(post);
+    }
+  }
+
+  /** Takes `post` off the page and tells the untrack listeners. */
+  remove(post: Post): void {
+    const index = this.posts.findIndex((present) => present.element === post.element);
+    if (index !== -1) {
+      this.posts.splice(index, 1);
+    }
+    post.element.remove();
+    for (const listener of this.#untracked) {
+      listener(post);
+    }
+  }
+
+  /** An in-page move: every post leaves, then numbering starts again. */
+  reset(): void {
+    for (const post of [...this.posts]) {
+      this.remove(post);
+    }
+    for (const listener of this.#reset) {
+      listener();
+    }
+  }
+
+  #subscribe(listeners: Set<PostListener>, listener: PostListener, replay = false): () => void {
+    listeners.add(listener);
+    if (replay) {
+      for (const post of this.posts) {
+        listener(post);
+      }
+    }
+    return () => listeners.delete(listener);
+  }
+}
+
 /**
  * The verified badge Facebook draws beside a page's name, a button too, as
  * seen on 2026-11-14. Its label is translated on the real site.

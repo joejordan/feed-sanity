@@ -6,7 +6,7 @@ import { NOTE_LABEL_CLASS, NOTE_TOGGLE_CLASS } from './notes';
 export const STYLE_ID = 'feed_sanity_post_filters';
 
 /** How long a feed slot may stay invisible while it waits to be checked. */
-export const NO_FLASH_FAILSAFE_MS = 300;
+const NO_FLASH_FAILSAFE_MS = 300;
 
 const HIDDEN = `[${FILTERED_ATTR}="${FILTERED_HIDDEN}"]`;
 const SHOWN = `[${FILTERED_ATTR}="${FILTERED_SHOWN}"]`;

@@ -74,7 +74,6 @@ export type Condition =
   | AgeCondition
   | UnknownCondition;
 export type ConditionKind = Exclude<Condition['kind'], 'unknown'>;
-export const CONDITION_KINDS: readonly ConditionKind[] = ['text', 'element', 'weekday', 'age'];
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -141,15 +140,6 @@ export type Action =
   | SetUnreadAction
   | UnknownAction;
 export type ActionKind = Exclude<Action['kind'], 'unknown'>;
-export const ACTION_KINDS: readonly ActionKind[] = [
-  'hide',
-  'keep',
-  'style',
-  'add_class',
-  'replace',
-  'set_read',
-  'set_unread',
-];
 
 // ---------------------------------------------------------------------------
 // Filters
@@ -394,23 +384,17 @@ function readFilter(raw: Raw): Filter {
  * without an id gets a fresh one. Duplicate ids are renewed so ids stay unique.
  */
 export function readFilters(stored: unknown): Filter[] {
-  if (!Array.isArray(stored)) {
-    return [];
-  }
-  const seen = new Set<string>();
-  const filters: Filter[] = [];
-  for (const entry of stored) {
-    if (!isRecord(entry)) {
-      continue;
-    }
-    let filter = readFilter(entry);
-    if (seen.has(filter.id)) {
-      filter = { ...filter, id: newFilterId() };
-    }
-    seen.add(filter.id);
-    filters.push(filter);
-  }
-  return filters;
+  return Array.isArray(stored) ? withUniqueIds(stored.filter(isRecord).map(readFilter)) : [];
+}
+
+/** `list` with every id that repeats, or is already used in `taken`, renewed. */
+export function withUniqueIds(list: readonly Filter[], taken: readonly Filter[] = []): Filter[] {
+  const seen = new Set(taken.map((filter) => filter.id));
+  return list.map((filter) => {
+    const unique = seen.has(filter.id) ? { ...filter, id: newFilterId() } : filter;
+    seen.add(unique.id);
+    return unique;
+  });
 }
 
 /** The site's saved filter list. Every caller with the same `SavedData` gets the same object. */

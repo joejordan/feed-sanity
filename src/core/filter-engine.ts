@@ -120,12 +120,18 @@ export const EMPTY_OUTCOME: FilterOutcome = Object.freeze({
 
 // Syntax characters only: Unicode mode rejects escapes of anything else (such as `-`).
 const REGEX_SPECIALS = /[.*+?^${}()|[\]\\/]/g;
-// Flags the user may add. `i` comes from `matchCase`; `g` and `y` make `test` stateful.
-const USER_FLAGS = new Set(['d', 'm', 's', 'u', 'v']);
+/** Regex flags a user may add. `i` comes from `matchCase`; `g` and `y` make `test` stateful. */
+export const USER_REGEX_FLAGS = 'dmsuv';
 const WORD_CHAR = String.raw`[\p{L}\p{N}_]`;
 
-function escapeRegex(text: string): string {
+/** `text` with every regex syntax character escaped; valid with or without the `u` flag. */
+export function escapeRegex(text: string): string {
   return text.replace(REGEX_SPECIALS, String.raw`\$&`);
+}
+
+/** The pattern a replace action's `find` compiles to: global, ignoring case. Throws when invalid. */
+export function compileReplacePattern(find: string): RegExp {
+  return new RegExp(find, 'gi');
 }
 
 /**
@@ -169,7 +175,7 @@ function regexFlagsOf(condition: TextCondition, literal: boolean): string {
     flags.add('u');
   } else {
     for (const flag of condition.regexFlags ?? '') {
-      if (USER_FLAGS.has(flag)) {
+      if (USER_REGEX_FLAGS.includes(flag)) {
         flags.add(flag);
       }
     }
@@ -281,7 +287,7 @@ function testElement(condition: ElementCondition, context: FilterContext): Condi
 }
 
 /** Tests one condition with the core rules only, skipping the site hook. */
-export function testCoreCondition(condition: Condition, context: FilterContext): ConditionResult {
+function testCoreCondition(condition: Condition, context: FilterContext): ConditionResult {
   switch (condition.kind) {
     case 'text':
       return testText(condition, context);
@@ -424,7 +430,7 @@ function replacementFor(
     replacement = null;
     if (action.find) {
       try {
-        replacement = { find: new RegExp(action.find, 'gi'), replaceWith: action.replaceWith };
+        replacement = { find: compileReplacePattern(action.find), replaceWith: action.replaceWith };
       } catch (error) {
         context.report?.(`Filter replace pattern does not compile: ${action.find}`, error);
       }

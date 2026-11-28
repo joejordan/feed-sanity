@@ -23,7 +23,7 @@ export const BUILT_IN_NOTES = {
 } as const;
 
 /** The non-blank lines of the keyword option, trimmed. Punctuation stays as it is. */
-export function keywordLines(raw: string): string[] {
+function keywordLines(raw: string): string[] {
   return raw
     .split(/\r?\n/)
     .map((line) => line.trim())
