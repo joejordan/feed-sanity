@@ -106,11 +106,11 @@ describe('DataPanel', () => {
     expect(statuses[0]?.textContent).toContain('Imported 1 option.');
   });
 
-  it('requires confirmation before importing a backup exported from a different site and scopes the copy to the site', async () => {
+  it('requires confirmation before importing a backup exported from a different site and labels Reset with the site name', async () => {
     const stores = { ...makeStores(), siteId: 'x' };
     render(<DataPanel stores={stores} siteName="X (Twitter)" />);
 
-    // Non-Facebook sites label Reset with the site name.
+    // TODO(clean): assert the panel names no other product on any site (spec-data-transfer.md).
     expect(screen.getByRole('button', { name: 'Reset X (Twitter) settings' })).toBeTruthy();
 
     const box = screen.getByRole<HTMLTextAreaElement>('textbox', {

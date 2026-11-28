@@ -35,7 +35,8 @@ into the page as a file in a file input, and loads from a blob address made from
 ## Steps
 
 1. Keep the installed Feed Sanity extension out of the way. Two copies on one page share the
-   `fs_post` marks, and the copy that marks a post first keeps it. The harness sets
+   post marks (`MARK.post` in `src/facebook/selectors.ts`), and the copy that marks a post first
+   keeps it. The harness sets
    `__fsOtherCopy` to `true` and logs a warning when it finds another copy's marks at load.
 
    The extension does not run on `https://www.facebook.com/saved/` (see `EXCLUDE_MATCHES` in
@@ -103,7 +104,8 @@ into the page as a file in a file input, and loads from a blob address made from
    - `__fsStore.get(key)` and `__fsStore.set(key, value)` read and write the in-memory
      settings. Keys are `` `${__fsUser}/options` `` and `` `${__fsUser}/filters` ``. A `set`
      reaches the running features the way a save in another tab would.
-   - `document.querySelectorAll('[fs_post]').length` counts the posts found. Post detection
+   - `document.querySelectorAll(`[${MARK.post}]`).length`, with the post mark from
+     `src/facebook/selectors.ts`, counts the posts found. Post detection
      starts only once a keyword or filter exists.
 
 8. Reload the tab to remove everything, then close it.
@@ -141,4 +143,4 @@ For a question such as "how is a video built", no bundle is needed. Run a probe 
 can be taken before Facebook sees it, add a capture listener on `window` and click with the
 `computer` tool.
 
-Write what you find in `docs/facebook-notes.md` under the live checks, with the date.
+Write what you find in `docs/facebook-notes.md`, with the date.

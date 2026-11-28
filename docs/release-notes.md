@@ -1,5 +1,7 @@
 # Release notes
 
+Feed Sanity is a multi-site extension and userscript for **Facebook**, **X (Twitter)**, **Instagram**, **Reddit**, and **Gmail**.
+
 Nothing has been published to stores yet. The version in `package.json` is `1.0.0`, and this document reflects `master` as of 2026-11-27.
 
 ## Summary
@@ -45,7 +47,7 @@ Every built-in Color Theme, curated Live Theme, user customization, and imported
 
 ### Facebook
 
-- **Post filters**: Keyword hiding, full rule engine (target/operator/selector/day/age rules; hide, unhide, CSS, class, text replace), live re-filtering on post updates, hide suggested posts (on by default), hide ads via page-world React data (off by default), and an optional hidden-post placeholder toggle under Quick Shields.
+- **Post filters**: Keyword hiding, full rule engine (text, element, weekday and age conditions; hide, keep visible, CSS, class, text replace), live re-filtering on post updates, hide suggested posts (on by default), hide ads via page-world React data (off by default), and an optional hidden-post placeholder toggle under Quick Shields.
 - **Mark Posts as Read**: Inline checkmark in post headers (and left-anchored fallback for post dialogs/Marketplace so it never overlaps close buttons), Shift+Click to mark a post and everything above it as read, compact read notes with peek/unmark, floating read bar with Show/Hide and Undo, and automatic cache pruning.
 - **Feeds & stability**: Home feed menu (Home, Friends, Favorites, Groups, Pages, Most recent), always-on **Hide Reels bar** and **Hide Stories bar** toggles across all feeds, and stop automatic feed refreshes / stale-session redirects.
 - **Videos & stories**: Bottom video scrubber, click-to-pause (double-click opens viewer), one-click `.mp4` download, story scrubber/pause/download, and keeping stories playing while hovering the story list.

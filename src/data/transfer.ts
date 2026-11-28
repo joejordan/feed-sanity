@@ -36,7 +36,7 @@ export interface DataStores {
   readonly videoSpeed?: SavedValue<SavedVideoSpeed> | undefined;
 }
 
-/** Portable JSON snapshot of Feed Sanity's settings. */
+/** Portable JSON snapshot of Feed Sanity's settings (`options`, `filters` and more). */
 export interface SettingsBackup {
   site?: string;
   options: Record<string, OptionValue>;

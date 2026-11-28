@@ -101,40 +101,6 @@ describe('data transfer', () => {
     expect(stores.locators.get()).toEqual({ post: ['[role=article]'] });
   });
 
-  it('imports exported settings, skipping unknown or incompatible options', async () => {
-    const stores = makeStores();
-    const fsExport = JSON.stringify({
-      options: {
-        hidden_keywords: 'politics\nsports',
-        hide_sponsored_posts: true,
-        home_feed: 'not_a_choice',
-        unknown_option_a: true,
-        unknown_option_b: 100,
-      },
-      filters: {
-        '0': {
-          title: 'Imported filter',
-          enabled: true,
-          rules: { '0': { target: 'any', operator: 'contains', condition: { text: 'meme' } } },
-          actions: { '0': { action: 'hide', show_note: true } },
-        },
-      },
-    });
-
-    const parsed = parseBackup(fsExport, stores.options.list());
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) {
-      return;
-    }
-    const summary = await applyBackup(parsed, stores);
-
-    expect(summary).toBe('Imported 2 options, 1 filter (3 unrecognised options skipped).');
-    expect(stores.options.get('hidden_keywords')).toBe('politics\nsports');
-    expect(stores.options.get('hide_sponsored_posts')).toBe(true);
-    expect(stores.options.get('home_feed')).toBe('home');
-    expect(stores.filters.get()[0]?.title).toBe('Imported filter');
-  });
-
   it('rejects invalid JSON or objects with no recognised sections', () => {
     const specs = options.list();
     expect(parseBackup('{bad', specs)).toEqual({

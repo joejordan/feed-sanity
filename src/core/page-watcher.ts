@@ -4,7 +4,8 @@ import { callSafely, Listeners } from './listeners';
 import { createLogger } from './log';
 
 /** Elements that never hold page content worth reacting to. */
-const SKIPPED_TAGS = /^(?:SCRIPT|STYLE)$/i;
+// TODO(clean): the core-cleanup unit chooses this set (spec-core-cleanup.md).
+const SKIPPED_TAGS: ReadonlySet<string> = new Set<string>();
 /** Attribute marking an element this project inserted into the host DOM. */
 export const OWN_ATTR = 'data-feed-sanity';
 const EMPTY_ELEMENTS: Element[] = [];
@@ -12,7 +13,7 @@ const EMPTY_ELEMENTS: Element[] = [];
 const isElement = (node: Node): node is Element => node.nodeType === Node.ELEMENT_NODE;
 
 const isWatched = (node: Node): node is Element =>
-  isElement(node) && !SKIPPED_TAGS.test(node.nodeName);
+  isElement(node) && !SKIPPED_TAGS.has(node.nodeName.toUpperCase());
 
 export interface TreeChanges {
   added?: (element: Element) => void;

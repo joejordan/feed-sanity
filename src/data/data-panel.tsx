@@ -58,8 +58,7 @@ function countModifiedOptions(options: Options): {
 
 /**
  * The Backup & Reset section of the options dialog: live snapshot metrics,
- * one-click JSON export, drag-and-drop / paste backup restore, read history
- * maintenance, and
+ * one-click JSON export, drag-and-drop / paste backup restore, read history maintenance, and
  * two-step danger-zone reset.
  */
 export function DataPanel({
@@ -130,7 +129,6 @@ export function DataPanel({
     };
   }, [stores]);
 
-  const isFacebook = stores.siteId === 'facebook';
   const hasGlobalStores = Boolean(stores.themeLibrary || stores.siteSettings);
   const sitePossessive = siteName ? `${siteName}'s` : "this site's";
   let exportScopeBadge = 'Site backup';
@@ -452,16 +450,10 @@ export function DataPanel({
         </div>
       </SettingCard>
 
-      <SettingCard
-        title="Restore Backup"
-        jumpId="import-json"
-        action={undefined}
-      >
+      <SettingCard title="Restore Backup" jumpId="import-json">
         <div className="data-card-body">
           <p className="description" id={`${importId}-desc`}>
-            {isFacebook
-              ? `Load a saved ${NAME} JSON backup. Changes apply right away with no reload, and unknown keys are skipped.`
-              : `Load a saved ${NAME} JSON backup. Changes apply right away with no reload, and unrecognised keys are skipped.`}
+            {`Load a saved ${NAME} JSON backup. Changes apply right away with no reload, and unrecognised keys are skipped.`}
           </p>
 
           <div
@@ -670,7 +662,6 @@ export function dataPanel(
   options: { readonly siteName?: string } = {},
 ): OptionsPanel {
   const scopeLabel = options.siteName ? `${options.siteName} ` : '';
-  const isFacebook = stores.siteId === 'facebook';
   return definePanel<null>({
     section: 'Backup & Reset',
     css,
@@ -696,15 +687,9 @@ export function dataPanel(
       },
       {
         id: 'import-json',
-        title: isFacebook
-          ? `Import ${scopeLabel}settings backup`
-          : `Import ${scopeLabel}settings backup`,
-        description: isFacebook
-          ? 'Restore a Feed Sanity JSON backup.'
-          : 'Restore a Feed Sanity JSON backup.',
-        keywords: isFacebook
-          ? ['import', 'restore', 'json', 'data']
-          : ['import', 'restore', 'json', 'data'],
+        title: `Import ${scopeLabel}settings backup`,
+        description: 'Restore a Feed Sanity JSON backup.',
+        keywords: ['import', 'restore', 'json', 'data'],
       },
       {
         id: 'reset-site',
