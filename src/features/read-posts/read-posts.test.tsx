@@ -29,7 +29,7 @@ const postHtml = (author: string, text: string): string => `
   <div data-ad-rendering-role="story_message"><div dir="auto">${text}</div></div>`;
 
 const buttonOf = (post: Post): HTMLButtonElement => {
-  const button = post.element.querySelector<HTMLButtonElement>('.feed-sanity-mark-read');
+  const button = post.element.querySelector<HTMLButtonElement>('.feed-sanity-read-button');
   if (!button) {
     throw new Error('the post has no read button');
   }

@@ -40,8 +40,8 @@ const specs = {
   },
   css_url: {
     section: 'Advanced',
-    title: 'External CSS url',
-    description: 'A style sheet to add.',
+    title: 'Stylesheet address',
+    description: 'Adds one more style sheet.',
     default: '',
   },
   keywords: {
@@ -107,11 +107,11 @@ describe('OptionsDialog', () => {
 
     expect(field('checkbox', 'Hide ads').checked).toBe(false);
     expect(field('spinbutton', 'Pause after').value).toBe('25');
-    expect(screen.queryByRole('textbox', { name: 'External CSS url' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Stylesheet address' })).toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: 'Advanced' }));
 
-    expect(field('textbox', 'External CSS url').value).toBe('');
+    expect(field('textbox', 'Stylesheet address').value).toBe('');
     expect(screen.queryByRole('checkbox', { name: 'Hide ads' })).toBeNull();
   });
 
@@ -239,10 +239,10 @@ describe('OptionsDialog', () => {
       expect(search.getAttribute('aria-controls')).toBeTruthy();
       await userEvent.type(search, 'style sheet');
 
-      expect(screen.getByText('External CSS url')).toBeTruthy();
-      await userEvent.click(screen.getByRole('option', { name: /External CSS url/ }));
+      expect(screen.getByText('Stylesheet address')).toBeTruthy();
+      await userEvent.click(screen.getByRole('option', { name: /Stylesheet address/ }));
 
-      expect(field('textbox', 'External CSS url').isConnected).toBe(true);
+      expect(field('textbox', 'Stylesheet address').isConnected).toBe(true);
       expect(screen.queryByRole('checkbox', { name: 'Hide ads' })).toBeNull();
 
       // Also searches custom panel items, switches sections, scrolls the target into view, and pulses it.

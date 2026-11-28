@@ -75,12 +75,6 @@ const KNOWN_SECTIONS: Readonly<Record<string, SectionMeta>> = {
     icon: 'sliders',
     subtitle: 'Trim optional links and sidebar rails from the page.',
   },
-  'Mark Read': {
-    group: 'site',
-    order: 26,
-    icon: 'sliders',
-    subtitle: 'Hide posts you have already seen so your feed stays fresh.',
-  },
   'Media': {
     group: 'site',
     order: 30,

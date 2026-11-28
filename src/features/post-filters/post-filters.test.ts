@@ -290,7 +290,7 @@ describe('post_filters', () => {
         actions: [{ kind: 'hide' }],
       });
       await setFilters([filter]);
-      expect(note(post)?.textContent).toBe(`Post hidden by filter “Rain”${NOTE_SHOW}`);
+      expect(note(post)?.textContent).toBe(`Post hidden by your “Rain” filter${NOTE_SHOW}`);
 
       await setFilters([{ ...filter, enabled: false }]);
       expect(filtered(post)).toBeNull();

@@ -353,7 +353,7 @@ function hidingFor(
   } else {
     const subject = itemNoun ? `${capitalize(itemNoun)} hidden` : 'Hidden';
     const name = filter.name.trim();
-    label = name ? `${subject} by filter “${name}”` : `${subject} by a filter`;
+    label = name ? `${subject} by your “${name}” filter` : `${subject} by one of your filters`;
   }
   return { label, showNote: action.note !== false, forceNote: action.note === true };
 }

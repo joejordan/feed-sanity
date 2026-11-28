@@ -6,7 +6,7 @@
 //   1. Manifest + background service worker + dynamic `registerContentScripts`
 //   2. Toolbar popup rendering & exact dimensions (360px wide) on unsupported & Facebook tabs
 //   3. Interactive popup -> live tab theme apply & reset via `browser.storage.local`
-//   4. Facebook post tracking, ID extraction, Mark Read buttons, and MAIN-world PageBridge
+//   4. Facebook post tracking, ID extraction, read buttons, and MAIN-world PageBridge
 //   5. Facebook stress & responsiveness benchmark (20,000 CSS rules, 120+ posts, videos, SPA nav)
 //   6. Multi-site checks (X, Instagram, Reddit, Gmail) & `static.*.facebook.com` exclusion
 //
@@ -203,7 +203,7 @@ function assertReport(report, label) {
   );
   assert.ok(
     perf.metrics.markReadButtons >= 120,
-    `[${label}] Expected >= 120 Mark Read buttons under stress, got ${perf.metrics.markReadButtons}`,
+    `[${label}] Expected >= 120 read buttons under stress, got ${perf.metrics.markReadButtons}`,
   );
   assert.ok(
     perf.metrics.maxBatchBlockMs <= 100,
@@ -271,7 +271,7 @@ function assertReport(report, label) {
   assert.equal(
     auto.afterInstall.markRead,
     auto.afterInstall.posts,
-    `[${label}] Expected 1 Mark Read button per post after auto-attach`,
+    `[${label}] Expected 1 read button per post after auto-attach`,
   );
   assertPopup(auto.popupAfterInstall, {
     minHeight: 380,
@@ -294,7 +294,7 @@ function assertReport(report, label) {
   assert.equal(
     auto.afterUpgrade.markRead,
     auto.afterUpgrade.posts,
-    `[${label}] Live upgrade left duplicate or missing Mark Read buttons (${auto.afterUpgrade.markRead} for ${auto.afterUpgrade.posts} posts)`,
+    `[${label}] Live upgrade left duplicate or missing read buttons (${auto.afterUpgrade.markRead} for ${auto.afterUpgrade.posts} posts)`,
   );
   assertPopup(auto.popupAfterUpgrade, {
     minHeight: 380,

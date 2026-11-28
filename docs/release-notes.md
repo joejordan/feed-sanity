@@ -9,8 +9,9 @@ Nothing has been published to stores yet. The version in `package.json` is `1.0.
 - **Five supported sites on one architecture**: Facebook, X, Instagram, Reddit, and Gmail, built from one TypeScript codebase into a Firefox MV2 extension, a Chrome MV3 extension, a Safari MV3 extension, and a single-file userscript.
 - **Quick Control Center & Standalone Settings**: Toolbar popup (and draggable userscript overlay) with Starter Modes (`Default`, `Clean`, `Focus`, `Minimal`), per-site toggles, Quick Mute, quick theme swatches, `My Themes` strip, polarity toggle, `Apply to all sites`, and instant-apply Undo toasts, synced live with the full-window standalone Settings page.
 - **Unified 3-tier theming (`ThemeDocumentV1`)**: Canonical `.fstheme.json` theme documents (file or HTTPS URL import) powering `My Themes`, curated `Live Themes`, static `Color Themes`, 10 animated backdrop engines, surface finishes, click FX, Tier 2 declarative multi-layer scenes, Tier 3 opt-in sandboxed GLSL fragment shaders, an adaptive CSSOM compiler, and an on-demand WCAG contrast/layout auto-healer.
+- **Facebook**: Post detection, post filters (hide, keep, style, replace text, mark read, with optional notes in place of hidden posts), hide suggested posts and ads, Hide Reels bar and Hide Stories bar across all feeds, read posts (a read button on each post, Shift+Click to mark everything above, Undo, and a floating read bar), Home feed switcher, stop automatic feed refreshes, video scrubber, click-to-pause, video download, story controls, and a custom stylesheet option.
 - **Cross-site cleanup & video tools**: Default-to-Following feeds, clutter removal, filter rules, and video controls/downloads across X, Instagram, Reddit, and Gmail.
-- **Verification**: 1,138 unit tests across 123 test files and 69 Playwright end-to-end tests pass alongside strict TypeScript checks, Biome lint, Firefox MV2 smoke tests, and all four build targets.
+- **Verification**: 1,087 unit tests across 125 test files and 71 Playwright end-to-end tests pass alongside strict TypeScript checks, Biome lint, Firefox MV2 smoke tests, and all four build targets.
 
 ## Architecture & core platform
 
@@ -48,7 +49,7 @@ Every built-in Color Theme, curated Live Theme, user customization, and imported
 ### Facebook
 
 - **Post filters**: Keyword hiding, full rule engine (text, element, weekday and age conditions; hide, keep visible, CSS, class, text replace), live re-filtering on post updates, hide suggested posts (on by default), hide ads via page-world React data (off by default), and an optional hidden-post placeholder toggle under Quick Shields.
-- **Mark Posts as Read**: Inline checkmark in post headers (and left-anchored fallback for post dialogs/Marketplace so it never overlaps close buttons), Shift+Click to mark a post and everything above it as read, compact read notes with peek/unmark, floating read bar with Show/Hide and Undo, and automatic cache pruning.
+- **Read posts**: A read button in each post's header (with a fallback spot when a post has no header row), Shift+Click to mark a post and everything above it as read, compact read notes with Show and Mark unread, a floating read bar with Show/Hide read and Undo, and read history that expires after a set number of days.
 - **Feeds & stability**: Home feed menu (Home, Friends, Favorites, Groups, Pages, Most recent), always-on **Hide Reels bar** and **Hide Stories bar** toggles across all feeds, and stop automatic feed refreshes / stale-session redirects.
 - **Videos & stories**: Bottom video scrubber, click-to-pause (double-click opens viewer), one-click `.mp4` download, story scrubber/pause/download, and keeping stories playing while hovering the story list.
 - **Appearance**: Full Meta Comet variable mapping, adaptive dark/light support, backdrop reveal, and themed progress/loading throbbers.

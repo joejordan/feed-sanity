@@ -253,11 +253,11 @@ describe('runFilters', () => {
 
     expect(run({ kind: 'hide', noteText: 'Muted {match} here' })?.label).toBe('Muted CRYPTO here');
     expect(run({ kind: 'hide' }, 'Coins')).toEqual({
-      label: 'Post hidden by filter “Coins”',
+      label: 'Post hidden by your “Coins” filter',
       showNote: true,
       forceNote: false,
     });
-    expect(run({ kind: 'hide' })?.label).toBe('Post hidden by a filter');
+    expect(run({ kind: 'hide' })?.label).toBe('Post hidden by one of your filters');
     expect(run({ kind: 'hide', note: false })?.showNote).toBe(false);
     expect(run({ kind: 'hide', note: true })?.forceNote).toBe(true);
 
@@ -267,7 +267,7 @@ describe('runFilters', () => {
     );
     expect(runFilters([negated], ctxFor({ text: 'cats' })).hiding?.label).toBe('No dogs');
     const plain = runFilters([filter([text(['x'])], [hide])], ctxFor({ text: 'x' }));
-    expect(plain.hiding?.label).toBe('Hidden by a filter');
+    expect(plain.hiding?.label).toBe('Hidden by one of your filters');
   });
 
   it('accumulates classes, styles and replacements, and the last read action wins', () => {

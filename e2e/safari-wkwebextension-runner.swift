@@ -835,7 +835,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
       ...window.__perf,
       trackedPosts: document.querySelectorAll('[data-feed-sanity-post]').length,
       identifiedPosts: document.querySelectorAll('[data-feed-sanity-post-id]').length,
-      markReadButtons: document.querySelectorAll('.feed-sanity-mark-read').length,
+      markReadButtons: document.querySelectorAll('.feed-sanity-read-button').length,
     }))()
     """)
     var perfResult: [String: Any] = [
@@ -959,7 +959,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
     let (beforeVal, _) = await evalJS(autoWebView, """
     (() => ({
       posts: document.querySelectorAll('[data-feed-sanity-post]').length,
-      markRead: document.querySelectorAll('.feed-sanity-mark-read').length,
+      markRead: document.querySelectorAll('.feed-sanity-read-button').length,
     }))()
     """)
 
@@ -987,7 +987,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
         (() => {
           const posts = document.querySelectorAll('[data-feed-sanity-post]').length;
           const identified = document.querySelectorAll('[data-feed-sanity-post-id]').length;
-          const buttons = document.querySelectorAll('.feed-sanity-mark-read').length;
+          const buttons = document.querySelectorAll('.feed-sanity-read-button').length;
           return posts >= 5 && identified === posts && buttons === posts && Boolean(window.__fsBridge && window.__fsBridge.connected);
         })()
         """
@@ -999,7 +999,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
     (() => ({
       posts: document.querySelectorAll('[data-feed-sanity-post]').length,
       withId: document.querySelectorAll('[data-feed-sanity-post-id]:not([data-feed-sanity-post-id="none"])').length,
-      markRead: document.querySelectorAll('.feed-sanity-mark-read').length,
+      markRead: document.querySelectorAll('.feed-sanity-read-button').length,
       channelsSeen: (window.__fsBridge?.channelsSeen || []).length,
       connected: Boolean(window.__fsBridge?.connected),
     }))()
@@ -1027,7 +1027,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
         (() => {
           const posts = document.querySelectorAll('[data-feed-sanity-post]').length;
           const identified = document.querySelectorAll('[data-feed-sanity-post-id]').length;
-          const buttons = document.querySelectorAll('.feed-sanity-mark-read').length;
+          const buttons = document.querySelectorAll('.feed-sanity-read-button').length;
           return (window.__fsBridge?.channelsSeen || []).length >= 2 && posts >= 5 && identified === posts && buttons === posts && Boolean(window.__fsBridge?.connected);
         })()
         """
@@ -1039,7 +1039,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
     (() => ({
       posts: document.querySelectorAll('[data-feed-sanity-post]').length,
       withId: document.querySelectorAll('[data-feed-sanity-post-id]:not([data-feed-sanity-post-id="none"])').length,
-      markRead: document.querySelectorAll('.feed-sanity-mark-read').length,
+      markRead: document.querySelectorAll('.feed-sanity-read-button').length,
       channelsSeen: (window.__fsBridge?.channelsSeen || []).length,
       connected: Boolean(window.__fsBridge?.connected),
     }))()

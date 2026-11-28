@@ -26,7 +26,7 @@ const showsHere = (): boolean => pageContext().type !== 'stories';
 
 /**
  * Compact floating pill at the bottom of the feed for peeking at read posts,
- * undoing a Mark Read action, and optionally marking all visible posts as read.
+ * undoing a mark-as-read action, and optionally marking all visible posts as read.
  */
 function ReadBar({ controller }: { controller: ReadBarController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getState);

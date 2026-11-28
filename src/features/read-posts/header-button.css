@@ -1,5 +1,5 @@
 /* Inline checkmark button matching Facebook's 36x36 header action buttons. */
-.feed-sanity-mark-read {
+.feed-sanity-read-button {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -18,31 +18,31 @@
     transform 80ms ease;
 }
 
-.feed-sanity-mark-read:hover {
+.feed-sanity-read-button:hover {
   background: var(--hover-overlay, rgb(0 0 0 / 5%));
   color: var(--primary-icon, #080809);
 }
 
-.feed-sanity-mark-read:active {
+.feed-sanity-read-button:active {
   background: var(--press-overlay, rgb(0 0 0 / 10%));
   transform: scale(0.95);
 }
 
-.feed-sanity-mark-read:focus-visible {
+.feed-sanity-read-button:focus-visible {
   outline: 2px solid var(--accent, #0866ff);
   outline-offset: 1px;
 }
 
-.feed-sanity-mark-read[data-read="true"] {
+.feed-sanity-read-button[data-read="true"] {
   background: var(--primary-deemphasized-button-background, rgb(8 102 255 / 12%));
   color: var(--accent, #0866ff);
 }
 
-.feed-sanity-mark-read[data-temp="true"] {
+.feed-sanity-read-button[data-temp="true"] {
   opacity: 0.72;
 }
 
-.feed-sanity-mark-read svg {
+.feed-sanity-read-button svg {
   width: 20px;
   height: 20px;
   pointer-events: none;
@@ -52,11 +52,11 @@
  * Fallback placement for posts without a standard header action row (e.g. post dialogs, Marketplace).
  * Anchored on the left so it never covers top-right dialog close buttons.
  */
-[data-feed-sanity-post]:has(> .feed-sanity-mark-read-fallback) {
+[data-feed-sanity-post]:has(> .feed-sanity-read-button-fallback) {
   position: relative;
 }
 
-.feed-sanity-mark-read-fallback {
+.feed-sanity-read-button-fallback {
   position: absolute;
   top: 8px;
   left: 8px;

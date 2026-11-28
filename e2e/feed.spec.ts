@@ -156,7 +156,7 @@ test('hides posts with a filter saved under the filters key', async ({ page, sto
   await page.goto(FEED);
 
   const note = await expectHidden(page, 'Bram Okafor');
-  await expect(note).toHaveText(`Post hidden by filter “No sales”${NOTE_SHOW}`);
+  await expect(note).toHaveText(`Post hidden by your “No sales” filter${NOTE_SHOW}`);
   await expectShown(page, 'Cleo Marsh');
 });
 

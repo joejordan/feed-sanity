@@ -76,7 +76,7 @@ describe('Facebook filters panel', () => {
     ]);
   });
 
-  it('starts the mark-read recipe in Advanced mode with the Facebook-only action', async () => {
+  it('starts the read-posts recipe in Advanced mode with the Facebook-only action', async () => {
     const user = userEvent.setup();
     const { value } = await openPanel();
 

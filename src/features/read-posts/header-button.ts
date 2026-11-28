@@ -3,9 +3,9 @@ import type { Post } from '../../facebook/posts';
 import { POST_MENU_BUTTON } from '../../facebook/selectors';
 
 /** Class of the per-post read button. */
-export const BUTTON_CLASS = 'feed-sanity-mark-read';
+export const BUTTON_CLASS = 'feed-sanity-read-button';
 /** Added to the button when no header action row was found and it sits in the post's corner. */
-export const FALLBACK_CLASS = 'feed-sanity-mark-read-fallback';
+export const FALLBACK_CLASS = 'feed-sanity-read-button-fallback';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
