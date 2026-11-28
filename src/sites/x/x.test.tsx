@@ -197,44 +197,75 @@ describe('xSite adapter and features', () => {
     const player = document.querySelector('#player') as HTMLElement;
     await vi.waitFor(() => expect(player.querySelector('[data-feed-sanity]')).not.toBeNull());
 
-    // Clicking the X video pauses playback via shared click-to-pause (`x_video_click_pauses`).
+    // X natively supports click-to-pause, so `x_video_click_pauses` is not registered and
+    // clicks inside `[data-testid="videoPlayer"]` (including X's volume slider track) pass through untouched.
+    expect(
+      xSite.features.some(
+        (feature) => feature.options && 'x_video_click_pauses' in feature.options,
+      ),
+    ).toBe(false);
     const xVideo = player.querySelector('video') as HTMLVideoElement;
+    const volumeTrack = document.createElement('div');
+    player.append(volumeTrack);
     Object.defineProperty(xVideo, 'paused', { value: false, configurable: true });
     vi.spyOn(xVideo, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 300, 200));
     const pauseSpy = vi.spyOn(xVideo, 'pause').mockImplementation(() => undefined);
+    const seenEvents: string[] = [];
+    for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'] as const) {
+      volumeTrack.addEventListener(type, () => seenEvents.push(type));
+    }
     const origElementsFromPoint = document.elementsFromPoint;
-    document.elementsFromPoint = () => [xVideo];
+    document.elementsFromPoint = () => [volumeTrack, xVideo];
     try {
-      xVideo.dispatchEvent(
+      volumeTrack.dispatchEvent(
         new PointerEvent('pointerdown', {
           bubbles: true,
           composed: true,
           isPrimary: true,
           pointerId: 1,
-          clientX: 150,
-          clientY: 100,
+          clientX: 280,
+          clientY: 140,
         }),
       );
-      xVideo.dispatchEvent(
+      volumeTrack.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          composed: true,
+          button: 0,
+          clientX: 280,
+          clientY: 140,
+        }),
+      );
+      volumeTrack.dispatchEvent(
         new PointerEvent('pointerup', {
           bubbles: true,
           composed: true,
           isPrimary: true,
           pointerId: 1,
-          clientX: 150,
-          clientY: 100,
+          clientX: 280,
+          clientY: 140,
         }),
       );
-      xVideo.dispatchEvent(
+      volumeTrack.dispatchEvent(
+        new MouseEvent('mouseup', {
+          bubbles: true,
+          composed: true,
+          button: 0,
+          clientX: 280,
+          clientY: 140,
+        }),
+      );
+      volumeTrack.dispatchEvent(
         new MouseEvent('click', {
           bubbles: true,
           composed: true,
           detail: 1,
-          clientX: 150,
-          clientY: 100,
+          clientX: 280,
+          clientY: 140,
         }),
       );
-      expect(pauseSpy).toHaveBeenCalledTimes(1);
+      expect(seenEvents).toEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']);
+      expect(pauseSpy).not.toHaveBeenCalled();
     } finally {
       document.elementsFromPoint = origElementsFromPoint;
     }
@@ -256,6 +287,7 @@ describe('xSite adapter and features', () => {
       custom_stylesheet_url: '',
     });
     await vi.waitFor(() => expect(netHost.fetch).toBe(baseFetch));
+    await vi.waitFor(() => expect(player.querySelector('[data-feed-sanity]')).toBeNull());
     expect(document.querySelector('#t-ad')?.hasAttribute(HIDDEN_ATTR)).toBe(false);
     expect(document.querySelector('#feed_sanity_clutter_x_hide_sidebar')).toBeNull();
   });

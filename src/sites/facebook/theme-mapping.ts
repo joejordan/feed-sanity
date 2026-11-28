@@ -63,6 +63,7 @@ export const facebookThemeMapping: SiteThemeMapping = {
       p.colorScheme === 'dark' ? 'rgb(255 255 255 / 7%)' : 'rgb(0 0 0 / 5%)',
     '--press-overlay': (p) =>
       p.colorScheme === 'dark' ? 'rgb(255 255 255 / 13%)' : 'rgb(0 0 0 / 10%)',
+    '--overlay-alpha-80': (p) => hexWithAlpha(p.background, p.colorScheme === 'dark' ? 0.72 : 0.58),
   },
   extraCss: (p) =>
     `
@@ -95,7 +96,12 @@ ${LOADER_SCOPE} stop {
     leafCards: ['[role="complementary"] [role="region"]'],
     feedCards: ['[data-pagelet^="FeedUnit_"]'],
     searchContainers: ['[role="banner"] label:has(> input[type="search"])', 'form[role="search"]'],
-    popups: ['[role="dialog"]', '[role="menu"]', '[role="listbox"]'],
+    // Keep bare `[role="dialog"]` out of `popups` because Facebook Comet mounts full-viewport
+    // modal centering frames with `role="dialog"` (Post viewer, Create Post); painting opaque
+    // `background-color` on them blankets the whole screen (especially blinding white in light mode).
+    // Actual dialog cards & dropdown trays read Facebook's own `--surface-background` /
+    // `--card-background` / `--popover-background`, which we re-bind to opaque `popBg` below.
+    popups: ['[role="menu"]', '[role="listbox"]'],
     revealCssVars: (p, { cardAlpha, popupAlpha, surfaceBg }) => {
       const surface = p?.surface ?? surfaceBg;
       const cardBg = hexWithAlpha(surface, cardAlpha);
@@ -113,6 +119,19 @@ ${LOADER_SCOPE} stop {
         '--nav-bar-background': hexWithAlpha(surface, Math.max(0.92, cardAlpha)),
         '--popover-background': hexWithAlpha(surface, popupAlpha),
       };
+    },
+    extraRevealCss: (p, { popupAlpha, surfaceBg }) => {
+      const popBg = hexWithAlpha(p?.surface ?? surfaceBg, popupAlpha);
+      return `
+[role="dialog"] {
+  --card-background: ${popBg} !important;
+  --card-background-flat: ${popBg} !important;
+  --surface-background: ${popBg} !important;
+  --popover-background: ${popBg} !important;
+}
+[role="dialog"] > * {
+  --fs-reveal-canvas: ${popBg};
+}`.trim();
     },
   },
 };

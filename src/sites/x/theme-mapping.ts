@@ -19,6 +19,16 @@ const X_TYPEAHEAD_SELECTORS = [
   '[data-testid="typeaheadDropdown"]',
 ] as const;
 const X_SEARCH_PILL_SELECTOR = `form[role="search"] > div:first-child > div:not(${X_TYPEAHEAD_SELECTORS.join(', ')})`;
+const X_OVERLAY_ROOT = ':is([role="dialog"], [data-testid="HoverCard"])';
+const X_SEARCH_INPUT_MATCH =
+  ':is([data-testid="SearchBox_Search_Input"], [data-testid="gifSearchSearchInput"], [type="search"], [role="searchbox"], [aria-label*="Search" i], [placeholder*="Search" i])';
+const X_SEARCH_INPUT_EL = `:is(input${X_SEARCH_INPUT_MATCH}, [role="searchbox"])`;
+const X_DIALOG_SEARCH_PILL_SELECTOR = `${X_OVERLAY_ROOT} :is(div, label):has(> ${X_SEARCH_INPUT_EL}, > div > ${X_SEARCH_INPUT_EL}, > div > div > ${X_SEARCH_INPUT_EL}):has(> svg, > div > svg)`;
+const X_DIALOG_SEARCH_PILL_SELECTORS = [X_DIALOG_SEARCH_PILL_SELECTOR] as const;
+const X_ALL_SEARCH_PILL_SELECTORS = [
+  X_SEARCH_PILL_SELECTOR,
+  ...X_DIALOG_SEARCH_PILL_SELECTORS,
+] as const;
 
 const NEUTRAL_STEPS = [
   ['000', 0.96],
@@ -243,6 +253,9 @@ div[style*="background-color: rgb(21, 32, 43)"]:not(:where(${IN_VIDEO}, [data-te
 [style*="border-color: rgb(207, 217, 222)"] {
   border-color: ${p.border} !important;
 }
+[style*="border-color: rgb(29, 155, 240)"] {
+  border-color: ${p.accent} !important;
+}
 /* Elevation shadows (non-paint box-shadow replaces dark-mode white glow on popovers/menus) */
 .r-qo02w8,
 .r-15ce4ve,
@@ -340,17 +353,23 @@ button[aria-label="Manage timelines"] svg,
 [data-testid="sidebarColumn"] [data-testid="pill-contents-container"] > div {
   background-color: ${p.surfaceAlt} !important;
 }
-/* Search pill (sidebar, Explore, and GIF search modal): keep 9999px rounding with a transparent inner <input> */
-${X_SEARCH_PILL_SELECTOR} {
+/* Search pills (sidebar, Explore, GIF search modal, Emoji picker): keep 9999px rounding,
+ * clip inner flex children cleanly, and theme focus border to the active palette accent. */
+${X_ALL_SEARCH_PILL_SELECTORS.join(',\n')} {
   background-color: ${p.surfaceAlt} !important;
   border-color: ${p.border} !important;
   border-radius: 9999px !important;
   overflow: hidden !important;
   color: ${p.text} !important;
 }
+${X_ALL_SEARCH_PILL_SELECTORS.map((sel) => `${sel}:focus-within`).join(',\n')} {
+  border-color: ${p.accent} !important;
+}
+${X_DIALOG_SEARCH_PILL_SELECTORS.map((sel) => `${sel} svg`).join(',\n')},
+form[role="search"] svg,
 [data-testid="SearchBox_Search_Input"]::placeholder,
 [data-testid="gifSearchSearchInput"]::placeholder,
-form[role="search"] svg {
+${X_OVERLAY_ROOT} ${TEXT_INPUT_SELECTOR}${X_SEARCH_INPUT_MATCH}::placeholder {
   color: ${p.textMuted} !important;
 }
 
@@ -396,6 +415,13 @@ form[role="search"] svg {
 [data-testid="sheetDialog"] svg {
   color: ${p.text} !important;
 }
+/* Keep HoverCard popover pointer carets matched to surface fill instead of text color. */
+[data-testid="HoverCard"] > svg,
+[data-testid="HoverCard"] svg[viewBox="0 0 24 12"],
+[data-testid="HoverCard"] svg[viewBox="0 0 12 24"] {
+  color: ${p.surface} !important;
+  fill: ${p.surface} !important;
+}
 /* Search inputs, comboboxes, poll inputs, and schedule selects inside dialogs/popovers.
  * Never paint checkbox/radio/switch inputs (X overlays transparent <input type="checkbox">
  * controls on top of toggle switches, e.g. Snooze Topics). */
@@ -410,13 +436,22 @@ form[role="search"] svg {
   border-color: ${p.border} !important;
   color: ${p.text} !important;
 }
-/* Keep inner <input> nodes inside pill search bars transparent even inside dialogs (e.g. GIF search). */
+/* Keep inner <input> nodes and intermediate flex wrappers inside pill search bars transparent
+ * even inside dialogs/HoverCards (e.g. GIF search, Emoji picker) with higher specificity than
+ * the generic dialog input rule above, without ever matching the pill container itself or
+ * stripping fill/border from standalone non-pill dialog search inputs. */
 form[role="search"] ${TEXT_INPUT_SELECTOR},
-[role="dialog"] form[role="search"] ${TEXT_INPUT_SELECTOR},
+${X_DIALOG_SEARCH_PILL_SELECTOR} ${TEXT_INPUT_SELECTOR},
+${X_ALL_SEARCH_PILL_SELECTORS.map((sel) => `${sel} [role="combobox"] > div`).join(',\n')},
+${X_DIALOG_SEARCH_PILL_SELECTOR} > div,
+${X_OVERLAY_ROOT} :is([data-testid="SearchBox_Search_Input"], [data-testid="gifSearchSearchInput"]),
 [data-testid="SearchBox_Search_Input"],
 [data-testid="gifSearchSearchInput"] {
   background-color: transparent !important;
   border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
   color: ${p.text} !important;
 }
 [role="dialog"] option {
@@ -525,7 +560,7 @@ svg[data-testid="icon-verified"] {
       '[data-testid="tweetButton"]',
     ],
     feedCards: ['article[data-testid="tweet"]'],
-    searchContainers: [X_SEARCH_PILL_SELECTOR],
+    searchContainers: [...X_ALL_SEARCH_PILL_SELECTORS],
     extraRevealCss: (p, { popupAlpha, hostScheme, surfaceBg }) => {
       const hoverTint = hexWithAlpha(
         p?.text ?? (hostScheme === 'light' ? '#0f1419' : '#ffffff'),
