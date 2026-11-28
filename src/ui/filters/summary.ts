@@ -1,10 +1,16 @@
-// Generates scannable titles and plain-English rule summaries for the Filter
-// Rules list cards and editor header.
+// Titles and plain-English one-line summaries of filters, for the list cards
+// and the editor header.
 
-import type { Action, Filter, Rule } from '../../core/filter-types';
+import type { Action, Condition, Filter } from '../../core/filter-types';
 import type { FilterActionOption, FilterSchema } from './schema';
-import { normalizeRuleOperator } from '../../core/filter-engine';
-import { DAY_LABELS, findActionOption, findTargetOption } from './schema';
+import {
+  AGE_UNIT_LABELS,
+  DAY_LABELS,
+  ELEMENT_TEST_OPTION,
+  findActionOption,
+  findTargetOption,
+  findTestOption,
+} from './schema';
 import { extractSimpleChips } from './simple-model';
 
 function truncate(value: string, max = 28): string {
@@ -12,117 +18,127 @@ function truncate(value: string, max = 28): string {
   return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
 }
 
-function summarizeRule(rule: Rule, schema: FilterSchema): string {
-  if (rule.target === 'day') {
-    const days = DAY_LABELS.filter((_day, idx) => rule.condition?.[`day_${idx}`] === true);
-    return days.length > 0 ? `day is ${days.join(', ')}` : 'day of week';
+function quotedValues(values: readonly string[], regex: boolean): string {
+  const shown = values.map((value) => value.trim()).filter((value) => value.length > 0);
+  if (shown.length === 0) {
+    return '…';
   }
-  if (rule.target === 'age') {
-    const value = rule.condition?.value ?? '';
-    const unit = rule.condition?.units === 'h' ? 'h' : 'd';
-    const dir = rule.operator === 'lt' ? 'newer than' : 'older than';
-    return value === '' ? `age ${dir} …` : `age ${dir} ${value}${unit}`;
-  }
-  const { operator, not } = normalizeRuleOperator(rule);
-  const targetLabel = findTargetOption(schema, rule.target)?.label ?? rule.target ?? 'Content';
-  const neg = not ? 'does not ' : '';
-  const text = truncate(rule.condition?.text ?? '');
+  const quote = (value: string) => (regex ? `/${truncate(value)}/` : `"${truncate(value)}"`);
+  const head = shown.slice(0, 3).map(quote).join(' or ');
+  return shown.length > 3 ? `${head} (+${shown.length - 3} more)` : head;
+}
 
-  if (operator === 'contains_selector') {
-    return `${not ? 'missing' : 'matches'} selector ${text ? `\`${text}\`` : '…'}`;
+function partLabel(part: string, schema: FilterSchema): string {
+  return findTargetOption(schema, part)?.label ?? part;
+}
+
+/** One condition in words (`Author contains "Sam"`). */
+export function summarizeCondition(condition: Condition, schema: FilterSchema): string {
+  switch (condition.kind) {
+    case 'text': {
+      const test = findTestOption(condition.test);
+      const verb = condition.negate ? test.negatedLabel : test.label;
+      const values = quotedValues(condition.values, condition.test === 'regex');
+      return `${partLabel(condition.part, schema)} ${verb} ${values}`;
+    }
+    case 'element': {
+      const verb = condition.negate ? ELEMENT_TEST_OPTION.negatedLabel : ELEMENT_TEST_OPTION.label;
+      const selector = condition.selector.trim();
+      return `the ${schema.itemSingular} ${verb} ${selector ? `\`${truncate(selector)}\`` : '…'}`;
+    }
+    case 'weekday': {
+      const days = [...condition.days].sort((a, b) => a - b).map((day) => DAY_LABELS[day]);
+      return days.length > 0 ? `the day is ${days.join(', ')}` : 'the day is …';
+    }
+    case 'age':
+      return `the ${schema.itemSingular} is ${condition.olderThan ? 'older' : 'newer'} than ${condition.amount} ${AGE_UNIT_LABELS[condition.unit]}`;
+    default:
+      return 'an unsupported condition';
   }
-  if (operator === 'matches') {
-    const flags = (rule.condition?.modifier ?? '').replace('I', '');
-    return `${targetLabel} ${neg}matches /${text || '…'}/${flags}`;
-  }
-  let verb = 'contains';
-  if (operator === 'equals') {
-    verb = not ? 'equal' : 'equals';
-  } else if (operator === 'startswith') {
-    verb = not ? 'start with' : 'starts with';
-  } else if (operator === 'endswith') {
-    verb = not ? 'end with' : 'ends with';
-  } else if (not) {
-    verb = 'contain';
-  }
-  return `${targetLabel} ${neg}${verb} ${text ? `"${text}"` : '…'}`;
 }
 
 function summarizeAction(
   action: Action | undefined,
   option: FilterActionOption | undefined,
 ): string {
-  if (!action?.action) {
+  if (!action) {
     return 'Do nothing';
   }
-  const base = option?.label ?? action.action;
-  if (action.action === 'hide' && action.show_note) {
-    return `${base} (with note)`;
+  if (action.kind === 'unknown') {
+    return 'Run an unsupported action';
   }
-  if ((action.action === 'move-to-tab' || action.action === 'copy-to-tab') && action.tab) {
-    return `${base} "${truncate(action.tab, 20)}"`;
+  const base = option?.label ?? action.kind;
+  if (action.kind === 'hide' && action.note === false) {
+    return `${base} (no note)`;
   }
-  if (action.action === 'replace' && action.find) {
+  if (action.kind === 'replace' && action.find) {
     return `Replace "${truncate(action.find, 16)}"`;
   }
   return base;
 }
 
-/** True when every rule in `rules` is a plain positive `contains` check on the same target under OR (`ANY`). */
-function isSharedTargetContainsOr(filter: Filter): boolean {
-  const rules = filter.rules ?? [];
-  if (rules.length < 2 || filter.match === 'ALL') {
+/** True when every condition is a plain positive "contains" on one part under `any`. */
+function isOnePartContains(filter: Filter): boolean {
+  const { conditions } = filter;
+  const first = conditions[0];
+  if (first?.kind !== 'text' || (conditions.length > 1 && filter.join === 'all')) {
     return false;
   }
-  const target = rules[0]?.target;
-  if (!target || target === 'day' || target === 'age') {
-    return false;
+  return conditions.every(
+    (condition) =>
+      condition.kind === 'text' &&
+      condition.part === first.part &&
+      condition.test === 'contains' &&
+      !condition.negate,
+  );
+}
+
+function firstValue(filter: Filter): string {
+  for (const condition of filter.conditions) {
+    if (condition.kind === 'text') {
+      const value = condition.values.find((item) => item.trim());
+      if (value) {
+        return value;
+      }
+    } else if (condition.kind === 'element' && condition.selector.trim()) {
+      return condition.selector;
+    }
   }
-  return rules.every((rule) => {
-    const { operator, not } = normalizeRuleOperator(rule);
-    return rule.target === target && !not && operator === 'contains';
-  });
+  return '';
 }
 
 function buildDisplayTitle(
   filter: Filter,
   primaryAction: FilterActionOption | undefined,
-  sharedContainsOr: boolean,
+  onePartContains: boolean,
 ): string {
-  const explicit = filter.title?.trim();
+  const explicit = filter.name.trim();
   if (explicit) {
     return explicit;
   }
   const actionLabel = primaryAction?.simple?.title ?? primaryAction?.badge ?? 'Filter';
-
-  if (sharedContainsOr) {
+  if (onePartContains) {
     const words = extractSimpleChips(filter);
     if (words.length > 0) {
       const head = words
         .slice(0, 2)
-        .map((w) => truncate(w, 18))
+        .map((word) => truncate(word, 18))
         .join(', ');
       const suffix = words.length > 2 ? ` +${words.length - 2}` : '';
       return `${actionLabel} "${head}${suffix}"`;
     }
   }
-
-  const firstRule = filter.rules?.[0];
-  const snippet = truncate(firstRule?.condition?.text ?? '', 24);
-  if (snippet) {
-    return `${actionLabel} "${snippet}"`;
-  }
-  return 'Untitled filter';
+  const snippet = truncate(firstValue(filter), 24);
+  return snippet ? `${actionLabel} "${snippet}"` : 'Untitled filter';
 }
 
 /**
- * Computes a readable display title for `filter`: uses `filter.title` when set,
- * otherwise derives a smart title from the primary action and conditions
- * (e.g. `Hide "crypto, giveaway"`), falling back to `'Untitled filter'`.
+ * The filter's name, or a title made from its first action and values
+ * (`Hide "crypto, giveaway"`), or `'Untitled filter'`.
  */
 export function displayFilterTitle(filter: Filter, schema: FilterSchema): string {
-  const primaryAction = findActionOption(schema, filter.actions?.[0]?.action);
-  return buildDisplayTitle(filter, primaryAction, isSharedTargetContainsOr(filter));
+  const primaryAction = findActionOption(schema, filter.actions[0]?.kind);
+  return buildDisplayTitle(filter, primaryAction, isOnePartContains(filter));
 }
 
 export interface FilterSummary {
@@ -132,42 +148,34 @@ export interface FilterSummary {
   readonly extraActionCount: number;
 }
 
-/** Builds the plain-English summary rendered on each rule card and editor header. */
+/** The title and one-line summary shown on a filter's list card. */
 export function summarizeFilter(filter: Filter, schema: FilterSchema): FilterSummary {
-  const rules = filter.rules ?? [];
-  const actions = filter.actions ?? [];
+  const { conditions, actions } = filter;
   const primary = actions[0];
-  const primaryAction = findActionOption(schema, primary?.action);
-  const sharedContainsOr = isSharedTargetContainsOr(filter);
-  const actionPart = summarizeAction(primary, primaryAction);
-  const extraActionCount = Math.max(0, actions.length - 1);
+  const primaryAction = findActionOption(schema, primary?.kind);
+  const onePartContains = isOnePartContains(filter);
 
   let conditionPart = 'no conditions yet';
-  if (rules.length === 1 && rules[0]) {
-    conditionPart = summarizeRule(rules[0], schema);
-  } else if (sharedContainsOr) {
-    const target = rules[0]?.target;
-    const targetLabel = findTargetOption(schema, target)?.label ?? target ?? 'Content';
-    const quoted = rules
-      .slice(0, 3)
-      .map((rule) => {
-        const text = truncate(rule.condition?.text ?? '');
-        return text ? `"${text}"` : '…';
-      })
-      .join(' or ');
-    const more = rules.length > 3 ? ` (+${rules.length - 3} more)` : '';
-    conditionPart = `${targetLabel} contains ${quoted}${more}`;
-  } else if (rules.length > 1) {
-    const joiner = filter.match === 'ALL' ? ' AND ' : ' OR ';
-    const preview = rules.slice(0, 2).map((rule) => summarizeRule(rule, schema));
-    const more = rules.length > 2 ? ` (+${rules.length - 2} more)` : '';
+  if (conditions.length === 1 && conditions[0]) {
+    conditionPart = summarizeCondition(conditions[0], schema);
+  } else if (onePartContains && conditions[0]?.kind === 'text') {
+    const values = conditions.flatMap((condition) =>
+      condition.kind === 'text' ? condition.values : [],
+    );
+    conditionPart = `${partLabel(conditions[0].part, schema)} contains ${quotedValues(values, false)}`;
+  } else if (conditions.length > 1) {
+    const joiner = filter.join === 'all' ? ' and ' : ' or ';
+    const preview = conditions
+      .slice(0, 2)
+      .map((condition) => summarizeCondition(condition, schema));
+    const more = conditions.length > 2 ? ` (+${conditions.length - 2} more)` : '';
     conditionPart = `${preview.join(joiner)}${more}`;
   }
 
   return {
-    title: buildDisplayTitle(filter, primaryAction, sharedContainsOr),
-    line: `${actionPart} when ${conditionPart}`,
+    title: buildDisplayTitle(filter, primaryAction, onePartContains),
+    line: `${summarizeAction(primary, primaryAction)} when ${conditionPart}`,
     primaryAction,
-    extraActionCount,
+    extraActionCount: Math.max(0, actions.length - 1),
   };
 }

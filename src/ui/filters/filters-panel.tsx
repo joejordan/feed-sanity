@@ -1,14 +1,10 @@
-// Consensus first-principles cross-site Filter Rules UI.
-// Powers Facebook, Instagram, X.com, Reddit, Gmail, and future site adapters
-// through a declarative `FilterSchema`.
+// The Filters panel of the options dialog, shared by every site through a
+// `FilterSchema`: the filter list (search, status segments, hit counts,
+// reorder, duplicate, delete with undo, the Quick Hide bar and recipes) and
+// the editor for one filter.
 //
-// Features:
-// - 1-line Quick Hide bar on the list view
-// - Goal-first Simple editor by default (action tiles, target pills, multi-word
-//   tag chips, interactive live preview card)
-// - Lossless Simple <-> Advanced transition guarded by `isSimpleCompatible()`
-// - Lazy-Attach Create + Snapshot-Revert Cancel so experimenting never leaves
-//   broken empty filters while saving immediately on valid changes.
+// A new filter is attached to the list on its first real edit, so the
+// dialog saves work in progress; Cancel restores the list as it was.
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { FilterHitTracker } from '../../core/filter-hits';
@@ -17,7 +13,7 @@ import type { SavedData } from '../../core/saved';
 import type { OptionsPanel, PanelProps } from '../options-dialog/panel';
 import type { FilterSchema } from './schema';
 import { getFilterHitTracker } from '../../core/filter-hits';
-import { savedFilters } from '../../core/filter-types';
+import { newFilterId, savedFilters } from '../../core/filter-types';
 import { definePanel } from '../options-dialog/panel';
 import { FilterEditor } from './filter-editor';
 import css from './filters-panel.css?inline';
@@ -29,7 +25,6 @@ import { RecipesGrid } from './recipes-grid';
 import { PillSwitch } from './simple-editor';
 import { isSimpleCompatible, newSimpleFilter } from './simple-model';
 import { displayFilterTitle, summarizeFilter } from './summary';
-import { useStableKeys } from './use-stable-keys';
 import { filtersProblem, validateFilter } from './validate';
 
 const STATUS_LABELS = { all: 'All', active: 'Active', paused: 'Paused' } as const;
@@ -51,6 +46,8 @@ type EditorSession =
       readonly kind: 'edit';
       readonly index: number;
       readonly original: Filter;
+      /** Filters pasted from the code box after this one; Cancel removes them. */
+      readonly pasted?: number;
       readonly initialMode: 'simple' | 'advanced';
     };
 
@@ -70,10 +67,20 @@ export interface SiteFiltersPanelProps extends PanelProps<Filter[]> {
 
 const NOOP_SUBSCRIBE = () => () => undefined;
 
-/**
- * First-principles cross-site filter list & rule builder for the Options
- * dialog's Filters section.
- */
+/** `list` with every id that is repeated or already in `taken` renewed. */
+function withUniqueIds(list: readonly Filter[], taken: readonly Filter[]): Filter[] {
+  const seen = new Set(taken.map((filter) => filter.id));
+  return list.map((filter) => {
+    const unique = seen.has(filter.id) ? { ...filter, id: newFilterId() } : filter;
+    seen.add(unique.id);
+    return unique;
+  });
+}
+
+/** The jump-to id of a filter's list card. */
+const jumpIdOf = (filter: Filter) => `filter:${filter.id}`;
+
+/** The filter list and editor for one site. */
 export function SiteFiltersPanel({
   value: filters,
   onChange,
@@ -85,7 +92,6 @@ export function SiteFiltersPanel({
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'paused'>('all');
   const [showRecipes, setShowRecipes] = useState(false);
   const [toast, setToast] = useState<ListToast>();
-  const filterKeys = useStableKeys(filters.length);
   const subscribeHits = useCallback(
     (listener: () => void) => (hitTracker ? hitTracker.onChange(listener) : NOOP_SUBSCRIBE()),
     [hitTracker],
@@ -149,8 +155,7 @@ export function SiteFiltersPanel({
   if (session && activeFilter) {
     const handleEditorChange = (next: Filter) => {
       if (session.kind === 'create') {
-        // Lazy-attach on first real edit so OptionsDialog's outer Save persists mid-edit work.
-        filterKeys.push();
+        // Attach on the first real edit so the dialog saves work in progress.
         const nextIndex = filters.length;
         onChange([...filters, next]);
         setSession({
@@ -166,7 +171,6 @@ export function SiteFiltersPanel({
 
     const handleCommit = (finalFilter: Filter) => {
       if (session.kind === 'create') {
-        filterKeys.push();
         onChange([...filters, finalFilter]);
       } else if (finalFilter !== activeFilter) {
         onChange(replaced(filters, session.index, finalFilter));
@@ -185,12 +189,35 @@ export function SiteFiltersPanel({
 
     const handleCancel = () => {
       if (session.kind === 'edit') {
-        onChange(replaced(filters, session.index, session.original));
+        const after = session.index + 1 + (session.pasted ?? 0);
+        onChange([...filters.slice(0, session.index), session.original, ...filters.slice(after)]);
       } else if (session.kind === 'create-attached') {
-        filterKeys.removeAt(session.index);
         onChange([...session.snapshot]);
       }
       setSession(undefined);
+    };
+
+    const handlePasteList = (pasted: readonly Filter[]) => {
+      const [first, ...rest] = pasted;
+      if (!first) {
+        return;
+      }
+      const others = session.kind === 'create' ? filters : without(filters, session.index);
+      const list = [first, ...withUniqueIds(rest, [first, ...others])];
+      if (session.kind === 'create') {
+        onChange([...filters, ...list]);
+        setSession({
+          kind: 'create-attached',
+          index: filters.length,
+          snapshot: session.snapshot,
+          initialMode: session.initialMode,
+        });
+        return;
+      }
+      onChange([...filters.slice(0, session.index), ...list, ...filters.slice(session.index + 1)]);
+      if (session.kind === 'edit') {
+        setSession({ ...session, pasted: (session.pasted ?? 0) + rest.length });
+      }
     };
 
     return (
@@ -203,32 +230,30 @@ export function SiteFiltersPanel({
         onCommit={handleCommit}
         onCancel={handleCancel}
         onBack={handleBack}
+        onPasteList={handlePasteList}
       />
     );
   }
 
   const normalizedQuery = query.trim().toLowerCase();
   const isFiltered = normalizedQuery.length > 0 || statusFilter !== 'all';
-  const activeCount = filters.filter((item) => item.enabled !== false).length;
+  const activeCount = filters.filter((item) => item.enabled).length;
 
-  const visibleEntries = enrichedEntries
-    .map((entry) => ({ ...entry, key: filterKeys.keys[entry.index] ?? entry.index }))
-    .filter(({ filter, summary }) => {
-      if (statusFilter === 'active' && filter.enabled === false) {
-        return false;
-      }
-      if (statusFilter === 'paused' && filter.enabled !== false) {
-        return false;
-      }
-      if (!normalizedQuery) {
-        return true;
-      }
-      const haystack = `${summary.title} ${summary.line} ${filter.description ?? ''}`.toLowerCase();
-      return haystack.includes(normalizedQuery);
-    });
+  const visibleEntries = enrichedEntries.filter(({ filter, summary }) => {
+    if (statusFilter === 'active' && !filter.enabled) {
+      return false;
+    }
+    if (statusFilter === 'paused' && filter.enabled) {
+      return false;
+    }
+    if (!normalizedQuery) {
+      return true;
+    }
+    const haystack = `${summary.title} ${summary.line} ${filter.description ?? ''}`.toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
 
   const handleQuickHide = (created: Filter) => {
-    filterKeys.push();
     const nextIndex = filters.length;
     onChange([...filters, created]);
     setToast({
@@ -243,9 +268,11 @@ export function SiteFiltersPanel({
     if (!source) {
       return;
     }
-    const copy: Filter = structuredClone(source);
-    copy.title = `${displayFilterTitle(source, schema)} (copy)`;
-    filterKeys.insertAt(index + 1);
+    const copy: Filter = {
+      ...structuredClone(source),
+      id: newFilterId(),
+      name: `${displayFilterTitle(source, schema)} (copy)`,
+    };
     onChange(inserted(filters, index + 1, copy));
     setToast(undefined);
   };
@@ -256,7 +283,6 @@ export function SiteFiltersPanel({
       return;
     }
     const title = displayFilterTitle(target, schema);
-    filterKeys.removeAt(index);
     onChange(without(filters, index));
     setToast({ kind: 'deleted', filter: target, index, title });
   };
@@ -267,17 +293,15 @@ export function SiteFiltersPanel({
     }
     if (toast.kind === 'deleted') {
       const at = Math.min(toast.index, filters.length);
-      filterKeys.insertAt(at);
-      onChange(inserted(filters, at, toast.filter));
+      const [restored = toast.filter] = withUniqueIds([toast.filter], filters);
+      onChange(inserted(filters, at, restored));
     } else if (toast.index < filters.length) {
-      filterKeys.removeAt(toast.index);
       onChange(without(filters, toast.index));
     }
     setToast(undefined);
   };
 
   const handleMove = (from: number, to: number) => {
-    filterKeys.move(from, to);
     onChange(moved(filters, from, to));
     setToast(undefined);
   };
@@ -286,7 +310,7 @@ export function SiteFiltersPanel({
     <section className="fr-root">
       <div className="fr-header">
         <div className="fr-heading-group">
-          <h3 className="fr-subheading">Custom Filter Rules</h3>
+          <h3 className="fr-subheading">Custom filters</h3>
           {filters.length > 0 && (
             <span className="fr-count">
               {activeCount} active / {filters.length}
@@ -318,8 +342,8 @@ export function SiteFiltersPanel({
       </div>
 
       <p className="fr-intro">
-        Every {schema.itemSingular} on {schema.siteName} is tested from top to bottom. Rules can
-        hide, highlight, or organize {schema.itemPlural} automatically.
+        Every {schema.itemSingular} on {schema.siteName} goes through these filters from top to
+        bottom. Filters can hide, keep, highlight or restyle {schema.itemPlural}.
       </p>
 
       <QuickHideBar schema={schema} onQuickHide={handleQuickHide} />
@@ -327,9 +351,7 @@ export function SiteFiltersPanel({
       {toast && (
         <div className="fr-toast" role="status">
           <span className="fr-toast-text">
-            {toast.kind === 'deleted'
-              ? `Deleted “${toast.title}”.`
-              : `Added “${toast.title}” with a Click-to-reveal bar.`}
+            {toast.kind === 'deleted' ? `Deleted “${toast.title}”.` : `Added “${toast.title}”.`}
           </span>
           {toast.kind === 'added' && (
             <button className="fr-toast-undo" type="button" onClick={() => openEdit(toast.index)}>
@@ -397,16 +419,16 @@ export function SiteFiltersPanel({
 
       {visibleEntries.length > 0 && (
         <ul className="fr-list">
-          {visibleEntries.map(({ filter, index, key, summary, issues }) => {
+          {visibleEntries.map(({ filter, index, summary, issues }) => {
             const title = summary.title;
             const hits = hitTracker ? hitTracker.countFor(filter) : 0;
             const set = (changes: Partial<Filter>) =>
               onChange(replaced(filters, index, { ...filter, ...changes }));
             return (
               <li
-                key={key}
-                data-fs-jump-id={`rule:${index}:${filter.title ?? ''}`}
-                className={filter.enabled === false ? 'fr-card fr-off' : 'fr-card'}
+                key={filter.id}
+                data-fs-jump-id={jumpIdOf(filter)}
+                className={filter.enabled ? 'fr-card' : 'fr-card fr-off'}
               >
                 <div className="fr-card-main">
                   <div className="fr-card-top">
@@ -427,10 +449,10 @@ export function SiteFiltersPanel({
                         {hits} matched
                       </span>
                     )}
-                    {filter.stop_on_match === true && (
+                    {filter.stopAfter && (
                       <span
                         className="fr-pill fr-pill--stop"
-                        title="Stops evaluating filters below when matched"
+                        title="When this filter matches, the filters below it are skipped"
                       >
                         Stop
                       </span>
@@ -499,7 +521,7 @@ export function SiteFiltersPanel({
                   <PillSwitch
                     label={`Enable ${title}`}
                     hideLabel
-                    checked={filter.enabled !== false}
+                    checked={filter.enabled}
                     onChange={(enabled) => set({ enabled })}
                   />
                 </div>
@@ -529,22 +551,26 @@ export function createFiltersPanel(
     save: (filters) => saved.set(filters),
     subscribe: (listener) => saved.onChange(() => listener()),
     badge: () => {
-      const enabledCount = saved.get().filter((f) => f.enabled !== false).length;
+      const enabledCount = saved.get().filter((filter) => filter.enabled).length;
       return enabledCount > 0 ? String(enabledCount) : null;
     },
     searchItems: () => [
       {
         id: 'create-filter',
-        title: 'Create filter rule',
-        description: `Add a custom hide, highlight, or redact rule for ${schema.siteName}.`,
+        title: 'Create a filter',
+        description: `Add a filter that hides, keeps or highlights ${schema.itemPlural} on ${schema.siteName}.`,
         keywords: ['filter', 'rule', 'mute', 'hide', 'highlight', 'regex'],
       },
-      ...saved.get().map((filter, idx) => ({
-        id: `rule:${idx}:${filter.title ?? ''}`,
-        title: `Rule: ${filter.title || 'Untitled filter'}`,
-        description: filter.description || `${(filter.rules ?? []).length} condition(s)`,
-        keywords: ['filter', 'rule', filter.title ?? ''],
-      })),
+      ...saved.get().map((filter) => {
+        const title = displayFilterTitle(filter, schema);
+        const count = filter.conditions.length;
+        return {
+          id: jumpIdOf(filter),
+          title: `Filter: ${title}`,
+          description: filter.description || `${count} ${count === 1 ? 'condition' : 'conditions'}`,
+          keywords: ['filter', 'rule', title],
+        };
+      }),
     ],
     problem: (filters) => filtersProblem(filters, schema),
     Panel: (props) => <SiteFiltersPanel {...props} schema={schema} hitTracker={hitTracker} />,

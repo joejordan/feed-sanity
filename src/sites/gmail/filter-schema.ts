@@ -1,8 +1,12 @@
-// Declarative FilterSchema for Gmail inbox threads.
+// Filter editor vocabulary for Gmail inbox threads.
 
 import type { FilterSchema } from '../../ui/filters/schema';
-import { newAction, newFilter, newRule } from '../../core/filter-types';
-import { DAY_TARGET_OPTION, HIGHLIGHT_CSS, standardFilterActions } from '../../ui/filters/schema';
+import { newAction, newCondition, newFilter } from '../../core/filter-types';
+import {
+  HIGHLIGHT_CSS,
+  standardFilterActions,
+  WEEKDAY_TARGET_OPTION,
+} from '../../ui/filters/schema';
 
 export const GMAIL_FILTER_SCHEMA: FilterSchema = {
   siteName: 'Gmail',
@@ -10,14 +14,14 @@ export const GMAIL_FILTER_SCHEMA: FilterSchema = {
   itemPlural: 'threads',
   targetLabel: 'Part of the thread',
   previewLayout: 'thread',
-  selectorTargets: ['any'],
   selectorPlaceholder: 'e.g. [data-unread="true"], .zE',
   targets: [
     {
-      value: 'any',
+      value: 'text',
       label: 'Any thread text',
       simpleLabel: 'Anything',
       primary: true,
+      elementTest: true,
       group: 'Message content',
       placeholder: 'Matches sender, subject, or snippet',
     },
@@ -48,6 +52,7 @@ export const GMAIL_FILTER_SCHEMA: FilterSchema = {
       label: 'Label',
       simpleLabel: 'Label',
       primary: true,
+      list: true,
       group: 'Inbox metadata',
       placeholder: 'e.g. Promotions, Updates',
     },
@@ -57,7 +62,7 @@ export const GMAIL_FILTER_SCHEMA: FilterSchema = {
       group: 'Inbox metadata',
       placeholder: 'sponsored',
     },
-    DAY_TARGET_OPTION,
+    WEEKDAY_TARGET_OPTION,
   ],
   actions: standardFilterActions('thread'),
   recipes: [
@@ -69,9 +74,9 @@ export const GMAIL_FILTER_SCHEMA: FilterSchema = {
       tone: 'hide',
       create: () =>
         newFilter({
-          title: 'Hide sender',
-          rules: [newRule('sender')],
-          actions: [newAction('hide')],
+          name: 'Hide sender',
+          conditions: [newCondition('sender')],
+          actions: [{ ...newAction('hide'), note: false }],
         }),
     },
     {
@@ -82,9 +87,9 @@ export const GMAIL_FILTER_SCHEMA: FilterSchema = {
       tone: 'style',
       create: () =>
         newFilter({
-          title: 'Highlight important subject',
-          rules: [newRule('subject')],
-          actions: [{ action: 'css', content: HIGHLIGHT_CSS.gold }],
+          name: 'Highlight important subject',
+          conditions: [newCondition('subject')],
+          actions: [{ ...newAction('style'), css: HIGHLIGHT_CSS.gold }],
         }),
     },
     {
@@ -95,23 +100,23 @@ export const GMAIL_FILTER_SCHEMA: FilterSchema = {
       tone: 'style',
       create: () =>
         newFilter({
-          title: 'Dim newsletters',
-          rules: [newRule('any')],
-          actions: [{ action: 'css', content: HIGHLIGHT_CSS.dim }],
+          name: 'Dim newsletters',
+          conditions: [newCondition('text')],
+          actions: [{ ...newAction('style'), css: HIGHLIGHT_CSS.dim }],
         }),
     },
     {
       id: 'gmail-allowlist',
       title: 'Always keep a VIP sender visible',
-      description: 'Prevent lower hide rules from hiding messages from a key contact.',
+      description: 'Stop later hide filters from hiding messages from a key contact.',
       badge: 'Keep',
-      tone: 'unhide',
+      tone: 'keep',
       create: () =>
         newFilter({
-          title: 'Keep VIP visible',
-          stop_on_match: true,
-          rules: [newRule('sender')],
-          actions: [newAction('unhide')],
+          name: 'Keep VIP visible',
+          stopAfter: true,
+          conditions: [newCondition('sender')],
+          actions: [newAction('keep')],
         }),
     },
   ],

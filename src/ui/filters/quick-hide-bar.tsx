@@ -28,7 +28,7 @@ export function QuickHideBar({ schema, onQuickHide }: QuickHideBarProps) {
         className="field fr-quick-input"
         type="text"
         aria-label={`Quick hide on ${schema.siteName}`}
-        placeholder={`Type a word, @account, or #tag to hide ${schema.itemPlural}...`}
+        placeholder={`Words to hide ${schema.itemPlural} by, separated by commas...`}
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {

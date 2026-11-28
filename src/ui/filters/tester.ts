@@ -1,107 +1,96 @@
-// Pure live rule tester powering the Filter Editor's collapsible "Test rule"
-// sandbox. Runs the exact shared `testFilterRule` matcher against editable
-// sample fields in a single pass so users can verify plain text, regexes, and
-// combinators before saving.
+// Runs one filter's conditions against sample part values, for the editor's
+// "Test rule" box and the Simple preview. It uses the engine's own
+// `testCondition`, so the verdict is the one the page would give.
 
-import type { Filter, Rule } from '../../core/filter-types';
-import { normalizeRuleOperator, testFilterRule } from '../../core/filter-engine';
+import type { FilterFields, FilterFieldValue } from '../../core/filter-engine';
+import type { Condition, Filter } from '../../core/filter-types';
+import type { FilterSchema } from './schema';
+import { listPart, testCondition } from '../../core/filter-engine';
+import { validateCondition } from './validate';
 
-export interface RuleTestBreakdown {
+export interface ConditionTestResult {
   readonly index: number;
   readonly matched: boolean;
+  /** True for conditions a sample cannot answer (element and age conditions). */
   readonly skipped: boolean;
-  readonly captured: string | null;
+  /** The text that matched. */
+  readonly caught: string | null;
   readonly error: string | null;
 }
 
 export interface FilterTestReport {
   readonly matched: boolean;
-  readonly rules: readonly RuleTestBreakdown[];
+  readonly conditions: readonly ConditionTestResult[];
+}
+
+/** Splits a list part's sample text on commas, whitespace and leading `#`. */
+function splitList(text: string): readonly string[] | null {
+  return listPart(
+    text
+      .split(/[\s,]+/)
+      .map((item) => item.replace(/^#/, '').trim())
+      .filter((item) => item.length > 0),
+  );
 }
 
 /**
- * Evaluates a single `filter` (even if currently paused) against `sampleFields`
- * and returns the overall match verdict and per-condition pass/fail breakdown.
+ * Builds `FilterFields` from sample values. `text` (the whole item) is the
+ * sample's own `text` when given, otherwise every sample value joined. List
+ * parts (per `schema`) are split into items. A part with no sample is null.
+ */
+export function sampleFields(
+  samples: Readonly<Record<string, string>>,
+  schema?: FilterSchema,
+): FilterFields {
+  const listParts = new Set(
+    (schema?.targets ?? []).filter((target) => target.list).map((target) => target.value),
+  );
+  const values = new Map<string, FilterFieldValue>();
+  return {
+    get(name) {
+      const value = samples[name];
+      if (name === 'text' && !value?.trim()) {
+        return Object.values(samples)
+          .filter((sample) => sample.trim().length > 0)
+          .join(' ');
+      }
+      if (value === undefined) {
+        return values.get(name) ?? null;
+      }
+      return listParts.has(name) ? splitList(value) : value;
+    },
+    set(name, value) {
+      values.set(name, value);
+    },
+  };
+}
+
+function testOne(condition: Condition, index: number, fields: FilterFields): ConditionTestResult {
+  if (condition.kind === 'element' || condition.kind === 'age') {
+    return { index, matched: false, skipped: true, caught: null, error: null };
+  }
+  const error = validateCondition(condition);
+  if (error) {
+    return { index, matched: false, skipped: false, caught: null, error };
+  }
+  const result = testCondition(condition, { fields });
+  return { index, matched: result.matched, skipped: false, caught: result.caught ?? null, error };
+}
+
+/**
+ * Tests every condition of `filter` (even a paused one) against `samples` and
+ * combines them with the filter's join. Skipped conditions count as not matched.
  */
 export function testFilterAgainstSample(
   filter: Filter,
-  sampleFields: Readonly<Record<string, string>>,
+  samples: Readonly<Record<string, string>>,
+  schema?: FilterSchema,
 ): FilterTestReport {
-  const allContent = Object.values(sampleFields)
-    .filter((value) => value.trim().length > 0)
-    .join(' ');
-
-  const getField = (name: string): string | string[] | null => {
-    if (name === 'all_content' || name === 'any') {
-      return allContent;
-    }
-    if (Object.hasOwn(sampleFields, name)) {
-      const value = sampleFields[name] ?? '';
-      if (name === 'hashtag' || name === 'label') {
-        const parts = value
-          .split(/[\s,]+/)
-          .map((item) => item.trim())
-          .filter((item) => item.length > 0);
-        return parts.length > 0 ? parts : '';
-      }
-      return value;
-    }
-    return '';
-  };
-
-  const context = {
-    fields: { get: getField },
-  };
-
-  const rules = filter.rules ?? [];
-  const breakdown: RuleTestBreakdown[] = [];
-  let overall = false;
-  let allFailed = false;
-
-  for (let index = 0; index < rules.length; index++) {
-    const rule = rules[index] as Rule;
-    const { operator } = normalizeRuleOperator(rule);
-    if (operator === 'contains_selector' || rule.target === 'age') {
-      breakdown.push({
-        index,
-        matched: false,
-        skipped: true,
-        captured: null,
-        error: null,
-      });
-      if (filter.match === 'ALL') {
-        allFailed = true;
-      }
-      continue;
-    }
-    try {
-      const res = testFilterRule(rule, context);
-      breakdown.push({
-        index,
-        matched: res.matched,
-        skipped: false,
-        captured: res.caught?.[0] ?? null,
-        error: null,
-      });
-      if (res.matched) {
-        overall = true;
-      } else if (filter.match === 'ALL') {
-        allFailed = true;
-      }
-    } catch (error) {
-      breakdown.push({
-        index,
-        matched: false,
-        skipped: false,
-        captured: null,
-        error: error instanceof Error ? error.message : 'Could not evaluate condition.',
-      });
-      if (filter.match === 'ALL') {
-        allFailed = true;
-      }
-    }
-  }
-
-  const matched = filter.match === 'ALL' ? rules.length > 0 && !allFailed : overall;
-  return { matched, rules: breakdown };
+  const fields = sampleFields(samples, schema);
+  const conditions = filter.conditions.map((condition, index) => testOne(condition, index, fields));
+  const matched =
+    filter.join === 'all'
+      ? conditions.length > 0 && conditions.every((result) => result.matched)
+      : conditions.some((result) => result.matched);
+  return { matched, conditions };
 }

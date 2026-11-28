@@ -1,27 +1,31 @@
-// Declarative FilterSchema for X (Twitter) timeline posts.
+// Filter editor vocabulary for X (Twitter) timeline posts.
 
 import type { FilterSchema } from '../../ui/filters/schema';
-import { newAction, newFilter, newRule } from '../../core/filter-types';
-import { DAY_TARGET_OPTION, HIGHLIGHT_CSS, standardFilterActions } from '../../ui/filters/schema';
+import { newAction, newCondition, newFilter } from '../../core/filter-types';
+import {
+  HIGHLIGHT_CSS,
+  standardFilterActions,
+  WEEKDAY_TARGET_OPTION,
+} from '../../ui/filters/schema';
 
 export const X_FILTER_SCHEMA: FilterSchema = {
   siteName: 'X',
   itemSingular: 'post',
   itemPlural: 'posts',
   targetLabel: 'Part of the post',
-  selectorTargets: ['any'],
   selectorPlaceholder: 'e.g. [data-testid="card.wrapper"], video',
   targets: [
     {
-      value: 'any',
+      value: 'text',
       label: 'Any post content',
       simpleLabel: 'Anything',
       primary: true,
+      elementTest: true,
       group: 'Post content',
       placeholder: 'e.g. giveaway, crypto, spoilers',
     },
     {
-      value: 'content',
+      value: 'body',
       label: 'Post text',
       simpleLabel: 'Post text',
       primary: true,
@@ -37,24 +41,27 @@ export const X_FILTER_SCHEMA: FilterSchema = {
       placeholder: 'e.g. @handle or display name',
     },
     {
-      value: 'hashtag',
+      value: 'hashtags',
       label: 'Hashtag',
       simpleLabel: 'Hashtag',
       primary: true,
+      list: true,
       group: 'Media & links',
-      placeholder: 'e.g. #ad, #promo',
+      placeholder: 'e.g. ad, promo (without #)',
     },
     {
-      value: 'link_url',
+      value: 'link_urls',
       label: 'Link address',
       simpleLabel: 'Link',
       primary: true,
+      list: true,
       group: 'Media & links',
       placeholder: 'e.g. youtube.com, substack.com',
     },
     {
-      value: 'image',
+      value: 'image_text',
       label: 'Media alt text',
+      list: true,
       group: 'Media & links',
       placeholder: 'Matches attached image descriptions',
     },
@@ -62,7 +69,7 @@ export const X_FILTER_SCHEMA: FilterSchema = {
       value: 'suggested',
       label: 'Suggested / recommended signal',
       group: 'Feed signals',
-      placeholder: 'suggested',
+      placeholder: 'e.g. Follow',
     },
     {
       value: 'sponsored',
@@ -70,7 +77,7 @@ export const X_FILTER_SCHEMA: FilterSchema = {
       group: 'Feed signals',
       placeholder: 'sponsored',
     },
-    DAY_TARGET_OPTION,
+    WEEKDAY_TARGET_OPTION,
   ],
   actions: standardFilterActions('post'),
   recipes: [
@@ -80,12 +87,7 @@ export const X_FILTER_SCHEMA: FilterSchema = {
       description: 'Collapse timeline posts containing a muted phrase or topic.',
       badge: 'Hide',
       tone: 'hide',
-      create: () =>
-        newFilter({
-          title: 'Mute keyword',
-          rules: [newRule('content')],
-          actions: [{ action: 'hide', show_note: true }],
-        }),
+      create: () => newFilter({ name: 'Mute keyword', conditions: [newCondition('body')] }),
     },
     {
       id: 'x-mute-domain',
@@ -95,9 +97,9 @@ export const X_FILTER_SCHEMA: FilterSchema = {
       tone: 'hide',
       create: () =>
         newFilter({
-          title: 'Hide domain links',
-          rules: [newRule('link_url')],
-          actions: [newAction('hide')],
+          name: 'Hide domain links',
+          conditions: [newCondition('link_urls')],
+          actions: [{ ...newAction('hide'), note: false }],
         }),
     },
     {
@@ -108,30 +110,30 @@ export const X_FILTER_SCHEMA: FilterSchema = {
       tone: 'style',
       create: () =>
         newFilter({
-          title: 'Highlight account',
-          rules: [newRule('author')],
-          actions: [{ action: 'css', content: HIGHLIGHT_CSS.accent }],
+          name: 'Highlight account',
+          conditions: [newCondition('author')],
+          actions: [{ ...newAction('style'), css: HIGHLIGHT_CSS.accent }],
         }),
     },
     {
       id: 'x-allowlist',
       title: 'Always keep an account visible',
-      description: 'Allowlist an author so lower mute rules never hide their posts.',
+      description: 'Allowlist an author so later mute filters never hide their posts.',
       badge: 'Keep',
-      tone: 'unhide',
+      tone: 'keep',
       create: () =>
         newFilter({
-          title: 'Keep account visible',
-          stop_on_match: true,
-          rules: [newRule('author')],
-          actions: [newAction('unhide')],
+          name: 'Keep account visible',
+          stopAfter: true,
+          conditions: [newCondition('author')],
+          actions: [newAction('keep')],
         }),
     },
   ],
   sampleItem: {
-    content: 'Shipping v2.0 today with faster builds! #dev',
+    body: 'Shipping v2.0 today with faster builds! #dev',
     author: 'Alex Rivera @alexdev',
-    hashtag: '#dev',
-    link_url: 'https://example.com/release',
+    hashtags: 'dev',
+    link_urls: 'https://example.com/release',
   },
 };

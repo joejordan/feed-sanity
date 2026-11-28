@@ -6,8 +6,8 @@ import { useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Action, Filter } from '../../core/filter-types';
 import type { FilterSchema } from './schema';
-import { escapeRegExp } from '../../core/filter-engine';
 import { FilterIcon } from './icons';
+import { withField } from './list-edit';
 import { getSimpleActions, getSimpleTargets, HIGHLIGHT_PRESETS } from './schema';
 import {
   detectSmartTarget,
@@ -15,6 +15,7 @@ import {
   extractSimpleChips,
   highlightPresetForAction,
   normalizeChipsForTarget,
+  simpleActionOf,
   withSimpleChips,
 } from './simple-model';
 import { testFilterAgainstSample } from './tester';
@@ -89,7 +90,8 @@ function buildHighlightPattern(words: readonly string[]): RegExp | null {
     return null;
   }
   const sorted = [...active].sort((a, b) => b.length - a.length);
-  return new RegExp(`(${sorted.map(escapeRegExp).join('|')})`, 'gi');
+  const escaped = sorted.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`));
+  return new RegExp(`(${escaped.join('|')})`, 'gi');
 }
 
 /** Renders `text` with any matches of `pattern` wrapped in `.fr-preview-hit` spans (zero innerHTML). */
@@ -176,7 +178,8 @@ function SamplePreviewCard({
   }
 
   const author = sample.author || 'Alex Rivera';
-  const baseBody = sample.content || `Sample ${schema.itemSingular} in your feed.`;
+  const baseBody =
+    sample.body || sample.title || sample.text || `Sample ${schema.itemSingular} in your feed.`;
   let body = baseBody;
   if (words.length > 0 && !sampleMatched) {
     body = secondWord
@@ -220,7 +223,6 @@ function SimplePreview({
   peekRevealed,
   onPeekChange,
 }: SimplePreviewProps) {
-  const actionKind = action.action ?? 'hide';
   const hasWords = words.length > 0;
   let statusText = 'Add a word above to preview';
   if (hasWords) {
@@ -231,8 +233,8 @@ function SimplePreview({
     if (!hasWords) {
       return <SamplePreviewCard schema={schema} words={[]} sampleMatched={false} idle />;
     }
-    if (actionKind === 'hide') {
-      if (action.show_note !== true) {
+    if (action.kind === 'hide') {
+      if (action.note === false) {
         return (
           <div className="fr-preview-ghost">
             Matching {schema.itemPlural} are hidden completely from your{' '}
@@ -268,7 +270,7 @@ function SimplePreview({
         />
       );
     }
-    if (actionKind === 'css') {
+    if (action.kind === 'style') {
       const activePreset = highlightPresetForAction(action);
       return (
         <SamplePreviewCard
@@ -279,23 +281,13 @@ function SimplePreview({
         />
       );
     }
-    if (actionKind === 'move-to-tab') {
-      return (
-        <SamplePreviewCard
-          schema={schema}
-          words={words}
-          sampleMatched={sampleMatched}
-          badge={<span className="fr-pill fr-pill--tab">→ {action.tab?.trim() || 'Tab'}</span>}
-        />
-      );
-    }
     return (
       <SamplePreviewCard
         schema={schema}
         words={words}
         sampleMatched={sampleMatched}
         badge={
-          <span className="fr-pill fr-pill--unhide">
+          <span className="fr-pill fr-pill--keep">
             <FilterIcon name="shield" size={12} />
             Kept visible
           </span>
@@ -337,8 +329,7 @@ export function SimpleFilterBuilder({
   const simpleActions = useMemo(() => getSimpleActions(schema), [schema]);
   const simpleTargets = useMemo(() => getSimpleTargets(schema), [schema]);
 
-  const action: Action = filter.actions?.[0] ?? { action: 'hide', show_note: true };
-  const actionKind = action.action ?? 'hide';
+  const action: Action = filter.actions[0] ?? { kind: 'hide' };
   const targetOption = simpleTargets.find((opt) => opt.value === currentTarget) ?? simpleTargets[0];
 
   const chips = useMemo(() => extractSimpleChips(filter), [filter]);
@@ -357,9 +348,9 @@ export function SimpleFilterBuilder({
       Boolean(
         schema.sampleItem &&
           words.length > 0 &&
-          testFilterAgainstSample(effectiveFilter, schema.sampleItem).matched,
+          testFilterAgainstSample(effectiveFilter, schema.sampleItem, schema).matched,
       ),
-    [effectiveFilter, schema.sampleItem, words.length],
+    [effectiveFilter, schema, words.length],
   );
 
   const smartNudge = useMemo(
@@ -368,36 +359,20 @@ export function SimpleFilterBuilder({
   );
 
   const selectGoal = (nextActionKind: string) => {
-    if (nextActionKind === actionKind) {
+    if (nextActionKind === action.kind) {
       return;
     }
     setPeekRevealed(false);
-    let nextAction: Action;
-    if (nextActionKind === 'hide') {
-      nextAction = { action: 'hide', show_note: true };
-    } else if (nextActionKind === 'css') {
-      const preset = highlightPresetForAction(action);
-      nextAction = { action: 'css', content: preset.css };
-    } else if (nextActionKind === 'move-to-tab') {
-      nextAction = { action: 'move-to-tab', tab: action.tab ?? '' };
-    } else {
-      nextAction = { action: nextActionKind };
-    }
     onChange({
       ...filter,
-      stop_on_match: nextActionKind === 'unhide',
-      actions: [nextAction],
+      stopAfter: nextActionKind === 'keep',
+      actions: [simpleActionOf(nextActionKind, action)],
     });
   };
 
-  const updateAction = (changes: Partial<Action>) => {
-    if ('show_note' in changes) {
-      setPeekRevealed(false);
-    }
-    onChange({
-      ...filter,
-      actions: [{ ...action, ...changes }],
-    });
+  const updateAction = (next: Action) => {
+    setPeekRevealed(false);
+    onChange({ ...filter, actions: [next] });
   };
 
   const selectTarget = (nextTarget: string) => {
@@ -453,7 +428,7 @@ export function SimpleFilterBuilder({
               className="fr-goal-tile"
               type="button"
               data-tone={opt.tone}
-              aria-pressed={actionKind === opt.value}
+              aria-pressed={action.kind === opt.value}
               onClick={() => selectGoal(opt.value)}
             >
               <span className="fr-goal-tile-top">
@@ -468,42 +443,30 @@ export function SimpleFilterBuilder({
         </div>
 
         <div className="fr-context-strip">
-          {actionKind === 'hide' && (
+          {action.kind === 'hide' && (
             <PillSwitch
-              label='Show a note in place of each hidden post'
-              checked={action.show_note === true}
-              onChange={(showNote) => updateAction({ show_note: showNote })}
+              label="Show a note in its place, so nothing vanishes silently"
+              checked={action.note !== false}
+              onChange={(on) =>
+                updateAction(on ? withField(action, 'note', undefined) : { ...action, note: false })
+              }
             />
           )}
 
-          {actionKind === 'css' && (
+          {action.kind === 'style' && (
             <>
               <span className="fr-section-label">Highlight style</span>
               <HighlightPresetButtons
                 activeId={activePreset.id}
-                onSelect={(cssText) => updateAction({ content: cssText })}
+                onSelect={(css) => updateAction({ ...action, css })}
               />
             </>
           )}
 
-          {actionKind === 'move-to-tab' && (
-            <label className="fr-inline-field-label">
-              <span className="fr-section-label">Tab name</span>
-              <input
-                className="field fr-inline-field"
-                type="text"
-                aria-label="Tab name"
-                placeholder="e.g. News, Family, Deals"
-                value={action.tab ?? ''}
-                onChange={(event) => updateAction({ tab: event.target.value })}
-              />
-            </label>
-          )}
-
-          {actionKind === 'unhide' && (
+          {action.kind === 'keep' && (
             <span className="fr-context-note">
               <FilterIcon name="shield" size={14} />
-              Overrides Hide rules below it so matching {schema.itemPlural} always stay visible.
+              Stops the filters below it, so matching {schema.itemPlural} always stay visible.
             </span>
           )}
         </div>
@@ -533,7 +496,7 @@ export function SimpleFilterBuilder({
             <button
               className="fr-target-pill fr-target-pill--more"
               type="button"
-              title="Open Advanced mode for all fields, schedules, and CSS selectors"
+              title="Open Advanced mode for every part, the schedule and CSS selectors"
               onClick={onSwitchAdvanced}
             >
               More…

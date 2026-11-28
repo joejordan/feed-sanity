@@ -329,14 +329,13 @@
   color: var(--fs-error);
 }
 
-.fr-pill--unhide {
+.fr-pill--keep {
   border-color: rgb(22 163 74 / 35%);
   background: rgb(22 163 74 / 12%);
   color: #16a34a;
 }
 
-.fr-pill--style,
-.fr-pill--tab {
+.fr-pill--style {
   border-color: var(--fs-accent);
   background: var(--fs-accent-surface);
   color: var(--fs-accent);
@@ -1052,12 +1051,12 @@
   color: #d97706;
 }
 
-.fr-goal-tile[data-tone="unhide"][aria-pressed="true"] {
+.fr-goal-tile[data-tone="keep"][aria-pressed="true"] {
   border-color: rgb(22 163 74 / 60%);
   background: rgb(22 163 74 / 12%);
 }
 
-.fr-goal-tile[data-tone="unhide"][aria-pressed="true"] .fr-goal-icon {
+.fr-goal-tile[data-tone="keep"][aria-pressed="true"] .fr-goal-icon {
   color: #16a34a;
 }
 

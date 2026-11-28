@@ -1,27 +1,31 @@
-// Declarative FilterSchema for Instagram feed posts.
+// Filter editor vocabulary for Instagram feed posts.
 
 import type { FilterSchema } from '../../ui/filters/schema';
-import { newAction, newFilter, newRule } from '../../core/filter-types';
-import { DAY_TARGET_OPTION, HIGHLIGHT_CSS, standardFilterActions } from '../../ui/filters/schema';
+import { newAction, newCondition, newFilter } from '../../core/filter-types';
+import {
+  HIGHLIGHT_CSS,
+  standardFilterActions,
+  WEEKDAY_TARGET_OPTION,
+} from '../../ui/filters/schema';
 
 export const INSTAGRAM_FILTER_SCHEMA: FilterSchema = {
   siteName: 'Instagram',
   itemSingular: 'post',
   itemPlural: 'posts',
   targetLabel: 'Part of the post',
-  selectorTargets: ['any'],
   selectorPlaceholder: 'e.g. a[href*="/reels/"], video',
   targets: [
     {
-      value: 'any',
+      value: 'text',
       label: 'Any post content',
       simpleLabel: 'Anything',
       primary: true,
+      elementTest: true,
       group: 'Post content',
       placeholder: 'e.g. giveaway, affiliate, spoilers',
     },
     {
-      value: 'content',
+      value: 'body',
       label: 'Caption',
       simpleLabel: 'Caption',
       primary: true,
@@ -37,16 +41,18 @@ export const INSTAGRAM_FILTER_SCHEMA: FilterSchema = {
       placeholder: 'e.g. username',
     },
     {
-      value: 'hashtag',
+      value: 'hashtags',
       label: 'Hashtag',
       simpleLabel: 'Hashtag',
       primary: true,
+      list: true,
       group: 'Media & links',
-      placeholder: 'e.g. #sponsored, #giveaway',
+      placeholder: 'e.g. sponsored, giveaway (without #)',
     },
     {
-      value: 'image',
+      value: 'image_text',
       label: 'Photo description',
+      list: true,
       group: 'Media & links',
       placeholder: 'Matches image alt text',
     },
@@ -54,7 +60,7 @@ export const INSTAGRAM_FILTER_SCHEMA: FilterSchema = {
       value: 'suggested',
       label: 'Suggested post signal',
       group: 'Feed signals',
-      placeholder: 'suggested',
+      placeholder: 'e.g. Follow',
     },
     {
       value: 'sponsored',
@@ -62,7 +68,7 @@ export const INSTAGRAM_FILTER_SCHEMA: FilterSchema = {
       group: 'Feed signals',
       placeholder: 'sponsored',
     },
-    DAY_TARGET_OPTION,
+    WEEKDAY_TARGET_OPTION,
   ],
   actions: standardFilterActions('post'),
   recipes: [
@@ -72,12 +78,7 @@ export const INSTAGRAM_FILTER_SCHEMA: FilterSchema = {
       description: 'Hide posts whose caption or text mentions a muted topic.',
       badge: 'Hide',
       tone: 'hide',
-      create: () =>
-        newFilter({
-          title: 'Hide keyword',
-          rules: [newRule('any')],
-          actions: [{ action: 'hide', show_note: true }],
-        }),
+      create: () => newFilter({ name: 'Hide keyword', conditions: [newCondition('text')] }),
     },
     {
       id: 'ig-mute-hashtag',
@@ -87,9 +88,9 @@ export const INSTAGRAM_FILTER_SCHEMA: FilterSchema = {
       tone: 'hide',
       create: () =>
         newFilter({
-          title: 'Hide hashtag',
-          rules: [newRule('hashtag')],
-          actions: [newAction('hide')],
+          name: 'Hide hashtag',
+          conditions: [newCondition('hashtags')],
+          actions: [{ ...newAction('hide'), note: false }],
         }),
     },
     {
@@ -100,29 +101,29 @@ export const INSTAGRAM_FILTER_SCHEMA: FilterSchema = {
       tone: 'style',
       create: () =>
         newFilter({
-          title: 'Highlight account',
-          rules: [newRule('author')],
-          actions: [{ action: 'css', content: HIGHLIGHT_CSS.accent }],
+          name: 'Highlight account',
+          conditions: [newCondition('author')],
+          actions: [{ ...newAction('style'), css: HIGHLIGHT_CSS.accent }],
         }),
     },
     {
       id: 'ig-allowlist',
       title: 'Always keep an account visible',
-      description: 'Ensure posts from a specific account bypass lower hide rules.',
+      description: 'Make sure posts from one account get past later hide filters.',
       badge: 'Keep',
-      tone: 'unhide',
+      tone: 'keep',
       create: () =>
         newFilter({
-          title: 'Keep account visible',
-          stop_on_match: true,
-          rules: [newRule('author')],
-          actions: [newAction('unhide')],
+          name: 'Keep account visible',
+          stopAfter: true,
+          conditions: [newCondition('author')],
+          actions: [newAction('keep')],
         }),
     },
   ],
   sampleItem: {
-    content: 'Weekend espresso pour #coffee',
+    body: 'Weekend espresso pour #coffee',
     author: 'barista_daily',
-    hashtag: '#coffee',
+    hashtags: 'coffee',
   },
 };

@@ -1,14 +1,11 @@
-// Pure lossless Simple <-> Filter mapping.
-// Compiles Simple mode's goal tiles and multi-word tag chips into standard
-// `Filter` JSON and guards
-// Simple mode with a strict `isSimpleCompatible()` predicate so legacy regex,
-// `AND`, negated, multi-target, or custom-CSS rules are never truncated.
+// Maps Simple mode (a goal tile, a target pill and word chips) to filters and
+// back. `isSimpleCompatible` lets Simple mode open a filter only when it can
+// show and rewrite the filter without losing anything.
 
-import type { Action, Filter, Rule } from '../../core/filter-types';
+import type { Action, Filter, StyleAction, TextCondition } from '../../core/filter-types';
 import type { FilterSchema, HighlightPreset } from './schema';
-import { normalizeRuleOperator } from '../../core/filter-engine';
-import { newFilter, newRule } from '../../core/filter-types';
-import { getSimpleActions, getSimpleTargets, HIGHLIGHT_PRESETS } from './schema';
+import { newAction, newCondition, newFilter } from '../../core/filter-types';
+import { defaultTextPart, getSimpleActions, getSimpleTargets, HIGHLIGHT_PRESETS } from './schema';
 
 export type SimpleCompatibility =
   | { readonly ok: true }
@@ -17,118 +14,113 @@ export type SimpleCompatibility =
 const DOMAIN_OR_URL =
   /^(?:https?:\/\/|www\.)|[a-z0-9-]+\.(?:com|org|net|io|co|gov|edu|app|dev|tv|news)(?:\/|$)/i;
 
-/**
- * Checks whether `filter` can be represented losslessly in Simple mode without
- * hiding or dropping any legacy/advanced field.
- */
-export function isSimpleCompatible(filter: Filter, schema: FilterSchema): SimpleCompatibility {
-  const rules = filter.rules ?? [];
-  const actions = filter.actions ?? [];
+const OK: SimpleCompatibility = { ok: true };
+const no = (reason: string): SimpleCompatibility => ({ ok: false, reason });
 
-  if (rules.length === 0) {
-    return { ok: false, reason: 'Has no conditions' };
+function checkCondition(condition: TextCondition): SimpleCompatibility {
+  if (condition.negate) {
+    return no('Uses "does not" logic');
   }
-  if (rules.length > 1 && filter.match === 'ALL') {
-    return { ok: false, reason: 'Uses ALL (AND) matching' };
+  if (condition.test !== 'contains') {
+    return no(condition.test === 'regex' ? 'Uses a regular expression' : 'Uses an exact test');
   }
-
-  const simpleTargets = getSimpleTargets(schema);
-  const target = rules[0]?.target ?? '';
-  if (!simpleTargets.some((opt) => opt.value === target)) {
-    return { ok: false, reason: 'Uses an advanced field' };
+  if (condition.matchCase) {
+    return no('Uses case-sensitive matching');
   }
-
-  for (const rule of rules) {
-    if (rule.target !== target) {
-      return { ok: false, reason: 'Matches multiple different fields' };
-    }
-    const { operator, not } = normalizeRuleOperator(rule);
-    if (not) {
-      return { ok: false, reason: 'Uses negated ("doesn\'t contain") logic' };
-    }
-    if (operator !== 'contains') {
-      return { ok: false, reason: `Uses "${operator}" comparison` };
-    }
-    if (rule.matcher !== 'str') {
-      return { ok: false, reason: 'Uses regular expressions' };
-    }
-    if (rule.match_partial_words !== true) {
-      return { ok: false, reason: 'Uses whole-word-only matching' };
-    }
-    const cond = rule.condition;
-    if (cond) {
-      if ((cond.modifier ?? 'i') !== 'i') {
-        return { ok: false, reason: 'Uses case-sensitive matching' };
-      }
-      if (cond.value !== undefined || cond.units !== undefined) {
-        return { ok: false, reason: 'Uses age matching' };
-      }
-      if (Object.entries(cond).some(([key, val]) => key.startsWith('day_') && val === true)) {
-        return { ok: false, reason: 'Uses day-of-week schedule' };
-      }
-    }
+  if (condition.wholeWords) {
+    return no('Uses whole-word matching');
   }
-
-  if (actions.length === 0 || !actions[0]) {
-    return { ok: false, reason: 'Has no actions' };
-  }
-  if (actions.length > 1) {
-    return { ok: false, reason: 'Uses multiple actions' };
-  }
-  const action = actions[0];
-  const simpleActions = getSimpleActions(schema);
-  if (!simpleActions.some((opt) => opt.value === action.action)) {
-    return { ok: false, reason: 'Uses an advanced action' };
-  }
-
-  if (action.action === 'hide') {
-    if (action.custom_note || action.custom_nyet || action.css) {
-      return { ok: false, reason: 'Uses a custom hide note or CSS' };
-    }
-  } else if (action.action === 'css') {
-    if (action.selector?.trim()) {
-      return { ok: false, reason: 'Targets a custom CSS selector' };
-    }
-    if (!action.content || !HIGHLIGHT_PRESETS.some((preset) => preset.css === action.content)) {
-      return {
-        ok: false,
-        reason: action.content ? 'Uses custom CSS declarations' : 'Has empty CSS declarations',
-      };
-    }
-  }
-
-  if (filter.stop_on_match === true && action.action !== 'unhide') {
-    return { ok: false, reason: 'Uses Stop on match' };
-  }
-
-  return { ok: true };
+  return OK;
 }
 
-/** Creates a safe, reversible Simple-mode starter filter for `schema`. */
+function checkAction(action: Action, filter: Filter, schema: FilterSchema): SimpleCompatibility {
+  if (!getSimpleActions(schema).some((option) => option.value === action.kind)) {
+    return no('Uses an advanced action');
+  }
+  if (action.kind === 'hide' && action.noteText) {
+    return no('Uses custom note text');
+  }
+  if (action.kind === 'style') {
+    if (action.selector) {
+      return no('Styles elements inside the item');
+    }
+    if (!HIGHLIGHT_PRESETS.some((preset) => preset.css === action.css)) {
+      return no(action.css.trim() ? 'Uses custom CSS' : 'Has no CSS yet');
+    }
+  }
+  if (filter.stopAfter && action.kind !== 'keep') {
+    return no('Stops later filters');
+  }
+  return OK;
+}
+
+/** Whether Simple mode can show and rewrite `filter` without losing anything. */
+export function isSimpleCompatible(filter: Filter, schema: FilterSchema): SimpleCompatibility {
+  const { conditions, actions } = filter;
+  if (conditions.length === 0) {
+    return no('Has no conditions');
+  }
+  if (conditions.length > 1 && filter.join === 'all') {
+    return no('Needs all conditions to hold');
+  }
+  const first = conditions[0];
+  const part = first?.kind === 'text' ? first.part : undefined;
+  if (part === undefined || !getSimpleTargets(schema).some((target) => target.value === part)) {
+    return no('Uses an advanced part or condition');
+  }
+  for (const condition of conditions) {
+    if (condition.kind !== 'text' || condition.part !== part) {
+      return no('Tests more than one part');
+    }
+    const check = checkCondition(condition);
+    if (!check.ok) {
+      return check;
+    }
+  }
+  const action = actions[0];
+  if (!action) {
+    return no('Has no actions');
+  }
+  if (actions.length > 1) {
+    return no('Has more than one action');
+  }
+  return checkAction(action, filter, schema);
+}
+
+/** The action a Simple goal tile starts with. */
+export function simpleActionOf(kind: string, previous?: Action): Action {
+  if (kind === 'style') {
+    const style: StyleAction = { kind: 'style', css: highlightPresetForAction(previous).css };
+    return style;
+  }
+  return kind === 'keep' ? newAction('keep') : newAction('hide');
+}
+
+/** A new filter for Simple mode: the first Simple target and goal, no words yet. */
 export function newSimpleFilter(schema: FilterSchema): Filter {
-  const defaultTarget = getSimpleTargets(schema)[0]?.value ?? schema.targets[0]?.value ?? 'any';
-  const defaultAction = getSimpleActions(schema)[0]?.value ?? schema.actions[0]?.value ?? 'hide';
+  const part = getSimpleTargets(schema)[0]?.value ?? defaultTextPart(schema);
+  const goal = getSimpleActions(schema)[0]?.value ?? 'hide';
   return newFilter({
-    match: 'ANY',
-    enabled: true,
-    stop_on_match: defaultAction === 'unhide',
-    rules: [newRule(defaultTarget)],
-    actions: [
-      defaultAction === 'hide' ? { action: 'hide', show_note: true } : { action: defaultAction },
-    ],
+    stopAfter: goal === 'keep',
+    conditions: [newCondition(part)],
+    actions: [simpleActionOf(goal)],
   });
 }
 
-/** Extracts non-empty trimmed match phrases from a Simple-compatible filter's rules. */
+/** The trimmed, non-empty values of a Simple-compatible filter's conditions. */
 export function extractSimpleChips(filter: Filter): string[] {
-  const result: string[] = [];
-  for (const rule of filter.rules ?? []) {
-    const text = rule.condition?.text?.trim();
-    if (text) {
-      result.push(text);
+  const chips: string[] = [];
+  for (const condition of filter.conditions) {
+    if (condition.kind === 'text') {
+      for (const value of condition.values) {
+        const trimmed = value.trim();
+        if (trimmed) {
+          chips.push(trimmed);
+        }
+      }
     }
   }
-  return result;
+  return chips;
 }
 
 function appendUniqueChips(existing: readonly string[], extras: readonly string[]): string[] {
@@ -141,12 +133,12 @@ function appendUniqueChips(existing: readonly string[], extras: readonly string[
   return merged;
 }
 
-/** Returns `[...savedChips, pendingText]` deduplicated case-insensitively for live previews and titles. */
+/** The saved chips plus the text still being typed, without case-insensitive repeats. */
 export function effectiveSimpleChips(filter: Filter, pendingText: string): string[] {
   return appendUniqueChips(extractSimpleChips(filter), splitChipInput(pendingText));
 }
 
-/** Splits comma-separated user input into trimmed non-empty phrases. */
+/** Splits comma-separated input into trimmed non-empty phrases. */
 export function splitChipInput(raw: string): string[] {
   return raw
     .split(',')
@@ -154,50 +146,40 @@ export function splitChipInput(raw: string): string[] {
     .filter((part) => part.length > 0);
 }
 
-function makeSimpleRule(target: string, text?: string): Rule {
-  const base = newRule(target);
-  return text === undefined ? base : { ...base, condition: { ...base.condition, text } };
-}
-
-/** Replaces a Simple filter's rules with one literal `contains` rule per chip under `match: 'ANY'`. */
-export function withSimpleChips(filter: Filter, target: string, chips: readonly string[]): Filter {
-  const rules =
-    chips.length > 0 ? chips.map((word) => makeSimpleRule(target, word)) : [makeSimpleRule(target)];
-  return {
-    ...filter,
-    match: 'ANY',
-    rules,
+/** Rewrites a Simple filter as one "contains" condition on `part` whose values are `chips`. */
+export function withSimpleChips(filter: Filter, part: string, chips: readonly string[]): Filter {
+  const condition: TextCondition = {
+    ...newCondition(part),
+    values: chips.length > 0 ? [...chips] : [''],
   };
+  return { ...filter, join: 'any', conditions: [condition] };
 }
 
-/** Commits any uncommitted comma-separated text from the chip input into `filter.rules`. */
+/** Adds the comma-separated text still in the chip input to `filter`'s chips. */
 export function commitPendingText(
   filter: Filter,
   pendingText: string,
-  target: string,
-  schema?: FilterSchema,
+  part: string,
+  schema: FilterSchema,
 ): Filter {
-  const rawExtras = splitChipInput(pendingText);
-  if (rawExtras.length === 0) {
-    return filter;
-  }
-  const extras = schema ? normalizeChipsForTarget(rawExtras, target, schema) : rawExtras;
+  const extras = normalizeChipsForTarget(splitChipInput(pendingText), part, schema);
   if (extras.length === 0) {
     return filter;
   }
   const existing = extractSimpleChips(filter);
   const merged = appendUniqueChips(existing, extras);
-  return merged.length > existing.length ? withSimpleChips(filter, target, merged) : filter;
+  return merged.length > existing.length ? withSimpleChips(filter, part, merged) : filter;
 }
 
-/** Returns the active Simple target value for `filter`, falling back to `schema`'s first Simple target. */
+/** The Simple target `filter` uses, or `schema`'s first Simple target. */
 export function activeSimpleTarget(filter: Filter, schema: FilterSchema): string {
   const simpleTargets = getSimpleTargets(schema);
-  const current = filter.rules?.[0]?.target;
-  if (current && simpleTargets.some((opt) => opt.value === current)) {
+  const first = filter.conditions[0];
+  const current = first?.kind === 'text' ? first.part : undefined;
+  if (current && simpleTargets.some((option) => option.value === current)) {
     return current;
   }
-  return simpleTargets[0]?.value ?? 'any';
+  return simpleTargets[0]?.value ?? defaultTextPart(schema);
 }
 
 export interface SmartTargetSuggestion {
@@ -206,15 +188,15 @@ export interface SmartTargetSuggestion {
 }
 
 /**
- * Gently detects `#hashtag`, `@account`, or domain/URL text typed while matching
- * `'any'` so the UI can offer a non-intrusive 1-click target switch.
+ * Notices `#hashtag`, `@account` or a web address typed while matching the
+ * whole item, so the UI can offer a one-click switch to the fitting part.
  */
 export function detectSmartTarget(
   text: string,
   currentTarget: string,
   schema: FilterSchema,
 ): SmartTargetSuggestion | null {
-  if (currentTarget !== 'any') {
+  if (currentTarget !== 'text') {
     return null;
   }
   const trimmed = text.trim();
@@ -222,94 +204,84 @@ export function detectSmartTarget(
     return null;
   }
   const simpleTargets = getSimpleTargets(schema);
-  const findSimple = (id: string) => simpleTargets.find((t) => t.value === id);
-
-  if (trimmed.startsWith('#')) {
-    const opt = findSimple('hashtag');
-    if (opt) {
-      return { targetId: opt.value, label: opt.simpleLabel ?? opt.label };
+  const pick = (...ids: string[]): SmartTargetSuggestion | null => {
+    for (const id of ids) {
+      const option = simpleTargets.find((target) => target.value === id);
+      if (option) {
+        return { targetId: option.value, label: option.simpleLabel ?? option.label };
+      }
     }
+    return null;
+  };
+  if (trimmed.startsWith('#')) {
+    return pick('hashtags');
   }
   if (trimmed.startsWith('@')) {
-    const opt = findSimple('author') ?? findSimple('sender');
-    if (opt) {
-      return { targetId: opt.value, label: opt.simpleLabel ?? opt.label };
-    }
+    return pick('author', 'sender');
   }
-  if (DOMAIN_OR_URL.test(trimmed)) {
-    const opt = findSimple('link_url');
-    if (opt) {
-      return { targetId: opt.value, label: opt.simpleLabel ?? opt.label };
-    }
-  }
-  return null;
+  return DOMAIN_OR_URL.test(trimmed) ? pick('link_urls', 'domain') : null;
 }
 
-/** Finds the `HighlightPreset` matching a `css` action (defaults to the first preset). */
+/** The highlight preset a style action uses (the first preset when it uses none). */
 export function highlightPresetForAction(action: Action | undefined): HighlightPreset {
-  const found = HIGHLIGHT_PRESETS.find((preset) => preset.css === action?.content);
-  return found ?? (HIGHLIGHT_PRESETS[0] as HighlightPreset);
+  const css = action?.kind === 'style' ? action.css : undefined;
+  return (
+    HIGHLIGHT_PRESETS.find((preset) => preset.css === css) ??
+    (HIGHLIGHT_PRESETS[0] as HighlightPreset)
+  );
 }
 
 /**
- * Normalizes a single chip value for `target` on `schema`: strips leading `#`
- * for `hashtag` when the site's extractor omits `#` (e.g. Facebook), and strips
- * leading `@` for `author` when the site's extractor omits `@` (e.g. Instagram,
- * Facebook).
+ * Normalises one chip for `part`: hashtags are stored without `#`, and a
+ * leading `@` is dropped for `author` when the site's sample author has none.
  */
-export function normalizeChipForTarget(chip: string, target: string, schema: FilterSchema): string {
+export function normalizeChipForTarget(chip: string, part: string, schema: FilterSchema): string {
   const trimmed = chip.trim();
-  if (!trimmed) {
-    return '';
+  if (part === 'hashtags' && trimmed.startsWith('#')) {
+    return trimmed.slice(1).trim();
   }
-  if (target === 'hashtag') {
-    const sampleTag = schema.sampleItem?.hashtag ?? '';
-    if (sampleTag.length > 0 && !sampleTag.startsWith('#') && trimmed.startsWith('#')) {
-      return trimmed.slice(1).trim();
+  if (part === 'domain' && trimmed.includes('/')) {
+    // Domain parts hold a bare host name, so a pasted address keeps only its host.
+    try {
+      const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+      return url.hostname.replace(/^www\./i, '');
+    } catch {
+      return trimmed;
     }
   }
-  if (target === 'author') {
+  if (part === 'author' && trimmed.startsWith('@')) {
     const sampleAuthor = schema.sampleItem?.author ?? '';
-    if (sampleAuthor.length > 0 && !sampleAuthor.includes('@') && trimmed.startsWith('@')) {
+    if (sampleAuthor.length > 0 && !sampleAuthor.includes('@')) {
       return trimmed.slice(1).trim();
     }
   }
   return trimmed;
 }
 
-/** Normalizes and deduplicates chips for `target` on `schema`. */
+/** Normalises chips for `part` and drops empty ones and repeats. */
 export function normalizeChipsForTarget(
   chips: readonly string[],
-  target: string,
+  part: string,
   schema: FilterSchema,
 ): string[] {
   const normalized = chips
-    .map((chip) => normalizeChipForTarget(chip, target, schema))
+    .map((chip) => normalizeChipForTarget(chip, part, schema))
     .filter((chip) => chip.length > 0);
   return appendUniqueChips([], normalized);
 }
 
 /**
- * Builds a safe, reversible (`show_note: true`) filter directly from the list
- * view's 1-line Quick Hide bar, supporting comma-separated terms and smart
- * `#tag` / `@account` / URL detection.
+ * The Quick Hide bar's filter: hide items whose whole text contains any of
+ * the comma-separated terms. Null when there is nothing to look for.
  */
 export function createQuickHideFilter(rawText: string, schema: FilterSchema): Filter | null {
-  const parts = splitChipInput(rawText);
-  if (parts.length === 0) {
+  // A bare `#` or `@` would hide every item that contains one.
+  const terms = appendUniqueChips(
+    [],
+    splitChipInput(rawText).filter((term) => term.replace(/^[#@]+/, '').trim().length > 0),
+  );
+  if (terms.length === 0) {
     return null;
   }
-  const first = parts[0] as string;
-  let target = getSimpleTargets(schema)[0]?.value ?? 'any';
-  if (parts.length === 1) {
-    const detected = detectSmartTarget(first, target, schema);
-    if (detected) {
-      target = detected.targetId;
-    }
-  }
-  const cleaned = normalizeChipsForTarget(parts, target, schema);
-  if (cleaned.length === 0) {
-    return null;
-  }
-  return withSimpleChips(newSimpleFilter(schema), target, cleaned);
+  return withSimpleChips(newFilter(), defaultTextPart(schema), terms);
 }

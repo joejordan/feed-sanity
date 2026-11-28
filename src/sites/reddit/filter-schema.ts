@@ -1,22 +1,26 @@
-// Declarative FilterSchema for Reddit (Shreddit) feed posts.
+// Filter editor vocabulary for Reddit (Shreddit) feed posts.
 
 import type { FilterSchema } from '../../ui/filters/schema';
-import { newAction, newFilter, newRule } from '../../core/filter-types';
-import { DAY_TARGET_OPTION, HIGHLIGHT_CSS, standardFilterActions } from '../../ui/filters/schema';
+import { newAction, newCondition, newFilter } from '../../core/filter-types';
+import {
+  HIGHLIGHT_CSS,
+  standardFilterActions,
+  WEEKDAY_TARGET_OPTION,
+} from '../../ui/filters/schema';
 
 export const REDDIT_FILTER_SCHEMA: FilterSchema = {
   siteName: 'Reddit',
   itemSingular: 'post',
   itemPlural: 'posts',
   targetLabel: 'Part of the post',
-  selectorTargets: ['any'],
   selectorPlaceholder: 'e.g. shreddit-player, [slot="post-media-container"]',
   targets: [
     {
-      value: 'any',
+      value: 'text',
       label: 'Any post content',
       simpleLabel: 'Anything',
       primary: true,
+      elementTest: true,
       group: 'Post content',
       placeholder: 'e.g. spoilers, politics, crypto',
     },
@@ -53,6 +57,13 @@ export const REDDIT_FILTER_SCHEMA: FilterSchema = {
       placeholder: 'e.g. youtube.com, x.com',
     },
     {
+      value: 'link_urls',
+      label: 'Link address',
+      list: true,
+      group: 'Media & links',
+      placeholder: 'e.g. youtube.com/watch',
+    },
+    {
       value: 'flair',
       label: 'Post flair',
       group: 'Post content',
@@ -70,7 +81,7 @@ export const REDDIT_FILTER_SCHEMA: FilterSchema = {
       group: 'Feed signals',
       placeholder: 'sponsored',
     },
-    DAY_TARGET_OPTION,
+    WEEKDAY_TARGET_OPTION,
   ],
   actions: standardFilterActions('post'),
   recipes: [
@@ -80,12 +91,7 @@ export const REDDIT_FILTER_SCHEMA: FilterSchema = {
       description: 'Hide all posts from a specific community in your Home or Popular feed.',
       badge: 'Hide',
       tone: 'hide',
-      create: () =>
-        newFilter({
-          title: 'Mute subreddit',
-          rules: [newRule('subreddit')],
-          actions: [{ action: 'hide', show_note: true }],
-        }),
+      create: () => newFilter({ name: 'Mute subreddit', conditions: [newCondition('subreddit')] }),
     },
     {
       id: 'reddit-mute-keyword',
@@ -93,12 +99,7 @@ export const REDDIT_FILTER_SCHEMA: FilterSchema = {
       description: 'Collapse posts whose title or body mentions a muted topic.',
       badge: 'Hide',
       tone: 'hide',
-      create: () =>
-        newFilter({
-          title: 'Mute keyword',
-          rules: [newRule('any')],
-          actions: [{ action: 'hide', show_note: true }],
-        }),
+      create: () => newFilter({ name: 'Mute keyword', conditions: [newCondition('text')] }),
     },
     {
       id: 'reddit-highlight-subreddit',
@@ -108,23 +109,23 @@ export const REDDIT_FILTER_SCHEMA: FilterSchema = {
       tone: 'style',
       create: () =>
         newFilter({
-          title: 'Highlight subreddit',
-          rules: [newRule('subreddit')],
-          actions: [{ action: 'css', content: HIGHLIGHT_CSS.accent }],
+          name: 'Highlight subreddit',
+          conditions: [newCondition('subreddit')],
+          actions: [{ ...newAction('style'), css: HIGHLIGHT_CSS.accent }],
         }),
     },
     {
       id: 'reddit-allowlist-subreddit',
       title: 'Always keep a subreddit visible',
-      description: 'Allowlist a subreddit so lower mute rules never hide its posts.',
+      description: 'Allowlist a subreddit so later mute filters never hide its posts.',
       badge: 'Keep',
-      tone: 'unhide',
+      tone: 'keep',
       create: () =>
         newFilter({
-          title: 'Keep subreddit visible',
-          stop_on_match: true,
-          rules: [newRule('subreddit')],
-          actions: [newAction('unhide')],
+          name: 'Keep subreddit visible',
+          stopAfter: true,
+          conditions: [newCondition('subreddit')],
+          actions: [newAction('keep')],
         }),
     },
   ],

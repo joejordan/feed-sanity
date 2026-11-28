@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { ActionTone } from './schema';
+import { FilterIcon } from './icons';
 
 export function pillClassFor(option: { readonly tone?: ActionTone } | undefined): string {
   return option?.tone ? `fr-pill fr-pill--${option.tone}` : 'fr-pill';
@@ -18,7 +19,7 @@ export interface GroupedSelectProps {
   onChange: (value: string) => void;
 }
 
-/** Drop-down with optional `<optgroup>`s that preserves unknown legacy saved values. */
+/** Drop-down with optional `<optgroup>`s. A saved value it does not list stays selectable. */
 export function GroupedSelect({ label, value, options, onChange }: GroupedSelectProps) {
   const known = options.some((opt) => opt.value === value);
   const groups = useMemo(() => {
@@ -70,7 +71,7 @@ export interface ToggleChipProps {
   label: string;
   glyph?: string;
   checked: boolean;
-  title?: string;
+  title?: string | undefined;
   onChange: (checked: boolean) => void;
 }
 
@@ -90,5 +91,54 @@ export function ToggleChip({ label, glyph, checked, title, onChange }: ToggleChi
       )}
       <span>{label}</span>
     </label>
+  );
+}
+
+/** Trash button that removes a condition or action. Renders nothing without `onRemove`. */
+export function RemoveButton({
+  noun,
+  index,
+  onRemove,
+}: {
+  readonly noun: 'condition' | 'action';
+  readonly index: number;
+  readonly onRemove?: (() => void) | undefined;
+}) {
+  if (!onRemove) {
+    return null;
+  }
+  return (
+    <button
+      className="fr-icon-btn fr-icon-btn--danger"
+      type="button"
+      aria-label={`Remove ${noun} ${index + 1}`}
+      title={`Remove ${noun}`}
+      onClick={onRemove}
+    >
+      <FilterIcon name="trash" />
+    </button>
+  );
+}
+
+/** Card for a saved condition or action this version does not understand. */
+export function UnsupportedCard({
+  noun,
+  index,
+  onRemove,
+}: {
+  readonly noun: 'condition' | 'action';
+  readonly index: number;
+  readonly onRemove?: (() => void) | undefined;
+}) {
+  const effect = noun === 'condition' ? 'is not used' : 'does nothing';
+  return (
+    <div className="fr-block-card" data-kind="unknown">
+      <div className="fr-action-top">
+        <span className="fr-adv-banner">
+          This {noun} was saved by another version and {effect}. Remove it or edit the filter code.
+        </span>
+        <RemoveButton noun={noun} index={index} onRemove={onRemove} />
+      </div>
+    </div>
   );
 }

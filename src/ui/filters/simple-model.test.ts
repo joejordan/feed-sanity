@@ -1,196 +1,203 @@
 import { describe, expect, it } from 'vitest';
-import type { Filter } from '../../core/filter-types';
+import type { Filter, TextCondition } from '../../core/filter-types';
+import { newAction, newCondition, newFilter } from '../../core/filter-types';
 import { FACEBOOK_FILTER_SCHEMA } from '../../features/post-filters/schema';
 import { GMAIL_FILTER_SCHEMA } from '../../sites/gmail/filter-schema';
 import { INSTAGRAM_FILTER_SCHEMA } from '../../sites/instagram/filter-schema';
+import { REDDIT_FILTER_SCHEMA } from '../../sites/reddit/filter-schema';
 import { X_FILTER_SCHEMA } from '../../sites/x/filter-schema';
 import { HIGHLIGHT_CSS } from './schema';
 import {
+  activeSimpleTarget,
   commitPendingText,
   createQuickHideFilter,
   detectSmartTarget,
   extractSimpleChips,
   isSimpleCompatible,
   newSimpleFilter,
+  normalizeChipForTarget,
   withSimpleChips,
 } from './simple-model';
 import { displayFilterTitle, summarizeFilter } from './summary';
 
-describe('simple-model', () => {
-  it('accepts simple single- and multi-chip filters and rejects every advanced feature losslessly', () => {
-    const simple = withSimpleChips(newSimpleFilter(FACEBOOK_FILTER_SCHEMA), 'any', [
-      'crypto',
-      'giveaway',
+const FB = FACEBOOK_FILTER_SCHEMA;
+
+function withCondition(filter: Filter, changes: Partial<TextCondition>): Filter {
+  const first = filter.conditions[0] as TextCondition;
+  return { ...filter, conditions: [{ ...first, ...changes }] };
+}
+
+describe('isSimpleCompatible', () => {
+  const simple = withSimpleChips(newSimpleFilter(FB), 'text', ['crypto', 'giveaway']);
+
+  it('accepts one contains condition whose values are the chips', () => {
+    expect(isSimpleCompatible(simple, FB)).toEqual({ ok: true });
+    expect(simple.join).toBe('any');
+    expect(simple.conditions).toEqual([
+      { kind: 'text', part: 'text', test: 'contains', values: ['crypto', 'giveaway'] },
     ]);
-    expect(isSimpleCompatible(simple, FACEBOOK_FILTER_SCHEMA).ok).toBe(true);
-    expect(simple.match).toBe('ANY');
-    expect(simple.rules).toHaveLength(2);
-    expect(simple.actions).toEqual([{ action: 'hide', show_note: true }]);
+    expect(simple.actions).toEqual([{ kind: 'hide' }]);
+  });
 
-    // Rejects ALL (AND) with >1 rules
-    expect(isSimpleCompatible({ ...simple, match: 'ALL' }, FACEBOOK_FILTER_SCHEMA).ok).toBe(false);
-
-    // Rejects regex matcher (or legacy omitted matcher)
-    const legacyRegex: Filter = {
+  it('accepts one condition per chip under any', () => {
+    const perChip: Filter = {
       ...simple,
-      rules: [{ target: 'any', operator: 'contains', condition: { text: 'foo|bar' } }],
-    };
-    expect(isSimpleCompatible(legacyRegex, FACEBOOK_FILTER_SCHEMA).ok).toBe(false);
-
-    // Rejects negated rule (both modern `not: true` and legacy `not_contains` prefix)
-    const negated: Filter = {
-      ...simple,
-      rules: [
-        {
-          target: 'any',
-          operator: 'contains',
-          not: true,
-          matcher: 'str',
-          match_partial_words: true,
-          condition: { text: 'crypto', modifier: 'i' },
-        },
+      conditions: [
+        { ...newCondition('author'), values: ['Sam'] },
+        { ...newCondition('author'), values: ['Alex'] },
       ],
     };
-    expect(isSimpleCompatible(negated, FACEBOOK_FILTER_SCHEMA).ok).toBe(false);
+    expect(isSimpleCompatible(perChip, FB).ok).toBe(true);
+    expect(extractSimpleChips(perChip)).toEqual(['Sam', 'Alex']);
+    expect(isSimpleCompatible({ ...perChip, join: 'all' }, FB).ok).toBe(false);
+  });
+
+  it('rejects every condition option Simple mode cannot show', () => {
+    expect(isSimpleCompatible(withCondition(simple, { negate: true }), FB).ok).toBe(false);
+    expect(isSimpleCompatible(withCondition(simple, { matchCase: true }), FB).ok).toBe(false);
+    expect(isSimpleCompatible(withCondition(simple, { wholeWords: true }), FB).ok).toBe(false);
+    expect(isSimpleCompatible(withCondition(simple, { test: 'regex' }), FB).ok).toBe(false);
+    expect(isSimpleCompatible(withCondition(simple, { test: 'is' }), FB).ok).toBe(false);
+    // `body` is a valid part, but not one of Facebook's Simple pills.
+    expect(isSimpleCompatible(withCondition(simple, { part: 'body' }), FB)).toEqual({
+      ok: false,
+      reason: 'Uses an advanced part or condition',
+    });
+    const mixed: Filter = {
+      ...simple,
+      conditions: [newCondition('text'), newCondition('author')],
+    };
+    expect(isSimpleCompatible(mixed, FB).ok).toBe(false);
+    const weekday: Filter = { ...simple, conditions: [{ kind: 'weekday', days: [1] }] };
+    expect(isSimpleCompatible(weekday, FB).ok).toBe(false);
+  });
+
+  it('accepts goal actions only, and style only with a preset', () => {
+    const preset: Filter = { ...simple, actions: [{ kind: 'style', css: HIGHLIGHT_CSS.gold }] };
+    expect(isSimpleCompatible(preset, FB).ok).toBe(true);
+    expect(
+      isSimpleCompatible({ ...simple, actions: [{ kind: 'style', css: 'color: red' }] }, FB).ok,
+    ).toBe(false);
     expect(
       isSimpleCompatible(
-        {
-          ...simple,
-          rules: [
-            {
-              target: 'any',
-              operator: 'not_contains',
-              matcher: 'str',
-              match_partial_words: true,
-              condition: { text: 'crypto', modifier: 'i' },
-            },
-          ],
-        },
-        FACEBOOK_FILTER_SCHEMA,
+        { ...simple, actions: [{ kind: 'style', css: HIGHLIGHT_CSS.gold, selector: 'a' }] },
+        FB,
       ).ok,
     ).toBe(false);
-
-    // Rejects case-sensitive and whole-word-only
-    const caseSensitive: Filter = {
-      ...simple,
-      rules: [
-        {
-          target: 'any',
-          operator: 'contains',
-          matcher: 'str',
-          match_partial_words: true,
-          condition: { text: 'NFT', modifier: 'I' },
-        },
-      ],
-    };
-    expect(isSimpleCompatible(caseSensitive, FACEBOOK_FILTER_SCHEMA).ok).toBe(false);
-
-    // Rejects custom CSS, empty CSS, & selectors; accepts built-in Highlight presets
-    const presetHighlight: Filter = {
-      ...simple,
-      actions: [{ action: 'css', content: HIGHLIGHT_CSS.gold }],
-    };
-    expect(isSimpleCompatible(presetHighlight, FACEBOOK_FILTER_SCHEMA).ok).toBe(true);
-    expect(
-      isSimpleCompatible(
-        { ...simple, actions: [{ action: 'css', content: 'border: 1px solid red;' }] },
-        FACEBOOK_FILTER_SCHEMA,
-      ).ok,
-    ).toBe(false);
-    expect(
-      isSimpleCompatible({ ...simple, actions: [{ action: 'css' }] }, FACEBOOK_FILTER_SCHEMA).ok,
-    ).toBe(false);
-    expect(isSimpleCompatible({ ...simple, actions: [] }, FACEBOOK_FILTER_SCHEMA)).toEqual({
+    expect(isSimpleCompatible({ ...simple, actions: [newAction('set_read')] }, FB).ok).toBe(false);
+    expect(isSimpleCompatible({ ...simple, actions: [] }, FB)).toEqual({
       ok: false,
       reason: 'Has no actions',
     });
-
-    // Accepts unhide with stop_on_match: true, rejects hide with stop_on_match: true
     expect(
-      isSimpleCompatible(
-        { ...simple, stop_on_match: true, actions: [{ action: 'unhide' }] },
-        FACEBOOK_FILTER_SCHEMA,
-      ).ok,
-    ).toBe(true);
-    expect(isSimpleCompatible({ ...simple, stop_on_match: true }, FACEBOOK_FILTER_SCHEMA).ok).toBe(
-      false,
+      isSimpleCompatible({ ...simple, actions: [{ kind: 'hide', noteText: 'x {match}' }] }, FB).ok,
+    ).toBe(false);
+    expect(isSimpleCompatible({ ...simple, actions: [{ kind: 'hide', note: false }] }, FB).ok).toBe(
+      true,
     );
   });
 
-  it('commits comma-separated pending text deduplicating case-insensitively', () => {
-    const base = withSimpleChips(newSimpleFilter(X_FILTER_SCHEMA), 'any', ['crypto']);
-    const updated = commitPendingText(base, 'CRYPTO, giveaway, C++', 'any');
-    expect(extractSimpleChips(updated)).toEqual(['crypto', 'giveaway', 'C++']);
-  });
-
-  it('creates smart Quick Hide filters across Facebook, X, Instagram, and Gmail', () => {
-    const fbTag = createQuickHideFilter('#spoilers', FACEBOOK_FILTER_SCHEMA);
-    expect(fbTag?.rules?.[0]).toMatchObject({
-      target: 'hashtag',
-      matcher: 'str',
-      condition: { text: 'spoilers', modifier: 'i' },
-    });
-    expect(fbTag?.actions).toEqual([{ action: 'hide', show_note: true }]);
-
-    const xTag = createQuickHideFilter('#airdrop', X_FILTER_SCHEMA);
-    expect(xTag?.rules?.[0]).toMatchObject({
-      target: 'hashtag',
-      condition: { text: '#airdrop' },
-    });
-
-    // Instagram strips `@` from author handles; X retains `@`.
-    const igAuthor = createQuickHideFilter('@barista_daily', INSTAGRAM_FILTER_SCHEMA);
-    expect(igAuthor?.rules?.[0]).toMatchObject({
-      target: 'author',
-      condition: { text: 'barista_daily' },
-    });
-    const xAuthor = createQuickHideFilter('@alexdev', X_FILTER_SCHEMA);
-    expect(xAuthor?.rules?.[0]).toMatchObject({
-      target: 'author',
-      condition: { text: '@alexdev' },
-    });
-
-    // URL routes to link_url where available; empty / bare prefix returns null.
+  it('allows stopAfter only with keep', () => {
+    expect(isSimpleCompatible({ ...simple, stopAfter: true }, FB).ok).toBe(false);
     expect(
-      createQuickHideFilter('https://tiktok.com', FACEBOOK_FILTER_SCHEMA)?.rules?.[0],
-    ).toMatchObject({
-      target: 'link_url',
-      condition: { text: 'https://tiktok.com' },
-    });
-    expect(createQuickHideFilter(' , , ', FACEBOOK_FILTER_SCHEMA)).toBeNull();
-    expect(createQuickHideFilter('#', FACEBOOK_FILTER_SCHEMA)).toBeNull();
-    expect(createQuickHideFilter('@', INSTAGRAM_FILTER_SCHEMA)).toBeNull();
+      isSimpleCompatible({ ...simple, stopAfter: true, actions: [newAction('keep')] }, FB).ok,
+    ).toBe(true);
+  });
+});
 
-    const gmailMulti = createQuickHideFilter('sale, promo', GMAIL_FILTER_SCHEMA);
-    expect(extractSimpleChips(gmailMulti!)).toEqual(['sale', 'promo']);
-    expect(gmailMulti?.rules?.[0]?.target).toBe('any');
+describe('chips', () => {
+  it('commits pending comma-separated text without repeats', () => {
+    const base = withSimpleChips(newSimpleFilter(FB), 'text', ['cats']);
+    const next = commitPendingText(base, 'Cats, dogs ,', 'text', FB);
+    expect(extractSimpleChips(next)).toEqual(['cats', 'dogs']);
+    expect(commitPendingText(base, ' , ', 'text', FB)).toBe(base);
   });
 
-  it('detects smart target nudges only when currently matching any', () => {
-    expect(detectSmartTarget('#election', 'any', FACEBOOK_FILTER_SCHEMA)).toEqual({
-      targetId: 'hashtag',
+  it('keeps an empty value when there are no chips', () => {
+    const empty = withSimpleChips(newSimpleFilter(FB), 'author', []);
+    expect(empty.conditions).toEqual([newCondition('author')]);
+    expect(activeSimpleTarget(empty, FB)).toBe('author');
+  });
+
+  it('strips # from hashtags and @ from authors where the site leaves it out', () => {
+    expect(normalizeChipForTarget('#cats', 'hashtags', FB)).toBe('cats');
+    expect(normalizeChipForTarget('@barista_daily', 'author', INSTAGRAM_FILTER_SCHEMA)).toBe(
+      'barista_daily',
+    );
+    // X's sample author carries the handle with its @.
+    expect(normalizeChipForTarget('@alexdev', 'author', X_FILTER_SCHEMA)).toBe('@alexdev');
+    // Domain parts hold a bare host name.
+    expect(
+      normalizeChipForTarget('https://www.youtube.com/watch?v=1', 'domain', REDDIT_FILTER_SCHEMA),
+    ).toBe('youtube.com');
+    expect(normalizeChipForTarget('github.com', 'domain', REDDIT_FILTER_SCHEMA)).toBe('github.com');
+  });
+});
+
+describe('detectSmartTarget', () => {
+  it('suggests a part for #tags, @accounts and addresses typed on the whole item', () => {
+    expect(detectSmartTarget('#election', 'text', FB)).toEqual({
+      targetId: 'hashtags',
       label: 'Hashtag',
     });
-    expect(detectSmartTarget('@promo', 'any', X_FILTER_SCHEMA)).toEqual({
-      targetId: 'author',
-      label: '@Handle',
+    expect(detectSmartTarget('@someone', 'text', GMAIL_FILTER_SCHEMA)).toEqual({
+      targetId: 'sender',
+      label: 'Sender',
     });
-    expect(detectSmartTarget('https://tiktok.com', 'any', FACEBOOK_FILTER_SCHEMA)).toEqual({
-      targetId: 'link_url',
+    expect(detectSmartTarget('https://tiktok.com', 'text', X_FILTER_SCHEMA)).toEqual({
+      targetId: 'link_urls',
       label: 'Link',
     });
-    expect(detectSmartTarget('#election', 'author', FACEBOOK_FILTER_SCHEMA)).toBeNull();
+    // Facebook has no Simple link pill.
+    expect(detectSmartTarget('https://tiktok.com', 'text', FB)).toBeNull();
+    expect(detectSmartTarget('#election', 'author', FB)).toBeNull();
+  });
+});
+
+describe('createQuickHideFilter', () => {
+  it('builds a contains hide filter on the whole text', () => {
+    const created = createQuickHideFilter('spoilers, #finale', FB);
+    expect(created?.conditions).toEqual([
+      { kind: 'text', part: 'text', test: 'contains', values: ['spoilers', '#finale'] },
+    ]);
+    expect(created?.actions).toEqual([{ kind: 'hide' }]);
+    expect(created?.enabled).toBe(true);
+    expect(createQuickHideFilter(' , , ', FB)).toBeNull();
+    // A bare # or @ would hide every item that contains one.
+    expect(createQuickHideFilter('#, @', FB)).toBeNull();
+  });
+});
+
+describe('summaries', () => {
+  it('titles a filter from its chips and summarises it in words', () => {
+    const multi = withSimpleChips(newSimpleFilter(FB), 'text', ['crypto', 'giveaway', 'nft']);
+    expect(displayFilterTitle(multi, FB)).toBe('Hide "crypto, giveaway +1"');
+    expect(summarizeFilter(multi, FB).line).toBe(
+      'Hide the post when Anything in the post contains "crypto" or "giveaway" or "nft"',
+    );
+    expect(displayFilterTitle({ ...multi, name: 'No crypto' }, FB)).toBe('No crypto');
   });
 
-  it('collapses shared-target OR chip filters cleanly in displayFilterTitle and summarizeFilter', () => {
-    const multi = withSimpleChips(newSimpleFilter(FACEBOOK_FILTER_SCHEMA), 'any', [
-      'crypto',
-      'giveaway',
-      'nft',
-    ]);
-    expect(displayFilterTitle(multi, FACEBOOK_FILTER_SCHEMA)).toBe('Hide "crypto, giveaway +1"');
-    expect(summarizeFilter(multi, FACEBOOK_FILTER_SCHEMA).line).toBe(
-      'Hide post (with note) when Any post content contains "crypto" or "giveaway" or "nft"',
+  it('words negation, regex, joins and the other kinds', () => {
+    const filter = newFilter({
+      join: 'all',
+      conditions: [
+        { kind: 'text', part: 'author', test: 'starts', values: ['Sam'], negate: true },
+        { kind: 'text', part: 'body', test: 'regex', values: ['a|b'] },
+        { kind: 'weekday', days: [6, 0] },
+      ],
+      actions: [{ kind: 'hide', note: false }, newAction('set_read')],
+    });
+    const summary = summarizeFilter(filter, FB);
+    expect(summary.line).toBe(
+      `Hide the post (no note) when Author does not start with "Sam" and The author's message matches regex /a|b/ (+1 more)`,
     );
+    expect(summary.extraActionCount).toBe(1);
+    const element = newFilter({ conditions: [{ kind: 'element', selector: 'video' }] });
+    expect(summarizeFilter(element, FB).line).toBe(
+      'Hide the post when the post contains an element matching `video`',
+    );
+    const days = newFilter({ conditions: [{ kind: 'weekday', days: [6, 0] }] });
+    expect(summarizeFilter(days, FB).line).toBe('Hide the post when the day is Sun, Sat');
   });
 });

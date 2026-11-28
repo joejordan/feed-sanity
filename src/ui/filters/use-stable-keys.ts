@@ -1,14 +1,12 @@
-// Maintains stable numeric React/Preact keys for ordered lists whose persisted
-// items (Filter, Rule, Action) must NOT carry synthetic ID properties.
+// Stable numeric Preact keys for ordered lists whose saved items carry no id
+// of their own (a filter's conditions, actions and values).
 
 import { useRef } from 'react';
 
 export interface StableKeyList {
   readonly keys: readonly number[];
   readonly push: () => void;
-  readonly insertAt: (index: number) => void;
   readonly removeAt: (index: number) => void;
-  readonly move: (from: number, to: number) => void;
 }
 
 export function useStableKeys(length: number): StableKeyList {
@@ -27,17 +25,8 @@ export function useStableKeys(length: number): StableKeyList {
     push() {
       keysRef.current.push(nextId.current++);
     },
-    insertAt(index) {
-      keysRef.current.splice(index, 0, nextId.current++);
-    },
     removeAt(index) {
       keysRef.current.splice(index, 1);
-    },
-    move(from, to) {
-      const [movedKey] = keysRef.current.splice(from, 1);
-      if (movedKey !== undefined) {
-        keysRef.current.splice(to, 0, movedKey);
-      }
     },
   };
 }
