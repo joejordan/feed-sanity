@@ -14,7 +14,6 @@ import {
   ago,
   badgeSummary,
   bridgeSummary,
-  classNamesSummary,
   diagnosticsReport,
   NEVER_FOUND_AFTER,
   NOT_STARTED,
@@ -214,8 +213,7 @@ function HealthOverview({
 }
 
 function Facts({ diagnostics }: { diagnostics: Diagnostics }) {
-  const { version, build, pageType, badge, classNames, bridge } = diagnostics;
-  const showClassNames = classNames.started || classNames.total > 0;
+  const { version, build, pageType, badge, bridge } = diagnostics;
   return (
     <SettingCard title="Environment & Page Bridge">
       <dl className="diag-facts">
@@ -246,17 +244,6 @@ function Facts({ diagnostics }: { diagnostics: Diagnostics }) {
             </span>
           </dd>
         </div>
-        {showClassNames && (
-          <div className="diag-fact-row">
-            <dt>Class names</dt>
-            <dd>
-              {classNamesSummary(classNames)}
-              {classNames.started && classNames.missing.length > 0 && (
-                <span className="diag-small">Missing: {classNames.missing.join(', ')}</span>
-              )}
-            </dd>
-          </div>
-        )}
       </dl>
     </SettingCard>
   );

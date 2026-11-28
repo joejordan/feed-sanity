@@ -1,7 +1,6 @@
 import type { BridgeStatus } from '../core/bridge';
 import type { LocatorStats, StrategyState } from '../core/locator';
 import type { Badge } from '../core/platform';
-import type { ClassNameStats } from '../facebook/atoms';
 import type { PostStats } from '../facebook/posts';
 import type { Diagnostics } from './collect';
 import { NAME } from '../../project';
@@ -63,10 +62,6 @@ export function postSummary({ tracked, withId, withoutId, identifying }: PostSta
 
 export const slotSummary = ({ unrecognised }: PostStats): string =>
   `Feed slots with content not taken for posts: ${unrecognised}.`;
-
-/** How many class names are known, as `102 of 109 known`. */
-export const classNamesSummary = ({ started, known, total }: ClassNameStats): string =>
-  started ? `${known} of ${total} known` : 'not looked for yet';
 
 /** Whether the page-world bridge is connected, in words. */
 export function bridgeSummary({
@@ -132,23 +127,8 @@ export function diagnosticsReport(
   scrubMessage = scrub,
   scrubPageType: (pageType: string) => string = (type) => type,
 ): string {
-  const {
-    version,
-    build,
-    pageType,
-    badge,
-    features,
-    posts,
-    classNames,
-    locators,
-    bridge,
-    extraSections,
-    at,
-  } = diagnostics;
-  const missing =
-    classNames.started && classNames.missing.length > 0
-      ? ` Missing: ${classNames.missing.join(', ')}.`
-      : '';
+  const { version, build, pageType, badge, features, posts, locators, bridge, extraSections, at } =
+    diagnostics;
   const extraLines =
     extraSections?.flatMap((section) => [
       '',
@@ -172,8 +152,6 @@ export function diagnosticsReport(
     ...(posts.started
       ? [`  ${postSummary(posts)}`, `  ${slotSummary(posts)}`]
       : [`  ${NOT_STARTED}`]),
-    '',
-    `Class names: ${classNamesSummary(classNames)}.${missing}`,
     ...extraLines,
     '',
     'Locators',

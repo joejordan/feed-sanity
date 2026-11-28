@@ -10,7 +10,8 @@ describe('selectors', () => {
     if (isLocatorSpec(value)) {
       return value.strategies.map(({ selector }) => selector);
     }
-    return Object.values(value);
+    // `MARK` holds attribute names, tested as attribute selectors.
+    return Object.values(value).map((name) => `[${name}]`);
   });
 
   it('gives every locator a name of its own', () => {
@@ -22,7 +23,7 @@ describe('selectors', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it('can run every strategy once its classes are known', () => {
+  it('can run every strategy', () => {
     const specs = Object.values(selectors).filter(isLocatorSpec);
     const locators = new Locators({ resolve: (selector) => selector, onChange: () => () => true });
     for (const spec of specs) {
@@ -37,9 +38,18 @@ describe('selectors', () => {
   });
 
   it('holds valid selectors', () => {
-    // TODO(clean): skip the fb-dom unit's `MARK` attribute names here once they exist.
     for (const text of texts) {
       expect(() => document.querySelector(text), text).not.toThrow();
     }
+  });
+});
+
+describe('MARK', () => {
+  it('names attributes in the data-feed-sanity family, apart from the own-element attribute', () => {
+    for (const name of Object.values(selectors.MARK)) {
+      expect(name).toMatch(/^data-feed-sanity-[a-z-]+$/);
+      expect(name).not.toBe(selectors.OWN);
+    }
+    expect(new Set(Object.values(selectors.MARK)).size).toBe(Object.values(selectors.MARK).length);
   });
 });

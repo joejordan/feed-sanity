@@ -4,7 +4,7 @@ import { ago, diagnosticsReport, neverFound, scrub } from './report';
 import { diagnostics, locator, NOW, strategy } from './testing';
 
 describe('diagnosticsReport', () => {
-  it('holds the build, the page type, the features, the posts, the class names and the locators', () => {
+  it('holds the build, the page type, the features, the posts and the locators', () => {
     const report = diagnosticsReport(diagnostics());
 
     expect(report).toContain('Version 1.2.3, Chrome extension');
@@ -15,12 +15,12 @@ describe('diagnosticsReport', () => {
       '16 posts on the page: 13 with an ID, 2 without one, 1 still being identified.',
     );
     expect(report).toContain('Feed slots with content not taken for posts: 0.');
-    expect(report).toContain('Class names: 102 of 109 known. Missing: bb_bt2, font_bold.');
-    expect(report).toContain('post (any): 30 lookups, 30 found');
+    expect(report).not.toContain('Class names');
+    expect(report).toContain('feed-slot (any): 30 lookups, 30 found');
     expect(report).toContain(
-      '  div.FS_reel | seen 2023 | waiting for a class | 30 lookups | 0 found | last found 4 s ago',
+      '  [data-feed-unit] | seen 2026 | waiting for a class | 30 lookups | 0 found | last found 4 s ago',
     );
-    expect(report).toContain('post-reactions (any, never found): 30 lookups, 0 found');
+    expect(report).toContain('post-feedback (any, never found): 30 lookups, 0 found');
     expect(report).toContain(
       '  form | seen 2026-11-13 | ready | 30 lookups | 0 found | last found never',
     );

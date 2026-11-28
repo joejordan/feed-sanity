@@ -4,7 +4,7 @@ import { FeatureRunner } from '../core/app';
 import { Options } from '../core/options';
 import { SavedData } from '../core/saved';
 import { createPage, defineFeature } from '../facebook/feature';
-import { POST } from '../facebook/selectors';
+import { POST_ARTICLE } from '../facebook/selectors';
 import { installReaders } from '../facebook/testing';
 import { extensionStore } from '../platform/extension-store';
 import { collectDiagnostics } from './collect';
@@ -26,7 +26,7 @@ describe('collectDiagnostics', () => {
     const looker = defineFeature({
       id: 'looker',
       setup: ({ badge, page: facebook }) => {
-        facebook.locate(POST).all(document);
+        facebook.locate(POST_ARTICLE).all(document);
         badge(4);
       },
     });
@@ -52,10 +52,9 @@ describe('collectDiagnostics', () => {
       badge: { count: 4, failed: false },
       features: [{ id: 'looker', state: 'running', errors: 0, lastError: null }],
       posts: { started: false, tracked: 0 },
-      classNames: { started: true },
       bridge: { state: 'not started', problem: null },
     });
-    const post = diagnostics.locators.find((locator) => locator.name === 'post');
+    const post = diagnostics.locators.find((locator) => locator.name === 'post-article');
     expect(post).toMatchObject({ lookups: 1, found: 0, overridden: false });
   });
 });

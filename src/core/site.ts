@@ -11,6 +11,7 @@ import { sitesPanel } from '../ui/sites-panel';
 import { FeatureRunner } from './app';
 import { PageBridge } from './bridge';
 import { createDomEnvironment } from './dom-env';
+import { CUSTOM_FILTERS_KEY } from './filter-types';
 import { createLogger } from './log';
 import { Options } from './options';
 import { SavedData } from './saved';
@@ -72,9 +73,11 @@ function cleanupOrphanedDomArtifacts(siteId: string): void {
     el.remove();
   }
   if (siteId === 'facebook') {
-    for (const post of document.querySelectorAll('[fs_post]')) {
-      post.removeAttribute('fs_post');
-      post.removeAttribute('fs_id');
+    // The post marks, `MARK` in src/facebook/selectors.ts.
+    for (const post of document.querySelectorAll('[data-feed-sanity-post]')) {
+      post.removeAttribute('data-feed-sanity-post');
+      post.removeAttribute('data-feed-sanity-post-id');
+      post.removeAttribute('data-feed-sanity-popup-post');
     }
   }
 }
@@ -280,7 +283,7 @@ export async function startSite<P, F extends PageFactory<P>>(
         EXPERIMENTAL_SITES_KEY,
         ...(shouldRecordAccount ? [siteAccountKey] : []),
         `${bootPrefix}/options`,
-        `${bootPrefix}/filters`,
+        `${bootPrefix}/${CUSTOM_FILTERS_KEY}`,
         ...(site.themeMapping
           ? [
               `${bootPrefix}/${THEME_DATA_KEY}`,

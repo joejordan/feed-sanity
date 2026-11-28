@@ -8,7 +8,8 @@
  * counts what each strategy finds and applies the user's replacement
  * selectors.
  *
- * TODO(clean): the fb-dom unit adds the post-related locators and `MARK` here.
+ * Every strategy works from stable attributes, roles, ARIA and structure.
+ * Facebook's generated class names change between builds, so none is used.
  */
 
 import { anyOf, firstOf } from '../core/locator';
@@ -16,6 +17,13 @@ import { HIDDEN_ATTR, OWN_ATTR } from '../core/surface';
 
 /** The first live check of post markup. */
 const CHECKED = '2026-11-13';
+
+/**
+ * For strategies written from the shape of markup recorded elsewhere (the
+ * end-to-end fixture pages or the notes) and not yet looked at again on the
+ * live site by this project. Each one says so in its note.
+ */
+const RECORDED = '2026';
 
 /** Attribute on every element this project adds inside one of Facebook's. */
 export const OWN = OWN_ATTR;
@@ -44,6 +52,133 @@ export const HOME_ACTIVE = 'data-feed-sanity-home-active';
 
 /** Attribute holding a post's position in the news feed. An element that has it is a post once it has content. */
 export const FEED_POSITION = 'aria-posinset';
+
+/**
+ * The attributes this project puts on Facebook's posts. Each name is in the
+ * `data-feed-sanity-*` family, so a new build can strip an old one's marks.
+ */
+export const MARK = {
+  /** On every tracked post element. Its value is the post's number on the page. */
+  post: 'data-feed-sanity-post',
+  /** The post's Facebook ID, or `NO_POST_ID` once the lookup finished without one. */
+  postId: 'data-feed-sanity-post-id',
+  /** On the comments popup's container while it is tracked as a post. */
+  popupPost: 'data-feed-sanity-popup-post',
+} as const;
+
+/** The value of `MARK.postId` on a post whose ID lookup found nothing. */
+export const NO_POST_ID = 'none';
+
+// Posts, looked at on the news feed on 2026-11-13. See "News feed,
+// suggested posts and the top bar" in docs/facebook-notes.md.
+
+/**
+ * A news-feed slot. Facebook empties slots that scroll out of view and
+ * fills them again later, so a slot is a post only while it holds text.
+ */
+export const FEED_SLOT = anyOf('feed-slot', [
+  { selector: `[${FEED_POSITION}]`, seen: CHECKED, note: 'Also on the Feeds pages' },
+]);
+
+/**
+ * An article. One that is not inside another post is a post of its own;
+ * comments and shared posts are articles inside a post.
+ */
+export const POST_ARTICLE = anyOf('post-article', [{ selector: '[role=article]', seen: CHECKED }]);
+
+/**
+ * The comments popup that opens over the feed when a post's comments are
+ * opened. Looked for from an article up.
+ */
+export const POST_POPUP = anyOf('post-popup', [
+  {
+    selector: '[role=dialog]',
+    seen: RECORDED,
+    note: 'The post is an unlabelled article inside it, and each comment an article labelled "Comment by ..."',
+  },
+]);
+
+/**
+ * A link in a post's header, which a real post has and a placeholder does
+ * not. Feed headers use `h4`, the Feeds pages `h3`.
+ */
+export const POST_HEADER_LINK = anyOf('post-header-link', [
+  { selector: '[data-ad-rendering-role=profile_name] a[href]', seen: CHECKED },
+  {
+    selector: 'h4 a[href],h3 a[href]',
+    seen: '2026-11-14',
+    note: 'The author link inside the name heading',
+  },
+]);
+
+/**
+ * The link on a post's time. Its address is the post's own. Ads have none.
+ * In the live check, 17 of 22 posts got distinct IDs from it and the other
+ * five were ads.
+ */
+export const POST_TIME_LINK = anyOf('post-time-link', [
+  {
+    selector: 'a[role=link][aria-labelledby][aria-describedby][href]',
+    seen: CHECKED,
+    note: 'Its href already holds the post address',
+  },
+]);
+
+/**
+ * A post's comment and reaction area. What is inside it is not the post's
+ * own text, and content arriving there is not a new post.
+ */
+export const POST_FEEDBACK = anyOf('post-feedback', [
+  { selector: 'form', seen: CHECKED, note: 'The comments and the comment box are inside a form' },
+  {
+    selector: '[role=article][aria-label]',
+    seen: RECORDED,
+    note: 'A comment: an article labelled "Comment by ...". Posts are not labelled this way',
+  },
+]);
+
+/** The author's message in a post. */
+export const POST_MESSAGE = anyOf('post-message', [
+  { selector: '[data-ad-rendering-role=story_message]', seen: CHECKED },
+]);
+
+/**
+ * The author's name in a post's header: the first link in the name heading.
+ * Feed headers use `h4`, the Feeds pages `h3`.
+ */
+export const POST_AUTHOR = anyOf('post-author', [
+  { selector: 'h4 a[href]', seen: CHECKED, note: 'The name is in a strong inside the link' },
+  { selector: 'h3 a[href]', seen: '2026-11-14', note: 'The Feeds pages' },
+]);
+
+/**
+ * A link in a post's header to the group it was posted in. Looked for in
+ * the post's own header only, so a shared post's group does not count.
+ */
+export const POST_GROUP_LINK = anyOf(
+  'post-group-link',
+  [
+    {
+      selector: 'a[href*="/groups/"]',
+      seen: RECORDED,
+      note: 'The group link in the header line, as in the end-to-end feed page',
+    },
+  ],
+  { optional: true },
+);
+
+/** The name of the group a group page is about. Looked for only on group pages. */
+export const GROUP_NAME = firstOf(
+  'group-name',
+  [
+    {
+      selector: '[role=main] h1',
+      seen: RECORDED,
+      note: 'The page heading above the group feed. Not checked on the live site yet',
+    },
+  ],
+  { optional: true },
+);
 
 /** The header line of a post: who did what. */
 export const POST_HEADER = anyOf('post-header', [
@@ -257,9 +392,18 @@ export const REEL_CARD = anyOf('reel-card', [
   },
 ]);
 
-/** The post a video is in, looked for from the video up. */
-// TODO(clean): the fb-dom unit gives this its own strategies.
-export const VIDEO_POST = anyOf('video-post', []);
+/**
+ * The post a video is in: the nearest feed slot or article above it.
+ * Looked for from the video up.
+ */
+export const VIDEO_POST = anyOf('video-post', [
+  { selector: `[${FEED_POSITION}]`, seen: VIDEOS_CHECKED, note: 'A video in a news-feed slot' },
+  {
+    selector: '[role=article]',
+    seen: VIDEOS_CHECKED,
+    note: 'A video in a post outside the news feed',
+  },
+]);
 
 /**
  * Facebook's own position and volume sliders. It draws them only on the

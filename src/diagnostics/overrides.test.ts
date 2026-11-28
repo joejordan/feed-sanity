@@ -5,8 +5,8 @@ const NAMES = ['post', 'comment'];
 
 describe('checkOverrides', () => {
   it('takes valid overrides, and empty text as none', () => {
-    expect(checkOverrides('{ "post": ["[role=article]", "div.FS_pos_rel"] }', NAMES)).toEqual({
-      overrides: { post: ['[role=article]', 'div.FS_pos_rel'] },
+    expect(checkOverrides('{ "post": ["[role=article]", "[aria-posinset]"] }', NAMES)).toEqual({
+      overrides: { post: ['[role=article]', '[aria-posinset]'] },
       problems: [],
     });
     expect(checkOverrides('  ', NAMES)).toEqual({ overrides: {}, problems: [] });

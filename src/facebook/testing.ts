@@ -3,28 +3,17 @@
 import { vi } from 'vitest';
 import type { BridgeOptions } from '../core/bridge';
 import type { PageActions, PageMounts, PageReaders, PageToggles } from '../core/page-world';
-import type { AtomTranslator } from './atoms';
 import type { PageServices, PageWorld } from './feature';
 import type { Post } from './posts';
 import { PageBridge } from '../core/bridge';
-import { Locators } from '../core/locator';
+import { IDENTITY_RESOLVER, Locators } from '../core/locator';
 import { pageWatcher } from '../core/page-watcher';
 import { servePageWorld } from '../core/page-world';
+import { MARK } from './selectors';
 import { Videos } from './videos';
 
-/**
- * A class-name translator that leaves every name as it is, so a test's
- * markup can use `FS_` names as its classes.
- */
-export const fakeAtoms: AtomTranslator = {
-  translate: (text) => text,
-  resolve: (selector) => selector,
-  onChange: () => () => true,
-  start: () => Promise.resolve(),
-};
-
-/** Locators that read `FS_` names as they are, through `fakeAtoms`. */
-export const fakeLocate = new Locators(fakeAtoms).locate;
+/** Locators with the built-in strategies, as a page without the user's selectors has them. */
+export const fakeLocate = new Locators(IDENTITY_RESOLVER).locate;
 
 let nextNumber = 1;
 
@@ -32,7 +21,7 @@ let nextNumber = 1;
 export function makePost(html: string, changes: Partial<Post> = {}): Post {
   const element = document.createElement('div');
   const number = nextNumber++;
-  element.setAttribute('fs_post', String(number));
+  element.setAttribute(MARK.post, String(number));
   element.innerHTML = html;
   document.body.append(element);
   return { element, content: element, number, id: null, permalink: false, ...changes };
@@ -164,7 +153,6 @@ export function installReaders(
 export function videoPage(bridge: PageWorld = testBridge()): PageServices {
   const none = () => () => undefined;
   return {
-    atoms: fakeAtoms,
     locate: fakeLocate,
     posts: {
       onTrack: none,

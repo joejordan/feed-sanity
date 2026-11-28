@@ -8,6 +8,7 @@ import { defineCapabilityFeature } from '../capabilities';
 import { createBridgeActiveToggle } from './bind';
 import { PageBridge } from './bridge';
 import { defineFeature } from './feature';
+import { CUSTOM_FILTERS_KEY } from './filter-types';
 import { servePageWorld } from './page-world';
 import { SITE_INSTANCE_REPLACE_EVENT, SiteRegistry, scrubCommonPii, startSite } from './site';
 import { readSiteEnabledHint, writeSiteEnabledHint } from './site-hint';
@@ -241,6 +242,7 @@ describe('SiteRegistry, capabilities, and startSite', () => {
 
     // Batched preload ran once; disabled site cleared only this account's early-theme cache and style.
     expect(getManySpy).toHaveBeenCalledTimes(1);
+    expect(getManySpy.mock.calls[0]?.[0]).toContain(`v2/facebook/u1/${CUSTOM_FILTERS_KEY}`);
     expect(readEarlyThemeCss('v2/facebook/u1')).toBe('');
     expect(readEarlyThemeCss('v2/facebook/u2')).toBe('body { background: #222; }');
     expect(document.querySelector('#feed_sanity_user_theme')).toBeNull();
@@ -410,8 +412,9 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     legacyUi.setAttribute('data-feed-sanity', '');
     legacyUi.id = 'legacy_ui';
     const post = document.createElement('article');
-    post.setAttribute('fs_post', '1');
-    post.setAttribute('fs_id', '999');
+    post.setAttribute('data-feed-sanity-post', '1');
+    post.setAttribute('data-feed-sanity-post-id', '1000000999');
+    post.setAttribute('data-feed-sanity-popup-post', '');
     document.body.append(legacyUi, post);
 
     const store = inMemoryStore();
@@ -432,8 +435,9 @@ describe('SiteRegistry, capabilities, and startSite', () => {
     });
 
     expect(document.querySelector('#legacy_ui')).toBeNull();
-    expect(post.hasAttribute('fs_post')).toBe(false);
-    expect(post.hasAttribute('fs_id')).toBe(false);
+    expect(post.hasAttribute('data-feed-sanity-post')).toBe(false);
+    expect(post.hasAttribute('data-feed-sanity-post-id')).toBe(false);
+    expect(post.hasAttribute('data-feed-sanity-popup-post')).toBe(false);
     expect(document.querySelectorAll('.upgrade-marker')).toHaveLength(1);
     expect(events).toEqual(['start']);
 

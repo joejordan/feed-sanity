@@ -50,7 +50,6 @@ describe('DiagnosticsPanel', () => {
     expect(screen.getByText('1.2.3')).toBeTruthy();
     expect(screen.getByText('Chrome extension')).toBeTruthy();
     expect(screen.getByText('newsfeed')).toBeTruthy();
-    expect(screen.getByText('102 of 109 known')).toBeTruthy();
     const row = screen.getByRole('row', { name: /post_filters/ });
     expect(within(row).getByText('running')).toBeTruthy();
     expect(
@@ -185,13 +184,8 @@ describe('DiagnosticsPanel', () => {
     expect(report).not.toMatch(/jane|facebook\.com|1234567890/);
   });
 
-  it('shows a clear health banner, supports manual Refresh, and hides Class names when unused', () => {
-    const collect = vi.fn(() =>
-      diagnostics({
-        locators: [locator('post')],
-        classNames: { started: false, known: 0, total: 0, missing: [] },
-      }),
-    );
+  it('shows a clear health banner, supports manual Refresh, and has no class names row', () => {
+    const collect = vi.fn(() => diagnostics({ locators: [locator('feed-slot')] }));
     renderPanel(collect);
 
     expect(screen.getByText('All systems healthy')).toBeTruthy();

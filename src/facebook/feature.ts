@@ -4,17 +4,14 @@ import type { Locate, Locator, LocatorSpec } from '../core/locator';
 import type { OptionSpecs } from '../core/options';
 import type { PageWatcher, WatchHandlers } from '../core/page-watcher';
 import type { FeatureData } from '../core/saved';
-import type { AtomTranslator } from './atoms';
 import type { SetHomeFeedResult } from './home-rails';
 import type { ComposerInfo, ComposerMode } from './post-composer';
 import type { StopFeedRefreshAnswer } from './stop-feed-refresh';
 import type { VideoSources } from './video-sources';
 import { PageBridge } from '../core/bridge';
 import { defineFeature as defineCoreFeature } from '../core/feature';
-import { isLocatorSpec, Locators, readLocatorOverrides } from '../core/locator';
-import { createLogger } from '../core/log';
+import { IDENTITY_RESOLVER, isLocatorSpec, Locators, readLocatorOverrides } from '../core/locator';
 import { pageWatcher } from '../core/page-watcher';
-import { Atoms } from './atoms';
 import { mountHomeLeftRail, mountHomeRightRail, setHomeFeed } from './home-rails';
 import { STOP_FEED_REFRESH } from './page-toggles';
 import { composerInfo, openPostComposer } from './post-composer';
@@ -25,11 +22,9 @@ import { setStopFeedRefresh } from './stop-feed-refresh';
 import { videoSources } from './video-sources';
 import { Videos } from './videos';
 
-const log = createLogger('page');
-
 /**
  * The saved value that holds the user's replacement selectors, by locator
- * name: `{ "post": ["[role=article]"] }`. Each list replaces that locator's
+ * name: `{ "post-article": ["[role=article]"] }`. Each list replaces that locator's
  * own strategies.
  */
 export const LOCATOR_OVERRIDES = 'locators';
@@ -37,14 +32,9 @@ export const LOCATOR_OVERRIDES = 'locators';
 /** What a feature can use on a Facebook page. It arrives as `ctx.page` in `setup`. */
 export interface FacebookPage {
   /**
-   * Translates `FS_` names into Facebook's current class names, for CSS
-   * text and the user's own selectors. Call `start()` before relying on it.
-   */
-  atoms: AtomTranslator;
-  /**
-   * The locator for one of the specs in `src/facebook/selectors.ts`. Its
-   * lookups skip strategies whose class names are not known yet, and
-   * `onChange` ends with the feature's scope.
+   * The locator for one of the specs in `src/facebook/selectors.ts`, with
+   * the user's replacement selectors applied. Its `onChange` ends with the
+   * feature's scope.
    */
   locate: Locate;
   /** The posts on the page. Subscribing with `onAdd` or `onTrack` starts post detection. */
@@ -62,7 +52,7 @@ export interface FacebookPage {
    * Reports the elements a locator or selector finds as they enter and
    * leave the page, for anything that is not a post. See `PageWatcher.watch`
    * in `src/core/page-watcher.ts`. A locator is looked at again whenever
-   * class names or the user's selectors change.
+   * the user's selectors change.
    */
   watch: PageWatcher['watch'];
   /** Opens Feed Sanity's Options dialog, optionally jumping straight to `initialSection`. */
@@ -233,12 +223,6 @@ export function bindPage(page: PageServices): PageFactory<FacebookPage> {
     const { scope, guard, listen } = binder;
     const locators = new Map<LocatorSpec, Locator>();
     return {
-      atoms: {
-        translate: (text) => page.atoms.translate(text),
-        resolve: (selector) => page.atoms.resolve(selector),
-        start: () => page.atoms.start(),
-        onChange: (listener) => listen((guarded) => page.atoms.onChange(guarded), listener),
-      },
       locate: (spec) => {
         let locator = locators.get(spec);
         if (!locator) {
@@ -284,7 +268,6 @@ export function bindPage(page: PageServices): PageFactory<FacebookPage> {
 
 /** The page services' counts, read by the diagnostics. */
 export interface PageStats {
-  readonly atoms: Pick<Atoms, 'stats'>;
   readonly locators: Pick<Locators, 'names' | 'stats'>;
   readonly posts: Pick<Posts, 'stats'>;
   readonly bridge: Pick<PageBridge, 'status'>;
@@ -303,33 +286,20 @@ export function createPage(
   env?: DomEnvironment,
   openOptions?: (initialSection?: string) => void,
 ): PageFactory<FacebookPage> & { readonly stats: PageStats } {
-  const atoms = new Atoms();
-  const locators = new Locators(atoms, Object.values(selectors).filter(isLocatorSpec));
+  const locators = new Locators(IDENTITY_RESOLVER, Object.values(selectors).filter(isLocatorSpec));
   const overrides = data.value(LOCATOR_OVERRIDES, readLocatorOverrides);
   // The value may have been read already, if something else asked for it first.
   locators.override(overrides.get());
   const stopOverrides = overrides.onChange((value) => locators.override(value));
-  let scanning = false;
-  const locate: Locate = (spec) => {
-    // Many strategies need Facebook's class names, so the first lookup starts the search for them.
-    if (!scanning) {
-      scanning = true;
-      atoms.start().catch((error: unknown) => {
-        log.error('could not look for class names', error);
-      });
-    }
-    return locators.locate(spec);
-  };
-  const posts = new Posts(atoms, locate);
+  const { locate } = locators;
+  const posts = new Posts(locate);
   const bridge = new PageBridge(installPageWorld, { reconnectOnReady: Boolean(env) });
   env?.scope.add(() => {
     stopOverrides();
-    atoms.dispose();
     posts.dispose();
     bridge.dispose();
   });
   const page = bindPage({
-    atoms,
     locate,
     posts,
     videos: new Videos(locate),
@@ -337,12 +307,7 @@ export function createPage(
     watch: (selector, handlers, options) => pageWatcher.watch(selector, handlers, options),
     ...(openOptions ? { openOptions } : {}),
   });
-  return Object.assign(page, {
-    setActive(active: boolean) {
-      atoms.setActive(active);
-    },
-    stats: { atoms, locators, posts, bridge },
-  });
+  return Object.assign(page, { stats: { locators, posts, bridge } });
 }
 
 /**

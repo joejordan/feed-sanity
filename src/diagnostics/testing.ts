@@ -44,16 +44,15 @@ export const diagnostics = (changes: Partial<Diagnostics> = {}): Diagnostics => 
     identifying: 1,
     unrecognised: 0,
   },
-  classNames: { started: true, known: 102, total: 109, missing: ['bb_bt2', 'font_bold'] },
   locators: [
-    locator('post', {
+    locator('feed-slot', {
       strategies: [
-        strategy({ selector: '[role=article]:not(.FS_pos_rel)', seen: '2023' }),
         strategy({ selector: '[aria-posinset]', note: 'News feed posts' }),
-        strategy({ selector: 'div.FS_reel', seen: '2023', state: 'waiting', found: 0 }),
+        strategy({ selector: '[role=feed] > [role=article]', seen: '2026-10' }),
+        strategy({ selector: '[data-feed-unit]', seen: '2026', state: 'waiting', found: 0 }),
       ],
     }),
-    locator('post-reactions', {
+    locator('post-feedback', {
       found: 0,
       strategies: [strategy({ selector: 'form', found: 0, lastFound: null })],
     }),

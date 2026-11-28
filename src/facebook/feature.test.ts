@@ -15,13 +15,12 @@ import { sleep } from '../core/timing';
 import { extensionStore } from '../platform/extension-store';
 import { bindPage, createPage, defineFeature, LOCATOR_OVERRIDES } from './feature';
 import { POST_HEADER } from './selectors';
-import { fakeAtoms, fakeLocate, installReaders, testBridge } from './testing';
+import { fakeLocate, installReaders, testBridge } from './testing';
 import { Videos } from './videos';
 
 describe('bindPage', () => {
   const log = createLogger('test');
   let added: Listeners<[Post]>;
-  let atomsChanged: Listeners;
   let watcher: PageWatcher;
   let options: Options;
 
@@ -29,14 +28,12 @@ describe('bindPage', () => {
     fakeBrowser.reset();
     document.body.innerHTML = '';
     added = new Listeners(log);
-    atomsChanged = new Listeners(log);
     watcher = new PageWatcher();
     options = new Options(extensionStore, 'u/options');
   });
 
   const page = (locate: Locate = fakeLocate, bridge = testBridge()) =>
     bindPage({
-      atoms: { ...fakeAtoms, onChange: (listener) => atomsChanged.add(listener) },
       locate,
       posts: {
         onTrack: () => () => undefined,
@@ -63,12 +60,11 @@ describe('bindPage', () => {
       enabledBy: 'videos_enabled',
       setup: (ctx) => {
         ctx.page.posts.onAdd(() => undefined);
-        ctx.page.atoms.onChange(() => undefined);
         ctx.page.watch('video', { added: video, removed: video });
       },
     });
     await new FeatureRunner([feature], options, page(), new SavedData(extensionStore, 'u')).start();
-    expect([added.size, atomsChanged.size]).toEqual([1, 1]);
+    expect(added.size).toBe(1);
     const first = document.createElement('video');
     document.body.append(first);
     await vi.waitFor(() => expect(video).toHaveBeenCalledExactlyOnceWith(first));
@@ -78,7 +74,7 @@ describe('bindPage', () => {
     first.remove();
     await sleep(20);
 
-    expect([added.size, atomsChanged.size]).toEqual([0, 0]);
+    expect(added.size).toBe(0);
     expect(video).toHaveBeenCalledTimes(1);
   });
 
