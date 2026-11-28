@@ -3,6 +3,7 @@ import type { DomEnvironment } from '../../core/dom-env';
 import type { FilterFields } from '../../core/filter-engine';
 import type { Locate } from '../../core/locator';
 import type { SiteFeedItem } from '../shared/feed';
+import { listPart } from '../../core/filter-engine';
 import { SiteFeed } from '../shared/feed';
 import { X_TWEET } from './selectors';
 
@@ -43,6 +44,9 @@ function hasDomAdSignal(article: Element): boolean {
   return false;
 }
 
+/** Parts whose text a filter's replace action rewrites on screen. */
+const X_TEXT_PARTS: readonly string[] = ['text', 'body', 'author', 'hashtags'];
+
 function readXFields(
   article: HTMLElement,
   signals: { readonly isAd: boolean; readonly isSuggested: boolean },
@@ -50,18 +54,18 @@ function readXFields(
   let allText: string | undefined;
   let tweetText: string | undefined;
   let author: string | undefined;
-  let hashtags: string[] | undefined;
-  let links: string[] | undefined;
-  let images: string[] | undefined;
+  let hashtags: readonly string[] | null | undefined;
+  let links: readonly string[] | null | undefined;
+  let images: readonly string[] | null | undefined;
 
   return {
+    textParts: X_TEXT_PARTS,
     get(name) {
       switch (name) {
-        case 'all_content':
-        case 'any':
+        case 'text':
           allText ??= article.textContent ?? '';
           return allText;
-        case 'content':
+        case 'body':
           if (tweetText === undefined) {
             const direct = article.querySelector('[data-testid="tweetText"]')?.textContent;
             if (direct) {
@@ -75,25 +79,31 @@ function readXFields(
         case 'author':
           author ??= article.querySelector('[data-testid="User-Name"]')?.textContent ?? '';
           return author;
-        case 'hashtag':
-          hashtags ??= [...article.querySelectorAll('a[href^="/hashtag/"]')]
-            .map((a) => a.textContent?.trim() ?? '')
-            .filter((tag) => tag.length > 0);
+        case 'hashtags':
+          hashtags ??= listPart(
+            [...article.querySelectorAll('a[href^="/hashtag/"]')].map((a) =>
+              (a.textContent ?? '').trim().replace(/^#/, ''),
+            ),
+          );
           return hashtags;
-        case 'link_url':
-          links ??= [...article.querySelectorAll('a[href]')]
-            .map((a) => a.getAttribute('href') ?? '')
-            .filter((href) => href.startsWith('http'));
+        case 'link_urls':
+          links ??= listPart(
+            [...article.querySelectorAll('a[href]')]
+              .map((a) => a.getAttribute('href') ?? '')
+              .filter((href) => href.startsWith('http')),
+          );
           return links;
-        case 'image':
-          images ??= [...article.querySelectorAll('img[alt]')]
-            .map((img) => img.getAttribute('alt')?.trim() ?? '')
-            .filter((alt) => alt.length > 0 && alt !== 'Image');
+        case 'image_text':
+          images ??= listPart(
+            [...article.querySelectorAll('img[alt]')]
+              .map((img) => img.getAttribute('alt')?.trim() ?? '')
+              .filter((alt) => alt !== 'Image'),
+          );
           return images;
         case 'sponsored':
-          return signals.isAd ? 'sponsored' : '';
+          return signals.isAd ? 'sponsored' : null;
         case 'suggested':
-          return signals.isSuggested ? 'suggested' : '';
+          return signals.isSuggested ? 'suggested' : null;
         default:
           return null;
       }

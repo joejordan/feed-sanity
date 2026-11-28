@@ -24,12 +24,12 @@ describe('userscriptStore', () => {
     const values = stubGM();
     expect(await userscriptStore.get('7/options')).toBeUndefined();
     await userscriptStore.set('7/options', { enabled: true });
-    await userscriptStore.set('7/filters', [{ title: 'Cats' }]);
+    await userscriptStore.set('7/custom_filters', [{ name: 'Cats' }]);
     expect(values.get('7/options')).toEqual({ enabled: true });
     expect(await userscriptStore.get('7/options')).toEqual({ enabled: true });
-    expect(await userscriptStore.getMany?.(['7/options', '7/filters'])).toEqual({
+    expect(await userscriptStore.getMany?.(['7/options', '7/custom_filters'])).toEqual({
       '7/options': { enabled: true },
-      '7/filters': [{ title: 'Cats' }],
+      '7/custom_filters': [{ name: 'Cats' }],
     });
   });
 

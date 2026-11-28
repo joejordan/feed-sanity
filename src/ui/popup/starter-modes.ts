@@ -1,6 +1,6 @@
 import type { Filter } from '../../core/filter-types';
 import type { OptionValue } from '../../core/options';
-import { newFilter, newRule } from '../../core/filter-types';
+import { newAction, newCondition, newFilter } from '../../core/filter-types';
 
 export type StarterModeId = 'clean' | 'focus' | 'minimal';
 
@@ -419,7 +419,7 @@ function detectQuickMuteTarget(term: string, siteId: string): string {
     }
   }
   if (term.startsWith('#') && (siteId === 'facebook' || siteId === 'x' || siteId === 'instagram')) {
-    return 'hashtag';
+    return 'hashtags';
   }
   if (siteId === 'reddit') {
     if (/^r\/[a-z0-9_]+$/i.test(term)) {
@@ -431,17 +431,17 @@ function detectQuickMuteTarget(term: string, siteId: string): string {
   }
   if (QUICK_MUTE_DOMAIN_OR_URL.test(term)) {
     if (siteId === 'facebook' || siteId === 'x') {
-      return 'link_url';
+      return 'link_urls';
     }
     if (siteId === 'reddit') {
       return 'domain';
     }
   }
-  return 'any';
+  return 'text';
 }
 
 /**
- * Builds a safe, reversible (`show_note: true`) filter for the Quick Popup's
+ * Builds a safe, reversible (hide with a note) filter for the Quick Popup's
  * 1-line Quick Mute bar, mirroring `createQuickHideFilter` without pulling full
  * site adapters into `popup.html`. Supports comma-separated phrases plus smart
  * `@account`, `#hashtag`, `r/subreddit`, and URL normalization per site.
@@ -452,11 +452,11 @@ export function createQuickMuteFilter(rawTerm: string, siteId: string): Filter |
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
   const first = rawParts[0];
-  if (!first) {
+  if (!first || !Object.hasOwn(SITE_QUICK_CONFIGS, siteId)) {
     return null;
   }
 
-  const target = rawParts.length === 1 ? detectQuickMuteTarget(first, siteId) : 'any';
+  const target = rawParts.length === 1 ? detectQuickMuteTarget(first, siteId) : 'text';
 
   const normalize = (part: string): string => {
     if (
@@ -466,7 +466,8 @@ export function createQuickMuteFilter(rawTerm: string, siteId: string): Filter |
     ) {
       return part.slice(1).trim();
     }
-    if (target === 'hashtag' && siteId === 'facebook' && part.startsWith('#')) {
+    // Hashtag parts hold tags without the `#`.
+    if (target === 'hashtags' && part.startsWith('#')) {
       return part.slice(1).trim();
     }
     if (target === 'domain' && (part.includes('://') || part.includes('/'))) {
@@ -492,13 +493,9 @@ export function createQuickMuteFilter(rawTerm: string, siteId: string): Filter |
   }
 
   return newFilter({
-    title: `Hide "${terms.join(', ')}"`,
-    match: 'ANY',
-    enabled: true,
-    rules: terms.map((text) => {
-      const base = newRule(target);
-      return { ...base, condition: { ...base.condition, text } };
-    }),
-    actions: [{ action: 'hide', show_note: true }],
+    name: `Mute “${terms.join(', ')}”`,
+    join: 'any',
+    conditions: [{ ...newCondition(target), values: terms }],
+    actions: [{ ...newAction('hide'), note: true, noteText: 'Muted “{match}”' }],
   });
 }

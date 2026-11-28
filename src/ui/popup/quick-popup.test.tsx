@@ -2,7 +2,7 @@ import { act, cleanup, render, screen } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SUPPORT_URL } from '../../../project';
-import { readFilters } from '../../core/filter-types';
+import { CUSTOM_FILTERS_KEY, newCondition, newFilter, readFilters } from '../../core/filter-types';
 import { Options } from '../../core/options';
 import { EXPERIMENTAL_SITES_KEY, SITES_STORAGE_KEY } from '../../core/site-settings';
 import { inMemoryStore } from '../../core/testing';
@@ -113,9 +113,18 @@ describe('QuickPopup', () => {
     await userEvent.type(screen.getByRole('textbox', { name: 'Quick mute keyword' }), 'spoilers');
     await userEvent.click(screen.getByRole('button', { name: 'Hide' }));
     await vi.waitFor(async () => {
-      const filters = readFilters(await store.get('x/123/filters'));
+      const filters = readFilters(await store.get(`x/123/${CUSTOM_FILTERS_KEY}`));
       expect(filters).toHaveLength(1);
-      expect(filters[0]?.rules?.[0]?.condition?.text).toBe('spoilers');
+      expect(filters[0]?.name).toBe('Mute “spoilers”');
+      expect(filters[0]?.conditions[0]).toMatchObject({
+        kind: 'text',
+        part: 'text',
+        test: 'contains',
+        values: ['spoilers'],
+      });
+      expect(filters[0]?.actions).toEqual([
+        { kind: 'hide', note: true, noteText: 'Muted “{match}”' },
+      ]);
     });
 
     // Footer buttons deep-link to Appearance (Theme Studio) and Filtering.
@@ -615,19 +624,14 @@ describe('QuickPopup', () => {
   });
 
   it('appends Quick Mute filters after allowlists, normalizes Instagram @account, and hides X Video Speed when disabled', async () => {
-    const allowlist = {
-      title: 'Keep friend',
-      enabled: true,
-      stop_on_match: true,
-      match: 'ANY',
-      rules: [
-        { target: 'author', operator: 'contains', matcher: 'str', condition: { text: 'alice' } },
-      ],
-      actions: [{ action: 'unhide' }],
-    };
-    const igStore = inMemoryStore({
-      'instagram/1/filters': [allowlist],
+    const allowlist = newFilter({
+      name: 'Keep friend',
+      stopAfter: true,
+      conditions: [{ ...newCondition('author'), values: ['alice'] }],
+      actions: [{ kind: 'keep' }],
     });
+    const igKey = `instagram/1/${CUSTOM_FILTERS_KEY}`;
+    const igStore = inMemoryStore({ [igKey]: [allowlist] });
     render(
       <QuickPopup
         store={igStore}
@@ -646,11 +650,16 @@ describe('QuickPopup', () => {
     await userEvent.type(screen.getByRole('textbox', { name: 'Quick mute keyword' }), '@spammer');
     await userEvent.click(screen.getByRole('button', { name: 'Hide' }));
     await vi.waitFor(async () => {
-      const filters = readFilters(await igStore.get('instagram/1/filters'));
+      const filters = readFilters(await igStore.get(igKey));
       expect(filters).toHaveLength(2);
-      expect(filters[0]?.title).toBe('Keep friend');
-      expect(filters[1]?.rules?.[0]?.target).toBe('author');
-      expect(filters[1]?.rules?.[0]?.condition?.text).toBe('spammer');
+      expect(filters[0]?.name).toBe('Keep friend');
+      expect(filters[1]?.conditions[0]).toMatchObject({ part: 'author', values: ['spammer'] });
+    });
+
+    // Undo removes exactly the muted filter (matched by id) and keeps the allowlist.
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    await vi.waitFor(async () => {
+      expect(readFilters(await igStore.get(igKey))).toEqual([allowlist]);
     });
 
     cleanup();
@@ -688,9 +697,8 @@ describe('QuickPopup', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Hide' }));
     await vi.waitFor(async () => {
-      const filters = readFilters(await redditStore.get('reddit/1/filters'));
-      expect(filters[0]?.rules?.[0]?.target).toBe('domain');
-      expect(filters[0]?.rules?.[0]?.condition?.text).toBe('youtube.com');
+      const filters = readFilters(await redditStore.get(`reddit/1/${CUSTOM_FILTERS_KEY}`));
+      expect(filters[0]?.conditions[0]).toMatchObject({ part: 'domain', values: ['youtube.com'] });
     });
   });
 

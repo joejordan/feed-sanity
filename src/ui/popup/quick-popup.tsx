@@ -16,7 +16,7 @@ import type { AnalyzedSavedTheme } from './popup-theme-card';
 import type { SiteQuickConfig, StarterModeId } from './starter-modes';
 import type { UnattachedSupportedTab } from './unsupported-tab-view';
 import { NAME, SUPPORT_URL } from '../../../project';
-import { readFilters } from '../../core/filter-types';
+import { CUSTOM_FILTERS_KEY, readFilters } from '../../core/filter-types';
 import { createLogger } from '../../core/log';
 import { createSiteSettings } from '../../core/site-settings';
 import { isRecord, readStoreMany, watchStoreKey } from '../../core/storage';
@@ -270,7 +270,7 @@ function ActiveTabView({
 
   const optionsKey = `${activeTab.storagePrefix}/options`;
   const themeKey = `${activeTab.storagePrefix}/${THEME_DATA_KEY}`;
-  const filtersKey = `${activeTab.storagePrefix}/filters`;
+  const filtersKey = `${activeTab.storagePrefix}/${CUSTOM_FILTERS_KEY}`;
   const speedKey = siteConfig.supportsVideoSpeed
     ? `${activeTab.storagePrefix}/${X_VIDEO_SPEED_KEY}`
     : null;
@@ -586,7 +586,6 @@ function ActiveTabView({
     if (!created) {
       return;
     }
-    const createdJson = JSON.stringify(created);
     enqueueWrite(filtersKey, async () => {
       const existing = readFilters(await store.get(filtersKey));
       await store.set(filtersKey, [...existing, created]);
@@ -594,9 +593,8 @@ function ActiveTabView({
     notify(`Muted "${term}"`, () => {
       enqueueWrite(filtersKey, async () => {
         const current = readFilters(await store.get(filtersKey));
-        const idx = current.findIndex((item) => JSON.stringify(item) === createdJson);
-        if (idx !== -1) {
-          const next = [...current.slice(0, idx), ...current.slice(idx + 1)];
+        const next = current.filter((item) => item.id !== created.id);
+        if (next.length !== current.length) {
           await store.set(filtersKey, next);
         }
       });

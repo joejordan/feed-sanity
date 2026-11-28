@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Filter } from '../../core/filter-types';
-import { runFilterList } from '../../core/filter-engine';
+import { runFilters } from '../../core/filter-engine';
+import { newCondition, newFilter } from '../../core/filter-types';
 import { Scope } from '../../core/scope';
 import { HIDDEN_ATTR, OWN_ATTR } from '../../core/surface';
 import { applyFilterOutcome } from './apply-filter-outcome';
@@ -10,43 +11,33 @@ describe('cross-site filter-engine & applyFilterOutcome', () => {
     document.body.innerHTML = '';
   });
 
-  it('tracks unhidden allowlist state and evaluates generic contains_selector rules', () => {
+  it('lets a keep filter beat the built-in hide and evaluates element conditions', () => {
     const post = document.createElement('article');
     const badge = document.createElement('span');
     badge.className = 'vip-badge';
     post.append(badge);
     document.body.append(post);
 
-    const map: Record<string, string> = { author: 'Alice', all_content: 'Promo' };
+    const map: Record<string, string> = { author: 'Alice', text: 'Promo' };
     const fields = { get: (name: string) => map[name] ?? null };
 
     const allowlistFilters: Filter[] = [
-      {
-        enabled: true,
-        match: 'ALL',
-        stop_on_match: true,
-        rules: [
-          {
-            target: 'any',
-            operator: 'contains_selector',
-            condition: { text: '.vip-badge' },
-          },
-        ],
-        actions: [{ action: 'unhide' }],
-      },
-      {
-        enabled: true,
-        match: 'ALL',
-        rules: [
-          { target: 'any', operator: 'contains', matcher: 'str', condition: { text: 'Promo' } },
-        ],
-        actions: [{ action: 'hide' }],
-      },
+      newFilter({
+        join: 'all',
+        stopAfter: true,
+        conditions: [{ kind: 'element', selector: '.vip-badge' }],
+        actions: [{ kind: 'keep' }],
+      }),
+      newFilter({
+        join: 'all',
+        conditions: [{ ...newCondition(), values: ['Promo'] }],
+        actions: [{ kind: 'hide' }],
+      }),
     ];
 
-    const outcome = runFilterList(allowlistFilters, { fields, element: post });
+    const outcome = runFilters(allowlistFilters, { fields, element: post });
     expect(outcome.hiding).toBeNull();
-    expect(outcome.unhidden).toBe(true);
+    expect(outcome.kept).toBe(true);
 
     // Allowlist suppresses a built-in hide fallback.
     const scope = new Scope();
@@ -66,26 +57,23 @@ describe('cross-site filter-engine & applyFilterOutcome', () => {
     document.body.append(table);
 
     const scope = new Scope();
-    const outcome = runFilterList(
+    const outcome = runFilters(
       [
-        {
-          title: 'Mute row',
-          enabled: true,
-          match: 'ALL',
-          rules: [
-            { target: 'any', operator: 'contains', matcher: 'str', condition: { text: 'x' } },
-          ],
+        newFilter({
+          name: 'Mute row',
+          join: 'all',
+          conditions: [{ ...newCondition(), values: ['x'] }],
           actions: [
-            { action: 'hide', show_note: true, custom_note: 'Hidden thread' },
-            { action: 'class', content: 'existing-cls fs-muted' },
-            { action: 'css', content: 'color: blue !important; opacity: 0.5' },
+            { kind: 'hide', note: true, noteText: 'Hidden thread' },
+            { kind: 'add_class', className: 'existing-cls fs-muted' },
+            { kind: 'style', css: 'color: blue !important; opacity: 0.5' },
           ],
-        },
+        }),
       ],
       {
         fields: { get: () => 'x' },
         element: row,
-        itemLabel: 'Thread',
+        itemNoun: 'thread',
       },
     );
 
@@ -140,16 +128,13 @@ describe('cross-site filter-engine & applyFilterOutcome', () => {
     document.body.append(post);
 
     const scope = new Scope();
-    const outcome = runFilterList(
+    const outcome = runFilters(
       [
-        {
-          title: 'Redact spoilers',
-          enabled: true,
-          rules: [
-            { target: 'any', operator: 'contains', matcher: 'str', condition: { text: 'spoiler' } },
-          ],
-          actions: [{ action: 'replace', find: 'spoiler', replace: '[redacted]' }],
-        },
+        newFilter({
+          name: 'Redact spoilers',
+          conditions: [{ ...newCondition(), values: ['spoiler'] }],
+          actions: [{ kind: 'replace', find: 'spoiler', replaceWith: '[redacted]' }],
+        }),
       ],
       { fields: { get: () => body.textContent ?? '' }, element: post },
     );

@@ -7,11 +7,11 @@ import type { OptionSpec } from '../../core/options';
 import type { Scope } from '../../core/scope';
 import type { AppliedFilterState } from './apply-filter-outcome';
 import { defineCapabilityFeature } from '../../capabilities';
-import { runFilterList } from '../../core/filter-engine';
+import { EMPTY_OUTCOME, runFilters } from '../../core/filter-engine';
 import { getFilterHitTracker } from '../../core/filter-hits';
 import { isRunnable, savedFilters } from '../../core/filter-types';
 import { concealPending, markElement, OWN_ATTR } from '../../core/surface';
-import { applyFilterOutcome, EMPTY_OUTCOME, parseKeywords } from './apply-filter-outcome';
+import { applyFilterOutcome, parseKeywords } from './apply-filter-outcome';
 
 export interface SharedFeedFiltersConfig<P extends FeedFilterablePage> {
   readonly id: string;
@@ -44,15 +44,15 @@ function fallbackFields(item: FeedItem): FilterFields {
   let fullText: string | undefined;
   return {
     get(name) {
-      if (name === 'all_content' || name === 'any' || name === 'content') {
+      if (name === 'text' || name === 'body') {
         fullText ??= item.content.textContent ?? '';
         return fullText;
       }
       if (name === 'sponsored') {
-        return item.isAd ? 'sponsored' : '';
+        return item.isAd ? 'sponsored' : null;
       }
       if (name === 'suggested') {
-        return item.isSuggested ? 'suggested' : '';
+        return item.isSuggested ? 'suggested' : null;
       }
       return null;
     },
@@ -97,7 +97,7 @@ function matchesBuiltInHide(
 
 /**
  * Factory for site-agnostic feed filtering built on `defineCapabilityFeature`
- * (`requires: ['feed']`) + `concealPending` + shared `runFilterList` +
+ * (`requires: ['feed']`) + `concealPending` + shared `runFilters` +
  * reversible `applyFilterOutcome`. Powers Instagram, X.com, and future
  * feed-based adapters with both quick toggles and custom Filter Rules.
  */
@@ -211,15 +211,15 @@ export function createFeedFiltersFeature<P extends FeedFilterablePage>(
           const matchedFilters: Filter[] = [];
           const outcome =
             customFilters.length > 0
-              ? runFilterList(customFilters, {
+              ? runFilters(customFilters, {
                   fields: item.readFields ? item.readFields() : fallbackFields(item),
                   element: item.element,
-                  itemLabel: 'Post',
+                  itemNoun: 'post',
                   onFilterMatch: (filter) => matchedFilters.push(filter),
                 })
               : EMPTY_OUTCOME;
           hitTracker.setItemMatches(item.element, matchedFilters);
-          const willHide = outcome.hiding !== null || (builtInHide && outcome.unhidden !== true);
+          const willHide = outcome.hiding !== null || (builtInHide && !outcome.kept);
           if ((willHide || item.pending !== true) && !checkedRemovers.has(item.element)) {
             checkedRemovers.set(
               item.element,

@@ -3,6 +3,7 @@ import type { DomEnvironment } from '../../core/dom-env';
 import type { FilterFields } from '../../core/filter-engine';
 import type { Locate } from '../../core/locator';
 import type { SiteFeedItem } from '../shared/feed';
+import { listPart } from '../../core/filter-engine';
 import { SiteFeed } from '../shared/feed';
 import { IG_FEED_POST } from './selectors';
 
@@ -50,21 +51,24 @@ function readInstagramDomSignals(article: HTMLElement): {
   };
 }
 
+/** Parts whose text a filter's replace action rewrites on screen. */
+const INSTAGRAM_TEXT_PARTS: readonly string[] = ['text', 'body', 'author', 'hashtags'];
+
 function readInstagramFields(
   article: HTMLElement,
   signals: { readonly isAd: boolean; readonly isSuggested: boolean },
 ): FilterFields {
   let fullText: string | undefined;
   let author: string | undefined;
-  let hashtags: string[] | undefined;
-  let images: string[] | undefined;
+  let hashtags: readonly string[] | null | undefined;
+  let images: readonly string[] | null | undefined;
 
   return {
+    textParts: INSTAGRAM_TEXT_PARTS,
     get(name) {
       switch (name) {
-        case 'all_content':
-        case 'any':
-        case 'content':
+        case 'text':
+        case 'body':
           fullText ??= article.textContent ?? '';
           return fullText;
         case 'author':
@@ -73,20 +77,24 @@ function readInstagramFields(
             article.querySelector('a[role="link"]')?.textContent?.trim() ??
             '';
           return author;
-        case 'hashtag':
-          hashtags ??= [...article.querySelectorAll('a[href*="/explore/tags/"]')]
-            .map((a) => a.textContent?.trim() ?? '')
-            .filter((tag) => tag.length > 0);
+        case 'hashtags':
+          hashtags ??= listPart(
+            [...article.querySelectorAll('a[href*="/explore/tags/"]')].map((a) =>
+              (a.textContent ?? '').trim().replace(/^#/, ''),
+            ),
+          );
           return hashtags;
-        case 'image':
-          images ??= [...article.querySelectorAll('img[alt]')]
-            .map((img) => img.getAttribute('alt')?.trim() ?? '')
-            .filter((alt) => alt.length > 0);
+        case 'image_text':
+          images ??= listPart(
+            [...article.querySelectorAll('img[alt]')].map(
+              (img) => img.getAttribute('alt')?.trim() ?? '',
+            ),
+          );
           return images;
         case 'sponsored':
-          return signals.isAd ? 'sponsored' : '';
+          return signals.isAd ? 'sponsored' : null;
         case 'suggested':
-          return signals.isSuggested ? 'suggested' : '';
+          return signals.isSuggested ? 'suggested' : null;
         default:
           return null;
       }

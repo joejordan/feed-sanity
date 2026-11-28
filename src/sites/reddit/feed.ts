@@ -3,7 +3,8 @@ import type { DomEnvironment } from '../../core/dom-env';
 import type { FilterFields } from '../../core/filter-engine';
 import type { Locate } from '../../core/locator';
 import type { SiteFeedItem } from '../shared/feed';
-import { queryDeepFirst } from '../../core/dom';
+import { queryDeepAll, queryDeepFirst } from '../../core/dom';
+import { listPart } from '../../core/filter-engine';
 import { OWN_ATTR } from '../../core/surface';
 import { SiteFeed } from '../shared/feed';
 import { REDDIT_POST } from './selectors';
@@ -178,6 +179,33 @@ function readFlair(element: Element): string {
   return flair ? deepTextContent(flair) : '';
 }
 
+const REDDIT_HOST = /(?:^|\.)(?:reddit\.com|redd\.it|redditmedia\.com|redditstatic\.com)$/i;
+
+/** Absolute link targets inside the post that leave Reddit. */
+function readLinkUrls(element: Element): readonly string[] | null {
+  return listPart(
+    queryDeepAll(element, 'a[href^="http"]', OWN_ATTR)
+      .map((link) => link.getAttribute('href') ?? '')
+      .filter((href) => {
+        try {
+          return !REDDIT_HOST.test(new URL(href).hostname);
+        } catch {
+          return false;
+        }
+      }),
+  );
+}
+
+/** Parts whose text a filter's replace action rewrites on screen. */
+const REDDIT_TEXT_PARTS: readonly string[] = [
+  'text',
+  'body',
+  'title',
+  'author',
+  'subreddit',
+  'flair',
+];
+
 function readRedditFields(
   element: HTMLElement,
   signals: { readonly isAd: boolean; readonly isSuggested: boolean },
@@ -188,12 +216,13 @@ function readRedditFields(
   let author: string | undefined;
   let domain: string | undefined;
   let flair: string | undefined;
+  let links: readonly string[] | null | undefined;
 
   return {
+    textParts: REDDIT_TEXT_PARTS,
     get(name) {
       switch (name) {
-        case 'all_content':
-        case 'any': {
+        case 'text': {
           if (allText === undefined) {
             title ??= readTitle(element);
             subreddit ??= readSubreddit(element);
@@ -205,7 +234,7 @@ function readRedditFields(
           return allText;
         }
         case 'title':
-        case 'content':
+        case 'body':
           title ??= readTitle(element);
           return title;
         case 'subreddit':
@@ -215,16 +244,20 @@ function readRedditFields(
           author ??= readAuthor(element);
           return author;
         case 'domain':
-        case 'link_url':
           domain ??= readDomain(element);
           return domain;
+        case 'link_urls':
+          if (links === undefined) {
+            links = readLinkUrls(element);
+          }
+          return links;
         case 'flair':
           flair ??= readFlair(element);
           return flair;
         case 'sponsored':
-          return signals.isAd ? 'sponsored' : '';
+          return signals.isAd ? 'sponsored' : null;
         case 'suggested':
-          return signals.isSuggested ? 'suggested' : '';
+          return signals.isSuggested ? 'suggested' : null;
         default:
           return null;
       }

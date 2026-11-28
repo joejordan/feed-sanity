@@ -7,18 +7,6 @@ import { Listeners } from './listeners';
 import { createLogger } from './log';
 import { resolveDataOwner } from './saved';
 
-const signatureCache = new WeakMap<Filter, string>();
-
-/** Stable structural key for a `Filter` (cached per object identity). */
-function filterSignature(filter: Filter): string {
-  let key = signatureCache.get(filter);
-  if (key === undefined) {
-    key = JSON.stringify(filter);
-    signatureCache.set(filter, key);
-  }
-  return key;
-}
-
 /**
  * Tracks how many active items on the current page matched each filter rule,
  * de-duplicating re-evaluations of the same item element and emitting version
@@ -35,20 +23,23 @@ export class FilterHitTracker {
     return this.#version;
   }
 
-  /** Number of currently tracked items matched by `filter`. */
-  countFor(filter: Filter): number {
-    return this.#counts.get(filterSignature(filter)) ?? 0;
+  /** Number of currently tracked items matched by `filter` (counted by its `id`). */
+  countFor(filter: Pick<Filter, 'id'>): number {
+    return filter.id ? (this.#counts.get(filter.id) ?? 0) : 0;
   }
 
   /** Replaces the set of filters matched by `item` and updates counts incrementally. */
-  setItemMatches(item: object, matched: readonly Filter[]): void {
-    if (matched.length === 0) {
-      this.forgetItem(item);
-      return;
-    }
+  setItemMatches(item: object, matched: readonly Pick<Filter, 'id'>[]): void {
     const next = new Set<string>();
     for (const filter of matched) {
-      next.add(filterSignature(filter));
+      // Filters without an id (never saved through `readFilters`) are not counted.
+      if (filter.id) {
+        next.add(filter.id);
+      }
+    }
+    if (next.size === 0) {
+      this.forgetItem(item);
+      return;
     }
     const prev = this.#itemKeys.get(item);
     let changed = false;
@@ -68,11 +59,7 @@ export class FilterHitTracker {
       }
     }
 
-    if (next.size > 0) {
-      this.#itemKeys.set(item, next);
-    } else if (prev) {
-      this.#itemKeys.delete(item);
-    }
+    this.#itemKeys.set(item, next);
 
     if (changed) {
       this.#notify();

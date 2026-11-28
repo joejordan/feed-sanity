@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Badge, Platform } from '../../core/platform';
-import { newFilter, newRule } from '../../core/filter-types';
+import { CUSTOM_FILTERS_KEY, newCondition, newFilter } from '../../core/filter-types';
 import { startSite } from '../../core/site';
 import { HIDDEN_ATTR } from '../../core/surface';
 import { inMemoryStore } from '../../core/testing';
@@ -144,19 +144,17 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
     document.body.append(app);
 
     // Match the exact phrase being replaced to verify re-evaluation stays idempotent,
-    // AND verify `contains_selector` pierces open Shadow Roots to match `<shreddit-player>`.
+    // AND verify element conditions pierce open Shadow Roots to match `<shreddit-player>`.
     const redactFilter = newFilter({
-      title: 'Redact spoiler word',
-      rules: [
-        { ...newRule('any'), condition: { text: 'spoiler-free', modifier: 'i' } },
-        {
-          target: 'any',
-          operator: 'contains_selector',
-          condition: { text: 'shreddit-player' },
-        },
+      name: 'Redact spoiler word',
+      join: 'any',
+      conditions: [
+        { ...newCondition('text'), values: ['spoiler-free'] },
+        { kind: 'element', selector: 'shreddit-player' },
       ],
-      actions: [{ action: 'replace', find: 'spoiler-free', replace: '[REDACTED]' }],
+      actions: [{ kind: 'replace', find: 'spoiler-free', replaceWith: '[REDACTED]' }],
     });
+    const filtersKey = `v2/reddit/anonymous/${CUSTOM_FILTERS_KEY}`;
 
     let pageWorldHandle: ReturnType<typeof startRedditPageWorld> | undefined;
     const { platform, store } = fakePlatform(
@@ -169,7 +167,7 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
           reddit_video_scrubber: true,
           reddit_video_click_pauses: false,
         },
-        'v2/reddit/anonymous/filters': [redactFilter],
+        [filtersKey]: [redactFilter],
         [`v2/reddit/anonymous/${THEME_DATA_KEY}`]: applyThemePreset(
           DEFAULT_THEME_DOCUMENT,
           'catppuccin-mocha',
@@ -191,7 +189,7 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
         reddit_video_scrubber: false,
         reddit_video_click_pauses: false,
       });
-      void store.set('v2/reddit/anonymous/filters', []);
+      void store.set(filtersKey, []);
     });
 
     await startSite(redditSite, platform);
@@ -242,7 +240,7 @@ describe('Reddit Shreddit Shadow DOM stress test', () => {
     });
 
     // 10. Verify removing the redact filter cleanly restores the original Shadow DOM text!
-    await store.set('v2/reddit/anonymous/filters', []);
+    await store.set(filtersKey, []);
     await vi.waitFor(() => {
       expect(bodyEl?.textContent).toBe('Benchmarks show spoiler-free zero-polling performance.');
     });

@@ -10,10 +10,10 @@ import type { OptionSpec } from '../../core/options';
 import type { Scope } from '../../core/scope';
 import type { AppliedFilterState } from './apply-filter-outcome';
 import { defineCapabilityFeature } from '../../capabilities';
-import { runFilterList } from '../../core/filter-engine';
+import { EMPTY_OUTCOME, runFilters } from '../../core/filter-engine';
 import { getFilterHitTracker } from '../../core/filter-hits';
 import { isRunnable, savedFilters } from '../../core/filter-types';
-import { applyFilterOutcome, EMPTY_OUTCOME, parseKeywords } from './apply-filter-outcome';
+import { applyFilterOutcome, parseKeywords } from './apply-filter-outcome';
 
 export interface ThreadFiltersConfig {
   readonly id: string;
@@ -30,12 +30,12 @@ function fallbackRowFields(row: ThreadRow): FilterFields {
   let fullText: string | undefined;
   return {
     get(name) {
-      if (name === 'all_content' || name === 'any') {
+      if (name === 'text') {
         fullText ??= row.element.textContent ?? '';
         return fullText;
       }
       if (name === 'sponsored') {
-        return row.isAd ? 'sponsored' : '';
+        return row.isAd ? 'sponsored' : null;
       }
       return null;
     },
@@ -140,10 +140,10 @@ export function createThreadFiltersFeature<P extends CapablePage>(
         const matchedFilters: Filter[] = [];
         const outcome =
           customFilters.length > 0
-            ? runFilterList(customFilters, {
+            ? runFilters(customFilters, {
                 fields: row.readFields ? row.readFields() : fallbackRowFields(row),
                 element: row.element,
-                itemLabel: 'Thread',
+                itemNoun: 'thread',
                 onFilterMatch: (filter) => matchedFilters.push(filter),
               })
             : EMPTY_OUTCOME;

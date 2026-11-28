@@ -5,6 +5,7 @@ import type { FeedStats, ThreadListCapability, ThreadRow } from '../../capabilit
 import type { DomEnvironment } from '../../core/dom-env';
 import type { FilterFields } from '../../core/filter-engine';
 import type { Locate } from '../../core/locator';
+import { listPart } from '../../core/filter-engine';
 import { callSafely, Listeners } from '../../core/listeners';
 import { createLogger } from '../../core/log';
 import { OWN_ATTR } from '../../core/surface';
@@ -78,6 +79,9 @@ function isAdRow(row: Element): boolean {
   }
   return false;
 }
+
+/** Parts whose text a filter's replace action rewrites on screen. */
+const GMAIL_TEXT_PARTS: readonly string[] = ['text', 'sender', 'subject', 'snippet', 'label'];
 
 export class GmailThreadList implements ThreadListCapability {
   readonly #env: DomEnvironment;
@@ -191,13 +195,13 @@ export class GmailThreadList implements ThreadListCapability {
       let sender: string | undefined;
       let subject: string | undefined;
       let snippet: string | undefined;
-      let labels: string[] | undefined;
+      let labels: readonly string[] | null | undefined;
 
       return {
+        textParts: GMAIL_TEXT_PARTS,
         get(name) {
           switch (name) {
-            case 'all_content':
-            case 'any':
+            case 'text':
               fullText ??= element.textContent ?? '';
               return fullText;
             case 'sender':
@@ -219,12 +223,16 @@ export class GmailThreadList implements ThreadListCapability {
               snippet ??= element.querySelector('[data-snippet], .y2')?.textContent?.trim() ?? '';
               return snippet;
             case 'label':
-              labels ??= [...element.querySelectorAll('.av, [data-label-name]')]
-                .map((el) => el.textContent?.trim() ?? '')
-                .filter((val) => val.length > 0);
+              if (labels === undefined) {
+                labels = listPart(
+                  [...element.querySelectorAll('.av, [data-label-name]')].map(
+                    (el) => el.textContent?.trim() ?? '',
+                  ),
+                );
+              }
               return labels;
             case 'sponsored':
-              return isAd ? 'sponsored' : '';
+              return isAd ? 'sponsored' : null;
             default:
               return null;
           }

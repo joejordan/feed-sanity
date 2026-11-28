@@ -1,22 +1,12 @@
 // Reversible, strictly Trusted-Types-safe DOM applicator for cross-site
-// `FilterOutcome` actions (`hide` with optional revealable note, `class`, and
-// `css` declarations), plus shared keyword parsing for `feed-filters` and
-// `thread-filters`.
+// `FilterOutcome`s (hiding with an optional revealable note, classes, inline
+// styles and text replacements), plus shared keyword parsing for
+// `feed-filters` and `thread-filters`.
 
 import type { FilterHiding, FilterOutcome } from '../../core/filter-engine';
 import type { Scope } from '../../core/scope';
 import { queryDeepAll } from '../../core/dom';
-import { FILTERED_FEED } from '../../core/filter-engine';
 import { hideElement, OWN_ATTR } from '../../core/surface';
-
-/** Shared read-only empty outcome used when no custom filter rules are active. */
-export const EMPTY_OUTCOME: FilterOutcome = Object.freeze({
-  hiding: null,
-  classes: [],
-  styles: [],
-  replacements: [],
-  tabs: [FILTERED_FEED],
-});
 
 /** Splits a newline-separated keyword option into normalized lowercase phrases. */
 export function parseKeywords(raw: string): string[] {
@@ -59,7 +49,7 @@ function createHideNote(
   note.setAttribute(OWN_ATTR, 'filter-note');
   note.setAttribute('aria-expanded', 'false');
   const label = doc.createElement('span');
-  label.textContent = hiding.reveal;
+  label.textContent = hiding.label;
   label.style.cssText = 'min-width: 0; overflow: hidden; text-overflow: ellipsis;';
   const pill = doc.createElement('span');
   pill.textContent = 'Show';
@@ -85,16 +75,12 @@ function createHideNote(
     'text-align: left',
     'cursor: pointer',
     'transition: opacity 120ms ease, background 120ms ease',
-    hiding.css ?? '',
-  ]
-    .filter(Boolean)
-    .join('; ');
+  ].join('; ');
 
   let revealed = false;
   note.addEventListener('click', () => {
     revealed = !revealed;
     note.setAttribute('aria-expanded', String(revealed));
-    label.textContent = revealed ? hiding.rehide : hiding.reveal;
     pill.textContent = revealed ? 'Hide' : 'Show';
     onToggleReveal(revealed);
   });
@@ -106,7 +92,6 @@ export interface AppliedFilterState {
   readonly dispose: () => void;
 }
 
-const IMPORTANT_SUFFIX = /\s*!important\s*$/i;
 const SKIP_REPLACE_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT']);
 
 function applyTextReplacements(
@@ -124,9 +109,8 @@ function applyTextReplacements(
           continue;
         }
         let after = before;
-        for (const { find, replace } of replacements) {
-          find.lastIndex = 0;
-          after = after.replace(find, replace);
+        for (const { find, replaceWith } of replacements) {
+          after = after.replace(find, replaceWith);
         }
         if (after !== before) {
           originals.push([textNode, before]);
@@ -157,6 +141,13 @@ function applyTextReplacements(
   }
 }
 
+/** A quick-switch hide (ads, suggested, keywords): no note. */
+const BUILT_IN_HIDING: FilterHiding = Object.freeze({
+  label: '',
+  showNote: false,
+  forceNote: false,
+});
+
 /**
  * Applies `outcome` (plus optional `builtInHide` fallback) onto `element`
  * inside `parentScope`. Returns `{ hidden, dispose }` when any effect was
@@ -170,8 +161,7 @@ export function applyFilterOutcome(
   onHide?: (element: HTMLElement) => void,
 ): AppliedFilterState | null {
   const hiding: FilterHiding | null =
-    outcome.hiding ??
-    (builtInHide && outcome.unhidden !== true ? { reveal: '', rehide: '', showNote: false } : null);
+    outcome.hiding ?? (builtInHide && !outcome.kept ? BUILT_IN_HIDING : null);
   const hasEffects =
     hiding !== null ||
     outcome.classes.length > 0 ||
@@ -229,16 +219,15 @@ export function applyFilterOutcome(
     }
   }
 
-  for (const { property, value, selector } of outcome.styles) {
-    const priority = IMPORTANT_SUFFIX.test(value) ? 'important' : '';
-    const cleanValue = priority ? value.replace(IMPORTANT_SUFFIX, '') : value;
+  for (const { property, value, important, selector } of outcome.styles) {
+    const priority = important ? 'important' : '';
     for (const target of resolveTargets(element, selector, selectorCache)) {
       if (!(target instanceof HTMLElement)) {
         continue;
       }
       const prevValue = target.style.getPropertyValue(property);
       const prevPriority = target.style.getPropertyPriority(property);
-      target.style.setProperty(property, cleanValue, priority);
+      target.style.setProperty(property, value, priority);
       itemScope.add(() => {
         if (prevValue) {
           target.style.setProperty(property, prevValue, prevPriority);
