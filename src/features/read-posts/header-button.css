@@ -52,8 +52,7 @@
  * Fallback placement for posts without a standard header action row (e.g. post dialogs, Marketplace).
  * Anchored on the left so it never covers top-right dialog close buttons.
  */
-/* TODO(clean): scope to the new post marker from fb-dom. */
-:has(> .feed-sanity-mark-read-fallback) {
+[data-feed-sanity-post]:has(> .feed-sanity-mark-read-fallback) {
   position: relative;
 }
 

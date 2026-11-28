@@ -6,9 +6,9 @@ import customStylesheet from './custom-stylesheet';
 import facebookDisplayNotice from './facebook-display-notice';
 import hideFeedShelves from './hide-feed-shelves';
 import homeFeed from './home-feed';
-import markRead from './mark-read';
 import postFilters from './post-filters';
 import { filtersPanel } from './post-filters/filters-panel';
+import readPosts from './read-posts';
 import stopFeedRefresh from './stop-feed-refresh';
 import storiesKeepPlaying from './stories-keep-playing';
 import videoClickPauses from './video-click-pauses';
@@ -22,7 +22,7 @@ export const features: readonly Feature<FacebookPage>[] = [
   stopFeedRefresh,
   hideFeedShelves,
   postFilters,
-  markRead,
+  readPosts,
   storiesKeepPlaying,
   videoScrubber,
   videoClickPauses,

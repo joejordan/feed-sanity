@@ -1,0 +1,62 @@
+/*
+ * A hidden read post: only the notes stay, and the post's own box takes no
+ * room. A filter's note stays too, so a post both hide is still explained.
+ * The mark alone decides it, so a note's "Hide" works while "Show read" is on.
+ */
+[data-feed-sanity-read="hidden"] {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+
+[data-feed-sanity-read="hidden"] > :not(.feed-sanity-read-note, .feed-sanity-filter-note) {
+  display: none !important;
+}
+
+.feed-sanity-read-note {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 36px;
+  margin: 0 0 8px;
+  padding: 4px 8px 4px 12px;
+  border-radius: 8px;
+  background: var(--card-background, #fff);
+  box-shadow: 0 1px 2px var(--shadow-2, rgb(0 0 0 / 10%));
+  color: var(--secondary-text, #65686c);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.feed-sanity-read-note-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-sanity-read-note-button {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--secondary-button-background, rgb(0 0 0 / 5%));
+  color: var(--primary-text, #080809);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.feed-sanity-read-note-button:hover {
+  background: var(--secondary-button-background-floating, rgb(0 0 0 / 10%));
+}
+
+.feed-sanity-read-note-button:focus-visible {
+  outline: 2px solid var(--accent, #0866ff);
+  outline-offset: 1px;
+}
