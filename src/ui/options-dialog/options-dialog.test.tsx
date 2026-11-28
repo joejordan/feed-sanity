@@ -663,7 +663,7 @@ describe('OptionsDialog panels', () => {
     opts.register({
       custom_stylesheet_url: {
         section: 'Appearance',
-        title: 'External CSS url',
+        title: 'Custom stylesheet URL',
         description: 'Optional stylesheet URL.',
         default: '',
       },
@@ -671,7 +671,7 @@ describe('OptionsDialog panels', () => {
     await opts.load();
     render(<OptionsDialog options={opts} onClose={onClose} />);
 
-    const input = field('textbox', 'External CSS url');
+    const input = field('textbox', 'Custom stylesheet URL');
     await user.type(input, 'https://example.com/draft.css');
     expect(input.value).toBe('https://example.com/draft.css');
 

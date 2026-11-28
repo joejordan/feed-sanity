@@ -9,11 +9,11 @@ export interface CustomCssDisclosureProps {
   readonly jumpId?: string;
   readonly customCss: string;
   readonly onCustomCssChange: (nextCss: string) => void;
-  readonly hasExternalCssOption: boolean;
-  readonly savedExternalCssUrl: string;
-  readonly externalCssDraft: string;
-  readonly onExternalCssDraftChange: (draft: string) => void;
-  readonly onCommitExternalCssUrl: (raw: string) => void;
+  readonly hasStylesheetOption: boolean;
+  readonly savedStylesheetUrl: string;
+  readonly stylesheetDraft: string;
+  readonly onStylesheetDraftChange: (draft: string) => void;
+  readonly onCommitStylesheetUrl: (raw: string) => void;
 }
 
 export function CustomCssDisclosure({
@@ -22,13 +22,13 @@ export function CustomCssDisclosure({
   jumpId,
   customCss,
   onCustomCssChange,
-  hasExternalCssOption,
-  savedExternalCssUrl,
-  externalCssDraft,
-  onExternalCssDraftChange,
-  onCommitExternalCssUrl,
+  hasStylesheetOption,
+  savedStylesheetUrl,
+  stylesheetDraft,
+  onStylesheetDraftChange,
+  onCommitStylesheetUrl,
 }: CustomCssDisclosureProps) {
-  const externalCssId = useId();
+  const stylesheetId = useId();
   const [cssDraft, setCssDraft] = useState(customCss);
   const pendingCssRef = useRef<string | null>(null);
   const lastCommittedRef = useRef(customCss);
@@ -75,7 +75,7 @@ export function CustomCssDisclosure({
     debounceTimerRef.current = setTimeout(flushCssDraft, CUSTOM_CSS_DEBOUNCE_MS);
   };
 
-  const isActive = Boolean(cssDraft.trim() || savedExternalCssUrl.trim());
+  const isActive = Boolean(cssDraft.trim() || savedStylesheetUrl.trim());
 
   return (
     <Disclosure
@@ -99,46 +99,46 @@ export function CustomCssDisclosure({
             onBlur={flushCssDraft}
           />
         </label>
-        {hasExternalCssOption && (
+        {hasStylesheetOption && (
           <div className="theme-color-row">
-            <label htmlFor={externalCssId}>External stylesheet URL</label>
+            <label htmlFor={stylesheetId}>Custom stylesheet URL</label>
             <div className="theme-external-css-row">
               <TextInput
-                id={externalCssId}
+                id={stylesheetId}
                 type="url"
                 className="field theme-hex"
-                ariaLabel="External CSS url"
+                ariaLabel="Custom stylesheet URL"
                 placeholder="https://example.com/custom.css"
                 spellCheck={false}
-                value={externalCssDraft}
-                onValueChange={onExternalCssDraftChange}
-                onBlur={(event) => onCommitExternalCssUrl(event.currentTarget.value)}
+                value={stylesheetDraft}
+                onValueChange={onStylesheetDraftChange}
+                onBlur={(event) => onCommitStylesheetUrl(event.currentTarget.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault();
-                    onCommitExternalCssUrl(event.currentTarget.value);
+                    onCommitStylesheetUrl(event.currentTarget.value);
                   }
                 }}
               />
-              {externalCssDraft.trim() !== savedExternalCssUrl && (
+              {stylesheetDraft.trim() !== savedStylesheetUrl && (
                 <button
                   type="button"
                   className="button primary"
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => onCommitExternalCssUrl(externalCssDraft)}
+                  onClick={() => onCommitStylesheetUrl(stylesheetDraft)}
                 >
                   Apply
                 </button>
               )}
-              {savedExternalCssUrl && externalCssDraft.trim() === savedExternalCssUrl && (
-                <button type="button" className="button" onClick={() => onCommitExternalCssUrl('')}>
+              {savedStylesheetUrl && stylesheetDraft.trim() === savedStylesheetUrl && (
+                <button type="button" className="button" onClick={() => onCommitStylesheetUrl('')}>
                   Clear
                 </button>
               )}
             </div>
             <span className="theme-studio-hint">
-              Optional HTTPS stylesheet URL (served as <code>text/css</code>). Use inline CSS, an
-              external URL, or both.
+              Loads a CSS file from the web on every page of this site. Serve it over HTTPS as{' '}
+              <code>text/css</code>, or the browser may refuse it. Works alongside the CSS above.
             </span>
           </div>
         )}

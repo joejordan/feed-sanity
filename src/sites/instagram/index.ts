@@ -5,7 +5,7 @@ import { version } from '../../../package.json';
 import { readLocatorOverrides } from '../../core/locator';
 import { siteDataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
-import externalCss from '../../features/external-css';
+import customStylesheet from '../../features/custom-stylesheet';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createInstagramPage, IG_LOCATOR_OVERRIDES } from './feature';
 import igDefaultFollowing from './features/default-following';
@@ -25,13 +25,13 @@ export const instagramFeatures: readonly Feature<InstagramPage>[] = [
   igHideClutter,
   igVideoControls,
   igVideoDownload,
-  externalCss,
+  customStylesheet,
 ];
 
 /**
  * Instagram `SiteAdapter` built on the shared multi-site kernel (`DomEnvironment`,
  * `PageBridge` v2, `engines/react`, `engines/network-tap`, `capabilities`,
- * and site-agnostic `external_css` + `SitesPanel`).
+ * and site-agnostic `custom_stylesheet` + `SitesPanel`).
  */
 export const instagramSite: SiteAdapter<InstagramPage, ReturnType<typeof createInstagramPage>> = {
   id: 'instagram',

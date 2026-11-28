@@ -5,7 +5,7 @@ import { version } from '../../../package.json';
 import { readLocatorOverrides } from '../../core/locator';
 import { siteDataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
-import externalCss from '../../features/external-css';
+import customStylesheet from '../../features/custom-stylesheet';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createGmailPage, GMAIL_LOCATOR_OVERRIDES } from './feature';
 import gmailHideClutter from './features/hide-clutter';
@@ -19,7 +19,7 @@ import { isGmailHost } from './urls';
 export const gmailFeatures: readonly Feature<GmailPage>[] = [
   gmailThreadFilters,
   gmailHideClutter,
-  externalCss,
+  customStylesheet,
 ];
 
 /**

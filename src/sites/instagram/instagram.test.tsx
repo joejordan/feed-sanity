@@ -218,8 +218,10 @@ describe('instagramSite adapter and features', () => {
     expect(document.documentElement.hasAttribute('data-feed-sanity-ig-filtering')).toBe(false);
     expect(document.querySelector('a[href="/reels/"]')?.hasAttribute(HIDDEN_ATTR)).toBe(false);
 
-    // Cross-site `external_css` feature runs identically on Instagram.
-    const cssLink = document.querySelector('#feed_sanity_custom_stylesheet') as HTMLLinkElement | null;
+    // Cross-site `custom_stylesheet` feature runs identically on Instagram.
+    const cssLink = document.querySelector(
+      '#feed_sanity_custom_stylesheet',
+    ) as HTMLLinkElement | null;
     expect(cssLink?.href).toBe('https://example.com/ig.css');
   });
 

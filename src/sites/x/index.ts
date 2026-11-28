@@ -5,7 +5,7 @@ import { version } from '../../../package.json';
 import { readLocatorOverrides } from '../../core/locator';
 import { siteDataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
-import externalCss from '../../features/external-css';
+import customStylesheet from '../../features/custom-stylesheet';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createXPage, X_LOCATOR_OVERRIDES } from './feature';
 import xDefaultFollowing from './features/default-following';
@@ -27,13 +27,13 @@ export const xFeatures: readonly Feature<XPage>[] = [
   xHideClutter,
   xVideoScrubber,
   xVideoSpeed,
-  externalCss,
+  customStylesheet,
 ];
 
 /**
  * X (Twitter) `SiteAdapter` built on the shared multi-site kernel (`DomEnvironment`,
  * `PageBridge` v2, `engines/react`, transforming `engines/network-tap`, shared
- * `createFeedFiltersFeature`, `overlayEachVideo`, and site-agnostic `external_css`).
+ * `createFeedFiltersFeature`, `overlayEachVideo`, and site-agnostic `custom_stylesheet`).
  */
 export const xSite: SiteAdapter<XPage, ReturnType<typeof createXPage>> = {
   id: 'x',

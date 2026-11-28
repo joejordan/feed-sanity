@@ -270,8 +270,10 @@ describe('xSite adapter and features', () => {
       document.elementsFromPoint = origElementsFromPoint;
     }
 
-    // Cross-site `external_css` runs identically on X.
-    const cssLink = document.querySelector('#feed_sanity_custom_stylesheet') as HTMLLinkElement | null;
+    // Cross-site `custom_stylesheet` runs identically on X.
+    const cssLink = document.querySelector(
+      '#feed_sanity_custom_stylesheet',
+    ) as HTMLLinkElement | null;
     expect(cssLink?.href).toBe('https://example.com/x.css');
 
     // Disabling `x_hide_sponsored` restores `netHost.fetch` cleanly without reload.

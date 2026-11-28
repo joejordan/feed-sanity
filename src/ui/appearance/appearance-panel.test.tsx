@@ -489,15 +489,15 @@ describe('appearancePanel & initSiteTheme', () => {
     setSpy.mockRestore();
   });
 
-  it('embeds External stylesheet inside the Custom CSS disclosure at the bottom of Appearance instead of a top-level card', async () => {
+  it('embeds the custom stylesheet field inside the Custom CSS disclosure at the bottom of Appearance instead of a top-level card', async () => {
     const store = inMemoryStore();
     const options = new Options(store, 'test/options');
     options.register({
       custom_stylesheet_url: {
         section: 'Appearance',
         group: 'External Stylesheet',
-        title: 'External CSS url',
-        description: 'Link an external stylesheet.',
+        title: 'Custom stylesheet URL',
+        description: 'Loads a stylesheet from a web address.',
         default: '',
         hiddenInList: true,
       },
@@ -516,15 +516,17 @@ describe('appearancePanel & initSiteTheme', () => {
 
     // Not rendered as a standalone top-level card above the Appearance panel.
     expect(screen.queryByText('External Stylesheet')).toBeNull();
-    expect(screen.queryByRole('textbox', { name: 'External CSS url' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Custom stylesheet URL' })).toBeNull();
 
     // Custom CSS disclosure is the final disclosure at the bottom of Appearance.
     const disclosures = screen.getAllByRole('button', { name: /Customize colors|Custom CSS/i });
     expect(disclosures.at(-1)?.textContent).toContain('Custom CSS');
 
-    // Expand Custom CSS and save an external stylesheet URL.
+    // Expand Custom CSS and save a custom stylesheet URL.
     await userEvent.click(screen.getByRole('button', { name: /Custom CSS/i }));
-    const urlInput = screen.getByRole<HTMLInputElement>('textbox', { name: 'External CSS url' });
+    const urlInput = screen.getByRole<HTMLInputElement>('textbox', {
+      name: 'Custom stylesheet URL',
+    });
     await userEvent.type(urlInput, 'https://example.com/theme.css');
     await userEvent.click(screen.getByRole('button', { name: 'Apply' }));
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Listeners } from './listeners';
 import { anyOf, Locators } from './locator';
 import { createLogger } from './log';
-import { PageWatcher } from './page-watcher';
+import { OWN_ATTR, PageWatcher } from './page-watcher';
 import { sleep } from './timing';
 
 function addHtml(html: string, parent: Element = document.body): HTMLElement {
@@ -59,6 +59,27 @@ describe('PageWatcher', () => {
 
       await vi.waitFor(() => expect(added).toHaveBeenCalled());
       expect(added.mock.calls.map(([element]) => (element as Element).tagName)).toEqual(['P']);
+    });
+
+    it('skips non-content tags but still reports removals of its own elements', async () => {
+      const added = vi.fn();
+      const removed = vi.fn();
+      later(watcher.watchTree({ added, removed }));
+      const own = document.createElement('link');
+      own.setAttribute(OWN_ATTR, '');
+      const style = document.createElement('style');
+      const frame = document.createElement('iframe');
+      const marker = document.createElement('p');
+
+      document.body.append(own, style, document.createElement('br'), frame, marker);
+      await vi.waitFor(() => expect(added).toHaveBeenCalledTimes(2));
+      expect(added.mock.calls).toEqual([[frame], [marker]]);
+
+      own.remove();
+      style.remove();
+      marker.remove();
+      await vi.waitFor(() => expect(removed).toHaveBeenCalledTimes(2));
+      expect(removed.mock.calls).toEqual([[own], [marker]]);
     });
 
     it('does not report changes made before it started', async () => {

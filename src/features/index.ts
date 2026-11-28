@@ -2,7 +2,7 @@ import type { Feature } from '../core/feature';
 import type { SavedData } from '../core/saved';
 import type { FacebookPage } from '../facebook/feature';
 import type { OptionsPanel } from '../ui/options-dialog/panel';
-import externalCss from './external-css';
+import customStylesheet from './custom-stylesheet';
 import facebookDisplayNotice from './facebook-display-notice';
 import hideFeedShelves from './hide-feed-shelves';
 import homeFeed from './home-feed';
@@ -27,7 +27,7 @@ export const features: readonly Feature<FacebookPage>[] = [
   videoScrubber,
   videoClickPauses,
   videoDownload,
-  externalCss,
+  customStylesheet,
 ];
 
 /** The parts of the options dialog that features draw themselves. */

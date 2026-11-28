@@ -187,8 +187,10 @@ describe('gmailSite adapter (zero React, strict Trusted Types, ThreadListCapabil
     expect(kwRow.getAttribute(HIDDEN_ATTR)).toBe('none');
     expect(badges.at(-1)).toEqual({ count: 3, failed: false });
 
-    // External CSS and clutter rules injected cleanly without touching HTML sinks.
-    const extLink = document.querySelector('#feed_sanity_custom_stylesheet') as HTMLLinkElement | null;
+    // Custom stylesheet and clutter rules injected cleanly without touching HTML sinks.
+    const extLink = document.querySelector(
+      '#feed_sanity_custom_stylesheet',
+    ) as HTMLLinkElement | null;
     expect(extLink?.href).toBe('https://example.com/gmail.css');
     expect(document.querySelector('#feed_sanity_clutter_gmail_hide_side_panel')).not.toBeNull();
     expect(document.querySelector('#feed_sanity_clutter_gmail_hide_gemini')).not.toBeNull();
@@ -216,7 +218,7 @@ describe('gmailSite adapter (zero React, strict Trusted Types, ThreadListCapabil
     history.pushState({}, '', '/mail/u/0/#sent');
     globalThis.dispatchEvent(new HashChangeEvent('hashchange'));
 
-    // Toggling filters off restores hidden rows and removes external CSS + clutter rules cleanly without reload.
+    // Toggling filters off restores hidden rows and removes the custom stylesheet + clutter rules cleanly without reload.
     await store.set('v2/gmail/u0/options', {
       gmail_hide_ads: false,
       gmail_keywords: '',

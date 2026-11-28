@@ -3,9 +3,40 @@ import type { Logger } from './log';
 import { callSafely, Listeners } from './listeners';
 import { createLogger } from './log';
 
-/** Elements that never hold page content worth reacting to. */
-// TODO(clean): the core-cleanup unit chooses this set (spec-core-cleanup.md).
-const SKIPPED_TAGS: ReadonlySet<string> = new Set<string>();
+/**
+ * Elements `watchTree` does not report, by upper-case `nodeName`: none of them
+ * shows feed content worth reacting to. Removals of this project's own elements
+ * are still reported, whatever their tag, so they can heal. Selector watches see
+ * all of them, so a watch for `style` or `link` works.
+ *
+ * Left out on purpose:
+ * - `IFRAME`: `DomEnvironment` attaches same-origin frames from `watchTree`'s
+ *   reports and prunes them from its removals.
+ * - `IMG`, `VIDEO`, `CANVAS`: visible, and features look for them.
+ * - `INPUT`, `TEXTAREA`, `SELECT`: visible, and the theme healer recolours them.
+ * - `OBJECT`: its fallback content is ordinary page content when it shows.
+ */
+const SKIPPED_TAGS: ReadonlySet<string> = new Set([
+  // Never rendered.
+  'BASE',
+  'LINK',
+  'META',
+  'NOSCRIPT',
+  'SCRIPT',
+  'STYLE',
+  'TEMPLATE',
+  'TITLE',
+  // Line breaks, which are always empty.
+  'BR',
+  'WBR',
+  // Parts of media elements, which are reported themselves.
+  'PARAM',
+  'SOURCE',
+  'TRACK',
+  // Media and plugin content no feature reads, whose insides belong to the browser.
+  'AUDIO',
+  'EMBED',
+]);
 /** Attribute marking an element this project inserted into the host DOM. */
 export const OWN_ATTR = 'data-feed-sanity';
 const EMPTY_ELEMENTS: Element[] = [];
@@ -183,7 +214,11 @@ class TreeSubscriber implements Subscriber {
       }
       if (removed && record.removedNodes.length > 0) {
         for (const node of record.removedNodes) {
-          if (this.active && isWatched(node)) {
+          // Own elements always: overlays and slots heal from their removal.
+          if (
+            this.active &&
+            (isWatched(node) || (isElement(node) && node.hasAttribute(OWN_ATTR)))
+          ) {
             callSafely(this.#log, removed, node);
           }
         }

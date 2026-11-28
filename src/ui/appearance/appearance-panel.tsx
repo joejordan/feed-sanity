@@ -37,6 +37,7 @@ import {
   updateThemeEffects,
   updateThemeTypography,
 } from '../../core/theming';
+import { CUSTOM_STYLESHEET_URL_KEY } from '../../features/custom-stylesheet/model';
 import { definePanel } from '../options-dialog/panel';
 import {
   previewLeaveProps,
@@ -164,25 +165,25 @@ function AppearancePanelView({
   const [auditState, setAuditState] = useState<AuditState | null>(null);
   const [schemeFilter, setSchemeFilter] = useState<SchemeFilter>('all');
 
-  const hasExternalCssOption = useMemo(
-    () => Boolean(options?.list().some(([key]) => key === 'custom_stylesheet_url')),
+  const hasStylesheetOption = useMemo(
+    () => Boolean(options?.list().some(([key]) => key === CUSTOM_STYLESHEET_URL_KEY)),
     [options],
   );
-  const [savedExternalCssUrl, setSavedExternalCssUrl] = useState(() =>
-    hasExternalCssOption && options ? String(options.get('custom_stylesheet_url')) : '',
+  const [savedStylesheetUrl, setSavedStylesheetUrl] = useState(() =>
+    hasStylesheetOption && options ? String(options.get(CUSTOM_STYLESHEET_URL_KEY)) : '',
   );
-  const [externalCssDraft, setExternalCssDraft] = useState(savedExternalCssUrl);
+  const [stylesheetDraft, setStylesheetDraft] = useState(savedStylesheetUrl);
 
   useEffect(() => {
-    if (!hasExternalCssOption || !options) {
+    if (!hasStylesheetOption || !options) {
       return;
     }
-    return options.watch('custom_stylesheet_url', (next) => {
+    return options.watch(CUSTOM_STYLESHEET_URL_KEY, (next) => {
       const url = String(next);
-      setSavedExternalCssUrl(url);
-      setExternalCssDraft(url);
+      setSavedStylesheetUrl(url);
+      setStylesheetDraft(url);
     });
-  }, [hasExternalCssOption, options]);
+  }, [hasStylesheetOption, options]);
 
   const [initialDisclosure] = useState<AppearanceDisclosureId | null>(() =>
     consumePendingDisclosure(),
@@ -190,7 +191,7 @@ function AppearancePanelView({
   const [transferOpen, setTransferOpen] = useState(() => initialDisclosure === 'transfer');
   const [cssOpen, setCssOpen] = useState(
     () =>
-      Boolean((value.customCss ?? '').trim() || savedExternalCssUrl.trim()) ||
+      Boolean((value.customCss ?? '').trim() || savedStylesheetUrl.trim()) ||
       initialDisclosure === 'css',
   );
   const [healthOpen, setHealthOpen] = useState(() => initialDisclosure === 'health');
@@ -209,23 +210,23 @@ function AppearancePanelView({
     return () => registerDisclosureOpener(undefined);
   }, [registerDisclosureOpener]);
 
-  const commitExternalCssUrl = (raw: string): void => {
-    if (!hasExternalCssOption || !options) {
+  const commitStylesheetUrl = (raw: string): void => {
+    if (!hasStylesheetOption || !options) {
       return;
     }
     const nextUrl = raw.trim();
-    if (nextUrl === savedExternalCssUrl) {
-      setExternalCssDraft(nextUrl);
+    if (nextUrl === savedStylesheetUrl) {
+      setStylesheetDraft(nextUrl);
       return;
     }
-    const previousUrl = savedExternalCssUrl;
-    setExternalCssDraft(nextUrl);
-    setSavedExternalCssUrl(nextUrl);
-    void options.set('custom_stylesheet_url', nextUrl);
-    notify?.(nextUrl ? 'External stylesheet saved' : 'External stylesheet cleared', () => {
-      setExternalCssDraft(previousUrl);
-      setSavedExternalCssUrl(previousUrl);
-      void options.set('custom_stylesheet_url', previousUrl);
+    const previousUrl = savedStylesheetUrl;
+    setStylesheetDraft(nextUrl);
+    setSavedStylesheetUrl(nextUrl);
+    void options.set(CUSTOM_STYLESHEET_URL_KEY, nextUrl);
+    notify?.(nextUrl ? 'Custom stylesheet saved' : 'Custom stylesheet cleared', () => {
+      setStylesheetDraft(previousUrl);
+      setSavedStylesheetUrl(previousUrl);
+      void options.set(CUSTOM_STYLESHEET_URL_KEY, previousUrl);
     });
   };
 
@@ -746,11 +747,11 @@ function AppearancePanelView({
           jumpId="custom-css"
           customCss={value.customCss ?? ''}
           onCustomCssChange={(nextCss) => applyEdit(updateThemeCustomCss(value, nextCss))}
-          hasExternalCssOption={hasExternalCssOption}
-          savedExternalCssUrl={savedExternalCssUrl}
-          externalCssDraft={externalCssDraft}
-          onExternalCssDraftChange={setExternalCssDraft}
-          onCommitExternalCssUrl={commitExternalCssUrl}
+          hasStylesheetOption={hasStylesheetOption}
+          savedStylesheetUrl={savedStylesheetUrl}
+          stylesheetDraft={stylesheetDraft}
+          onStylesheetDraftChange={setStylesheetDraft}
+          onCommitStylesheetUrl={commitStylesheetUrl}
         />
       </SettingCard>
     </section>
@@ -871,7 +872,7 @@ export function appearancePanel(
       },
       {
         id: 'custom-css',
-        title: 'Custom CSS & External stylesheet',
+        title: 'Custom CSS & stylesheet',
         description: 'Write inline CSS rules or link an external HTTPS stylesheet.',
         keywords: ['style', 'stylesheet', 'css', 'external', 'url', 'link'],
         onSelect: () => requestDisclosure('css'),

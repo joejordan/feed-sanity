@@ -5,7 +5,7 @@ import { version } from '../../../package.json';
 import { readLocatorOverrides } from '../../core/locator';
 import { siteDataPanel } from '../../data/data-panel';
 import { diagnosticsPanel } from '../../diagnostics/diagnostics-panel';
-import externalCss from '../../features/external-css';
+import customStylesheet from '../../features/custom-stylesheet';
 import { createFiltersPanel } from '../../ui/filters/filters-panel';
 import { createRedditPage, REDDIT_LOCATOR_OVERRIDES } from './feature';
 import redditFeedFilters from './features/feed-filters';
@@ -21,7 +21,7 @@ export const redditFeatures: readonly Feature<RedditPage>[] = [
   redditFeedFilters,
   redditHideClutter,
   redditVideoControls,
-  externalCss,
+  customStylesheet,
 ];
 
 /**
@@ -30,7 +30,7 @@ export const redditFeatures: readonly Feature<RedditPage>[] = [
  * `engines/shadow` `attachShadow` notifications, `engines/hydration` SSR ad
  * indexing, shadow-piercing `SiteFeed` + `SiteVideos`, `shadowExtraCss` live
  * theming, `createFiltersPanel`, `dataPanel`, `diagnosticsPanel`, and
- * `external_css`.
+ * `custom_stylesheet`.
  */
 export const redditSite: SiteAdapter<RedditPage, ReturnType<typeof createRedditPage>> = {
   id: 'reddit',
