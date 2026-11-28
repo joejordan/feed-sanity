@@ -4,9 +4,12 @@ These tests load the built Chrome extension (`.output/chrome-mv3`) into Playwrig
 
 ## What they cover
 
-- The content script starts on `https://www.facebook.com/` and applies a saved option.
+- The content script starts on `https://www.facebook.com/` and applies a saved option: the custom stylesheet's address adds its `<link>`, and clearing the option takes it away.
 - Posts in the feed are found and get their IDs from the time link. Comments are not taken for posts.
-- A keyword saved before the page loads hides the posts that contain it behind a note, and clicking the note shows the post. A filter saved under `<user>/filters` hides posts too.
+- A keyword saved before the page loads hides the posts that contain it behind a note. Clicking the note shows the post, a second click hides it again, and clearing the keywords gives every post back. With notes turned off a post is hidden without a trace. A filter saved under `v2/facebook/<user>/custom_filters` hides posts too.
+- A post the comments popup is about gets its note too, and starts revealed.
+- A Feed Sanity backup pasted into Backup & Reset applies its options and filters to the open page, reports an unknown option as skipped, and a saved backup gives the same settings back.
+- A post marked read with its button is hidden behind a read note, stays read after a reload, and the Backup & Reset section counts it; clearing the read history shows it again without a reload.
 - A keyword changed in storage while the page is open takes effect without a reload.
 - A post added after load is filtered, and a post that the page empties and fills again gets its note back.
 - The toolbar button's click event opens the options dialog, and a setting saved in the dialog reaches extension storage.
@@ -28,7 +31,7 @@ These tests load the built Chrome extension (`.output/chrome-mv3`) into Playwrig
 
 ## What they do not cover
 
-- The real Facebook. The pages in `pages/` copy the markup recorded in `docs/facebook-notes.md` under "Checked against Facebook". When Facebook changes, these tests keep passing until the pages are updated.
+- The real Facebook. The pages in `pages/` copy the markup recorded in `docs/facebook-notes.md` and in the locators of `src/facebook/selectors.ts`. When Facebook changes, these tests keep passing until the pages are updated.
 - Firefox and the userscript.
 - A real click on the toolbar button. Playwright cannot click it. The tests run the extension's action through Chromium's DevTools protocol (`Extensions.triggerAction`), which fires the same `action.onClicked` event a click does, so the background script's listener runs. Whether the button is shown, and whether a click on it reaches the extension, is not tested.
 - How the badge looks, and its `!` mark for a failed feature. The tests read only its text, and no feature fails on these pages.
@@ -49,4 +52,4 @@ Starting Chromium with the extension takes several seconds, so the tests share o
 
 ## Adding a page
 
-Put the file in `pages/` at the path it is served from: `pages/index.html` is `https://www.facebook.com/`, and `pages/groups/index.html` would be `https://www.facebook.com/groups/`. Query strings are ignored. Use invented names and text. To make the page change after it loads, as Facebook does, add a short inline script. Have it wait for something the extension does, such as a `fs_post` mark, before it changes the page, so the change reaches posts the extension already knows about. `pages/index.html` does this with a `MutationObserver`.
+Put the file in `pages/` at the path it is served from: `pages/index.html` is `https://www.facebook.com/`, and `pages/groups/index.html` would be `https://www.facebook.com/groups/`. Query strings are ignored. Use invented names and text. To make the page change after it loads, as Facebook does, add a short inline script. Have it wait for something the extension does, such as the `data-feed-sanity-post` mark (`MARK.post` in `src/facebook/selectors.ts`), before it changes the page, so the change reaches posts the extension already knows about. `pages/index.html` does this with a `MutationObserver`.

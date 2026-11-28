@@ -7,7 +7,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, expect, test } from '@playwright/test';
 import type { BrowserContext, Page, Route } from '@playwright/test';
+import type { Filter } from '../src/core/filter-types';
 import { OPTIONS_TITLE } from '../project';
+import { CUSTOM_FILTERS_KEY } from '../src/core/filter-types';
 import { applyThemePreset, DEFAULT_THEME_DOCUMENT } from '../src/core/theming/config';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -381,7 +383,7 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
       await dialog.getByRole('button', { name: /^Filtering/ }).click();
       await dialog.getByRole('button', { name: /Mute posts by keyword/i }).click();
       await dialog.getByRole('textbox', { name: 'Text to look for' }).fill('systems engineering');
-      await dialog.getByRole('button', { name: /All filters/ }).click();
+      await dialog.getByRole('button', { name: 'Add filter', exact: true }).click();
       await expect(dialog.getByRole('button', { name: 'Mute keyword', exact: true })).toBeVisible();
       await dialog.getByRole('button', { name: 'Close' }).click();
       await expect(dialog).toBeHidden();
@@ -617,23 +619,18 @@ test.describe('multi-site E2E (X.com and Instagram)', () => {
             reddit_hide_promos: true,
             reddit_video_scrubber: true,
           },
-          'v2/reddit/loid-e2ereddit123/filters': [
+          [`v2/reddit/loid-e2ereddit123/${CUSTOM_FILTERS_KEY}`]: [
             {
-              title: 'Redact secret phrase',
+              id: 'f-e2e-redact',
+              name: 'Redact secret phrase',
               enabled: true,
-              match: 'ALL',
-              stop_on_match: false,
-              rules: [
-                {
-                  target: 'subreddit',
-                  operator: 'contains',
-                  matcher: 'str',
-                  match_partial_words: true,
-                  condition: { text: 'r/programming', modifier: 'i' },
-                },
+              join: 'all',
+              stopAfter: false,
+              conditions: [
+                { kind: 'text', part: 'subreddit', test: 'contains', values: ['r/programming'] },
               ],
-              actions: [{ action: 'replace', find: 'secret-sauce', replace: '[REDACTED]' }],
-            },
+              actions: [{ kind: 'replace', find: 'secret-sauce', replaceWith: '[REDACTED]' }],
+            } satisfies Filter,
           ],
         },
         'loid=e2ereddit123.1.1700000000',

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Post } from './posts';
 import { sleep } from '../core/timing';
+import { findPostId } from './post-id';
 import { Posts } from './posts';
 import { MARK, NO_POST_ID } from './selectors';
 import { fakeLocate, postHeader } from './testing';
@@ -137,6 +138,45 @@ describe('Posts', () => {
     expect(tracked).toHaveLength(1);
     expect(updated[0]?.element).toBe(element);
     expect(posts.stats()).toMatchObject({ tracked: 1, withId: 1 });
+  });
+
+  it('identifies a slot emptied before its ID lookup once it is refilled', async () => {
+    const element = add(slot(1, content('Ines Harrow', '100000000000005')));
+    follow();
+    expect(tracked).toHaveLength(1);
+
+    // Emptied before the lookup runs, as Facebook does with a slot that scrolls away.
+    element.replaceChildren();
+    await sleep(80);
+    expect(addedPosts).toEqual([]);
+    expect(element.hasAttribute(MARK.postId)).toBe(false);
+    expect(posts.stats()).toMatchObject({ tracked: 1, identifying: 1 });
+
+    element.innerHTML = content('Ines Harrow', '100000000000005');
+    await vi.waitFor(() => expect(addedPosts).toHaveLength(1));
+    expect(addedPosts[0]?.id).toBe('100000000000005');
+    expect(element.getAttribute(MARK.postId)).toBe('100000000000005');
+    expect(tracked).toHaveLength(1);
+    expect(posts.stats()).toMatchObject({ tracked: 1, withId: 1 });
+  });
+
+  it('identifies a slot refilled while the lookup of its emptied content is still running', async () => {
+    // Reads the post at once and answers a little later, as a slower lookup would.
+    posts = new Posts(fakeLocate, async (post, locate) => {
+      const id = await findPostId(post, locate);
+      await sleep(30);
+      return id;
+    });
+    const element = add(slot(1, content('Ines Harrow', '100000000000005')));
+    follow();
+    element.replaceChildren();
+
+    // The lookup starts on the empty slot, and the slot is refilled before it answers.
+    await sleep(60);
+    element.innerHTML = content('Ines Harrow', '100000000000005');
+    await vi.waitFor(() => expect(addedPosts).toHaveLength(1));
+    expect(addedPosts[0]?.id).toBe('100000000000005');
+    expect(element.getAttribute(MARK.postId)).toBe('100000000000005');
   });
 
   it('reports content added inside a post once per post, without this project’s own elements', async () => {

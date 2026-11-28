@@ -102,11 +102,14 @@ into the page as a file in a file input, and loads from a blob address made from
 
    - `__fsOpen()` opens the options dialog.
    - `__fsStore.get(key)` and `__fsStore.set(key, value)` read and write the in-memory
-     settings. Keys are `` `${__fsUser}/options` `` and `` `${__fsUser}/filters` ``. A `set`
-     reaches the running features the way a save in another tab would.
-   - `document.querySelectorAll(`[${MARK.post}]`).length`, with the post mark from
-     `src/facebook/selectors.ts`, counts the posts found. Post detection
-     starts only once a keyword or filter exists.
+     settings. Keys are `` `${__fsPrefix}/options` `` and `` `${__fsPrefix}/custom_filters` ``,
+     where `__fsPrefix` is `v2/facebook/<accountId>` (for example
+     `v2/facebook/<accountId>/options`) and `__fsUser` is the account ID. A `set` reaches the running features the way a save in
+     another tab would.
+   - `document.querySelectorAll('[data-feed-sanity-post]').length`, with the post mark
+     `MARK.post` from `src/facebook/selectors.ts`, counts the posts found. Post detection
+     starts once a feature needs posts; with the default settings, suggested-post hiding and
+     read posts both do.
 
 8. Reload the tab to remove everything, then close it.
 
@@ -119,8 +122,8 @@ into the page as a file in a file input, and loads from a blob address made from
 - `javascript_tool` accepts top-level `await`. Use it to wait for content after scrolling.
 - The feed is virtualised. Posts scrolled far out of view are emptied and keep their marks, so
   an empty marked post is normal.
-- Opening a post in the comments popup changes the address to the post's own. Filters then
-  run only if "Filter on pages and profiles" is on.
+- Opening a post in the comments popup changes the address to the post's own. The popup is
+  marked with `MARK.popupPost`; the post in it is still filtered, and its note starts revealed.
 
 ## What this does not prove
 

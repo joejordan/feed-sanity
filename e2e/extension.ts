@@ -6,8 +6,10 @@ import path from 'node:path';
 import { test as base, chromium, expect } from '@playwright/test';
 import type { BrowserContext, Page, Route, Worker } from '@playwright/test';
 import type { browser } from 'wxt/browser';
+import { CUSTOM_FILTERS_KEY } from '../src/core/filter-types';
 import { siteStoragePrefix } from '../src/core/site-storage';
 import { THEME_DATA_KEY } from '../src/core/theming/types';
+import { READ_HISTORY_KEY as READ_HISTORY } from '../src/facebook/read-history';
 import { OPEN_OPTIONS } from '../src/platform/messages';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -33,7 +35,8 @@ const USER_ID = '100000000000042';
 const STORAGE_PREFIX = siteStoragePrefix('facebook', USER_ID);
 
 export const OPTIONS_KEY = `${STORAGE_PREFIX}/options`;
-export const FILTERS_KEY = `${STORAGE_PREFIX}/filters`;
+export const FILTERS_KEY = `${STORAGE_PREFIX}/${CUSTOM_FILTERS_KEY}`;
+export const READ_HISTORY_KEY = `${STORAGE_PREFIX}/${READ_HISTORY}`;
 export const THEME_KEY = `${STORAGE_PREFIX}/${THEME_DATA_KEY}`;
 
 // The extension API in the service worker, for the functions the tests run

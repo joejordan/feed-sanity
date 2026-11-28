@@ -12,7 +12,8 @@ import { savedReadHistory } from '../../facebook/read-history';
 import { fakeLocate, makePost, postHeader, videoPage } from '../../facebook/testing';
 import { extensionStore } from '../../platform/extension-store';
 import postFilters from '../post-filters';
-import readPosts, { HIDE_READ_ATTR, READ_ATTR, READ_NOTE_CLASS } from './index';
+import readPosts from './index';
+import { HIDE_READ_ATTR, READ_ATTR, READ_NOTE_CLASS } from './markers';
 
 type Listener = (post: Post) => void;
 

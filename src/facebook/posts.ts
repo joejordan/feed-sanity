@@ -49,7 +49,10 @@ export interface PostStats {
   readonly withId: number;
   /** Tracked posts whose ID lookup finished without one. */
   readonly withoutId: number;
-  /** Tracked posts whose ID lookup is still running or waiting to run. */
+  /**
+   * Tracked posts whose ID lookup is still running or waiting to run, including
+   * feed slots emptied before it ran, which are identified once refilled.
+   */
   readonly identifying: number;
   /** Feed slots with text that are not tracked: a sign that detection misses posts. */
   readonly unrecognised: number;
@@ -386,8 +389,13 @@ export class Posts {
     this.#tracked.emit(entry.post);
     // A listener may have stopped detection or the post may have gone.
     if (this.#entries.get(element) === entry) {
-      entry.timer = setTimeout(() => void this.#identify(entry), IDENTIFY_DELAY_MS);
+      this.#scheduleIdentify(entry);
     }
+  }
+
+  /** Looks for the post's ID shortly, unless a lookup is already waiting. */
+  #scheduleIdentify(entry: Entry): void {
+    entry.timer ??= setTimeout(() => void this.#identify(entry), IDENTIFY_DELAY_MS);
   }
 
   /** True when `content` holds a real post: a link in its header or on its time, and text of its own. */
@@ -413,8 +421,15 @@ export class Posts {
     if (
       generation !== this.#generation ||
       this.#entries.get(element) !== entry ||
-      !element.isConnected
+      !element.isConnected ||
+      // A refill can schedule a second lookup while this one waits on `findId`.
+      entry.announced
     ) {
+      return;
+    }
+    // Emptied before its ID was looked for: `#noteUpdate` looks again once it is refilled. A
+    // refill during `findId` has already scheduled that lookup, which reads the new content.
+    if (id === null && (entry.timer !== undefined || !this.#isPost(entry.content))) {
       return;
     }
     // On a single post's page, every post outside the feed and the popup without a time link gets
@@ -459,10 +474,19 @@ export class Posts {
   }
 
   #noteUpdate(entry: Entry, node: Element): void {
+    // A lookup is already waiting, and it checks the post again itself.
+    if (!entry.announced && entry.timer !== undefined) {
+      return;
+    }
     const { content } = entry;
     // In the popup, only what arrives in the post itself counts, not the comments beside it.
     const inPost = content.contains(node) || node.contains(content);
-    if (!entry.announced || !inPost || isExcluded(node, content, notOwnSelector(this.#locate))) {
+    if (!inPost || isExcluded(node, content, notOwnSelector(this.#locate))) {
+      return;
+    }
+    if (!entry.announced) {
+      // A post emptied before it was identified is identified once content comes back.
+      this.#scheduleIdentify(entry);
       return;
     }
     this.#pendingUpdates.add(entry);

@@ -1,8 +1,9 @@
 <!doctype html>
 <!--
   A stand-in for the Facebook news feed, served at https://www.facebook.com/.
-  The markup follows what docs/facebook-notes.md records under "Checked against
-  Facebook": feed slots with aria-posinset, data-ad-rendering-role parts, the
+  The markup follows what docs/facebook-notes.md records under "News feed,
+  suggested posts and the top bar" and the post locators in
+  src/facebook/selectors.ts: feed slots with aria-posinset, data-ad-rendering-role parts, the
   author in a strong inside an h4, a time link with aria-labelledby and
   aria-describedby whose address holds the post ID, and comments inside a
   form. Every name and text is invented.
@@ -326,14 +327,18 @@
             then();
           }
         });
-        observer.observe(feed, { subtree: true, childList: true, attributeFilter: ['fs_post'] });
+        observer.observe(feed, {
+          subtree: true,
+          childList: true,
+          attributeFilter: ['data-feed-sanity-post'],
+        });
       }
 
       const onHome = () => feed.dataset.page === 'home';
 
       // Once the extension has marked the posts on the page, one more arrives.
       when(
-        () => feed.querySelector('[fs_post]'),
+        () => feed.querySelector('[data-feed-sanity-post]'),
         () =>
           setTimeout(() => {
             if (onHome()) {
@@ -345,7 +350,7 @@
       // Once the extension has hidden the post in this slot, the slot is emptied,
       // which removes the extension's note, and filled again a moment later.
       when(
-        () => slot.querySelector('.fs_filter_hidden_note'),
+        () => slot.querySelector('.feed-sanity-filter-note'),
         () => {
           slot.replaceChildren();
           setTimeout(() => {

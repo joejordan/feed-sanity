@@ -20,6 +20,7 @@ With that, the three video features reach the stories viewer. A video in a story
 - `video_click_pauses`: a plain click on a story card, video or photo, presses the story's own pause and play button, so Facebook's timer and progress bar stay in step, and the whole press is kept from Facebook. Clicks on the header, links and stickers in the story, this project's UI, and anything outside the card (the header's buttons on the right, the next and previous buttons and the reply box) go to Facebook, and so does a press made while the story's menu is open or while a field outside the card, such as the reply box, has focus, since it is meant to close or leave them. A press that ends after the card has been given the next story does nothing. Facebook's tap zones on the story, where a click on the left part goes back, no longer move the story while the option is on; the next and previous buttons do. Every click on a story counts, so a double click pauses and plays it again, and the double click itself is kept from Facebook. Facebook does the pausing there, so no hold keeps a story paused. When no pause button is found next to the menu button, clicks on that story go to Facebook and the feature says so once at debug level.
 
 A live check the same day, with the code loaded alone and the viewer opened from the story tray, found both overlay hosts as the last children of the card (seven children in all), the save button at (8, 72) on a 419 by 745 video, and a click on a photo story stopping its progress bar and a second one starting it, with the address unchanged and no errors. The scrubber could not take the pointer there, because of strip (e)'s `z-index`, which led to the stand-in above. A second live check after the stand-in went in, on an 11 second video story, found strip (e) marked and hidden and nothing else marked. A click on the scrubber three quarters of the way along moved the video to 8.3 seconds, and a drag back moved it to 2.8. The save button showed under the avatar with its tooltip below it. A click on the picture paused the video and Facebook's play button followed, and a second click played it again. A click on the left third paused it, with the same story and the same address afterwards. With the scrubber switched off the strip was given back, and it was hidden again when the scrubber came back on. The save button was not pressed.
+
 ## Loading test code on the live site
 
 Facebook's pages do not allow `eval`, but they allow scripts from `blob:` addresses. The test build was loaded that way, from a file put in a file input. The steps are in `.claude/skills/live-facebook-check/SKILL.md`.
@@ -42,7 +43,10 @@ A watch for video ads the same day played 11 reels through in the reel viewer ov
 - The player has an `instreamVideoAdBreaksPlayer` object and an `adClientToken` field.
 
 What these hold during an ad is not known.
+
 A video paused from outside starts again when it scrolls out of view and back, because Facebook plays videos that come into view. Its own play button does follow a pause made from outside.
+
+Not checked for videos: an ad during a video, pressing the save button on the live site, and anything in Firefox. The page-world bridge has answered on the live site only in the test build, where both of its sides run in the page's own world. The extension's `world: 'MAIN'` content script and the userscript's `blob:` script have run only in the end-to-end tests.
 
 ## News feed, suggested posts and the top bar
 
@@ -62,8 +66,6 @@ The built code then ran alone on the live site on 2026-11-14, in Chrome in dark 
 - The caret sat right of the house icon, its 20 by 20 box 28 pixels right of the icon's centre, and followed the Home cell when the top bar's layout changed. The menu opened under the Home cell and matched Facebook's look in dark mode. Facebook's Home link has `href="/"`.
 - Picking Friends on the news feed loaded the Friends address, since the page had no link to it. With the left column's "See more" open, its "Feeds" link to `filter=all` was in the page, and picking Most recent moved there without a reload, saved `all` and turned the chevron blue. On a Feeds page every feed has a link, so every pick moved without a reload. With `all` saved, a real click on Home from the Friends feed landed on Most recent without a reload. Picking Home went to `/` and saved `home`.
 - Two things were fixed after this check: Facebook's own Home tooltip showed beside "Choose feed" and stayed above the open menu, and the focus ring sometimes showed on the first entry of a menu opened by a click. A second check the same day, on the stories and feed work together, found only "Choose feed" over the caret, Facebook's Home tooltip back when the pointer moved from the caret onto the house icon, no focus ring on a menu opened by a click, and the ring on the entry reached with the arrow keys. On that run 9 of 15 posts were suggestions and 4 were ads, all 13 were hidden, and the badge showed 13. No post in view had a verified badge without a Follow button, so that fix has run only in the tests. Facebook redrew the top bar once while the menu was open, and the menu closed.
-
-Not checked for videos: an ad during a video, pressing the save button on the live site, and anything in Firefox. The page-world bridge has answered on the live site only in the test build, where both of its sides run in the page's own world. The extension's `world: 'MAIN'` content script and the userscript's `blob:` script have run only in the end-to-end tests.
 
 ## The stories list
 

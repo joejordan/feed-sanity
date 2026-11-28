@@ -2,6 +2,7 @@ import { OPTIONS_TITLE } from '../project';
 import { STUDIO_VIBES } from '../src/core/theme-effects/vibes';
 import { applyStudioVibe, DEFAULT_THEME_DOCUMENT } from '../src/core/theming/config';
 import { readThemeLibraryState, THEME_LIBRARY_KEY } from '../src/core/theming/library';
+import { FILTERED_ATTR, FILTERED_HIDDEN } from '../src/features/post-filters/markers';
 import { expect, ORIGIN, test } from './extension';
 
 const FEED = `${ORIGIN}/`;
@@ -41,7 +42,7 @@ test('extension toolbar popup controls live Facebook tab (Starter Mode, Quick Th
   const adPost = page
     .locator('[aria-posinset]')
     .filter({ has: page.locator('h4', { hasText: 'Sourdough School' }) });
-  await expect(adPost).toHaveClass(/\bfs_filter_hidden\b/);
+  await expect(adPost).toHaveAttribute(FILTERED_ATTR, FILTERED_HIDDEN);
 
   // Switching back down from Focus -> Clean stays responsive and updates active mode.
   await popup.getByRole('button', { name: 'Clean', exact: true }).click();
@@ -66,7 +67,7 @@ test('extension toolbar popup controls live Facebook tab (Starter Mode, Quick Th
   const bram = page
     .locator('[aria-posinset]')
     .filter({ has: page.locator('h4', { hasText: 'Bram Okafor' }) });
-  await expect(bram).toHaveClass(/\bfs_filter_hidden\b/);
+  await expect(bram).toHaveAttribute(FILTERED_ATTR, FILTERED_HIDDEN);
 
   // Clicking "Theme Studio" opens the full Options dialog directly to Appearance on the Facebook tab!
   await popup.getByRole('button', { name: /Theme Studio/i }).click();

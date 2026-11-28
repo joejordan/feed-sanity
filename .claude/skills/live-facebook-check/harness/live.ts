@@ -2,6 +2,8 @@
 // manager. Settings live in memory, and `__fsOpen()` opens the options
 // dialog. See ../SKILL.md.
 import type { Store } from '../../../../src/core/storage';
+import { CUSTOM_FILTERS_KEY } from '../../../../src/core/filter-types';
+import { siteStoragePrefix } from '../../../../src/core/site-storage';
 import { MARK } from '../../../../src/facebook/selectors';
 import { currentUserId } from '../../../../src/facebook/user';
 import { startPageWorld } from '../../../../src/page-world';
@@ -35,11 +37,13 @@ const store: Store = {
 // Set `__fsPreset` in the page before loading the bundle to start with
 // options or filters already saved.
 const user = currentUserId();
+// The keys the Facebook site reads: `v2/facebook/<accountId>/options` and the rest.
+const prefix = siteStoragePrefix('facebook', user);
 const preset = (globalThis as Record<string, unknown>).__fsPreset as
   | { options?: unknown; filters?: unknown }
   | undefined;
-memory.set(`${user}/options`, preset?.options ?? {});
-memory.set(`${user}/filters`, preset?.filters ?? []);
+memory.set(`${prefix}/options`, preset?.options ?? {});
+memory.set(`${prefix}/${CUSTOM_FILTERS_KEY}`, preset?.filters ?? []);
 
 let open = (): void => undefined;
 void start({
@@ -64,5 +68,6 @@ Object.assign(globalThis, {
   __fsOpen: () => open(),
   __fsStore: store,
   __fsUser: user,
+  __fsPrefix: prefix,
   __fsOtherCopy: otherCopy,
 });

@@ -521,7 +521,7 @@ func buildFacebookStressHTML(baseHTML: String, extraStyleRules: Int, extraPosts:
       let cls = String(format: "x%02x%04x", s + 1, i + 1)
       cssLines.append(".\(cls){padding-top:\(i % 16)px}")
     }
-    // Add colliding declarations matching ATOM_RULES to exercise Atoms.#record collision counting!
+    // Add colliding single-declaration classes, as Facebook's atomic bundles have.
     let p = s + 1
     cssLines.append(".x\(p)posrel{position:relative}")
     cssLines.append(".x\(p)disflx{display:flex}")
@@ -693,7 +693,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
       html: fbWithReact
     )
     let postsTracked = await waitUntil(timeoutMs: 5000) {
-      let (val, _) = await evalJS(webView, "document.querySelectorAll('[fs_post]').length")
+      let (val, _) = await evalJS(webView, "document.querySelectorAll('[data-feed-sanity-post]').length")
       return ((val as? Int) ?? 0) > 0
     }
     await sleepMs(800)
@@ -701,8 +701,8 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
     let (fbState, fbErr) = await evalJS(webView, """
     (() => {
       return {
-        posts: document.querySelectorAll('[fs_post]').length,
-        withId: document.querySelectorAll('[fs_id]:not([fs_id="no-ID"])').length,
+        posts: document.querySelectorAll('[data-feed-sanity-post]').length,
+        withId: document.querySelectorAll('[data-feed-sanity-post-id]:not([data-feed-sanity-post-id="none"])').length,
         hasOwnUi: document.querySelectorAll('[data-feed-sanity]').length > 0,
         bridge: window.__fsBridge || null,
         htmlAttrs: Array.from(document.documentElement.attributes).map((a) => a.name),
@@ -792,7 +792,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
           div.append(header, msg);
           feed.appendChild(div);
         }
-        const firstPost = document.querySelector('[fs_post]');
+        const firstPost = document.querySelector('[data-feed-sanity-post]');
         if (firstPost) {
           for (let n = 0; n < 20; n++) {
             const span = document.createElement('span');
@@ -820,7 +820,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
         mc.port2.postMessage(0);
       };
 
-      // Let initial load + Atoms scan settle briefly, then run the 16 mutation batches.
+      // Let initial load + post scan settle briefly, then run the 16 mutation batches.
       mc.port1.onmessage = () => runNextBatch();
       mc.port2.postMessage(0);
     })()
@@ -833,8 +833,8 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
     let (perfVal, perfErr) = await evalJS(webView, """
     (() => ({
       ...window.__perf,
-      trackedPosts: document.querySelectorAll('[fs_post]').length,
-      identifiedPosts: document.querySelectorAll('[fs_id]').length,
+      trackedPosts: document.querySelectorAll('[data-feed-sanity-post]').length,
+      identifiedPosts: document.querySelectorAll('[data-feed-sanity-post-id]').length,
       markReadButtons: document.querySelectorAll('.feed-sanity-mark-read').length,
     }))()
     """)
@@ -903,7 +903,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
     await sleepMs(400)
     let (exclVal, _) = await evalJS(webView, """
     (() => ({
-      postsTracked: document.querySelectorAll('[fs_post]').length,
+      postsTracked: document.querySelectorAll('[data-feed-sanity-post]').length,
       bridge: window.__fsBridge || null,
     }))()
     """)
@@ -958,7 +958,7 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
     await sleepMs(150)
     let (beforeVal, _) = await evalJS(autoWebView, """
     (() => ({
-      posts: document.querySelectorAll('[fs_post]').length,
+      posts: document.querySelectorAll('[data-feed-sanity-post]').length,
       markRead: document.querySelectorAll('.feed-sanity-mark-read').length,
     }))()
     """)
@@ -985,8 +985,8 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
         autoWebView,
         """
         (() => {
-          const posts = document.querySelectorAll('[fs_post]').length;
-          const identified = document.querySelectorAll('[fs_id]').length;
+          const posts = document.querySelectorAll('[data-feed-sanity-post]').length;
+          const identified = document.querySelectorAll('[data-feed-sanity-post-id]').length;
           const buttons = document.querySelectorAll('.feed-sanity-mark-read').length;
           return posts >= 5 && identified === posts && buttons === posts && Boolean(window.__fsBridge && window.__fsBridge.connected);
         })()
@@ -997,8 +997,8 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
     await sleepMs(250)
     let (afterInstallVal, _) = await evalJS(autoWebView, """
     (() => ({
-      posts: document.querySelectorAll('[fs_post]').length,
-      withId: document.querySelectorAll('[fs_id]:not([fs_id="no-ID"])').length,
+      posts: document.querySelectorAll('[data-feed-sanity-post]').length,
+      withId: document.querySelectorAll('[data-feed-sanity-post-id]:not([data-feed-sanity-post-id="none"])').length,
       markRead: document.querySelectorAll('.feed-sanity-mark-read').length,
       channelsSeen: (window.__fsBridge?.channelsSeen || []).length,
       connected: Boolean(window.__fsBridge?.connected),
@@ -1025,8 +1025,8 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
         autoWebView,
         """
         (() => {
-          const posts = document.querySelectorAll('[fs_post]').length;
-          const identified = document.querySelectorAll('[fs_id]').length;
+          const posts = document.querySelectorAll('[data-feed-sanity-post]').length;
+          const identified = document.querySelectorAll('[data-feed-sanity-post-id]').length;
           const buttons = document.querySelectorAll('.feed-sanity-mark-read').length;
           return (window.__fsBridge?.channelsSeen || []).length >= 2 && posts >= 5 && identified === posts && buttons === posts && Boolean(window.__fsBridge?.connected);
         })()
@@ -1037,8 +1037,8 @@ func runSuite(extensionPath: String, fixturesDir: String) async -> [String: Any]
     await sleepMs(250)
     let (afterUpgradeVal, _) = await evalJS(autoWebView, """
     (() => ({
-      posts: document.querySelectorAll('[fs_post]').length,
-      withId: document.querySelectorAll('[fs_id]:not([fs_id="no-ID"])').length,
+      posts: document.querySelectorAll('[data-feed-sanity-post]').length,
+      withId: document.querySelectorAll('[data-feed-sanity-post-id]:not([data-feed-sanity-post-id="none"])').length,
       markRead: document.querySelectorAll('.feed-sanity-mark-read').length,
       channelsSeen: (window.__fsBridge?.channelsSeen || []).length,
       connected: Boolean(window.__fsBridge?.connected),
