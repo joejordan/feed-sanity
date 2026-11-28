@@ -50,3 +50,6 @@ __pycache__/
 # Playwright results and reports
 /test-results/
 /playwright-report/
+
+# Local bug report screenshots
+docs/bugs/
